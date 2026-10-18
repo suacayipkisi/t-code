@@ -2,6 +2,11 @@
 
 One window, three kinds of terminals, nothing else.
 
+> **Branch `micro-main`:** this is t-code with [micro](https://micro-editor.github.io) as the editor,
+> as released in 0.1.1. It stays here as it is and gets fixes only. New work goes to `main`, where
+> the editor is being replaced by [GtkSourceView 5](https://gitlab.gnome.org/GNOME/gtksourceview)
+> (see `docs/gtksourceview-plan.md` on `main`).
+
 **Version 0.1.1** — uses about 8 times less memory than 0.1 and almost no CPU while idle
 ([Performance](#performance)); packages for Fedora, Arch Linux, Debian and Void Linux (glibc and
 musl) ([Install](#install)).
