@@ -1,6 +1,6 @@
 # Snap package
 
-This directory packages t-code 0.3.0 as `t-code` for Linux amd64, with desktop/application ID `io.github.tcode`. It owns no shared packaging integration.
+This directory packages t-code 0.3.1 as `t-code` for Linux amd64, with desktop/application ID `io.github.tcode`. It owns no shared packaging integration.
 
 ## Build
 
@@ -16,7 +16,7 @@ sudo snap install lxd
 sudo lxd init --auto
 sudo usermod -aG lxd "$USER"
 sg lxd -c 'bash packaging/snap/build.sh "$PWD" "$PWD/packaging/packages/snap"'
-bash packaging/snap/test.sh "$PWD/packaging/packages/snap/t-code_0.3.0_amd64.snap"
+bash packaging/snap/test.sh "$PWD/packaging/packages/snap/t-code_0.3.1_amd64.snap"
 ```
 
 Skip installation/init commands for already provisioned tools. Membership in `lxd` grants administrative access to the host; use an isolated CI runner. `--classic` above applies only to the **Snapcraft build tool**, never to t-code. Recent snapd with core26 support and access to the Snap Store/Ubuntu archives are required. `SNAPCRAFT_BUILD_MODE=destructive` is reserved for a disposable Ubuntu 26.04 host because Snapcraft may install build dependencies there.
@@ -37,7 +37,7 @@ For a disposable Ubuntu 26.04 host, set `SNAPCRAFT_BUILD_MODE=destructive`; the 
 
 Output names are deterministic:
 
-- `t-code_0.3.0_amd64.snap`
+- `t-code_0.3.1_amd64.snap`
 - `SHA256SUMS`
 - `build-environment.txt`: Snapcraft and snapd versions, plus LXD version or host Ubuntu release
 - `build-manifest.yaml`: Snapcraft's embedded build manifest, including resolved package/build-snap provenance
@@ -51,7 +51,7 @@ The `gnome` extension supplies desktop integration, GTK4 and the desktop runtime
 ## Install and smoke test
 
 ```sh
-bash packaging/snap/test.sh /absolute/path/to/t-code_0.3.0_amd64.snap
+bash packaging/snap/test.sh /absolute/path/to/t-code_0.3.1_amd64.snap
 ```
 
 Run as a normal user with passwordless sudo on a disposable host. The script refuses to replace an existing t-code installation and refuses partial confinement. It installs the base/content providers, installs the local artifact with `snap install --dangerous` (unsigned package, still **strict**), and connects the declared home/network/content interfaces. It leaves installed packages in place for inspection.

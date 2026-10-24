@@ -42,6 +42,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.3.1" date="2026-10-24">
+      <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.3.1</url>
+      <description>
+        <p>Plugins system, Problems panel, Tasks runner, Crash recovery, Flatpak, Snap, AUR support, and test suite improvements.</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-10-21">
       <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.3</url>
       <description>

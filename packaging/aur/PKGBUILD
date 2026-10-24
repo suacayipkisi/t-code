@@ -1,9 +1,9 @@
-# Maintainer: suacayipkisi <ufukdenizcaglayan@gmail.com>
+# Maintainer: suacayipkisi <konuki8523@gmail.com>
 # Upstream release v0.3 points to this immutable commit; its Makefile VERSION is 0.3.0.
 # For a new release, update pkgver and _commit, run `makepkg -g` for the source checksum,
 # then regenerate metadata with `makepkg --printsrcinfo > .SRCINFO`.
 pkgname=t-code
-pkgver=0.3.0
+pkgver=0.3.1
 pkgrel=1
 pkgdesc='Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell'
 arch=('x86_64')

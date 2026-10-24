@@ -1,7 +1,7 @@
 Source: t-code
 Section: devel
 Priority: optional
-Maintainer: suacayipkisi <ufukdenizcaglayan@gmail.com>
+Maintainer: suacayipkisi <konuki8523@gmail.com>
 Build-Depends: debhelper-compat (= 13),
                pkgconf,
                libgtk-4-dev,

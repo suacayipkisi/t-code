@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: bash packaging/snap/test.sh /absolute/path/to/t-code_0.3.0_amd64.snap
+# Usage: bash packaging/snap/test.sh /absolute/path/to/t-code_0.3.1_amd64.snap
 # This installs packages and intentionally leaves them on a disposable CI host.
 set -euo pipefail
 

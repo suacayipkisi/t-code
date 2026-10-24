@@ -48,10 +48,10 @@ static void test_partial_stage_and_unstage(void)
     g_string_append_printf(text, "line %d\n", i);
   g_assert_true(g_file_set_contents(path, text->str, -1, NULL));
   g_string_free(text, TRUE);
-  git(root, (const char *[]){ "init", "-q", NULL });
-  git(root, (const char *[]){ "add", "file.txt", NULL });
-  git(root, (const char *[]){ "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m",
-                              "base", NULL });
+  g_free(git(root, (const char *[]){ "init", "-q", NULL }));
+  g_free(git(root, (const char *[]){ "add", "file.txt", NULL }));
+  g_free(git(root, (const char *[]){ "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m",
+                                     "base", NULL }));
 
   g_assert_true(g_file_set_contents(path,
                                     "line 1\nline 2 changed\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\n"
@@ -63,7 +63,7 @@ static void test_partial_stage_and_unstage(void)
   patches = git_patch_hunks(output);
   g_assert_cmpuint(patches->len, ==, 2);
   g_assert_true(g_file_set_contents(patch_path, g_ptr_array_index(patches, 0), -1, NULL));
-  git(root, (const char *[]){ "apply", "--cached", "hunk.patch", NULL });
+  g_free(git(root, (const char *[]){ "apply", "--cached", "hunk.patch", NULL }));
   g_ptr_array_free(patches, TRUE);
   g_free(output);
 
@@ -76,14 +76,14 @@ static void test_partial_stage_and_unstage(void)
   g_assert_nonnull(strstr(output, "+line 18 changed"));
   g_free(output);
 
-  git(root, (const char *[]){ "reset", "-q", NULL });
-  git(root, (const char *[]){ "add", "file.txt", NULL });
+  g_free(git(root, (const char *[]){ "reset", "-q", NULL }));
+  g_free(git(root, (const char *[]){ "add", "file.txt", NULL }));
   output = git(root, (const char *[]){ "diff", "--cached", "--no-color", "--no-ext-diff", "--unified=3", "--",
                                         "file.txt", NULL });
   patches = git_patch_hunks(output);
   g_assert_cmpuint(patches->len, ==, 2);
   g_assert_true(g_file_set_contents(patch_path, g_ptr_array_index(patches, 1), -1, NULL));
-  git(root, (const char *[]){ "apply", "--cached", "--reverse", "hunk.patch", NULL });
+  g_free(git(root, (const char *[]){ "apply", "--cached", "--reverse", "hunk.patch", NULL }));
   g_ptr_array_free(patches, TRUE);
   g_free(output);
 

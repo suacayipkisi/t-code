@@ -2,7 +2,7 @@
 
 This directory is self-contained: copy its contents into a Flathub manifest
 repository without the shared `packaging/` scripts. The application ID is
-`io.github.tcode`; the packaged version is **0.3.0**.
+`io.github.tcode`; the packaged version is **0.3.1**.
 
 The release source is upstream tag `v0.3`, pinned to commit
 `f594a9f2746292adb3a59afc26b0fcd541f899c6` and archive SHA-256
@@ -59,14 +59,14 @@ bash packaging/flatpak/build.sh --local-source "$PWD" packaging/packages/flatpak
 ```
 
 `--local-source` also accepts an extracted release/CI source tree. Its Makefile
-must still declare `VERSION := 0.3.0`. Only the application archive is replaced;
+must still declare `VERSION := 0.3.1`. Only the application archive is replaced;
 dependency pins, permissions, and package-local metadata remain unchanged.
 Existing object files, Git state, and output directories are excluded. No
 source files are edited, and the checkout may be mounted read-only.
 
 The output directory defaults to `packaging/packages/flatpak`. It contains:
 
-- `t-code-0.3.0-<architecture>.flatpak`: an installable, unsigned bundle;
+- `t-code-0.3.1-<architecture>.flatpak`: an installable, unsigned bundle;
 - `repo/`: an unsigned OSTree repository containing
   `app/io.github.tcode/<architecture>/stable`;
 - `io.github.tcode.json`: the resolved-input manifest used by the helper;
@@ -115,7 +115,7 @@ For command-line file/folder opening, use Flatpak's file forwarding rather
 than passing an inaccessible raw host path:
 
 ```sh
-flatpak install --user ./packaging/packages/flatpak/t-code-0.3.0-x86_64.flatpak
+flatpak install --user ./packaging/packages/flatpak/t-code-0.3.1-x86_64.flatpak
 flatpak run --file-forwarding io.github.tcode @@ "$HOME/projects/example" @@
 flatpak run --file-forwarding io.github.tcode @@ "$HOME/projects/example/main.c" @@
 ```
@@ -169,7 +169,7 @@ them. The smoke test uses the `preview` command, which exists in both trees.
 
 ```sh
 bash packaging/flatpak/smoke-test.sh \
-  "$PWD/packaging/packages/flatpak/t-code-0.3.0-x86_64.flatpak"
+  "$PWD/packaging/packages/flatpak/t-code-0.3.1-x86_64.flatpak"
 ```
 
 Required host tools are Flatpak, jq, desktop-file-utils, dbus-run-session,
@@ -194,7 +194,7 @@ podman build -t t-code-flatpak-test \
   -f packaging/flatpak/Containerfile packaging/flatpak
 podman run --rm --privileged \
   -v "$PWD/packaging/packages/flatpak:/out:ro,Z" \
-  t-code-flatpak-test /out/t-code-0.3.0-x86_64.flatpak
+  t-code-flatpak-test /out/t-code-0.3.1-x86_64.flatpak
 ```
 
 The image supplies an unprivileged `tester` user. The outer container needs
@@ -209,5 +209,5 @@ This headless test does not interact with a host file-chooser portal, test
 credential providers, or exercise the plugin UI. Desktop portal folder grants
 and file forwarding need a separate real-desktop acceptance check. Release CI
 should call `build.sh --local-source <source-tree> <out>` and then
-`smoke-test.sh <out>/t-code-0.3.0-<architecture>.flatpak`; no shared script is
+`smoke-test.sh <out>/t-code-0.3.1-<architecture>.flatpak`; no shared script is
 sourced. Build, test, and lint commands were not run while adding this package.

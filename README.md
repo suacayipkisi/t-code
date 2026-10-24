@@ -2,7 +2,7 @@
 
 A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) and other color themes.
 
-### Jump => [Latest Release v0.3](https://github.com/suacayipkisi/t-code/releases/tag/v0.3) | [Install](https://github.com/suacayipkisi/t-code#install) | [Usage and Keys](https://github.com/suacayipkisi/t-code#usage) | [Performance](https://github.com/suacayipkisi/t-code#performance)
+### Jump => [Latest Release v0.3.1](https://github.com/suacayipkisi/t-code/releases/tag/v0.3.1) | [Install](https://github.com/suacayipkisi/t-code#install) | [Usage and Keys](https://github.com/suacayipkisi/t-code#usage) | [Performance](https://github.com/suacayipkisi/t-code#performance)
 
 ![t-code 0.3 in the Dark Classic color theme with the rounded look](docs/dark_classic-rounded.png)
 
@@ -10,7 +10,9 @@ A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) 
 
 <sub>t-code 0.3: Dark Classic, rounded (top) and Gruvbox, square (bottom).</sub>
 
-**New in 0.3:** a debugger (gdb: breakpoints, stepping, variables, call stack, watch, conditional
+**New in 0.3.1:** an out-of-process **Plugin System** (via UNIX socket `$TCODE_SOCKET`), a unified **Problems panel** (`Ctrl+Shift+M`), a configurable **Tasks runner** (`.tcode/tasks.json`), **Crash recovery** for dirty buffers, and comprehensive distribution packaging for **Flatpak**, **Snap**, and **AUR** alongside Fedora, Arch, Debian, Void Linux and AppImage.
+
+**In 0.3:** a debugger (gdb: breakpoints, stepping, variables, call stack, watch, conditional
 breakpoints, values under the pointer, disassembly), quick fixes, code folding, sticky scroll, color
 themes, panels that move between docks, a second window, right-click menus everywhere, and Run for
 Python, JavaScript, Rust, Go, Java and other languages' projects.
@@ -20,12 +22,12 @@ Python, JavaScript, Rust, Go, Java and other languages' projects.
 whose tabs ran [micro](https://micro-editor.github.io) in terminals (0.1.1) lives on in the
 [`micro-main`](../../tree/micro-main) branch.
 
-One window, one process (besides its language servers and your shell):
+One window, one process (besides its language servers, your shell, and plugins):
 
 - **left:** the Files panel (open tabs over the project's folder tree, with file icons and git
-  colors), Source Control, Search and Run and Debug
+  colors), Source Control, Search, Run and Debug, and the **Problems panel** (`Ctrl+Shift+M`)
 - **middle:** editor tabs (GtkSourceView), sharing each language server for the project
-- **bottom:** your shell and the debugged program's terminal
+- **bottom:** your shell, the debugged program's terminal, and task outputs
 
 Every panel can be dragged by its icon to another dock (left, bottom, right, stacked or side by
 side), hidden and shown again from its button in the title bar; "View: Reset Panel Layout" puts
@@ -95,23 +97,23 @@ sudo dnf install gtk4-devel gtksourceview5-devel json-glib-devel vte291-gtk4-dev
 
 ### With a package (Fedora, Arch Linux, Debian, Void Linux, AUR)
 
-#### [Latest Release v0.3](https://github.com/suacayipkisi/t-code/releases/tag/v0.3)
+#### [Latest Release v0.3.1](https://github.com/suacayipkisi/t-code/releases/tag/v0.3.1)
 
-t-code 0.3.0 has packages for Fedora 44, Arch Linux, Debian 13 (trixie) and Void Linux (glibc and
+t-code 0.3.1 has packages for Fedora 44, Arch Linux, Debian 13 (trixie) and Void Linux (glibc and
 musl), x86_64. Install the one for your distribution; the package manager pulls in what it needs
 (clangd, git and the Cascadia Code font among them):
 
 ```sh
-sudo dnf install ./t-code-0.3.0-1.fc44.x86_64.rpm        # Fedora
-sudo pacman -U t-code-0.3.0-1-x86_64.pkg.tar.zst         # Arch Linux
-sudo apt install ./t-code_0.3.0-1_amd64.deb              # Debian
+sudo dnf install ./t-code-0.3.1-1.fc44.x86_64.rpm        # Fedora
+sudo pacman -U t-code-0.3.1-1-x86_64.pkg.tar.zst         # Arch Linux
+sudo apt install ./t-code_0.3.1-1_amd64.deb              # Debian
 ```
 
 On Void Linux, xbps installs from a repository, so the downloaded package is indexed first (in
 the folder it is in; use the `x86_64-musl` file on musl):
 
 ```sh
-xbps-rindex -a t-code-0.3.0_1.x86_64.xbps
+xbps-rindex -a t-code-0.3.1_1.x86_64.xbps
 sudo xbps-install --repository="$PWD" t-code
 ```
 
@@ -127,7 +129,7 @@ app menu entry and icon.
 
 ### AUR source package (not published to AUR yet)
 
-The repository includes a pinned, checksum-verified `packaging/aur/PKGBUILD` for t-code 0.3.0.
+The repository includes a pinned, checksum-verified `packaging/aur/PKGBUILD` for t-code 0.3.1.
 After checking out this repository, build and install it with Arch's `base-devel` tools:
 
 ```sh
@@ -135,15 +137,14 @@ cd packaging/aur
 makepkg -si
 ```
 
-This is a source recipe, not a published AUR listing. The current v0.3 release predates the
-Flatpak and Snap packaging below; the next tag built from this branch will attach those artifacts.
+This is a source recipe, not a published AUR listing. Release artifacts for Flatpak and Snap are attached below.
 
 ### Flatpak (x86_64)
 
 Install the unsigned Flatpak bundle from a tag built with this packaging workflow:
 
 ```sh
-flatpak install --user ./t-code-0.3.0-x86_64.flatpak
+flatpak install --user ./t-code-0.3.1-x86_64.flatpak
 flatpak run --file-forwarding io.github.tcode @@ "$HOME/projects/example" @@
 ```
 
@@ -158,7 +159,7 @@ The release Snap is strictly confined and not yet published to the Snap Store. I
 unsigned release artifact locally:
 
 ```sh
-sudo snap install --dangerous ./t-code_0.3.0_amd64.snap
+sudo snap install --dangerous ./t-code_0.3.1_amd64.snap
 snap run t-code "$HOME/projects/example"
 ```
 
@@ -342,10 +343,20 @@ palette) finds any command by name.
 
 ### What else is there
 
-**Editing.** A file with changes is saved a second after the last one (the autosave setting), so
-`Ctrl+S` is rarely needed; a tab shows `●` while its file has unsaved changes, and closing it then
-asks whether to save. A file changed on disk (a `git checkout`, another program) is loaded again
-when the editor has nothing unsaved.
+**Editing and Crash recovery.** A file with changes is saved a second after the last one (the
+autosave setting), so `Ctrl+S` is rarely needed; a tab shows `●` while its file has unsaved changes,
+and closing it then asks whether to save. If t-code or the system terminates unexpectedly, unsaved
+buffer snapshots in `~/.config/t-code/recovery/` are safely preserved and prompted for recovery on
+next startup. A file changed on disk (a `git checkout`, another program) is loaded again when the
+editor has nothing unsaved.
+
+**Problems panel (`Ctrl+Shift+M`).** A dedicated dockable view aggregating compiler and language
+server diagnostics across open files. View errors and warnings at a glance, filter by severity, see
+file coordinates, and click any item to navigate immediately to the issue in the editor.
+
+**Tasks runner.** Configure project build, test, and lint tasks in `.tcode/tasks.json`. Run them
+via the Command Palette (`Tasks: Run Task`) with automatic output redirection to the integrated terminal
+or background process monitoring.
 
 **Status bar**: the git branch (`*` when there are changes), clangd's errors and
 warnings in the open files, **⚠ No compile flags** when clangd lacks them, **⚙ Build** and
@@ -524,11 +535,12 @@ src/                 t-code, the window (src/app.h: the shared types and a map o
                      (guides.c), the selection highlight (occurrences.c), the git diff gutter
                      (diffgutter.c), a file's indentation and language (detect.c), what
                      .editorconfig and .clang-format say about it (indentconf.c); markdown preview
-                     (preview.c)
+                     (preview.c), crash recovery (recovery.c)
   lsp/               the language server: the client and clangd's lifetime (client.c, over
-                     channel.c), problems (diagnostics.c), hover, completion, parameter hints
-                     (signature.c), definition / references / rename / format (navigate.c, edits.c),
-                     colors by meaning (semantic.c), finding the compile database (compiledb.c)
+                     channel.c), diagnostics and unified Problems panel (diagnostics.c, problems.c), hover,
+                     completion, parameter hints (signature.c), definition / references / rename / format
+                     (navigate.c, edits.c), colors by meaning (semantic.c), finding the compile database (compiledb.c)
+  plugins/           native out-of-process plugins system (plugins.c)
   search/            the Search tab, Ctrl+Shift+F (ripgrep); searchmatch.c is its GLib-only part
   git/               the Source Control tab (scm.c), per-hunk patches (patch.c), git status in the
                      background (gitstatus.c), comparing with HEAD or history (compare.c), line
@@ -551,8 +563,8 @@ tests/               make test: editing and the find bar, the language server cl
 tools/               measuring memory and CPU: the running process tree, a headless t-code, clangd
 desktop/             app menu entry template and the app icon
 packaging/           install.sh, uninstall.sh, build.sh, test.sh: Fedora (fedora/t-code.spec), Arch
-                     (arch/PKGBUILD), Debian (debian/debian/) and Void Linux (void/) packages, built
-                     into packaging/packages/ (not in git)
+                     (arch/PKGBUILD), AUR, Debian (debian/debian/), Void Linux (void/), Flatpak,
+                     Snap and AppImage packages, built into packaging/packages/ (not in git)
 .clang-format        the code's style (2 spaces); clangd formats with it
 LICENSE
 Makefile             VERSION, make install; also writes build/compile_commands.json, so clangd

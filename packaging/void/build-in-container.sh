@@ -42,7 +42,7 @@ cd /out
 xbps-create -A "$arch" -n "t-code-${VERSION}_$revision" \
   -s "Lightweight C/C++ IDE: file manager, editor tabs with clangd and a shell" \
   -H "https://github.com/suacayipkisi/t-code" -l MIT \
-  -m "suacayipkisi <ufukdenizcaglayan@gmail.com>" \
+  -m "suacayipkisi <konuki8523@gmail.com>" \
   -D "glib>=0 gtk4>=0 gtksourceview5>=0 json-glib>=0 vte3-gtk4>=0 libmd4c>=0 clang-tools-extra>=0 git>=0 hicolor-icon-theme>=0" \
   "$dest"
 [[ -z "${HOST_OWNER:-}" ]] || chown -R "$HOST_OWNER" /out

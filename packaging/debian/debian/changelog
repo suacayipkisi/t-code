@@ -1,3 +1,15 @@
+t-code (0.3.1-1) unstable; urgency=medium
+
+  * Plugins system (C shared libraries and UI contributions).
+  * Problems panel (workspace diagnostics, filtering, jump to source).
+  * Configurable tasks runner (.tcode/tasks.json, background jobs, terminal binding).
+  * Crash recovery (dirty buffer autosave and restore).
+  * Packaging: Flatpak, Snap, AUR support, reproducible AppImage builds.
+  * Test suite enhancements and headless CI stability.
+  * Contributor credits to dontworryplz.
+
+ -- suacayipkisi <konuki8523@gmail.com>  Sat, 24 Oct 2026 17:00:00 +0300
+
 t-code (0.3.0-1) unstable; urgency=medium
 
   * A debugger: gdb over DAP, breakpoints (with conditions), F5 / stepping,
@@ -15,7 +27,7 @@ t-code (0.3.0-1) unstable; urgency=medium
   * A save conflict bar; Run for Python, JavaScript, Rust, Go, Java and other
     projects.
 
- -- suacayipkisi <ufukdenizcaglayan@gmail.com>  Wed, 21 Oct 2026 20:00:00 +0300
+ -- suacayipkisi <konuki8523@gmail.com>  Wed, 21 Oct 2026 20:00:00 +0300
 
 t-code (0.2.1-1) unstable; urgency=medium
 
@@ -32,7 +44,7 @@ t-code (0.2.1-1) unstable; urgency=medium
     minimap.
   * Tab moves between a completed function's parameters.
 
- -- suacayipkisi <ufukdenizcaglayan@gmail.com>  Tue, 20 Oct 2026 12:00:00 +0300
+ -- suacayipkisi <konuki8523@gmail.com>  Tue, 20 Oct 2026 12:00:00 +0300
 
 t-code (0.2-1) unstable; urgency=medium
 
@@ -48,7 +60,7 @@ t-code (0.2-1) unstable; urgency=medium
   * Less memory: one clangd with at most five open documents, freed heap
     returned to the system, no process per editor.
 
- -- suacayipkisi <ufukdenizcaglayan@gmail.com>  Mon, 19 Oct 2026 12:00:00 +0300
+ -- suacayipkisi <konuki8523@gmail.com>  Mon, 19 Oct 2026 12:00:00 +0300
 
 t-code (0.1.1-1) unstable; urgency=medium
 
@@ -58,10 +70,10 @@ t-code (0.1.1-1) unstable; urgency=medium
   * Opening t-code no longer flashes clipboard windows or clears the clipboard.
   * Tests for the shared language servers, including a heap growth check.
 
- -- suacayipkisi <ufukdenizcaglayan@gmail.com>  Sat, 17 Oct 2026 18:30:00 +0300
+ -- suacayipkisi <konuki8523@gmail.com>  Sat, 17 Oct 2026 18:30:00 +0300
 
 t-code (0.1-1) unstable; urgency=medium
 
   * First release.
 
- -- suacayipkisi <ufukdenizcaglayan@gmail.com>  Sat, 17 Oct 2026 12:00:00 +0300
+ -- suacayipkisi <konuki8523@gmail.com>  Sat, 17 Oct 2026 12:00:00 +0300
