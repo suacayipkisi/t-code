@@ -1,3 +1,11 @@
+t-code (0.3.2-1) unstable; urgency=medium
+
+  * Fix release URL launcher from update dialog.
+  * Fix compile_commands.json string quote escaping for clangd.
+  * AUR recipe source resolution fix.
+
+ -- suacayipkisi <konuki8523@gmail.com>  Sat, 24 Oct 2026 18:45:00 +0300
+
 t-code (0.3.1-1) unstable; urgency=medium
 
   * Plugins system (C shared libraries and UI contributions).

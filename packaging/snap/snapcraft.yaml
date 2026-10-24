@@ -1,6 +1,6 @@
 name: t-code
 base: core26
-version: '0.3.1'
+version: '0.3.2'
 summary: Native C and C++ IDE with clangd and an integrated terminal
 title: t-code
 contact: https://github.com/suacayipkisi/t-code/issues

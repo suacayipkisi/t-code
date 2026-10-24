@@ -1,5 +1,5 @@
 Name:           t-code
-Version:        0.3.1
+Version:        0.3.2
 Release:        1%{?dist}
 Summary:        Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell
 License:        MIT
@@ -57,6 +57,11 @@ build/test-linediff
 %{_datadir}/icons/hicolor/scalable/apps/io.github.tcode.svg
 
 %changelog
+* Sat Oct 24 2026 suacayipkisi <konuki8523@gmail.com> - 0.3.2-1
+- Fix release URL launcher from update dialog
+- Fix compile_commands.json string quote escaping for clangd
+- AUR recipe source resolution fix
+
 * Sat Oct 24 2026 suacayipkisi <konuki8523@gmail.com> - 0.3.1-1
 - Plugins system (C shared libraries and UI contributions)
 - Problems panel (workspace diagnostics, filtering, jump to source)

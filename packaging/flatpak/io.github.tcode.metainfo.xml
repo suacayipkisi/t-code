@@ -42,6 +42,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.3.2" date="2026-10-24">
+      <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.3.2</url>
+      <description>
+        <p>Fixes update release URL launching from dialog and compile commands string escaping for clangd.</p>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-10-24">
       <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.3.1</url>
       <description>

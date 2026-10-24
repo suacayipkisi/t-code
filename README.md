@@ -2,7 +2,7 @@
 
 A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) and other color themes.
 
-### Jump => [Latest Release v0.3.1](https://github.com/suacayipkisi/t-code/releases/tag/v0.3.1) | [Install](https://github.com/suacayipkisi/t-code#install) | [Usage and Keys](https://github.com/suacayipkisi/t-code#usage) | [Performance](https://github.com/suacayipkisi/t-code#performance)
+### Jump => [Latest Release v0.3.2](https://github.com/suacayipkisi/t-code/releases/tag/v0.3.2) | [Install](https://github.com/suacayipkisi/t-code#install) | [Usage and Keys](https://github.com/suacayipkisi/t-code#usage) | [Performance](https://github.com/suacayipkisi/t-code#performance)
 
 ![t-code 0.3 in the Dark Classic color theme with the rounded look](docs/dark_classic-rounded.png)
 
@@ -10,7 +10,9 @@ A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) 
 
 <sub>t-code 0.3: Dark Classic, rounded (top) and Gruvbox, square (bottom).</sub>
 
-**New in 0.3.1:** an out-of-process **Plugin System** (via UNIX socket `$TCODE_SOCKET`), a unified **Problems panel** (`Ctrl+Shift+M`), a configurable **Tasks runner** (`.tcode/tasks.json`), **Crash recovery** for dirty buffers, and comprehensive distribution packaging for **Flatpak**, **Snap**, and **AUR** alongside Fedora, Arch, Debian, Void Linux and AppImage.
+**New in 0.3.2:** fixes for the update release URL launcher and clangd compile command flag escaping.
+
+**In 0.3.1:** an out-of-process **Plugin System** (via UNIX socket `$TCODE_SOCKET`), a unified **Problems panel** (`Ctrl+Shift+M`), a configurable **Tasks runner** (`.tcode/tasks.json`), **Crash recovery** for dirty buffers, and comprehensive distribution packaging for **Flatpak**, **Snap**, and **AUR** alongside Fedora, Arch, Debian, Void Linux and AppImage.
 
 **In 0.3:** a debugger (gdb: breakpoints, stepping, variables, call stack, watch, conditional
 breakpoints, values under the pointer, disassembly), quick fixes, code folding, sticky scroll, color
@@ -97,23 +99,23 @@ sudo dnf install gtk4-devel gtksourceview5-devel json-glib-devel vte291-gtk4-dev
 
 ### With a package (Fedora, Arch Linux, Debian, Void Linux, AUR)
 
-#### [Latest Release v0.3.1](https://github.com/suacayipkisi/t-code/releases/tag/v0.3.1)
+#### [Latest Release v0.3.2](https://github.com/suacayipkisi/t-code/releases/tag/v0.3.2)
 
-t-code 0.3.1 has packages for Fedora 44, Arch Linux, Debian 13 (trixie) and Void Linux (glibc and
+t-code 0.3.2 has packages for Fedora 44, Arch Linux, Debian 13 (trixie) and Void Linux (glibc and
 musl), x86_64. Install the one for your distribution; the package manager pulls in what it needs
 (clangd, git and the Cascadia Code font among them):
 
 ```sh
-sudo dnf install ./t-code-0.3.1-1.fc44.x86_64.rpm        # Fedora
-sudo pacman -U t-code-0.3.1-1-x86_64.pkg.tar.zst         # Arch Linux
-sudo apt install ./t-code_0.3.1-1_amd64.deb              # Debian
+sudo dnf install ./t-code-0.3.2-1.fc44.x86_64.rpm        # Fedora
+sudo pacman -U t-code-0.3.2-1-x86_64.pkg.tar.zst         # Arch Linux
+sudo apt install ./t-code_0.3.2-1_amd64.deb              # Debian
 ```
 
 On Void Linux, xbps installs from a repository, so the downloaded package is indexed first (in
 the folder it is in; use the `x86_64-musl` file on musl):
 
 ```sh
-xbps-rindex -a t-code-0.3.1_1.x86_64.xbps
+xbps-rindex -a t-code-0.3.2_1.x86_64.xbps
 sudo xbps-install --repository="$PWD" t-code
 ```
 
@@ -129,7 +131,7 @@ app menu entry and icon.
 
 ### AUR source package (not published to AUR yet)
 
-The repository includes a pinned, checksum-verified `packaging/aur/PKGBUILD` for t-code 0.3.1.
+The repository includes a pinned, checksum-verified `packaging/aur/PKGBUILD` for t-code 0.3.2.
 After checking out this repository, build and install it with Arch's `base-devel` tools:
 
 ```sh
@@ -144,7 +146,7 @@ This is a source recipe, not a published AUR listing. Release artifacts for Flat
 Install the unsigned Flatpak bundle from a tag built with this packaging workflow:
 
 ```sh
-flatpak install --user ./t-code-0.3.1-x86_64.flatpak
+flatpak install --user ./t-code-0.3.2-x86_64.flatpak
 flatpak run --file-forwarding io.github.tcode @@ "$HOME/projects/example" @@
 ```
 
@@ -159,7 +161,7 @@ The release Snap is strictly confined and not yet published to the Snap Store. I
 unsigned release artifact locally:
 
 ```sh
-sudo snap install --dangerous ./t-code_0.3.1_amd64.snap
+sudo snap install --dangerous ./t-code_0.3.2_amd64.snap
 snap run t-code "$HOME/projects/example"
 ```
 
