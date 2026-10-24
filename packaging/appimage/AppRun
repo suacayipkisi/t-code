@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -e
+
+# Resolve AppDir location
+SELF="$(readlink -f "$0")"
+APPDIR="$(dirname "$SELF")"
+
+export APPDIR
+export PATH="$APPDIR/usr/bin:$PATH"
+
+# GSettings schemas: GTK4 and GtkSourceView require schemas to avoid crash on startup
+if [[ -d "$APPDIR/usr/share/glib-2.0/schemas" ]]; then
+  export GSETTINGS_SCHEMA_DIR="$APPDIR/usr/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
+fi
+
+# XDG data directories: allows GtkSourceView to find language-specs and style schemes
+export XDG_DATA_DIRS="$APPDIR/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}:/usr/local/share:/usr/share"
+
+# X11 locale directory for dead keys and input methods
+if [[ -d "$APPDIR/usr/share/X11/locale" ]] && [[ -z "${XLOCALEDIR:-}" ]]; then
+  export XLOCALEDIR="$APPDIR/usr/share/X11/locale"
+fi
+
+# GdkPixbuf loaders for SVG and icon rendering
+LOADERS_BIN="$APPDIR/usr/lib/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders"
+if [[ -x "$LOADERS_BIN" ]]; then
+  RUNTIME_CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/t-code-${UID:-$(id -u)}"
+  mkdir -p -m 700 "$RUNTIME_CACHE_DIR" 2>/dev/null || RUNTIME_CACHE_DIR="/tmp"
+  LOADERS_CACHE="$RUNTIME_CACHE_DIR/gdk-pixbuf-loaders.cache"
+
+  # Generate or update cache for current AppDir mount point
+  if [[ ! -s "$LOADERS_CACHE" ]] || [[ "$APPDIR" -nt "$LOADERS_CACHE" ]]; then
+    "$LOADERS_BIN" "$APPDIR"/usr/lib/gdk-pixbuf-2.0/loaders/*.so > "$LOADERS_CACHE" 2>/dev/null || true
+  fi
+
+  if [[ -s "$LOADERS_CACHE" ]]; then
+    export GDK_PIXBUF_MODULE_FILE="$LOADERS_CACHE"
+  fi
+fi
+
+# Subprocess safety:
+# LD_LIBRARY_PATH is deliberately NOT exported here. The t-code binary and bundled
+# libraries use RPATH/RUNPATH relative to $ORIGIN, preventing library conflicts
+# when t-code spawns terminal shells, clangd, git, gdb, or user build tools (gcc, make).
+
+exec "$APPDIR/usr/bin/t-code" "$@"

@@ -5,7 +5,7 @@ PACKAGING="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$PACKAGING")"
 OUT="$PACKAGING/packages"
 VERSION="$(sed -n 's/^VERSION *:= *//p' "$ROOT/Makefile")"
-DISTROS=(fedora arch debian void void-musl)
+DISTROS=(fedora arch debian void void-musl appimage)
 
 # The images the packages are built and tested in.
 declare -A IMAGE=(
@@ -14,6 +14,7 @@ declare -A IMAGE=(
   [debian]=docker.io/library/debian:trixie
   [void]=ghcr.io/void-linux/void-glibc-full:latest
   [void-musl]=ghcr.io/void-linux/void-musl-full:latest
+  [appimage]=docker.io/library/debian:trixie
 )
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
