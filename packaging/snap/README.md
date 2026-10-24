@@ -64,7 +64,7 @@ The installed smoke suite runs through `TCODE_SNAP_SMOKE_TEST=1 snap run t-code`
 - Bundled tools on PATH, C23/C++/Clang compilation and execution, Git commit in a nonhidden host-home project, Make, CMake/Ninja and Meson builds, and GDB's embedded Python.
 - Opening a project and C file in GTK, one clangd process, reading/editing/saving through the runtime socket, Markdown preview/IPC responsiveness, clean SIGTERM shutdown and socket removal.
 
-It does not claim a successful ptrace/debug session or exercise every interactive control/plugin. Any subprocess/tool/build failure fails the smoke command. No build, test or formatter was run while authoring this package slice.
+It does not claim a successful ptrace/debug session or exercise every interactive control/plugin. Any subprocess/tool/build failure fails the smoke command.
 
 ## Files, tools and confinement
 

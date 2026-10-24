@@ -2,13 +2,14 @@
 
 This directory is self-contained: copy its contents into a Flathub manifest
 repository without the shared `packaging/` scripts. The application ID is
-`io.github.tcode`; the packaged version is **0.3.2**.
+`io.github.tcode`; the packaged version is the manifest's `x-tcode-version`.
 
-The release source is upstream tag `v0.3`, pinned to commit
-`f594a9f2746292adb3a59afc26b0fcd541f899c6` and archive SHA-256
-`6a1945f37c246e2f9f3d416f6bebc5aa0e9d262461c51e82c983da98dd04a99a`.
-There is no upstream `v0.3.0` tag. Every archive has a checksum and the
-fast_float Git source has both a tag and commit.
+The t-code source (the archive marked `x-tcode-source`) is pinned to the commit
+of the release tag `v<x-tcode-version>` with the archive's SHA-256, and the
+metainfo's screenshot to the same commit. After a release tag is pushed,
+`packaging/flatpak/update-source.sh` updates both (it checks the tag and the
+archive's `VERSION`). Every archive has a checksum and the fast_float Git
+source has both a tag and commit.
 
 ## Runtime and tools
 
@@ -159,11 +160,9 @@ use the editor's terminal/plugins or enter its existing Flatpak instance.
 Cross-instance window discovery based on runtime sockets is subject to the
 same namespace restriction.
 
-The pinned upstream `v0.3` release predates the checkout's plugin system and
-new bidirectional socket commands. The tagged package cannot include
-unreleased features. Use `--local-source` to exercise those changes in PR CI,
-and advance the release source pin when upstream tags a release containing
-them. The smoke test uses the `preview` command, which exists in both trees.
+The pinned source is the latest release; changes made since are only in a
+`--local-source` build (what `packaging/build.sh` and CI use). The smoke test
+uses the `preview` command, which every release has.
 
 ## Isolated, display-less smoke test
 
@@ -210,4 +209,4 @@ credential providers, or exercise the plugin UI. Desktop portal folder grants
 and file forwarding need a separate real-desktop acceptance check. Release CI
 should call `build.sh --local-source <source-tree> <out>` and then
 `smoke-test.sh <out>/t-code-0.3.2-<architecture>.flatpak`; no shared script is
-sourced. Build, test, and lint commands were not run while adding this package.
+sourced.
