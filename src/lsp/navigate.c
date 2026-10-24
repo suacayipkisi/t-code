@@ -613,18 +613,13 @@ static void actions_query(App *t, const char *text, guint generation)
 }
 
 static gboolean actions_utf16;
-/* Its edit goes in; a command is run by the server, which sends the edit back (workspace/applyEdit). */
-static void actions_choose(App *t, const char *payload)
-{
-  guint i = (guint)atoi(payload);
-  Tab *tab = actions_path ? find_tab(t, TAB_EDITOR, actions_path) : NULL;
 
-  if (!tab || !actions || i >= actions->len)
-    return;
-  JsonNode *action = json_from_string(g_ptr_array_index(actions, i), NULL);
+void navigate_apply_action(Tab *tab, JsonNode *action, gboolean utf16)
+{
   JsonNode *command = json_at(action, "command");
+
   if (json_at(action, "edit"))
-    navigate_apply_edit(t, json_at(action, "edit"), FALSE, actions_utf16);
+    navigate_apply_edit(tab->app, json_at(action, "edit"), FALSE, utf16);
   if (command && JSON_NODE_HOLDS_VALUE(command))
     command = action; /* a Command: {title, command, arguments} */
   if (command && JSON_NODE_HOLDS_OBJECT(command) && json_string_at(command, "command")) {
@@ -637,6 +632,17 @@ static void actions_choose(App *t, const char *payload)
     g_free(list);
     g_free(name);
   }
+}
+
+static void actions_choose(App *t, const char *payload)
+{
+  guint i = (guint)atoi(payload);
+  Tab *tab = actions_path ? find_tab(t, TAB_EDITOR, actions_path) : NULL;
+
+  if (!tab || !actions || i >= actions->len)
+    return;
+  JsonNode *action = json_from_string(g_ptr_array_index(actions, i), NULL);
+  navigate_apply_action(tab, action, actions_utf16);
   json_node_unref(action);
 }
 

@@ -272,6 +272,30 @@ char *diagnostics_json(Tab *tab, int first, int last)
   return g_string_free(list, FALSE);
 }
 
+char *diagnostics_json_at(Tab *tab, const GtkTextIter *iter, GtkTextIter *start, GtkTextIter *end)
+{
+  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
+  GString *list = g_string_new("[");
+
+  for (guint i = 0; tab->view->diagnostics && i < tab->view->diagnostics->len; i++) {
+    Diagnostic *d = g_ptr_array_index(tab->view->diagnostics, i);
+    GtkTextIter from, to;
+    gtk_text_buffer_get_iter_at_mark(buffer, &from, d->start);
+    gtk_text_buffer_get_iter_at_mark(buffer, &to, d->end);
+    if (gtk_text_iter_compare(iter, &from) < 0 || gtk_text_iter_compare(iter, &to) > 0)
+      continue;
+    if (list->len == 1 || gtk_text_iter_compare(&from, start) < 0)
+      *start = from;
+    if (list->len == 1 || gtk_text_iter_compare(&to, end) > 0)
+      *end = to;
+    g_string_append_printf(list, "%s%s", list->len > 1 ? "," : "", d->json);
+  }
+  if (list->len == 1)
+    return g_string_free(list, TRUE);
+  g_string_append_c(list, ']');
+  return g_string_free(list, FALSE);
+}
+
 GPtrArray *diagnostics_of(Tab *tab)
 {
   return (tab && tab->view) ? tab->view->diagnostics : NULL;

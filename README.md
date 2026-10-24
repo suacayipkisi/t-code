@@ -56,7 +56,8 @@ the mouse. On top of that:
   the project's `.clang-format`), **Go to Symbol in File** (`Ctrl+Shift+.`), **Go to Symbol in
   Workspace** (from the command palette), **Switch Source / Header** (`Alt+O`).
 - **Quick fixes** (`Ctrl+.`): clangd's fixes for the problems on the line (a missing `;` or
-  `#include`, a misspelled name) and its refactorings, one pick away.
+  `#include`, a misspelled name) and its refactorings, one pick away; resting the pointer on a
+  problem shows its fixes as buttons (`Quick Fix: #include <iostream>`) under the message.
 - **Code folding** (the arrow beside a block, `Ctrl+Shift+[` / `]`) and **sticky scroll**: the
   heads of the function, loop or namespace you are in stay at the top of the editor.
 - **Colors by meaning**: clangd tells functions (yellow), types (teal), macros (blue), constants and
@@ -534,6 +535,7 @@ How to measure it yourself (see `tools/`):
 ```sh
 tools/proc-report.sh 10              # the running t-code: processes, memory and CPU by program
 tools/headless.sh src/*/*.c          # build/t-code run invisibly with these files, then the same report
+tools/measure.sh [-n 3] [tree]       # the table above: the same 25 files, each tab shown, several runs
 tools/clangd-mem.py --churn 3        # clangd alone: resident memory vs what it says it uses
 make test-asan                       # the tests without GTK under AddressSanitizer, failing on any leak
 ```

@@ -43,5 +43,9 @@ void rename_symbol(Tab *tab);
  * problems on it; the one picked is applied. */
 void quick_fix(Tab *tab);
 
+/* Applies a CodeAction or Command of tab's server: its edit goes in; a command is run by the server,
+ * which sends the edit back (workspace/applyEdit). */
+void navigate_apply_action(Tab *tab, JsonNode *action, gboolean utf16);
+
 /* Applies a WorkspaceEdit to the files it names (the open ones saved when save). */
 void navigate_apply_edit(App *t, JsonNode *edit, gboolean save, gboolean utf16);

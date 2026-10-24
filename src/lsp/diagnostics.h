@@ -28,6 +28,10 @@ void diagnostics_clear(Tab *tab);
 /* The diagnostics touching lines first to last (0-based), as a JSON list the server sent them in. */
 char *diagnostics_json(Tab *tab, int first, int last);
 
+/* The diagnostics at iter as a JSON list the server sent them in, with start and end set to the range
+ * they cover together; NULL (start and end unset) when there are none. */
+char *diagnostics_json_at(Tab *tab, const GtkTextIter *iter, GtkTextIter *start, GtkTextIter *end);
+
 typedef struct Diagnostic Diagnostic;
 
 /* The diagnostics list for a tab, or NULL. */

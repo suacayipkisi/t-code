@@ -193,6 +193,29 @@ static int fake_server(void)
                           json_int_at(message, "params.position.character", 0));
       fake_send(reply);
       g_free(reply);
+    } else if (g_strcmp0(method, "textDocument/codeAction") == 0) {
+      /* For the problems sent along, asking for quick fixes only: a refactoring (not one), a fix and
+       * the preferred fix, both editing the problem's character at 0:4. */
+      JsonNode *diagnostics = json_at(message, "params.context.diagnostics");
+      gboolean asked = diagnostics && json_array_get_length(json_node_get_array(diagnostics)) == 1 &&
+                       g_strcmp0(json_string_at(message, "params.context.only.0"), "quickfix") == 0;
+      char *quoted_uri = json_quote(uri), *reply;
+      if (asked)
+        reply = g_strdup_printf(
+            "{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":["
+            "{\"title\":\"Extract\",\"kind\":\"refactor\"},"
+            "{\"title\":\"Rename X to Y\",\"kind\":\"quickfix\",\"edit\":{\"changes\":{%s:[{\"newText\":\"Y\","
+            "\"range\":{\"start\":{\"line\":0,\"character\":4},\"end\":{\"line\":0,\"character\":5}}}]}}},"
+            "{\"title\":\"Delete X\",\"kind\":\"quickfix\",\"isPreferred\":true,\"edit\":{\"changes\":{%s:[{"
+            "\"newText\":\"\",\"range\":{\"start\":{\"line\":0,\"character\":4},\"end\":{\"line\":0,"
+            "\"character\":5}}}]}}}]}",
+            json_int_at(message, "id", 0), quoted_uri, quoted_uri);
+      else
+        reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":[]}",
+                                json_int_at(message, "id", 0));
+      fake_send(reply);
+      g_free(reply);
+      g_free(quoted_uri);
     } else if (g_strcmp0(method, "workspace/symbol") == 0) {
       const char *query = json_string_at(message, "params.query");
       char *reply;
@@ -398,6 +421,65 @@ static void test_hover(void)
   g_free(answer.value);
   g_free(params);
   g_free(position);
+  free_tab(tab);
+}
+
+static void on_populated(GObject *source G_GNUC_UNUSED, GAsyncResult *result, gpointer data)
+{
+  *(int *)data = g_task_propagate_boolean(G_TASK(result), NULL) ? 1 : -1;
+}
+
+/* The hover's buttons, in order. */
+static GPtrArray *hover_buttons(GtkWidget *widget, GPtrArray *found)
+{
+  if (GTK_IS_BUTTON(widget))
+    g_ptr_array_add(found, widget);
+  for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child))
+    hover_buttons(child, found);
+  return found;
+}
+
+/* On a problem the hover offers the server's quick fixes as buttons, the preferred one first;
+ * clicking one applies it. */
+static void test_hover_fixes(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/fixes.c", "int X;\n");
+  GtkSourceHoverDisplay *display = g_object_ref_sink(g_object_new(GTK_SOURCE_TYPE_HOVER_DISPLAY, NULL));
+  GtkTextIter iter;
+  GPtrArray *buttons;
+  int done = 0;
+  char *text;
+
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  iter = iter_at(tab, 0, 4);
+  populate(NULL, tab, &iter, display, NULL, on_populated, &done);
+  while (!done)
+    g_main_context_iteration(NULL, TRUE);
+  g_assert_cmpint(done, ==, 1);
+  buttons = hover_buttons(GTK_WIDGET(display), g_ptr_array_new());
+  g_assert_cmpuint(buttons->len, ==, 2);
+  g_assert_cmpstr(gtk_button_get_label(g_ptr_array_index(buttons, 0)), ==, "Quick Fix: Delete X");
+  g_assert_cmpstr(gtk_button_get_label(g_ptr_array_index(buttons, 1)), ==, "Quick Fix: Rename X to Y");
+  g_signal_emit_by_name(g_ptr_array_index(buttons, 0), "clicked");
+  text = text_of(tab);
+  g_assert_cmpstr(text, ==, "int ;\n");
+  g_free(text);
+  g_ptr_array_unref(buttons);
+
+  /* Away from the problem: no fixes asked for, no buttons. */
+  g_assert_true(server_agrees(tab));
+  g_object_unref(display);
+  display = g_object_ref_sink(g_object_new(GTK_SOURCE_TYPE_HOVER_DISPLAY, NULL));
+  iter = iter_at(tab, 0, 3);
+  done = 0;
+  populate(NULL, tab, &iter, display, NULL, on_populated, &done);
+  while (!done)
+    g_main_context_iteration(NULL, TRUE);
+  buttons = hover_buttons(GTK_WIDGET(display), g_ptr_array_new());
+  g_assert_cmpuint(buttons->len, ==, 0);
+  g_ptr_array_unref(buttons);
+  g_object_unref(display);
   free_tab(tab);
 }
 
@@ -1319,6 +1401,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/sync-utf16", test_sync_utf16);
   g_test_add_func("/lsp/reload", test_reload);
   g_test_add_func("/lsp/hover", test_hover);
+  g_test_add_func("/lsp/hover-fixes", test_hover_fixes);
   g_test_add_func("/lsp/document-highlight", test_document_highlight);
   g_test_add_func("/lsp/inactive-regions", test_inactive_regions);
   g_test_add_func("/lsp/cancel", test_cancel);
