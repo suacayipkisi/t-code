@@ -62,6 +62,14 @@ build_debian() {
   rm -f "$out/t-code-$VERSION.tar.gz"
 }
 
+build_appimage() {
+  local out="$OUT/appimage"
+  rm -rf "$out" && make_tarball "$out"
+  info "Building the AppImage in ${IMAGE[appimage]}"
+  run_in_container appimage "$out" bash /src/packaging/appimage/build-in-container.sh
+  rm -f "$out/t-code-$VERSION.tar.gz"
+}
+
 # Installable release packages, plus Snapcraft provenance; source/debug packages stay out.
 collect_release() {
   local release="$OUT/release" files=()

@@ -18,6 +18,8 @@ declare -A INSTALL=(
   ["debian"]='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
             $(ls /out/t-code_$VERSION-[0-9]*_amd64.deb) xvfb dbus python3
             procps desktop-file-utils'
+  ["appimage"]='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
+              xvfb dbus python3 procps desktop-file-utils clangd git file binutils'
   # A local repository: xbps installs from repositories only, not from a package file.
   ["void"]='xbps-install -Syu xbps && xbps-install -Syu && mkdir -p /tmp/repo &&
           cp /out/t-code-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&
@@ -36,23 +38,19 @@ test_distro() {
   local distro=$1 out="$OUT/$1"
   compgen -G "$out/*t-code*" >/dev/null || die "No $distro package in $out, run packaging/build.sh $distro"
   info "Testing the $distro package in a fresh ${IMAGE[$distro]}"
-  run_in_container "$distro" "$out" bash -c "
-    set -euo pipefail
-    { ${INSTALL[$distro]//$'\n'/ }; } >/tmp/install.log 2>&1 || { tail -40 /tmp/install.log; exit 1; }
-    useradd -m tester
-    runuser -u tester -- env VERSION=$VERSION NO_FONT_PACKAGE=${NO_FONT[$distro]:-} bash /src/packaging/smoke-test.sh"
-}
-test_appimage() {
-  local out="$OUT/appimage"
-  local appimage_file="$out/t-code-$VERSION-x86_64.AppImage"
-  [[ -e "$appimage_file" ]] || die "No built AppImage in $out, run packaging/appimage.sh"
-  info "Testing the AppImage package in a fresh ${IMAGE[appimage]}"
-  run_in_container appimage "$out" bash -c "
-    set -euo pipefail
-    { apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb dbus python3 procps desktop-file-utils clangd git fontconfig fonts-dejavu-core; } >/tmp/install.log 2>&1 || { tail -40 /tmp/install.log; exit 1; }
-    useradd -m tester
-    chmod +x /out/t-code-\$VERSION-x86_64.AppImage
-    runuser -u tester -- env VERSION=\$VERSION NO_FONT_PACKAGE=1 APPIMAGE_EXTRACT_AND_RUN=1 TCODE_BIN=/out/t-code-\$VERSION-x86_64.AppImage TCODE_PROCESS_NAME=AppRun.wrapped bash /src/packaging/smoke-test.sh"
+  if [[ "$distro" == "appimage" ]]; then
+    run_in_container "$distro" "$out" bash -c "
+      set -euo pipefail
+      { ${INSTALL[appimage]//$'\n'/ }; } >/tmp/install.log 2>&1 || { tail -40 /tmp/install.log; exit 1; }
+      useradd -m tester
+      runuser -u tester -- env VERSION=$VERSION bash /src/packaging/appimage/smoke-test.sh /out/t-code-$VERSION-x86_64.AppImage"
+  else
+    run_in_container "$distro" "$out" bash -c "
+      set -euo pipefail
+      { ${INSTALL[$distro]//$'\n'/ }; } >/tmp/install.log 2>&1 || { tail -40 /tmp/install.log; exit 1; }
+      useradd -m tester
+      runuser -u tester -- env VERSION=$VERSION NO_FONT_PACKAGE=${NO_FONT[$distro]:-} bash /src/packaging/smoke-test.sh"
+  fi
 }
 
 test_flatpak() {
@@ -77,7 +75,7 @@ failed=()
 for distro in "${targets[@]}"; do
   case "$distro" in
     fedora | arch | aur | debian | void | void-musl) test_distro "$distro" || failed+=("$distro") ;;
-    appimage) test_appimage || failed+=("appimage") ;;
+    appimage) test_distro appimage || failed+=("appimage") ;;
     flatpak) test_flatpak || failed+=("flatpak") ;;
     snap) test_snap || failed+=("snap") ;;
     *) die "Unknown target '$distro' (fedora, arch, aur, debian, void, void-musl, appimage, flatpak, snap or all)" ;;
