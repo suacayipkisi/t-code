@@ -27,6 +27,7 @@
 #include "project/userfiles.h"
 #include "update/update.h"
 #include "window/secondwindow.h"
+#include "window/statusbar.h"
 #include "window/palette.h"
 #include "window/theme.h"
 #include "window/window.h"
@@ -1727,6 +1728,32 @@ static gboolean shows(gconstpointer text)
   return window_saying(text) != NULL;
 }
 
+static gboolean build_label_is_target(gconstpointer data G_GNUC_UNUSED)
+{
+  char *target = project_summary(&app);
+  gboolean same = g_strcmp0(gtk_label_get_text(app.status.build), target) == 0;
+
+  g_free(target);
+  return same;
+}
+
+/* A plugin's "say" stays in the status bar for a few seconds: status updates (diagnostics, tab
+ * changes, many a second while typing) used to replace it at once. Then the Build target is back. */
+static void test_status_say(void)
+{
+  status_say(&app, "Word Count: 12 words");
+  update_status(&app);
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Word Count: 12 words");
+  run(500);
+  update_status(&app);
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Word Count: 12 words");
+  status_say(&app, "Plugins reloaded"); /* a newer one starts its own time */
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Plugins reloaded");
+  run_until(build_label_is_target, NULL);
+  g_assert_true(build_label_is_target(NULL));
+  g_assert_cmpuint(app.status.say_id, ==, 0);
+}
+
 /* "Check for Updates Now" answers on screen: the latest release, a newer one's window, or no answer
  * (it used to print to stderr only). curl is a script that answers like GitHub's API. */
 static void test_update_check_now(void)
@@ -2188,6 +2215,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/socket-events", test_socket_events);
   g_test_add_func("/window/socket-stalled-subscriber", test_socket_stalled_subscriber);
   g_test_add_func("/window/update-check-now", test_update_check_now);
+  g_test_add_func("/window/status-say", test_status_say);
   g_test_add_func("/window/second-window", test_second_window);
   g_test_add_func("/window/tab-strip", test_tab_strip);
   g_test_add_func("/window/open-tabs", test_open_tabs);

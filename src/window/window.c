@@ -424,6 +424,7 @@ static void on_layout_changed(GObject *object G_GNUC_UNUSED, GParamSpec *spec G_
 static void on_window_destroy(GtkWidget *window G_GNUC_UNUSED, App *t)
 {
   g_clear_handle_id(&t->dock.buttons_id, g_source_remove);
+  g_clear_handle_id(&t->status.say_id, g_source_remove); /* its label goes with the window */
   memset(t->dock.panel_buttons, 0, sizeof t->dock.panel_buttons);
   plugins_stop(t);
 }

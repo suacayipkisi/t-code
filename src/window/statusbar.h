@@ -30,5 +30,6 @@ void status_show_position(App *t);
 /* The branch label: "⎇ name", with "*" when the work tree has changes; branch NULL hides it
  * (not a repository). */
 void status_show_branch(App *t, const char *branch, gboolean dirty);
-/* Shows a notification message on the status bar (in t->status.build). */
+/* Shows a short message in the status bar in the Build / Run label's place (socket "say", plugins,
+ * crash recovery) for a few seconds; status updates meanwhile leave it there. */
 void status_say(App *t, const char *message);

@@ -120,6 +120,7 @@ struct App {
     GtkLabel *branch, *problems, *build, *position;
     GtkWidget *flags;  /* "No compile flags": clangd cannot find a file's headers */
     GtkWidget *indent; /* "Spaces: 4": the current editor's indentation, a click changes it */
+    guint say_id;      /* a status_say() message is shown in build's place until this runs */
   } status;
 
   /* project */

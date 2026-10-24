@@ -29,6 +29,9 @@ static const char *const css =
     ".tcode-status label.dim { color: var(--tc-fg-dim); }"
     ".tcode-status button.warning { color: var(--tc-warning); }";
 
+/* How long a status_say() message stays before the Build / Run target comes back. */
+#define SAY_MS 3000
+
 void update_status(App *t)
 {
   int n, errors = 0, warnings = 0;
@@ -37,9 +40,11 @@ void update_status(App *t)
   if (!t->status.build || t->closing)
     return;
 
-  text = project_summary(t);
-  gtk_label_set_text(t->status.build, text);
-  g_free(text);
+  if (!t->status.say_id) { /* a message keeps its place for a while */
+    text = project_summary(t);
+    gtk_label_set_text(t->status.build, text);
+    g_free(text);
+  }
 
   n = tab_count(t);
   for (int i = 0; i < n; i++) {
@@ -164,11 +169,22 @@ void status_show_branch(App *t, const char *branch, gboolean dirty)
   gtk_widget_set_visible(GTK_WIDGET(t->status.branch), branch != NULL);
 }
 
+static gboolean said(gpointer data)
+{
+  App *t = data;
+
+  t->status.say_id = 0;
+  update_status(t);
+  return G_SOURCE_REMOVE;
+}
+
 void status_say(App *t, const char *message)
 {
   if (!t || !t->status.build || t->closing)
     return;
   gtk_label_set_text(t->status.build, message ? message : "");
+  g_clear_handle_id(&t->status.say_id, g_source_remove);
+  t->status.say_id = g_timeout_add(SAY_MS, said, t);
 }
 
 /* Widgets ------------------------------------------------------------------------------------ */
