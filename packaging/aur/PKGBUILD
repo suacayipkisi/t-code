@@ -14,18 +14,16 @@ depends=('glib2' 'gtk4' 'gtksourceview5' 'json-glib' 'vte4' 'md4c' 'clang' 'git'
 makedepends=('pkgconf')
 optdepends=('ripgrep: faster Search panel (falls back to grep)'
             'gdb: the debugger (F5)')
-_commit=f594a9f2746292adb3a59afc26b0fcd541f899c6
-_srcname="$pkgname-$_commit"
-source=("$pkgname-$pkgver.tar.gz::https://codeload.github.com/suacayipkisi/t-code/tar.gz/$_commit")
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('6a1945f37c246e2f9f3d416f6bebc5aa0e9d262461c51e82c983da98dd04a99a')
 
 build() {
-  cd "$_srcname"
+  cd "$pkgname-$pkgver"
   make build/t-code
 }
 
 check() {
-  cd "$_srcname"
+  cd "$pkgname-$pkgver"
   build/t-code --version | grep -qx "t-code $pkgver"
   # The other tests open windows and need a display.
   make build/test-searchmatch build/test-detect build/test-linediff
@@ -35,7 +33,7 @@ check() {
 }
 
 package() {
-  cd "$_srcname"
+  cd "$pkgname-$pkgver"
   make DESTDIR="$pkgdir" PREFIX=/usr install
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 THIRD-PARTY.md "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY.md"

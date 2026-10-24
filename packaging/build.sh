@@ -35,9 +35,10 @@ build_arch() {
 
 build_aur() {
   local out="$OUT/aur"
-  rm -rf "$out" && mkdir -p "$out"
+  rm -rf "$out" && make_tarball "$out"
   info "Building the AUR source package in ${IMAGE[aur]}"
   run_in_container aur "$out" bash /src/packaging/aur/build-in-container.sh
+  rm -f "$out/t-code-$VERSION.tar.gz"
 }
 
 build_flatpak() {
