@@ -100,7 +100,7 @@ clang-format -i $(git ls-files 'src/*.c' 'src/*.h')
   the Files panel, the git gutter, plugins or the socket.
 * **Keep the docs in step:** a new socket command goes into `src/ipc/socket.h` and
   `docs/plugins.md`; a new key into `src/window/commands.c` (the palette and the Keybinds window
-  follow) and the README's key table.
+  follow) and the key table in `docs/features.md`.
 
 ---
 
@@ -113,3 +113,56 @@ T-Code packages are distributed in multiple formats (Native packages for Fedora/
 ---
 
 Thank you for helping make T-Code better!
+
+## 6. Source Layout
+
+```
+src/                 t-code, the window (src/app.h: the shared types and a map of the folders;
+                     every .c file has a .h next to it with what it offers the others)
+  main.c             start and quit: the command line, the application, signals
+  window/            the window: layout and panes (window.c), where its data is (paths.c),
+                     theme, terminals and Ctrl+click on compiler messages (terminal.c), the status
+                     bar, every command: shortcuts, palette and Keybinds list (commands.c)
+  editor/            editor tabs and the two groups (tabs.c), opening, saving, autosave and closing
+                     (editor.c), the page with the minimap and its look (editorview.c), editing
+                     commands and typing help (editing.c), the find bar (findbar.c), indent guides
+                     (guides.c), the selection highlight (occurrences.c), the git diff gutter
+                     (diffgutter.c), a file's indentation and language (detect.c), what
+                     .editorconfig and .clang-format say about it (indentconf.c); markdown preview
+                     (preview.c), crash recovery (recovery.c)
+  lsp/               the language servers: the client and each server's lifetime (client.c, over
+                     channel.c), diagnostics and the Problems panel (diagnostics.c, problems.c), hover,
+                     completion, parameter hints (signature.c), definition / references / rename / format
+                     (navigate.c, edits.c), colors by meaning (semantic.c), finding the compile database (compiledb.c)
+  plugins/           plugins: finding their manifests, palette commands and shortcuts, running them (plugins.c)
+  search/            the Search tab, Ctrl+Shift+F (ripgrep); searchmatch.c is its GLib-only part
+  git/               the Source Control tab (scm.c), per-hunk patches (patch.c), git status in the
+                     background (gitstatus.c), comparing with HEAD or history (compare.c), line
+                     differences for the gutter (linediff.c)
+  popups/            the popup list (picker.c) used by Ctrl+P (quickopen.c), the palette, history,
+                     references and rename
+  dialogs/           the Settings, Keyboard Shortcuts and About windows
+  project/           switching folders (project.c), remembering the window and tabs (session.c),
+                     build, run, test and project tasks (run.c)
+  files/             the Files panel (files.c): a folder's entries read and watched (folder.c), file
+                     operations (fileops.c), git colors (gitmarks.c), file icons (icons.c)
+  update/            the new-release check: GitHub's latest release against this one (update.c)
+  ipc/               requests from scripts and tools over $TCODE_SOCKET (socket.c)
+styles/              the editor's colors: Dark Classic as a GtkSourceView style scheme
+plugins/             word-count, an example plugin (found when t-code runs from the source tree)
+docs/                plugins.md (manifest and socket protocol), tasks.md, memory.md, screenshots
+tests/               make test: editing and the find bar, the language server client (with a fake
+                     server), detect.c and indentconf.c, linediff.c, searchmatch.c, the Files panel
+                     and its GIO half, the Search panel, Source Control and hunk patches, tabs in a
+                     whole window, About, plugins, the update check and crash recovery; make
+                     test-asan: the ones without a display, plus plugins, update and recovery, under ASan
+tools/               measuring memory and CPU: the running process tree, a headless t-code, clangd
+desktop/             app menu entry template and the app icon
+packaging/           install.sh, uninstall.sh, build.sh, test.sh: Fedora (fedora/t-code.spec), Arch
+                     (arch/PKGBUILD), AUR, Debian (debian/debian/), Void Linux (void/), Flatpak,
+                     Snap and AppImage packages, built into packaging/packages/ (not in git)
+.clang-format        the code's style (2 spaces); clangd formats with it
+LICENSE
+Makefile             VERSION, make install; also writes build/compile_commands.json, so clangd
+                     understands this code
+```
