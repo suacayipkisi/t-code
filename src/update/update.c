@@ -87,15 +87,33 @@ static void on_update_close(GtkWindow *window G_GNUC_UNUSED, gpointer data)
   g_free(check);
 }
 
+static void on_uri_launched(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  GtkUriLauncher *launcher = GTK_URI_LAUNCHER(source);
+  char *url = user_data;
+  GError *error = NULL;
+
+  if (!gtk_uri_launcher_launch_finish(launcher, result, &error)) {
+    if (url && *url)
+      g_app_info_launch_default_for_uri(url, NULL, NULL);
+    g_clear_error(&error);
+  }
+  g_free(url);
+}
+
 /* "Open the Release": the system's URI handler takes over (the browser), then the window goes. */
 static void on_open_release(GtkButton *button, gpointer data G_GNUC_UNUSED)
 {
-  GtkUriLauncher *launcher = gtk_uri_launcher_new(g_object_get_data(G_OBJECT(button), "release-url"));
-  GtkWindow *window = GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(button)));
+  const char *url = g_object_get_data(G_OBJECT(button), "release-url");
+  GtkWindow *dialog = GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(button)));
+  GtkWindow *parent = gtk_window_get_transient_for(dialog);
 
-  gtk_uri_launcher_launch(launcher, window, NULL, NULL, NULL);
-  g_object_unref(launcher);
-  gtk_window_destroy(window);
+  if (url && *url) {
+    GtkUriLauncher *launcher = gtk_uri_launcher_new(url);
+    gtk_uri_launcher_launch(launcher, parent, NULL, on_uri_launched, g_strdup(url));
+    g_object_unref(launcher);
+  }
+  gtk_window_destroy(dialog);
 }
 
 static void on_later(GtkButton *button, gpointer data G_GNUC_UNUSED)

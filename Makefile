@@ -34,10 +34,10 @@ build/license.h: LICENSE | build
 build/compile_commands.json: Makefile $(APP_SRC) $(TEST_SRC) | build
 	@( printf '['; sep=; \
 	   for f in $(APP_SRC); do \
-	     printf '%s\n  {"directory": "%s", "file": "%s", "command": "cc %s -DTCODE_VERSION=\\\"%s\\\" -c %s"}' \
+	     printf '%s\n  {"directory": "%s", "file": "%s", "command": "cc %s -DTCODE_VERSION=\\\\\\"%s\\\\\\" -c %s"}' \
 	       "$$sep" "$(CURDIR)" "$$f" "$(CFLAGS) $(APP_CFLAGS)" "$(VERSION)" "$$f"; sep=,; done; \
 	   for f in $(TEST_SRC); do \
-	     printf '%s\n  {"directory": "%s", "file": "%s", "command": "cc %s -DTCODE_VERSION=\\\"%s\\\" -c %s"}' \
+	     printf '%s\n  {"directory": "%s", "file": "%s", "command": "cc %s -DTCODE_VERSION=\\\\\\"%s\\\\\\" -c %s"}' \
 	       "$$sep" "$(CURDIR)" "$$f" "$(CFLAGS) $(APP_CFLAGS)" "$(VERSION)" "$$f"; sep=,; done; \
 	   printf '\n]\n' ) > $@
 
