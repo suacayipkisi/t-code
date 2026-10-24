@@ -81,7 +81,7 @@ void problems_update(App *t)
     if (!diags)
       continue;
 
-    const char *basename = g_path_get_basename(tab->path);
+    char *basename = g_path_get_basename(tab->path);
 
     for (guint j = 0; j < diags->len; j++) {
       Diagnostic *d = g_ptr_array_index(diags, j);
@@ -137,6 +137,7 @@ void problems_update(App *t)
       gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), hbox);
       gtk_list_box_append(GTK_LIST_BOX(pv.list), row);
     }
+    g_free(basename);
   }
 
   char err_buf[32], warn_buf[32], info_buf[32];

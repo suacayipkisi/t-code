@@ -990,6 +990,59 @@ static void test_problem_end(void)
   free_tab(tab);
 }
 
+/* The Problems panel lists every editor's diagnostics with their counts, a row opens its place, and
+ * rebuilding the list again and again leaves nothing behind. */
+static void test_problems_panel(void)
+{
+  static GtkWidget *panel; /* kept: problems.c holds on to its widgets */
+  Tab *tab = new_tab("/tmp/t-code-test/problems.c", "int a\nint b;\n");
+  JsonNode *list = json_of("[{\"range\":{\"start\":{\"line\":0,\"character\":4},\"end\":{\"line\":0,"
+                           "\"character\":5}},\"severity\":1,\"message\":\"expected ';'\"},"
+                           "{\"range\":{\"start\":{\"line\":1,\"character\":4},\"end\":{\"line\":1,"
+                           "\"character\":5}},\"severity\":2,\"message\":\"unused b\"}]");
+  GtkListBoxRow *row;
+  size_t before = 0;
+
+  if (!panel)
+    panel = g_object_ref_sink(problems_panel(&app));
+  page_test_tabs[0] = tab;
+  page_test_tab_count = 1;
+  diagnostics_show(tab, list);
+  g_assert_cmpstr(gtk_label_get_text(pv.err_label), ==, "1 Errors");
+  g_assert_cmpstr(gtk_label_get_text(pv.warn_label), ==, "1 Warnings");
+  g_assert_cmpstr(gtk_label_get_text(pv.info_label), ==, "0 Notes");
+  g_assert_nonnull(gtk_list_box_get_row_at_index(GTK_LIST_BOX(pv.list), 1));
+  g_assert_null(gtk_list_box_get_row_at_index(GTK_LIST_BOX(pv.list), 2));
+  g_assert_false(gtk_widget_get_visible(pv.empty_label));
+
+  picker_test_reset();
+  row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(pv.list), 1);
+  g_signal_emit_by_name(pv.list, "row-activated", row);
+  g_assert_cmpstr(opened_path, ==, "/tmp/t-code-test/problems.c");
+  g_assert_cmpint(opened_line, ==, 2);
+  g_assert_cmpint(opened_column, ==, 5);
+
+  for (int round = 0; round < 2; round++) {
+    if (round == 1) {
+      malloc_trim(0);
+      before = mallinfo2().uordblks;
+    }
+    for (int i = 0; i < 500; i++)
+      problems_update(&app);
+  }
+  malloc_trim(0);
+  g_test_message("heap grew by %zd bytes", (ssize_t)(mallinfo2().uordblks - before));
+  g_assert_cmpint((gssize)(mallinfo2().uordblks - before), <, 8 * 1024); /* 500 leaked names are 16 KB */
+
+  diagnostics_clear(tab);
+  g_assert_cmpstr(gtk_label_get_text(pv.err_label), ==, "0 Errors");
+  g_assert_null(gtk_list_box_get_row_at_index(GTK_LIST_BOX(pv.list), 0));
+  g_assert_true(gtk_widget_get_visible(pv.empty_label));
+  page_test_tab_count = 0;
+  json_node_unref(list);
+  free_tab(tab);
+}
+
 /* A snippet GtkSourceView cannot take goes in as plain text: the defaults, no tab stops. */
 static void test_snippet_text(void)
 {
@@ -1125,15 +1178,14 @@ static void test_language_routing(void)
   python = new_tab("/tmp/t-code-test/routing.py", "value = 1\n");
   go = new_tab("/tmp/t-code-test/routing.go", "package main\n");
   rust = new_tab("/tmp/t-code-test/routing.rs", "fn main() {}\n");
-  gtk_source_buffer_set_language(python->buffer,
-                                gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(),
-                                                                        "python"));
-  gtk_source_buffer_set_language(go->buffer,
-                                gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "go"));
-  gtk_source_buffer_set_language(rust->buffer,
-                                gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "rust"));
-  gtk_source_buffer_set_language(cpp->buffer,
-                                gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "cpp"));
+  gtk_source_buffer_set_language(
+      python->buffer, gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "python"));
+  gtk_source_buffer_set_language(
+      go->buffer, gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "go"));
+  gtk_source_buffer_set_language(
+      rust->buffer, gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "rust"));
+  gtk_source_buffer_set_language(
+      cpp->buffer, gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "cpp"));
 
   g_assert_true(lsp_wants(cpp));
   g_assert_true(lsp_wants(python));
@@ -1208,6 +1260,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/semantic-timeout-close", test_semantic_timeout_close);
   g_test_add_func("/lsp/semantic-delta", test_semantic_delta);
   g_test_add_func("/lsp/problem-end", test_problem_end);
+  g_test_add_func("/lsp/problems-panel", test_problems_panel);
   g_test_add_func("/lsp/completion-items", test_completion_items);
   g_test_add_func("/lsp/completion-shorten", test_completion_shorten);
   g_test_add_func("/lsp/signature-markup", test_signature_markup);

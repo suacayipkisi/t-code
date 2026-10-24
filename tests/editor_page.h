@@ -25,7 +25,6 @@
 #include "lsp/compiledb.c"
 #include "lsp/completion.c"
 #include "lsp/diagnostics.c"
-/* Problems is a window page; the focused editor tests only exercise diagnostics. */
 #include "lsp/problems.c"
 
 #include "lsp/edits.c"
@@ -43,6 +42,8 @@ static char *picker_test_message;
 static Tab *picker_test_tab;
 static char *opened_path;
 static int opened_line, opened_column;
+static Tab *page_test_tabs[4]; /* the App's editors, for tab_count() / tab_nth() (the Problems panel) */
+static int page_test_tab_count;
 
 static void G_GNUC_UNUSED picker_test_reset(void)
 {
@@ -74,8 +75,8 @@ void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page G_GNUC_UNUSED) {}
 void status_say(App *t G_GNUC_UNUSED, const char *message G_GNUC_UNUSED) {}
 
 void status_show_indent(App *t G_GNUC_UNUSED) {}
-int tab_count(App *t G_GNUC_UNUSED) { return 0; }
-Tab *tab_nth(App *t G_GNUC_UNUSED, int index G_GNUC_UNUSED) { return NULL; }
+int tab_count(App *t G_GNUC_UNUSED) { return page_test_tab_count; }
+Tab *tab_nth(App *t G_GNUC_UNUSED, int index) { return page_test_tabs[index]; }
 Tab *find_tab(App *t G_GNUC_UNUSED, TabKind kind, const char *path)
 {
   return picker_test_tab && picker_test_tab->kind == kind && g_strcmp0(picker_test_tab->path, path) == 0
