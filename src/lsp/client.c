@@ -21,7 +21,7 @@
 #include <unistd.h>
 
 #ifndef IDLE_SECONDS /* tests set a shorter one */
-#define IDLE_SECONDS 60
+#define IDLE_SECONDS 30
 #endif
 #ifndef FLUSH_MS
 #define FLUSH_MS 50 /* changes typed within this go in one didChange */

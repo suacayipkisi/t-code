@@ -8,6 +8,7 @@ gap between the two is allocator overhead, not clangd's data (see set_malloc_are
 
   tools/clangd-mem.py                               # 25 files, t-code's flags (SERVER_ARGV in src/lsp/client.c)
   tools/clangd-mem.py --files 5 --churn 3
+  tools/clangd-mem.py --keep 3                      # then close all but the last 3 (didClose), as hidden tabs
   tools/clangd-mem.py --env GLIBC_TUNABLES=glibc.malloc.arena_max=2
   tools/clangd-mem.py -- --background-index=false   # other clangd flags
 """
@@ -24,11 +25,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def default_flags():
-    """The flags t-code starts clangd with: SERVER_ARGV in src/lsp/client.c (MALLOC_TRIM is
+    """The flags t-code starts clangd with: clangd_argv in src/lsp/client.c (MALLOC_TRIM is
     --malloc-trim on glibc, and clang-tidy is off by default)."""
     with open(os.path.join(ROOT, "src", "lsp", "client.c")) as f:
-        line = re.search(r"#define SERVER_ARGV (.*)", f.read()).group(1)
-    return re.findall(r'"([^"]*)"', line)[1:] + ["--malloc-trim", "--clang-tidy=false"]
+        argv = re.search(r"clangd_argv\[\] = \{(.*?)\};", f.read(), re.S).group(1)
+    return re.findall(r'"([^"]*)"', argv)[1:] + ["--malloc-trim", "--clang-tidy=false"]
 
 
 class Clangd:
@@ -120,6 +121,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--files", type=int, default=25, help="files to open (default 25)")
     parser.add_argument("--churn", type=int, default=0, help="rounds of editing every open file")
+    parser.add_argument("--keep", type=int, default=None, help="at the end, close all but this many files")
     parser.add_argument("--env", action="append", default=[], help="NAME=value for clangd")
     parser.add_argument("flags", nargs="*", help="clangd flags (after --); default: t-code's")
     args = parser.parse_args()
@@ -165,6 +167,17 @@ def main():
         print(f"after opening {after_open} MB, after {args.churn} rounds of edits {rss} MB")
     for mb, name in sorted(largest(usage, 3), reverse=True)[:8]:
         print(f"  {mb:5d} MB  {name}")
+    if args.keep is not None:
+        closing = files[:max(len(files) - args.keep, 0)]
+        for path in closing:
+            clangd.send({"jsonrpc": "2.0", "method": "textDocument/didClose",
+                         "params": {"textDocument": {"uri": "file://" + path}}})
+        start = time.time()
+        for at in (5, 30, 75):  # clangd trims memory at most once a minute, after a message
+            time.sleep(max(at - (time.time() - start), 0))
+            usage = clangd.request(3 + at, "$/memoryUsage", {})
+            print(f"{at:3d}s after closing {len(closing)} (keeping {len(files) - len(closing)}): "
+                  f"resident {clangd.memory()[0]} MB | clangd's own data {usage['_total'] >> 20} MB")
     clangd.proc.kill()
 
 

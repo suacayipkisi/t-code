@@ -55,7 +55,7 @@ JSON one only validates: against a file's own local `$schema`, downloading nothi
 formatting alone; generated files (`compile_commands.json`, `package-lock.json`, `*.min.json`) and
 JSON files over 512 KB get no server. YAML files are validated and formatted with the schemas of
 the SchemaStore catalog; Markdown files get link and heading navigation and keep word completion.
-Each server starts on first use and stops a minute after the last file it serves closes. Files are
+Each server starts on first use and stops 30 seconds after the last file it serves closes. Files are
 sent only once their tab is shown, so restored sessions cost the servers little. Other files
 (Makefiles, scripts) get completion from the words in the file. "Restart Language
 Servers" in the command palette restarts active servers (including one that gave up after crashes);

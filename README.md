@@ -37,7 +37,7 @@ Everything in detail, with the full key table: **[docs/features.md](docs/feature
 
 ### Language servers
 
-Each starts when the first file of its language is shown and stops a minute after the last one
+Each starts when the first file of its language is shown and stops 30 seconds after the last one
 closes. All but clangd are optional: t-code uses them when they are on `PATH`.
 
 | Files | Server | Install |

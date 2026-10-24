@@ -10,7 +10,7 @@ window. While idle, t-code uses no CPU: nothing polls, editors redraw only when 
 
 What keeps it small:
 
-- **clangd gets a file once its tab is shown**, and stops a minute after the last C or C++ file
+- **clangd gets a file once its tab is shown**, and stops 30 seconds after the last C or C++ file
   closes. It keeps at most five files open: the least recently used hidden tab is closed on the
   server (its AST freed) and opened again when you go back to it.
 - **clangd's own flags**: precompiled headers on disk (`--pch-storage=disk`), two indexing
