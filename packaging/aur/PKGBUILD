@@ -1,7 +1,8 @@
 # Maintainer: suacayipkisi <konuki8523@gmail.com>
-# Upstream release v0.3 points to this immutable commit; its Makefile VERSION is 0.3.0.
-# For a new release, update pkgver and _commit, run `makepkg -g` for the source checksum,
-# then regenerate metadata with `makepkg --printsrcinfo > .SRCINFO`.
+# The source is the v$pkgver tag's archive on GitHub. For a new release: bump pkgver, push the tag,
+# then put the archive's checksum in sha256sums (`makepkg -g`) and regenerate the metadata with
+# `makepkg --printsrcinfo > .SRCINFO`. packaging/build.sh cannot catch a stale checksum: it builds
+# from the working tree's tarball and replaces the checksum with that one's.
 pkgname=t-code
 pkgver=0.3.2
 pkgrel=1
@@ -15,7 +16,7 @@ makedepends=('pkgconf')
 optdepends=('ripgrep: faster Search panel (falls back to grep)'
             'gdb: the debugger (F5)')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('6a1945f37c246e2f9f3d416f6bebc5aa0e9d262461c51e82c983da98dd04a99a')
+sha256sums=('bdcff6ddc16314df3ddddd3064f09415907d87106d7d8a35a3d63a5f3c654fde')
 
 build() {
   cd "$pkgname-$pkgver"
