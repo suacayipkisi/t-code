@@ -482,21 +482,27 @@ language server per language that only knows the files you have looked at.
 
 Measured on Fedora 44 (x86_64) with `tools/headless.sh` (t-code run invisibly, then
 `tools/proc-report.sh`), the same 25 C files of this repository opened, each tab then shown in
-turn, against the micro-based 0.1.1 and 0.2 run the same way. Memory is PSS: pages shared between processes
+turn, against the micro-based 0.1.1, 0.2 and 0.3 run the same way. Memory is PSS: pages shared between processes
 are split between them, so the rows add up.
 
-| all 25 tabs shown | 0.1.1 (micro) | 0.2 (GtkSourceView) | 0.3 |
-|---|---:|---:|---:|
-| editors | 25 micro processes, 412 MB | in the window | in the window |
-| t-code window | 57 MB | 83 MB | 70 MB |
-| helper processes per editor | 50, 6 MB | none | none |
-| clangd | 361 MB | 470 MB | 345–367 MB |
-| **memory in all** | **839 MB** | **557 MB** | **418–442 MB** |
+| all 25 tabs shown | 0.1.1 (micro) | 0.2 (GtkSourceView) | 0.3 | 0.3.2 |
+|---|---:|---:|---:|---:|
+| editors | 25 micro processes, 412 MB | in the window | in the window | in the window |
+| t-code window | 57 MB | 83 MB | 70 MB | 66–70 MB |
+| helper processes per editor | 50, 6 MB | none | none | none |
+| clangd | 361 MB | 470 MB | 345–367 MB | 366–370 MB |
+| **memory in all** | **839 MB** | **557 MB** | **418–442 MB** | **436–441 MB** |
 
 0.3 (two runs, the shell's 3 MB included) adds the debugger, folding, sticky scroll, themes and
 the rest without growing: gdb only runs while debugging, and the window came out smaller than
 0.2's. clangd's share varies the most between runs (see below). At rest, t-code took
 0.2 % of one core over 5 s.
+
+0.3.2 (three runs, alternated with three of 0.3 built from its tag on the same machine and day)
+adds plugins, the Problems panel, crash recovery and the Python, Go and Rust language servers for
+3–4 MB in the window: 66–70 MB against 0.3's 63–66 MB that day. With only C files open no other
+language server starts, and no plugin runs until one of its commands is used. clangd's share
+(366–370 MB) stayed inside what 0.3's runs gave (345–437 MB that day).
 
 clangd's share moves a lot between runs (its background index, what it has freed back); the rest
 is steady. With 25 tabs open and only one shown, both come to about 60 MB besides clangd: 0.1.1
