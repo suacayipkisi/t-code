@@ -594,7 +594,7 @@ void editor_view_free(EditorView *v)
     return;
   g_cancellable_cancel(v->cancel); /* loads and saves in flight drop their answer */
   signature_free(v->signature);
-  semantic_free(v->semantic);      /* cancel debounce before closing its LSP document */
+  semantic_free(v->semantic); /* cancel debounce before closing its LSP document */
   v->semantic = NULL;
   lsp_close(v->tab);
   diagnostics_clear(v->tab);

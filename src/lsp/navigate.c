@@ -113,10 +113,10 @@ static void open_at(App *t, const char *path, JsonNode *position, gboolean utf16
 
 typedef struct {
   App *app;
-  char *path;    /* the editor asking, by path: it may close meanwhile */
-  gboolean save; /* formatting: save once it is done */
+  char *path;     /* the editor asking, by path: it may close meanwhile */
+  gboolean save;  /* formatting: save once it is done */
   gboolean utf16; /* position encoding of the requesting server */
-  guint changes; /* formatting: the text's change count when it was asked */
+  guint changes;  /* formatting: the text's change count when it was asked */
 } Asked;
 
 static void asked_free(Asked *asked)
@@ -476,7 +476,6 @@ typedef struct {
 static char *workspace_path;
 static void on_workspace_symbols(JsonNode *result, gpointer data);
 
-
 static void symbol_request_free(SymbolRequest *request)
 {
   g_free(request->query);
@@ -582,7 +581,6 @@ void go_to_workspace_symbol(Tab *tab)
   workspace_path = g_strdup(tab->path);
   picker_open(tab->app, "Go to a workspace symbol", workspace_symbols_query, workspace_symbols_choose);
 }
-
 
 /* Quick fixes ------------------------------------------------------------------------------ */
 

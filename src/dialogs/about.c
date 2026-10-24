@@ -143,11 +143,8 @@ static char *libraries(App *t)
 void show_about(App *t)
 {
   static GtkWidget *window;
-  static const char *const authors[] = {
-    "suacayipkisi https://github.com/suacayipkisi",
-    "dontworryplz https://github.com/dontworryplz",
-    NULL
-  };
+  static const char *const authors[] = { "suacayipkisi https://github.com/suacayipkisi",
+                                         "dontworryplz https://github.com/dontworryplz", NULL };
   static const char *const built_on[] = {
     "clangd https://clangd.llvm.org",
     "GDB https://www.sourceware.org/gdb",

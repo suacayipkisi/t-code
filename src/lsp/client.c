@@ -44,11 +44,13 @@ typedef enum {
 } ServerKind;
 
 #ifndef SERVER_ARGV /* tests run a fake server */
+/* clang-format off */
 static const char *const clangd_argv[] = { "clangd", "--background-index", "--pch-storage=disk", "-j=2",
-                                          "--limit-results=50", MALLOC_TRIM NULL };
+                                           "--limit-results=50", MALLOC_TRIM NULL };
 static const char *const python_argv[] = { "pylsp", NULL };
 static const char *const go_argv[] = { "gopls", NULL };
 static const char *const rust_argv[] = { "rust-analyzer", NULL };
+/* clang-format on */
 #define TIDY_FLAG
 #else
 static const char *const fake_argv[] = { SERVER_ARGV NULL };
@@ -57,6 +59,7 @@ static const char *const fake_argv[] = { SERVER_ARGV NULL };
 static const char *const *server_command(ServerKind kind)
 {
 #ifdef SERVER_ARGV
+  (void)kind; /* every language's server is the fake one */
   return fake_argv;
 #else
   switch (kind) {
@@ -518,8 +521,8 @@ static void send_document(Doc *doc)
       const char *source_id = gtk_source_language_get_id(gtk_source_buffer_get_language(doc->tab->buffer));
       id = g_str_has_prefix(source_id, "cpp") ? "cpp" : "c";
     }
-    params = g_strdup_printf("{%s,\"languageId\":\"%s\",\"version\":%d,\"text\":%s}}", document, id,
-                             ++doc->version, text);
+    params =
+        g_strdup_printf("{%s,\"languageId\":\"%s\",\"version\":%d,\"text\":%s}}", document, id, ++doc->version, text);
     notify(doc->lsp, "textDocument/didOpen", params);
     doc->opened = TRUE;
     evict_docs(doc->lsp);
@@ -543,9 +546,7 @@ static void doc_free(Doc *doc)
 
 static ServerKind server_kind_for_tab(Tab *tab)
 {
-  GtkSourceLanguage *language = tab && tab->kind == TAB_EDITOR
-                                    ? gtk_source_buffer_get_language(tab->buffer)
-                                    : NULL;
+  GtkSourceLanguage *language = tab && tab->kind == TAB_EDITOR ? gtk_source_buffer_get_language(tab->buffer) : NULL;
   const char *id = language ? gtk_source_language_get_id(language) : "";
   const char *path = tab ? tab->path : "";
 

@@ -361,8 +361,8 @@ void plugins_add_shortcuts(GtkShortcutController *controller, App *t)
       shortcut->app = t;
       shortcut->payload = payload;
       gtk_shortcut_controller_add_shortcut(
-          controller, gtk_shortcut_new(trigger, gtk_callback_action_new(plugin_shortcut_activate, shortcut,
-                                                                         plugin_shortcut_free)));
+          controller,
+          gtk_shortcut_new(trigger, gtk_callback_action_new(plugin_shortcut_activate, shortcut, plugin_shortcut_free)));
     }
   }
   g_hash_table_destroy(seen);

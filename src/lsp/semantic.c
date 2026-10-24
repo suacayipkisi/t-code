@@ -35,7 +35,6 @@ struct TokensRequest {
   guint changes; /* the buffer's change count when it was asked */
 };
 
-
 /* The kinds of colored tokens: a tag each ("semantic-function", ...), in the color theme's color. */
 typedef enum { KIND_FUNCTION, KIND_TYPE, KIND_MACRO, KIND_CONSTANT, KIND_VARIABLE, KINDS } Kind;
 

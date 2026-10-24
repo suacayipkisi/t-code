@@ -109,12 +109,12 @@ static void set_note(const char *text, gboolean error)
 typedef void (*GitDone)(gboolean ok, const char *out, const char *err, gpointer data);
 
 typedef struct {
-  char **argv;          /* git and its arguments */
-  char *input;          /* for its stdin, or NULL */
+  char **argv; /* git and its arguments */
+  char *input; /* for its stdin, or NULL */
   GitDone done;
   gpointer data;
-  GDestroyNotify drop;  /* releases data if the call is canceled or git cannot start */
-  gboolean quiet;       /* a background read: runs at once and does not hold the buttons */
+  GDestroyNotify drop; /* releases data if the call is canceled or git cannot start */
+  gboolean quiet;      /* a background read: runs at once and does not hold the buttons */
 } GitCall;
 
 /* Frees a GitCall. */
@@ -388,10 +388,10 @@ static void on_hunks_read(gboolean ok, const char *out, const char *err, gpointe
 
 static void read_hunks(HunkRequest *request)
 {
-  const char *unstaged[] = { "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--unified=3", "--",
-                             request->path, NULL };
-  const char *staged[] = { "diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv", "--unified=3", "--",
-                           request->path, NULL };
+  const char *unstaged[] = { "diff",        "--no-color", "--no-ext-diff", "--no-textconv",
+                             "--unified=3", "--",         request->path,   NULL };
+  const char *staged[] = { "diff", "--cached",    "--no-color", "--no-ext-diff", "--no-textconv", "--unified=3",
+                           "--",   request->path, NULL };
 
   run_git_owned(request->staged ? staged : unstaged, NULL, FALSE, on_hunks_read, request,
                 (GDestroyNotify)hunk_request_free);

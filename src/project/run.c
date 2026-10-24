@@ -423,10 +423,9 @@ static char *tasks_command(const char *root, Goal goal)
     else
       cmd = g_strdup("echo 'Build OK (no build command configured in tasks.json)'");
   } else if (goal == GOAL_TEST) {
-    cmd = tp.test && *tp.test
-              ? g_strdup_printf("cd %s && %s%s%s", qdir, tp.env && *tp.env ? tp.env : "",
-                                tp.env && *tp.env ? " " : "", tp.test)
-              : g_strdup("echo 't-code: no test command configured in tasks.json'; false");
+    cmd = tp.test && *tp.test ? g_strdup_printf("cd %s && %s%s%s", qdir, tp.env && *tp.env ? tp.env : "",
+                                                tp.env && *tp.env ? " " : "", tp.test)
+                              : g_strdup("echo 't-code: no test command configured in tasks.json'; false");
   } else if (goal == GOAL_RUN) {
     const char *run_cmd = tp.run ? tp.run : tp.debug;
     if (run_cmd) {
@@ -862,7 +861,7 @@ static char *java_class(const char *file)
 static char *language_command(const Project *p, Goal goal)
 {
   static const char *const starts[] = { "start", "dev", NULL }, *const builds[] = { "build", NULL },
-                     *const tests[] = { "test", NULL };
+                           *const tests[] = { "test", NULL };
   char *qroot = g_shell_quote(p->root), *dir = g_path_get_dirname(p->file), *qdir = g_shell_quote(dir);
   char *qfile = g_shell_quote(p->file), *cmd = NULL;
   const char *program = NULL;
@@ -871,10 +870,9 @@ static char *language_command(const Project *p, Goal goal)
     case PROJECT_CARGO: {
       char *target = cargo_target(p->root, p->file), *where = cargo_root(p->root), *qwhere = g_shell_quote(where);
       program = "cargo";
-      cmd = goal == GOAL_TEST ? g_strdup_printf("(cd %s && cargo test)", qwhere)
-            : goal == GOAL_RUN
-                ? g_strdup_printf("(cd %s && cargo run%s)", qwhere, target)
-                : g_strdup_printf("(cd %s && cargo build%s)", qwhere, target);
+      cmd = goal == GOAL_TEST  ? g_strdup_printf("(cd %s && cargo test)", qwhere)
+            : goal == GOAL_RUN ? g_strdup_printf("(cd %s && cargo run%s)", qwhere, target)
+                               : g_strdup_printf("(cd %s && cargo build%s)", qwhere, target);
       g_free(qwhere);
       g_free(where);
       g_free(target);
@@ -882,9 +880,9 @@ static char *language_command(const Project *p, Goal goal)
     }
     case PROJECT_GO: /* the file's package, which go finds the module of */
       program = "go";
-      cmd = goal == GOAL_TEST ? g_strdup_printf("(cd %s && go test ./...)", qroot)
+      cmd = goal == GOAL_TEST  ? g_strdup_printf("(cd %s && go test ./...)", qroot)
             : goal == GOAL_RUN ? g_strdup_printf("(cd %s && go run .)", qdir)
-                              : g_strdup_printf("(cd %s && go vet .)", qdir);
+                               : g_strdup_printf("(cd %s && go vet .)", qdir);
       break;
     case PROJECT_NODE: {
       const char *manager = node_manager(p->root);
@@ -893,7 +891,7 @@ static char *language_command(const Project *p, Goal goal)
       program = manager;
       if (script)
         cmd = goal == GOAL_TEST ? g_strdup_printf("(cd %s && %s test)", qroot, manager)
-              : g_strdup_printf("(cd %s && %s run %s)", qroot, manager, script);
+                                : g_strdup_printf("(cd %s && %s run %s)", qroot, manager, script);
       else if (goal == GOAL_RUN) {
         program = "node";
         cmd = g_strdup_printf("(cd %s && node %s)", qroot, qfile);
@@ -910,8 +908,9 @@ static char *language_command(const Project *p, Goal goal)
         cmd = g_strdup_printf("(cd %s && mvn test)", qroot);
       else {
         char *class = java_class(p->file), *qclass = g_shell_quote(class);
-        cmd = goal == GOAL_RUN ? g_strdup_printf("(cd %s && mvn -q compile && java -cp target/classes %s)", qroot, qclass)
-                               : g_strdup_printf("(cd %s && mvn -q compile)", qroot);
+        cmd = goal == GOAL_RUN
+                  ? g_strdup_printf("(cd %s && mvn -q compile && java -cp target/classes %s)", qroot, qclass)
+                  : g_strdup_printf("(cd %s && mvn -q compile)", qroot);
         g_free(qclass);
         g_free(class);
       }
@@ -922,7 +921,9 @@ static char *language_command(const Project *p, Goal goal)
       gboolean own = g_file_test(wrapper, G_FILE_TEST_IS_EXECUTABLE);
       program = own ? NULL : "gradle";
       cmd = g_strdup_printf("(cd %s && %s %s)", qroot, own ? "./gradlew" : "gradle",
-                            goal == GOAL_TEST ? "test" : goal == GOAL_RUN ? "run" : "build");
+                            goal == GOAL_TEST  ? "test"
+                            : goal == GOAL_RUN ? "run"
+                                               : "build");
       g_free(wrapper);
       break;
     }
@@ -1046,9 +1047,10 @@ static char *goal_command(App *t, Goal goal, char **cwd)
     case PROJECT_MAVEN:
     case PROJECT_GRADLE: command = language_command(&p, goal); break;
     default:
-      command = goal == GOAL_TEST
-                    ? g_strdup("echo 't-code: no test runner detected for this project'; false")
-                    : g_strdup("echo 't-code: nothing to build here (open a C file, or add a Makefile or CMakeLists.txt)'");
+      command =
+          goal == GOAL_TEST
+              ? g_strdup("echo 't-code: no test runner detected for this project'; false")
+              : g_strdup("echo 't-code: nothing to build here (open a C file, or add a Makefile or CMakeLists.txt)'");
   }
   gboolean alone = p.kind == PROJECT_FILE || p.kind == PROJECT_SCRIPT || p.kind == PROJECT_RUSTC; /* root: the file */
   if (cwd) /* the file's folder, as run does; the project's otherwise */

@@ -55,5 +55,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Dependencies
         run: dnf -y install git clang clang-tools-extra
+      # find, not git ls-files: in this container checkout has no .git (git comes after it), and
+      # git ls-files printing nothing left clang-format checking no file at all.
       - name: clang-format stays quiet
-        run: clang-format --dry-run --Werror $(git ls-files 'src/*.c' 'src/*.h')
+        run: |
+          files=$(find src -name '*.c' -o -name '*.h')
+          test -n "$files"
+          clang-format --dry-run --Werror $files
