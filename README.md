@@ -78,7 +78,11 @@ the mouse. On top of that:
   (green added, blue changed, red deleted), autosave a second after the last change.
 
 clangd starts when the first C or C++ file is shown; Python (`.py`), Go (`.go`) and Rust (`.rs`)
-files use `pylsp`, `gopls` and `rust-analyzer` respectively when the executable is on `PATH`.
+files use `pylsp`, `gopls` and `rust-analyzer` respectively when the executable is on `PATH`
+(`pylsp` also from the project's venv). **Python: Select Interpreter…** (command palette) picks the
+project's Python among its venvs, `$VIRTUAL_ENV`'s and `python3`; **Rust: Select Features…** and
+**Rust: Select Target…** pick Cargo features (the default ones, all, or some) and a target installed
+with rustup. The choice is kept per project and used by the language server and by Build, Run and Test.
 Each server starts on first use and stops a minute after the last file it serves closes. Files are
 sent only once their tab is shown, so restored sessions cost the servers little. Other files
 (Markdown, Makefiles and scripts) get completion from the words in the file. "Restart Language
@@ -406,7 +410,8 @@ building), looking upwards from the current file: CMake uses `CMakeLists.txt`, M
 output to go there.
 Other languages run too: a script by its interpreter (Python, JavaScript / TypeScript with node,
 shell, Lua, Ruby, Perl, PHP, Go, Java, or any file with `#!`), and projects by their files: Cargo,
-`go.mod`, `package.json`'s `start` / `dev` script, Maven, Gradle, Python from its root with its venv.
+`go.mod`, `package.json`'s `start` / `dev` script, Maven, Gradle, Python from its root with the
+picked interpreter or its venv.
 
 **Test.** The command palette's **Test** saves changed files and runs the active task profile's
 `test` command, or detects CMake/CTest, Meson, `make test`, Cargo, Go, Node's `test` script, Maven,

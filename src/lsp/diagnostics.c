@@ -119,17 +119,22 @@ void diagnostics_show(Tab *tab, JsonNode *list)
   problems_update(tab->app);
 }
 
+/* Whether d's range holds iter; start and end are set to it. */
+static gboolean covers(Tab *tab, const Diagnostic *d, const GtkTextIter *iter, GtkTextIter *start, GtkTextIter *end)
+{
+  gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), start, d->start);
+  gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), end, d->end);
+  return gtk_text_iter_compare(iter, start) >= 0 && gtk_text_iter_compare(iter, end) <= 0;
+}
+
 char *diagnostics_at(Tab *tab, const GtkTextIter *iter, gboolean markup)
 {
-  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
   GString *text = g_string_new(NULL);
 
   for (guint i = 0; tab->view->diagnostics && i < tab->view->diagnostics->len; i++) {
     Diagnostic *d = g_ptr_array_index(tab->view->diagnostics, i);
     GtkTextIter start, end;
-    gtk_text_buffer_get_iter_at_mark(buffer, &start, d->start);
-    gtk_text_buffer_get_iter_at_mark(buffer, &end, d->end);
-    if (gtk_text_iter_compare(iter, &start) < 0 || gtk_text_iter_compare(iter, &end) > 0)
+    if (!covers(tab, d, iter, &start, &end))
       continue;
     if (text->len)
       g_string_append_c(text, '\n');
@@ -274,15 +279,12 @@ char *diagnostics_json(Tab *tab, int first, int last)
 
 char *diagnostics_json_at(Tab *tab, const GtkTextIter *iter, GtkTextIter *start, GtkTextIter *end)
 {
-  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
   GString *list = g_string_new("[");
 
   for (guint i = 0; tab->view->diagnostics && i < tab->view->diagnostics->len; i++) {
     Diagnostic *d = g_ptr_array_index(tab->view->diagnostics, i);
     GtkTextIter from, to;
-    gtk_text_buffer_get_iter_at_mark(buffer, &from, d->start);
-    gtk_text_buffer_get_iter_at_mark(buffer, &to, d->end);
-    if (gtk_text_iter_compare(iter, &from) < 0 || gtk_text_iter_compare(iter, &to) > 0)
+    if (!covers(tab, d, iter, &from, &to))
       continue;
     if (list->len == 1 || gtk_text_iter_compare(&from, start) < 0)
       *start = from;

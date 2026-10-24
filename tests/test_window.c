@@ -24,6 +24,7 @@
 #include "popups/contextmenu.h"
 #include "project/run.h"
 #include "project/session.h"
+#include "project/toolchain.h"
 #include "project/userfiles.h"
 #include "update/update.h"
 #include "window/secondwindow.h"
@@ -964,6 +965,11 @@ static GtkWidget *focused_entry(void)
   return focus ? gtk_widget_get_ancestor(focus, GTK_TYPE_SEARCH_ENTRY) : NULL;
 }
 
+static gboolean entry_focused(gconstpointer data G_GNUC_UNUSED)
+{
+  return focused_entry() != NULL;
+}
+
 /* "Preferences: Color Theme": the arrows show each theme at once, unsaved; Escape goes back to the
  * saved one, Enter keeps the one shown. */
 static void test_theme_preview(void)
@@ -973,7 +979,7 @@ static void test_theme_preview(void)
   GtkWidget *entry;
 
   color_theme_pick(&app);
-  run(50);
+  run_until(entry_focused, NULL); /* the first window takes a moment to have the focus */
   entry = focused_entry();
   g_assert_nonnull(entry);
   g_signal_emit_by_name(picker_keys(entry), "key-pressed", GDK_KEY_Down, 0, 0, &handled);
@@ -1289,11 +1295,22 @@ static void test_run_projects(void)
   check_run(path, "-m 'mypkg.tool'", "python3", "tool util\n");
   g_free(path);
   path = g_build_filename(py, "scripts", "main.py", NULL);
+  g_free(put(py, ".venv/pyvenv.cfg", "home = /usr/bin\n", 0644));
   g_free(put(py, ".venv/bin/python", "#!/bin/sh\necho venv python\n", 0755));
   check_run(path, ".venv/bin/python", "sh", "venv python\n");
   summary = project_summary(&app);
-  g_assert_cmpstr(summary, ==, "python (venv): main.py");
+  g_assert_cmpstr(summary, ==, "python (.venv): main.py");
   g_free(summary);
+  /* the interpreter picked for the project wins ("Python: Select Interpreter…") */
+  g_free(put(py, "tools/pyvenv.cfg", "home = /usr/bin\n", 0644));
+  char *picked = put(py, "tools/bin/python", "#!/bin/sh\necho picked python\n", 0755);
+  toolchain_set(&app, "python", picked);
+  check_run(path, "tools/bin/python", "sh", "picked python\n");
+  summary = project_summary(&app);
+  g_assert_cmpstr(summary, ==, "python (tools): main.py");
+  g_free(summary);
+  toolchain_set(&app, "python", NULL);
+  g_free(picked);
   g_free(path);
 
   g_free(put(node, "package.json", "{ \"scripts\": { \"start\": \"node index.js\" } }\n", 0644));
@@ -1313,6 +1330,14 @@ static void test_run_projects(void)
   g_free(put(cargo, "src/main.rs", "fn main() { println!(\"main ran\"); }\n", 0644));
   path = put(cargo, "src/bin/other.rs", "fn main() { println!(\"other ran\"); }\n", 0644);
   check_run(path, "cargo run --bin 'other'", "cargo", "other ran\n");
+  /* the picked features and target ("Rust: Select Features…" / "Select Target…") */
+  toolchain_set(&app, "rust-features", "json,tls");
+  toolchain_set(&app, "rust-target", "wasm32-unknown-unknown");
+  check_run(path, "cargo run --bin 'other' --features 'json,tls' --target 'wasm32-unknown-unknown'", NULL, NULL);
+  toolchain_set(&app, "rust-features", "all");
+  toolchain_set(&app, "rust-target", NULL);
+  check_run(path, "cargo run --bin 'other' --all-features)", NULL, NULL);
+  toolchain_set(&app, "rust-features", NULL);
   g_free(path);
   /* a library in a workspace: cargo runs the workspace's program */
   g_free(put(other, "ws/Cargo.toml", "[workspace]\nmembers = [\"app\", \"lib\"]\nresolver = \"2\"\n", 0644));

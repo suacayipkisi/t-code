@@ -26,6 +26,7 @@
 #include "popups/quickopen.h"
 #include "project/project.h"
 #include "project/run.h"
+#include "project/toolchain.h"
 #include "project/userfiles.h"
 #include "update/update.h"
 #include "plugins/plugins.h"
@@ -273,6 +274,9 @@ static const Command commands[] = {
   { "Trigger Parameter Hints", "<Control><Shift>space", "Ctrl+Shift+Space", parameter_hints, TRUE, FALSE, FALSE },
   { "Build", "<Control><Shift>b", "Ctrl+Shift+B", build, FALSE, FALSE, FALSE },
   { "Test", NULL, NULL, test_project, FALSE, FALSE, FALSE },
+  { "Python: Select Interpreter…", NULL, NULL, toolchain_pick_python, FALSE, FALSE, FALSE },
+  { "Rust: Select Features…", NULL, NULL, toolchain_pick_features, FALSE, FALSE, FALSE },
+  { "Rust: Select Target…", NULL, NULL, toolchain_pick_target, FALSE, FALSE, FALSE },
   { "Run Without Debugging", "<Control>F5", "Ctrl+F5", run, FALSE, FALSE, FALSE },
   { "Debug: Start Debugging / Continue", "F5", "F5", debug_start_or_continue, FALSE, FALSE, FALSE },
   { "Debug: Toggle Breakpoint", "F9", "F9", toggle_breakpoint, TRUE, FALSE, FALSE },

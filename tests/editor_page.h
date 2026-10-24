@@ -32,6 +32,7 @@
 #include "lsp/navigate.c"
 #include "lsp/semantic.c"
 #include "lsp/signature.c"
+#include "project/langenv.c"
 
 static PickerQuery picker_test_query;
 static PickerChoose picker_test_choose;
@@ -74,6 +75,23 @@ void disassembly_toggle_breakpoint(App *t G_GNUC_UNUSED, int line G_GNUC_UNUSED)
 void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page G_GNUC_UNUSED) {}
 void status_say(App *t G_GNUC_UNUSED, const char *message G_GNUC_UNUSED) {}
 void files_problems_changed(App *t G_GNUC_UNUSED) {}
+/* clang-format on */
+
+/* The project's picked toolchain (toolchain.c's stand-in): set by the tests. */
+static const char *toolchain_test_python, *toolchain_test_features, *toolchain_test_target;
+char *toolchain_python(App *t G_GNUC_UNUSED, const char *root G_GNUC_UNUSED)
+{
+  return g_strdup(toolchain_test_python);
+}
+char *toolchain_rust_features(App *t G_GNUC_UNUSED)
+{
+  return g_strdup(toolchain_test_features);
+}
+char *toolchain_rust_target(App *t G_GNUC_UNUSED)
+{
+  return g_strdup(toolchain_test_target);
+}
+/* clang-format off */
 
 void status_show_indent(App *t G_GNUC_UNUSED) {}
 int tab_count(App *t G_GNUC_UNUSED) { return page_test_tab_count; }

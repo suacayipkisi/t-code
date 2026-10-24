@@ -58,6 +58,10 @@ build/test-linediff: tests/test_linediff.c src/git/linediff.c src/git/linediff.h
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_linediff.c src/git/linediff.c \
 	  $(shell pkg-config --libs glib-2.0)
 
+build/test-langenv: tests/test_langenv.c src/project/langenv.c src/project/langenv.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0) -o $@ tests/test_langenv.c src/project/langenv.c \
+	  $(shell pkg-config --libs json-glib-1.0)
+
 build/test-detect: tests/test_detect.c src/editor/detect.c src/editor/detect.h src/editor/indentconf.c \
                    src/editor/indentconf.h src/editor/blocks.c src/editor/blocks.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_detect.c src/editor/detect.c \
@@ -68,7 +72,7 @@ build/test-detect: tests/test_detect.c src/editor/detect.c src/editor/detect.h s
 # tests/editor_page.h, to reach their static functions. test-lsp runs itself with --fake-server as
 # the language server.
 PAGE_SRC := $(filter-out src/editor/tabs.c src/editor/editor.c src/editor/preview.c,$(wildcard src/editor/*.c)) \
-            $(wildcard src/lsp/*.c) src/git/linediff.c src/window/palette.c tests/editor_page.h
+            $(wildcard src/lsp/*.c) src/git/linediff.c src/window/palette.c src/project/langenv.c tests/editor_page.h
 build/test-editing: tests/test_editing.c tests/broadway.h $(PAGE_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_editing.c $(shell pkg-config --libs $(PKGS))
 
@@ -108,8 +112,7 @@ build/test-about: tests/test_about.c src/dialogs/about.c $(APP_HDR) build/licens
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_about.c \
 	  $(shell pkg-config --libs $(PKGS))
 build/test-plugins: tests/test_plugins.c src/plugins/plugins.c src/plugins/plugins.h $(APP_HDR) | build
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_plugins.c src/plugins/plugins.c \
-	  $(shell pkg-config --libs $(PKGS))
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_plugins.c $(shell pkg-config --libs $(PKGS))
 
 build/test-update: tests/test_update.c src/update/update.c src/update/update.h $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_update.c src/update/update.c \
@@ -120,11 +123,12 @@ build/test-recovery: tests/test_recovery.c src/editor/recovery.c src/editor/reco
 	  $(shell pkg-config --libs $(PKGS))
 
 
-test: build/test-searchmatch build/test-detect build/test-linediff build/test-fileops build/test-lsp build/test-debug \
+test: build/test-searchmatch build/test-detect build/test-langenv build/test-linediff build/test-fileops build/test-lsp build/test-debug \
       build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-files build/test-window build/test-about \
       build/test-plugins build/test-update build/test-recovery
 	build/test-searchmatch
 	build/test-detect
+	build/test-langenv
 	build/test-linediff
 	build/test-fileops
 	build/test-lsp
@@ -162,6 +166,9 @@ test-asan: | build
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags gio-2.0) -o build/asan/test-fileops \
 	  tests/test_fileops.c $(FILES_GIO) $(shell pkg-config --libs gio-2.0)
 	$(ASAN_ENV) build/asan/test-detect
+	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags json-glib-1.0) -o build/asan/test-langenv \
+	  tests/test_langenv.c src/project/langenv.c $(shell pkg-config --libs json-glib-1.0)
+	$(ASAN_ENV) build/asan/test-langenv
 	$(ASAN_ENV) build/asan/test-linediff
 	$(ASAN_ENV) build/asan/test-gitpatch
 	$(ASAN_ENV) build/asan/test-fileops
@@ -169,7 +176,7 @@ test-asan: | build
 	  tests/test_debug.c $(DAP_SRC) $(shell pkg-config --libs json-glib-1.0 gio-2.0)
 	$(ASAN_ENV) build/asan/test-debug
 	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -o build/asan/test-plugins \
-	  tests/test_plugins.c src/plugins/plugins.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
+	  tests/test_plugins.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
 	$(ASAN_ENV) build/asan/test-plugins
 	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o build/asan/test-update \
 	  tests/test_update.c src/update/update.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)

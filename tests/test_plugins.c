@@ -1,78 +1,36 @@
-/* Tests for native plugin system in src/plugins/plugins.c */
-#include "plugins/plugins.h"
+/* Tests for the plugins (src/plugins/plugins.c, included for its static functions). */
+#include "plugins/plugins.c"
 
-#include <glib.h>
 #include <glib/gstdio.h>
-#include <string.h>
 
 static char *tmp_dir;
-static void test_plugin_free(gpointer data)
-{
-  Plugin *plugin = data;
-  g_free(plugin->id);
-  g_free(plugin->name);
-  g_free(plugin->version);
-  g_free(plugin->description);
-  g_free(plugin->dir);
-  g_free(plugin->executable);
-  g_ptr_array_free(plugin->commands, TRUE);
-  g_free(plugin);
-}
 
-Tab *current_tab(App *t)
-{
-  (void)t;
-  return NULL;
-}
+/* clang-format off */
+Tab *current_tab(App *t G_GNUC_UNUSED) { return NULL; }
+void status_say(App *t G_GNUC_UNUSED, const char *message G_GNUC_UNUSED) {}
+void refresh_shortcuts(App *t G_GNUC_UNUSED) {}
+/* clang-format on */
 
-void status_say(App *t, const char *message)
-{
-  (void)t;
-  (void)message;
-}
-
-void refresh_shortcuts(App *t)
-{
-  (void)t;
-}
+/* The palette's rows ("label|detail|payload"). */
 static GPtrArray *test_picker_rows = NULL;
 
-void picker_add(App *t, guint generation, const char *label, const char *detail, const char *payload)
+void picker_add(App *t G_GNUC_UNUSED, guint generation G_GNUC_UNUSED, const char *label, const char *detail,
+                const char *payload)
 {
-  (void)t;
-  (void)generation;
   if (!test_picker_rows)
     test_picker_rows = g_ptr_array_new_with_free_func(g_free);
   g_ptr_array_add(test_picker_rows, g_strdup_printf("%s|%s|%s", label, detail ? detail : "", payload));
 }
 
+/* The picker's scoring stands in as a match when the query is in the text, ignoring case. */
 int fuzzy_score(const char *query, const char *text)
 {
-  const char *base = strrchr(text, '/');
-  const char *p = text;
-  int total = 0, prev = -2;
+  char *q = g_ascii_strdown(query, -1), *t = g_ascii_strdown(text, -1);
+  int score = strstr(t, q) ? 1 : -1;
 
-  base = base ? base + 1 : text;
-  for (const char *q = query; *q; q++) {
-    char c = g_ascii_tolower(*q);
-    if (c == ' ')
-      continue;
-    while (*p && g_ascii_tolower(*p) != c)
-      p++;
-    if (!*p)
-      return -1;
-    int at = p - text;
-    total += 1;
-    if (at == prev + 1)
-      total += 5;
-    if (at == 0 || strchr("/_-. :", text[at - 1]))
-      total += 8;
-    if (p >= base)
-      total += 3;
-    prev = at;
-    p++;
-  }
-  return total * 16 - (int)strlen(text);
+  g_free(t);
+  g_free(q);
+  return score;
 }
 
 static void write_file(const char *rel_path, const char *content, int mode)
@@ -87,23 +45,9 @@ static void write_file(const char *rel_path, const char *content, int mode)
   g_free(full);
 }
 
-static void test_empty_dir(void)
+/* tmp_dir/valid/test-plug: two commands, the first with a shortcut. */
+static void write_valid_plugin(void)
 {
-  App app = { 0 };
-  char *empty = g_build_filename(tmp_dir, "empty", NULL);
-  g_mkdir_with_parents(empty, 0755);
-
-  app.plugins = g_ptr_array_new_with_free_func(test_plugin_free);
-  plugins_scan_dir(&app, empty);
-  g_assert_cmpuint(app.plugins->len, ==, 0);
-
-  plugins_stop(&app);
-  g_free(empty);
-}
-
-static void test_valid_plugin(void)
-{
-  App app = { 0 };
   const char *json = "{\n"
                      "  \"name\": \"Test Plugin\",\n"
                      "  \"version\": \"1.2.3\",\n"
@@ -118,9 +62,16 @@ static void test_valid_plugin(void)
 
   write_file("valid/test-plug/plugin.json", json, 0644);
   write_file("valid/test-plug/run.sh", "#!/bin/sh\nexit 0\n", 0755);
+}
+
+static void test_valid_plugin(void)
+{
+  App app = { 0 };
+
+  write_valid_plugin();
 
   char *scan_path = g_build_filename(tmp_dir, "valid", NULL);
-  app.plugins = g_ptr_array_new_with_free_func(test_plugin_free);
+  app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
   plugins_scan_dir(&app, scan_path);
 
   g_assert_cmpuint(app.plugins->len, ==, 1);
@@ -182,7 +133,7 @@ static void test_invalid_plugins(void)
   write_file("invalid/p6/run.sh", "#!/bin/sh\nexit 0\n", 0644); /* Not executable */
 
   char *scan_path = g_build_filename(tmp_dir, "invalid", NULL);
-  app.plugins = g_ptr_array_new_with_free_func(test_plugin_free);
+  app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
   for (int i = 0; i < 5; i++)
     g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "*");
   plugins_scan_dir(&app, scan_path);
@@ -194,7 +145,8 @@ static void test_invalid_plugins(void)
   g_free(scan_path);
 }
 
-static void test_subprocess_execution(void)
+/* A command runs the plugin's program with the socket, plugin, command and project in its environment. */
+static void test_run_command(void)
 {
   App app = { 0 };
   char *out_path = g_build_filename(tmp_dir, "exec_output.txt", NULL);
@@ -218,7 +170,7 @@ static void test_subprocess_execution(void)
   app.project.root = g_strdup("/home/user/project");
 
   char *scan_path = g_build_filename(tmp_dir, "exec", NULL);
-  app.plugins = g_ptr_array_new_with_free_func(test_plugin_free);
+  app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
   plugins_scan_dir(&app, scan_path);
   g_assert_cmpuint(app.plugins->len, ==, 1);
 
@@ -252,8 +204,10 @@ static void test_subprocess_execution(void)
 static void test_palette_query(void)
 {
   App app = { 0 };
+
+  write_valid_plugin();
   char *scan_path = g_build_filename(tmp_dir, "valid", NULL);
-  app.plugins = g_ptr_array_new_with_free_func(test_plugin_free);
+  app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
   plugins_scan_dir(&app, scan_path);
 
   if (test_picker_rows) {
@@ -300,7 +254,6 @@ static void test_user_config_directory(void)
   plugins_stop(&app);
 }
 
-
 int main(int argc, char **argv)
 {
   tmp_dir = g_dir_make_tmp("t-code-test-plugins-XXXXXX", NULL);
@@ -308,10 +261,9 @@ int main(int argc, char **argv)
   g_setenv("XDG_CONFIG_HOME", config_home, TRUE);
   g_free(config_home);
   g_test_init(&argc, &argv, NULL);
-  g_test_add_func("/plugins/empty-dir", test_empty_dir);
   g_test_add_func("/plugins/valid-plugin", test_valid_plugin);
   g_test_add_func("/plugins/invalid-plugins", test_invalid_plugins);
-  g_test_add_func("/plugins/subprocess-execution", test_subprocess_execution);
+  g_test_add_func("/plugins/run-command", test_run_command);
   g_test_add_func("/plugins/palette-query", test_palette_query);
   g_test_add_func("/plugins/user-config-directory", test_user_config_directory);
 

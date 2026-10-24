@@ -12,7 +12,7 @@
  *   .js .ts ...     package.json: its start or dev script (npm, pnpm, yarn or bun by the lock file)
  *   .java .kt       pom.xml: mvn compile, then java on the file's class; build.gradle: gradle run
  *   .py             from the project's root (pyproject.toml, requirements.txt, a venv...), which goes
- *                   into PYTHONPATH, with its .venv's or venv's python when it has one
+ *                   into PYTHONPATH, with the picked interpreter or its venv's python when it has one
  * Without one, a script (scripts[], or an executable file starting with "#!") is run by its
  * interpreter in its folder. Build checks the syntax when the language has a way to.
  * A build for debugging ends with "t-code --send 'debug <program>'" (or "debug-failed <dir>" when it
@@ -25,6 +25,8 @@
 #include "editor/editor.h"
 #include "editor/tabs.h"
 #include "lsp/json.h"
+#include "project/langenv.h"
+#include "project/toolchain.h"
 #include "window/terminal.h"
 #include <json-glib/json-glib.h>
 
@@ -86,6 +88,8 @@ typedef struct {
   const char *file;     /* the current file */
   const Script *script; /* PROJECT_SCRIPT: how it runs */
   char *python;         /* a Python file's project root, or NULL */
+  char *interpreter;    /* the Python it runs with (toolchain_python), or NULL: python3 */
+  char *cargo_flags;    /* PROJECT_CARGO: the picked features and target (" --features a") */
   char *task_name;      /* PROJECT_TASKS: profile or task name */
 } Project;
 
@@ -93,6 +97,8 @@ static void project_clear(Project *p)
 {
   g_free(p->root);
   g_free(p->python);
+  g_free(p->interpreter);
+  g_free(p->cargo_flags);
   g_free(p->task_name);
 }
 
@@ -361,7 +367,7 @@ static Project find_project(App *t)
   Tab *tab = current_tab(t);
   const char *file = tab && tab->kind == TAB_EDITOR ? tab->path : NULL;
   char *start = file ? g_path_get_dirname(file) : g_strdup(t->project.root);
-  Project p = { PROJECT_NONE, NULL, file, NULL, NULL, NULL };
+  Project p = { .kind = PROJECT_NONE, .file = file };
   gboolean cxx;
 
   if ((p.root = find_up(start, tasks))) {
@@ -371,13 +377,20 @@ static Project find_project(App *t)
       p.task_name = g_strdup(tp.name);
       task_profile_clear(&tp);
     }
-  } else if (find_language_project(&p, start))
-    ;
-  else if ((p.script = script_of(file))) {
+  } else if (find_language_project(&p, start)) {
+    if (p.kind == PROJECT_CARGO) {
+      char *features = toolchain_rust_features(t), *target = toolchain_rust_target(t);
+      p.cargo_flags = langenv_cargo_flags(features, target);
+      g_free(target);
+      g_free(features);
+    }
+  } else if ((p.script = script_of(file))) {
     p.kind = PROJECT_SCRIPT;
     p.root = g_strdup(file);
-    if (has_ext(file, python))
+    if (has_ext(file, python)) {
       p.python = python_root(start);
+      p.interpreter = toolchain_python(t, p.python);
+    }
   } else if ((p.root = find_up(start, cmake)))
     p.kind = PROJECT_CMAKE;
   else if ((p.root = find_up(start, meson)))
@@ -618,20 +631,6 @@ static char *file_command(const char *file, Goal goal)
   return cmd;
 }
 
-/* The project's venv python, or NULL. */
-static char *venv_python(const char *root)
-{
-  static const char *const venvs[] = { ".venv/bin/python", "venv/bin/python", NULL };
-
-  for (int i = 0; root && venvs[i]; i++) {
-    char *path = g_build_filename(root, venvs[i], NULL);
-    if (g_file_test(path, G_FILE_TEST_IS_EXECUTABLE))
-      return path;
-    g_free(path);
-  }
-  return NULL;
-}
-
 /* A Python file's module name when it is inside its root's packages ("app.cli" for app/cli.py with
  * app/__init__.py; "app" for app/__main__.py), else NULL: it then runs as a file. Relative imports
  * (from .core import x) work only when it runs as a module. */
@@ -680,7 +679,8 @@ static char *script_command(const Project *p, Goal goal)
   const Script *script = p->script;
   char *dir = p->python ? g_strdup(p->python) : g_path_get_dirname(p->file);
   char *qdir = g_shell_quote(dir), *qfile = g_shell_quote(p->file);
-  char *venv = venv_python(p->python), *qvenv = venv ? g_shell_quote(venv) : NULL;
+  const char *venv = p->interpreter;
+  char *qvenv = venv ? g_shell_quote(venv) : NULL;
   char *program = script->run ? script_program(script) : NULL;
   /* The interpreter and the syntax check, which starts with it: the venv's python replaces it. */
   char *run = qvenv ? g_strdup(qvenv) : g_strdup(script->run);
@@ -713,7 +713,6 @@ static char *script_command(const Project *p, Goal goal)
   g_free(run);
   g_free(program);
   g_free(qvenv);
-  g_free(venv);
   g_free(qfile);
   g_free(qdir);
   g_free(dir);
@@ -870,9 +869,10 @@ static char *language_command(const Project *p, Goal goal)
     case PROJECT_CARGO: {
       char *target = cargo_target(p->root, p->file), *where = cargo_root(p->root), *qwhere = g_shell_quote(where);
       program = "cargo";
-      cmd = goal == GOAL_TEST  ? g_strdup_printf("(cd %s && cargo test)", qwhere)
-            : goal == GOAL_RUN ? g_strdup_printf("(cd %s && cargo run%s)", qwhere, target)
-                               : g_strdup_printf("(cd %s && cargo build%s)", qwhere, target);
+      const char *flags = p->cargo_flags ? p->cargo_flags : "";
+      cmd = goal == GOAL_TEST  ? g_strdup_printf("(cd %s && cargo test%s)", qwhere, flags)
+            : goal == GOAL_RUN ? g_strdup_printf("(cd %s && cargo run%s%s)", qwhere, target, flags)
+                               : g_strdup_printf("(cd %s && cargo build%s%s)", qwhere, target, flags);
       g_free(qwhere);
       g_free(where);
       g_free(target);
@@ -961,11 +961,11 @@ char *project_summary(App *t)
     case PROJECT_MAVEN: text = g_strdup_printf("Maven: %s", name); break;
     case PROJECT_GRADLE: text = g_strdup_printf("Gradle: %s", name); break;
     case PROJECT_SCRIPT: {
-      char *venv = venv_python(p.python);
-      char *program = venv ? g_strdup("python (venv)") : p.script->run ? script_program(p.script) : g_strdup("Run");
+      char *program = p.interpreter   ? langenv_interpreter_name(p.interpreter)
+                      : p.script->run ? script_program(p.script)
+                                      : g_strdup("Run");
       text = g_strdup_printf("%s: %s", program, name);
       g_free(program);
-      g_free(venv);
       break;
     }
     default: text = g_strdup("Nothing to build"); break;
@@ -1025,13 +1025,12 @@ static char *goal_command(App *t, Goal goal, char **cwd)
       break;
     case PROJECT_SCRIPT:
       if (goal == GOAL_TEST && p.python) {
-        char *python = venv_python(p.python);
+        const char *python = p.interpreter;
         char *qroot = g_shell_quote(p.python), *qpython = g_shell_quote(python ? python : "python3");
         char *test = g_strdup_printf("(cd %s && %s -m pytest)", qroot, qpython);
         command = python ? test : if_installed("python3", test);
         g_free(qpython);
         g_free(qroot);
-        g_free(python);
       } else if (goal == GOAL_TEST)
         command = g_strdup("echo 't-code: no Python test project found'; false");
       else

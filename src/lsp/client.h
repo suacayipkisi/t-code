@@ -35,6 +35,8 @@ void lsp_stop(App *t);
 /* Starts the server again with the open files (its settings changed, or the user asked: it reads
  * the compile flags again); one that gave up after crashing or was not found is tried again. */
 void lsp_restart(App *t);
+/* Restarts the server of language ("python", "go", "rust"): its project settings changed. */
+void lsp_restart_language(App *t, const char *language);
 /* Restarts only clangd, for clang-specific settings and compile-flag hints. */
 void lsp_restart_clangd(App *t);
 

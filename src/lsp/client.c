@@ -11,6 +11,8 @@
 #include "lsp/diagnostics.h"
 #include "lsp/navigate.h"
 #include "lsp/semantic.h"
+#include "project/langenv.h"
+#include "project/toolchain.h"
 #include "window/statusbar.h"
 
 #include <string.h>
@@ -560,9 +562,52 @@ static ServerKind server_kind_for_tab(Tab *tab)
   return SERVER_NONE;
 }
 
-static gboolean server_installed(ServerKind kind)
+#ifndef SERVER_ARGV
+/* The pylsp installed in the project's Python's venv (it sees the venv's packages), or NULL. */
+static char *venv_pylsp(App *t)
+{
+  char *python = toolchain_python(t, NULL), *bin = python ? g_path_get_dirname(python) : NULL;
+  char *pylsp = bin ? g_build_filename(bin, "pylsp", NULL) : NULL;
+
+  if (pylsp && !g_file_test(pylsp, G_FILE_TEST_IS_EXECUTABLE))
+    g_clear_pointer(&pylsp, g_free);
+  g_free(bin);
+  g_free(python);
+  return pylsp;
+}
+#endif
+
+/* initializationOptions for the server: rust-analyzer's Cargo features and target; NULL for none. */
+static char *server_options(Lsp *l)
+{
+  if (l->kind != SERVER_RUST)
+    return NULL;
+  char *features = toolchain_rust_features(l->app), *target = toolchain_rust_target(l->app);
+  char *options = langenv_rust_options(features, target);
+
+  g_free(target);
+  g_free(features);
+  return options;
+}
+
+/* The settings sent after initialize (workspace/didChangeConfiguration): pylsp's Python for jedi;
+ * NULL for none. */
+static char *server_settings(Lsp *l)
+{
+  if (l->kind != SERVER_PYTHON)
+    return NULL;
+  char *python = toolchain_python(l->app, NULL), *quoted = python ? json_quote(python) : NULL;
+  char *settings = quoted ? g_strdup_printf("{\"pylsp\":{\"plugins\":{\"jedi\":{\"environment\":%s}}}}", quoted) : NULL;
+
+  g_free(quoted);
+  g_free(python);
+  return settings;
+}
+
+static gboolean server_installed(App *t, ServerKind kind)
 {
 #ifdef SERVER_ARGV
+  (void)t;
   return kind != SERVER_NONE;
 #else
   if (kind == SERVER_CLANGD)
@@ -570,7 +615,10 @@ static gboolean server_installed(ServerKind kind)
   if (kind == SERVER_NONE)
     return FALSE;
   const char *const *argv = server_command(kind);
-  char *path = g_find_program_in_path(argv[0]);
+  char *path = kind == SERVER_PYTHON ? venv_pylsp(t) : NULL;
+
+  if (!path)
+    path = g_find_program_in_path(argv[0]);
   gboolean found = path != NULL;
 
   g_free(path);
@@ -743,6 +791,13 @@ static void on_initialized(JsonNode *result, gpointer data)
   l->utf16 = g_strcmp0(encoding, "utf-8") != 0;
   l->ready = TRUE;
   notify(l, "initialized", "{}");
+  char *settings = server_settings(l);
+  if (settings) {
+    char *params = g_strdup_printf("{\"settings\":%s}", settings);
+    notify(l, "workspace/didChangeConfiguration", params);
+    g_free(params);
+    g_free(settings);
+  }
   g_hash_table_iter_init(&iter, l->docs);
   while (g_hash_table_iter_next(&iter, NULL, &doc)) {
     GHashTableIter other_iter;
@@ -867,10 +922,16 @@ static void server_start(Lsp *l)
       G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
   GPtrArray *argv = g_ptr_array_new();
   GError *error = NULL;
-  char *uri, *quoted, *params;
+  char *uri, *quoted, *params, *options;
+
+#ifndef SERVER_ARGV
+  char *pylsp = l->kind == SERVER_PYTHON ? venv_pylsp(l->app) : NULL;
+#else
+  char *pylsp = NULL;
+#endif
 
   for (int i = 0; server_argv[i]; i++)
-    g_ptr_array_add(argv, (char *)server_argv[i]);
+    g_ptr_array_add(argv, i == 0 && pylsp ? pylsp : (char *)server_argv[i]);
 #ifdef TIDY_FLAG
   if (l->kind == SERVER_CLANGD)
     g_ptr_array_add(argv, l->app->settings.clang_tidy ? "--clang-tidy" : "--clang-tidy=false");
@@ -882,6 +943,7 @@ static void server_start(Lsp *l)
   l->process = g_subprocess_launcher_spawnv(launcher, (const char *const *)argv->pdata, &error);
   g_object_unref(launcher);
   g_ptr_array_free(argv, TRUE);
+  g_free(pylsp);
   if (!l->process) {
     g_warning("t-code: cannot start %s: %s", server_argv[0], error->message);
     l->missing = TRUE;
@@ -899,6 +961,7 @@ static void server_start(Lsp *l)
   l->ch->on_closed = on_server_closed;
   channel_read(l->ch);
 
+  options = server_options(l);
   uri = lsp_path_to_uri(l->workspace);
   quoted = json_quote(uri ? uri : "");
   params = g_strdup_printf(
@@ -924,8 +987,15 @@ static void server_start(Lsp *l)
       "\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"macro\",\"concept\"],"
       "\"tokenModifiers\":[\"declaration\",\"definition\",\"readonly\",\"static\",\"deprecated\"]}}}}",
       getpid(), quoted, quoted);
+  if (options) {
+    params[strlen(params) - 1] = '\0'; /* its closing brace */
+    char *with = g_strdup_printf("%s,\"initializationOptions\":%s}", params, options);
+    g_free(params);
+    params = with;
+  }
   send_request(l, NULL, "initialize", params, NULL, on_initialized, l);
   g_free(params);
+  g_free(options);
   g_free(quoted);
   g_free(uri);
 }
@@ -948,7 +1018,7 @@ gboolean lsp_wants(Tab *tab)
 {
   ServerKind kind = server_kind_for_tab(tab);
 
-  return !tab->view->readonly && !tab->compare.with && kind != SERVER_NONE && server_installed(kind);
+  return !tab->view->readonly && !tab->compare.with && kind != SERVER_NONE && server_installed(tab->app, kind);
 }
 
 void lsp_open(Tab *tab)
@@ -1090,6 +1160,18 @@ void lsp_restart(App *t)
     return;
   for (guint i = 0; i < t->lsps->len; i++)
     restart_one(g_ptr_array_index(t->lsps, i));
+  update_status(t);
+}
+
+void lsp_restart_language(App *t, const char *language)
+{
+  if (!t->lsps)
+    return;
+  for (guint i = 0; i < t->lsps->len; i++) {
+    Lsp *l = g_ptr_array_index(t->lsps, i);
+    if (g_strcmp0(server_language(l->kind), language) == 0)
+      restart_one(l);
+  }
   update_status(t);
 }
 

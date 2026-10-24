@@ -483,6 +483,31 @@ static void test_hover_fixes(void)
   free_tab(tab);
 }
 
+/* rust-analyzer gets the picked Cargo features and target as initializationOptions, pylsp the
+ * picked Python as jedi's environment; other servers neither. */
+static void test_toolchain_options(void)
+{
+  Lsp rust = { .kind = SERVER_RUST, .app = &app }, python = { .kind = SERVER_PYTHON, .app = &app };
+  Lsp c = { .kind = SERVER_CLANGD, .app = &app };
+  char *text;
+
+  g_assert_null(server_options(&rust)); /* nothing picked */
+  g_assert_null(server_settings(&python));
+  toolchain_test_features = "json,serde";
+  toolchain_test_target = "wasm32-unknown-unknown";
+  toolchain_test_python = "/p/.venv/bin/python";
+  text = server_options(&rust);
+  g_assert_cmpstr(text, ==, "{\"cargo\":{\"features\":[\"json\",\"serde\"],\"target\":\"wasm32-unknown-unknown\"}}");
+  g_free(text);
+  text = server_settings(&python);
+  g_assert_cmpstr(text, ==, "{\"pylsp\":{\"plugins\":{\"jedi\":{\"environment\":\"/p/.venv/bin/python\"}}}}");
+  g_free(text);
+  g_assert_null(server_options(&python));
+  g_assert_null(server_settings(&rust));
+  g_assert_null(server_options(&c));
+  toolchain_test_features = toolchain_test_target = toolchain_test_python = NULL;
+}
+
 static gboolean workspace_answered(void)
 {
   return picker_test_label || (picker_test_message && strcmp(picker_test_message, "Searching workspace symbols…"));
@@ -1402,6 +1427,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/reload", test_reload);
   g_test_add_func("/lsp/hover", test_hover);
   g_test_add_func("/lsp/hover-fixes", test_hover_fixes);
+  g_test_add_func("/lsp/toolchain-options", test_toolchain_options);
   g_test_add_func("/lsp/document-highlight", test_document_highlight);
   g_test_add_func("/lsp/inactive-regions", test_inactive_regions);
   g_test_add_func("/lsp/cancel", test_cancel);
