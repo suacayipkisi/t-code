@@ -214,8 +214,29 @@ static void draw_gap(GtkSnapshot *snapshot, const GdkRGBA *fill, const GdkRGBA *
   gtk_snapshot_append_color(snapshot, edge, &GRAPHENE_RECT_INIT(x, (float)(y + height - 1), width, 1));
 }
 
-/* A comparison's changed lines, tinted (green on the new side, red on the old one), and its gap
- * rows: on the new side red where lines were deleted, on the old side black where lines were added. */
+/* The row standing for count unchanged lines a comparison hides: "⋯ N unchanged lines". */
+static void draw_folded(TcodeView *self, GtkSnapshot *snapshot, const GdkRectangle *visible, int y, int height,
+                        int count)
+{
+  char *text = g_strdup_printf("⋯ %d unchanged line%s", count, count == 1 ? "" : "s");
+  PangoLayout *layout = gtk_widget_create_pango_layout(GTK_WIDGET(self), text);
+  int text_height;
+
+  draw_gap(snapshot, palette_rgba(PAL_INPUT), palette_rgba(PAL_GUIDE), visible, y, height);
+  pango_layout_get_pixel_size(layout, NULL, &text_height);
+  gtk_snapshot_save(snapshot);
+  gtk_snapshot_translate(snapshot,
+                         &GRAPHENE_POINT_INIT((float)(visible->x + gtk_text_view_get_left_margin(GTK_TEXT_VIEW(self))),
+                                              (float)(y + (height - text_height) / 2)));
+  gtk_snapshot_append_layout(snapshot, layout, palette_rgba(PAL_FG_DIM));
+  gtk_snapshot_restore(snapshot);
+  g_object_unref(layout);
+  g_free(text);
+}
+
+/* A comparison's changed lines, tinted (green on the new side, red on the old one), its gap
+ * rows: on the new side red where lines were deleted, on the old side black where lines were added,
+ * and the rows standing for hidden unchanged lines. */
 static void draw_diff_gaps(TcodeView *self, GtkSnapshot *snapshot)
 {
   GdkRGBA deleted_fill = *palette_rgba(PAL_DIFF_DELETED), deleted_edge = deleted_fill;
@@ -247,11 +268,18 @@ static void draw_diff_gaps(TcodeView *self, GtkSnapshot *snapshot)
     gboolean new_side = diff_gutter_line_gaps(self->tab, line, &above_px, &below_px);
     const GdkRGBA *fill = new_side ? &deleted_fill : &added_fill, *edge = new_side ? &deleted_edge : &added_edge;
     gboolean changed = diff_gutter_line_changed(self->tab, line);
+    int row_px, folded = diff_gutter_line_folded(self->tab, line, &row_px);
 
-    if (above_px <= 0 && below_px <= 0 && !changed)
+    if ((above_px <= 0 && below_px <= 0 && !changed) || diff_gutter_line_hidden(self->tab, line))
       continue;
     gtk_text_buffer_get_iter_at_line(buffer, &iter, line);
     gtk_text_view_get_line_yrange(view, &iter, &y, &height);
+    if (folded) {
+      draw_folded(self, snapshot, &visible, y, row_px, folded);
+      y += row_px; /* the line and its gaps below the row */
+      height -= row_px;
+      above_px -= row_px;
+    }
     if (changed) /* the text's rows only, not the gaps around them */
       gtk_snapshot_append_color(snapshot, new_side ? &inserted_line : &removed_line,
                                 &GRAPHENE_RECT_INIT((float)visible.x, (float)(y + above_px), (float)visible.width,
@@ -301,7 +329,10 @@ static void draw_guides(TcodeView *self, GtkSnapshot *snapshot)
   last = gtk_text_iter_get_line(&iter);
 
   for (int line = first; line <= last; line++) {
-    int y, height, above_px = 0, below_px = 0, count = guide_count(buffer, line, ts);
+    int y, height, above_px = 0, below_px = 0, count;
+    if (diff_gutter_line_hidden(self->tab, line))
+      continue;
+    count = guide_count(buffer, line, ts);
     diff_gutter_line_gaps(self->tab, line, &above_px, &below_px);
     gtk_text_buffer_get_iter_at_line(buffer, &iter, line);
     gtk_text_view_get_line_yrange(view, &iter, &y, &height);
@@ -315,7 +346,7 @@ static void draw_guides(TcodeView *self, GtkSnapshot *snapshot)
     const GdkRGBA *ink = palette_rgba(self->tab->app->plain ? PAL_GUIDE_ACTIVE : PAL_PAIR1 + column / ts % 3);
     for (int line = MAX(open + 1, first); column != G_MAXINT && line < close && line <= last; line++) {
       int y, height, above_px = 0, below_px = 0, indent = indent_of(buffer, line, ts);
-      if (indent >= 0 && indent <= column)
+      if ((indent >= 0 && indent <= column) || diff_gutter_line_hidden(self->tab, line))
         continue;
       diff_gutter_line_gaps(self->tab, line, &above_px, &below_px);
       gtk_text_buffer_get_iter_at_line(buffer, &iter, line);

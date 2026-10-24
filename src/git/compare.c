@@ -503,6 +503,14 @@ void stop_comparing(App *t)
     stop_comparing_tab(tab);
 }
 
+void toggle_unchanged_lines(App *t)
+{
+  Tab *tab = current_tab(t);
+
+  if (tab && tab->kind == TAB_EDITOR)
+    diff_gutter_toggle_unchanged(tab);
+}
+
 /* File history ------------------------------------------------------------------------------- */
 
 static char *history_path;

@@ -295,6 +295,7 @@ static const Command commands[] = {
   { "Git: Compare with HEAD", "<Control><Alt>d", "Ctrl+Alt+D", compare_head, FALSE, FALSE, FALSE },
   { "Git: File History…", "<Control><Alt>h", "Ctrl+Alt+H", history, FALSE, FALSE, FALSE },
   { "Git: Stop Comparing", NULL, NULL, stop_comparing, FALSE, TRUE, FALSE },
+  { "Git: Show / Hide Unchanged Lines", NULL, NULL, toggle_unchanged_lines, FALSE, TRUE, FALSE },
   { "Markdown Preview", "<Control><Shift>v", "Ctrl+Shift+V", preview, FALSE, TRUE, FALSE },
   { "Split Editor", "<Control>backslash", "Ctrl+\\", toggle_split, FALSE, FALSE, FALSE },
   { "View: Move Editor into New Window", NULL, NULL, move_to_new_window, FALSE, TRUE, FALSE },

@@ -6,6 +6,7 @@
 #include "editor/folding.h"
 
 #include "editor/blocks.h"
+#include "editor/diffgutter.h"
 #include "editor/editorview.h"
 #include "editor/sticky.h"
 #include "window/palette.h"
@@ -474,7 +475,7 @@ static void query_number(GtkSourceGutterRenderer *renderer, GtkSourceGutterLines
   Folding *f = TCODE_LINE_NUMBERS(renderer)->folding;
   char number[24];
 
-  if (f && line_hidden(f, (int)line)) {
+  if (f && (line_hidden(f, (int)line) || diff_gutter_line_hidden(f->tab, (int)line))) {
     gtk_source_gutter_renderer_text_set_text(text, "", 0);
     return;
   }

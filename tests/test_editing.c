@@ -885,6 +885,106 @@ static void test_wrapped_heights(void)
   g_string_free(text, TRUE);
 }
 
+static void line_yrange(Tab *tab, int line, int *y, int *height)
+{
+  GtkTextIter iter;
+
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(tab->buffer), &iter, line);
+  gtk_text_view_get_line_yrange(GTK_TEXT_VIEW(tab->source), &iter, y, height);
+}
+
+/* "h" for each line a comparison hides, "." for each shown one. */
+static char *compared_lines(Tab *tab, int lines)
+{
+  GString *out = g_string_new(NULL);
+
+  for (int line = 0; line < lines; line++)
+    g_string_append_c(out, diff_gutter_line_hidden(tab, line) ? 'h' : '.');
+  return g_string_free(out, FALSE);
+}
+
+static void check_compared_lines(Tab *tab, const char *expected)
+{
+  char *lines = compared_lines(tab, (int)strlen(expected));
+
+  g_assert_cmpstr(lines, ==, expected);
+  g_free(lines);
+}
+
+/* A comparison shows its changes with three lines around each: the other unchanged lines are hidden
+ * on both sides alike (but the last), a row standing for each stretch, and the sides stay lined up.
+ * The toggle, or the cursor going into hidden lines, shows them all. */
+static void test_comparison_folds(void)
+{
+  GString *old_text = g_string_new(NULL), *new_text = g_string_new(NULL);
+  const char *folded = "hhhhhhhhhhhh.......hhhhhhhhhh.", *shown = "..............................";
+  GtkWidget *window = gtk_window_new(), *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  int row_px;
+
+  for (int n = 0; n < 30; n++) {
+    g_string_append_printf(old_text, "l%d\n", n);
+    g_string_append_printf(new_text, n == 15 ? "changed\n" : "l%d\n", n);
+  }
+  Tab *new_side = new_tab(new_text->str), *old_side = new_tab(old_text->str);
+  GtkTextIter at;
+  diff_gutter_pair(new_side, old_side);
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(new_side->buffer), &at, 15); /* editor_goto is a stub here */
+  gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(new_side->buffer), &at);
+  check_compared_lines(new_side, folded);
+  check_compared_lines(old_side, folded);
+  g_assert_cmpint(diff_gutter_line_folded(new_side, 12, &row_px), ==, 12);
+  g_assert_cmpint(row_px, >, 0);
+  g_assert_cmpint(diff_gutter_line_folded(old_side, 29, &row_px), ==, 10);
+  g_assert_cmpint(diff_gutter_line_folded(new_side, 13, &row_px), ==, 0);
+
+  /* Laid out: hidden lines take no height, the row stands above the next line. */
+  gtk_box_append(GTK_BOX(box), new_side->page);
+  gtk_box_append(GTK_BOX(box), old_side->page);
+  gtk_window_set_default_size(GTK_WINDOW(window), 800, 600);
+  gtk_window_set_child(GTK_WINDOW(window), box);
+  gtk_window_present(GTK_WINDOW(window));
+  for (gint64 until = g_get_monotonic_time() + 3 * G_USEC_PER_SEC;
+       !gtk_widget_get_mapped(GTK_WIDGET(new_side->source)) && g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, TRUE);
+  run_for(400); /* the marks are made again too: nothing hidden changes */
+  check_compared_lines(new_side, folded);
+  if (gtk_widget_get_mapped(GTK_WIDGET(new_side->source))) {
+    int y, height, line_px, new_y, old_y;
+    diff_gutter_line_folded(new_side, 12, &row_px);
+    line_yrange(new_side, 13, &y, &line_px);
+    line_yrange(new_side, 12, &y, &height);
+    g_assert_cmpint(y, ==, 0);
+    g_assert_cmpint(height, ==, row_px + line_px);
+    line_yrange(new_side, 15, &new_y, &height);
+    line_yrange(old_side, 15, &old_y, &height);
+    g_assert_cmpint(new_y, ==, row_px + 3 * line_px);
+    g_assert_cmpint(old_y, ==, new_y);
+    line_yrange(new_side, 29, &new_y, &height);
+    line_yrange(old_side, 29, &old_y, &height);
+    g_assert_cmpint(new_y, ==, row_px + 7 * line_px); /* its row starts there */
+    g_assert_cmpint(old_y, ==, new_y);
+  }
+
+  diff_gutter_toggle_unchanged(old_side); /* either side's tab */
+  check_compared_lines(new_side, shown);
+  check_compared_lines(old_side, shown);
+  diff_gutter_toggle_unchanged(new_side);
+  check_compared_lines(old_side, folded);
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(old_side->buffer), &at, 3);
+  gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(old_side->buffer), &at);
+  check_compared_lines(new_side, shown);
+
+  diff_gutter_pair(new_side, NULL); /* no comparison: nothing hidden */
+  diff_gutter_toggle_unchanged(new_side);
+  check_compared_lines(new_side, shown);
+  gtk_window_set_child(GTK_WINDOW(window), NULL); /* the tabs keep their pages */
+  gtk_window_destroy(GTK_WINDOW(window));
+  free_tab(old_side);
+  free_tab(new_side);
+  g_string_free(old_text, TRUE);
+  g_string_free(new_text, TRUE);
+}
+
 /* Folding ---------------------------------------------------------------------------------- */
 
 static void place_cursor(Tab *tab, int line)
@@ -1252,6 +1352,7 @@ int main(int argc, char **argv)
   g_test_add_func("/diff-gutter/marks", test_diff_gutter);
   g_test_add_func("/diff-gutter/trailing-newline", test_trailing_newline);
   g_test_add_func("/diff-gutter/comparison-gaps", test_comparison_gaps);
+  g_test_add_func("/diff-gutter/comparison-folds", test_comparison_folds);
   g_test_add_func("/diff-gutter/wrapped-heights", test_wrapped_heights);
   g_test_add_func("/folding/fold-unfold", test_folding);
   g_test_add_func("/sticky/heads", test_sticky);

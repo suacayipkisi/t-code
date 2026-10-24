@@ -3,6 +3,9 @@
  */
 #include "git/linediff.h"
 
+#include <stdlib.h>
+#include <string.h>
+
 /* The marks as a string, one letter per line: . same, A added, M modified, D deleted above. */
 static char *marks_of(const char *old, const char *new)
 {
@@ -80,7 +83,7 @@ static void test_big(void)
 static char *wrapped_gaps_of(const char *old, const char *new, const int *old_rows, const int *new_rows,
                              gboolean old_side)
 {
-  GArray *gaps = line_diff_gaps(old, new, old_rows, new_rows, old_side);
+  GArray *gaps = line_diff_gaps(old, new, NULL, old_rows, new_rows, old_side);
   GString *text = g_string_new(NULL);
 
   for (guint i = 0; i < gaps->len; i++) {
@@ -145,7 +148,7 @@ static char *spans_of(const char *old, const char *new, gboolean old_side)
 {
   const char *text = old_side ? old : new;
   char **lines = g_strsplit(text, "\n", -1);
-  GArray *spans = line_diff_spans(old, new, old_side);
+  GArray *spans = line_diff_spans(old, new, NULL, old_side);
   GString *out = g_string_new(NULL);
 
   for (guint i = 0; i < spans->len; i++) {
@@ -184,6 +187,61 @@ static void test_spans(void)
   check_spans("a b c\n", "a x y c\n", "0 0:x y", "0 0:b"); /* "x y": one span over the space */
 }
 
+/* lines lines "l<n>", but those in changed ("|"-separated "n=text", text "-" deletes the line). */
+static char *numbered(int lines, const char *changed)
+{
+  GString *text = g_string_new(NULL);
+  char **changes = g_strsplit(changed, "|", -1);
+
+  for (int n = 0; n < lines; n++) {
+    const char *with = NULL;
+    for (char **c = changes; *c && **c; c++)
+      if (atoi(*c) == n)
+        with = strchr(*c, '=') + 1;
+    if (!with)
+      g_string_append_printf(text, "l%d\n", n);
+    else if (strcmp(with, "-") != 0)
+      g_string_append_printf(text, "%s\n", with);
+  }
+  g_strfreev(changes);
+  return g_string_free(text, FALSE);
+}
+
+/* The folds as a string: "<old line>:<new line>+<count>", context 3 and at least 4 lines. */
+static void check_folds(const char *old, const char *new, const char *expected)
+{
+  GArray *hunks = line_diff_hunks(old, new), *folds = line_diff_folds(hunks, line_count(new), 3, 4);
+  GString *text = g_string_new(NULL);
+
+  for (guint i = 0; i < folds->len; i++) {
+    DiffFold *fold = &g_array_index(folds, DiffFold, i);
+    g_string_append_printf(text, "%s%u:%u+%u", text->len ? " " : "", fold->old_line, fold->new_line, fold->count);
+  }
+  g_assert_cmpstr(text->str, ==, expected);
+  g_string_free(text, TRUE);
+  g_array_unref(folds);
+  g_array_unref(hunks);
+}
+
+/* A comparison folds away what did not change, but three lines around each change and the last
+ * line; the two sides' folds line up (the same count of lines). */
+static void test_folds(void)
+{
+  char *same = numbered(30, ""), *changed = numbered(30, "15=new"), *deleted = numbered(30, "10=-|11=-");
+  char *close = numbered(12, "2=x|9=y"), *same_close = numbered(12, "");
+
+  check_folds(same, changed, "0:0+12 19:19+10");
+  check_folds(same, deleted, "0:0+7 15:13+14");
+  check_folds(deleted, same, "0:0+7 13:15+14");
+  check_folds(same, same, "");        /* nothing changed: nothing folded */
+  check_folds(same_close, close, ""); /* too few lines between the changes */
+  g_free(same);
+  g_free(changed);
+  g_free(deleted);
+  g_free(close);
+  g_free(same_close);
+}
+
 int main(int argc, char **argv)
 {
   g_test_init(&argc, &argv, NULL);
@@ -196,5 +254,6 @@ int main(int argc, char **argv)
   g_test_add_func("/linediff/gaps", test_gaps);
   g_test_add_func("/linediff/wrapped-gaps", test_wrapped_gaps);
   g_test_add_func("/linediff/spans", test_spans);
+  g_test_add_func("/linediff/folds", test_folds);
   return g_test_run();
 }

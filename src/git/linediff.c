@@ -44,13 +44,17 @@ static const char *line(Lines *l, guint i)
   return g_ptr_array_index(l->lines, i);
 }
 
-/* A stretch where the versions differ: deleted lines of old from old_start, added lines of new
- * from new_start. */
-typedef void (*HunkFunc)(guint old_start, guint deleted, guint new_start, guint added, gpointer data);
-
-/* Calls hunk for each stretch where old and new differ, in order. */
-static void walk_hunks(Lines *old, Lines *new, HunkFunc hunk, gpointer data)
+static void add_hunk(GArray *hunks, guint old_start, guint deleted, guint new_start, guint added)
 {
+  DiffHunk hunk = { old_start, deleted, new_start, added };
+
+  g_array_append_val(hunks, hunk);
+}
+
+/* The stretches where old and new differ, in order. */
+static GArray *hunks_of(Lines *old, Lines *new)
+{
+  GArray *hunks = g_array_new(FALSE, FALSE, sizeof(DiffHunk));
   guint head = 0, tail = 0, n, m;
 
   while (head < old->lines->len && head < new->lines->len && strcmp(line(old, head), line(new, head)) == 0)
@@ -63,22 +67,28 @@ static void walk_hunks(Lines *old, Lines *new, HunkFunc hunk, gpointer data)
 
   if (n == 0 || m == 0 || (gsize)n * m > MAX_CELLS) {
     if (n || m)
-      hunk(head, n, head, m, data);
-    return;
+      add_hunk(hunks, head, n, head, m);
+    return hunks;
   }
+  /* Lines are compared by their hashes first: most pairs differ, and a strcmp costs more. */
+  guint *old_hash = g_new(guint, n), *new_hash = g_new(guint, m);
+  for (guint k = 0; k < n; k++)
+    old_hash[k] = g_str_hash(line(old, head + k));
+  for (guint k = 0; k < m; k++)
+    new_hash[k] = g_str_hash(line(new, head + k));
   /* lcs[i][j]: the common lines of old[i..] and new[j..] (of the middle part). */
   guint16 *lcs = g_new0(guint16, (gsize)(n + 1) * (m + 1));
   guint i = 0, j = 0, start_i = 0, start_j = 0;
 #define LCS(a, b) lcs[(gsize)(a) * (m + 1) + (b)]
+#define SAME(a, b) (old_hash[a] == new_hash[b] && strcmp(line(old, head + (a)), line(new, head + (b))) == 0)
   for (int a = (int)n - 1; a >= 0; a--)
     for (int b = (int)m - 1; b >= 0; b--)
-      LCS(a, b) = strcmp(line(old, head + a), line(new, head + b)) == 0 ? LCS(a + 1, b + 1) + 1
-                                                                        : MAX(LCS(a + 1, b), LCS(a, b + 1));
+      LCS(a, b) = SAME(a, b) ? LCS(a + 1, b + 1) + 1 : MAX(LCS(a + 1, b), LCS(a, b + 1));
   /* Walk it: a common line ends a stretch of deletions and additions. */
   while (i < n || j < m) {
-    if (i < n && j < m && strcmp(line(old, head + i), line(new, head + j)) == 0) {
+    if (i < n && j < m && SAME(i, j)) {
       if (i > start_i || j > start_j)
-        hunk(head + start_i, i - start_i, head + start_j, j - start_j, data);
+        add_hunk(hunks, head + start_i, i - start_i, head + start_j, j - start_j);
       i++, j++;
       start_i = i, start_j = j;
     } else if (j < m && (i == n || LCS(i, j + 1) >= LCS(i + 1, j))) {
@@ -88,9 +98,43 @@ static void walk_hunks(Lines *old, Lines *new, HunkFunc hunk, gpointer data)
     }
   }
   if (i > start_i || j > start_j)
-    hunk(head + start_i, i - start_i, head + start_j, j - start_j, data);
+    add_hunk(hunks, head + start_i, i - start_i, head + start_j, j - start_j);
+#undef SAME
 #undef LCS
   g_free(lcs);
+  g_free(old_hash);
+  g_free(new_hash);
+  return hunks;
+}
+
+GArray *line_diff_hunks(const char *old_text, const char *new_text)
+{
+  Lines old, new;
+  GArray *hunks;
+
+  split(&old, old_text);
+  split(&new, new_text);
+  hunks = hunks_of(&old, &new);
+  lines_free(&old);
+  lines_free(&new);
+  return hunks;
+}
+
+typedef void (*HunkFunc)(guint old_start, guint deleted, guint new_start, guint added, gpointer data);
+
+/* Calls hunk for each stretch where old and new differ, in order: those of hunks, or else worked out. */
+static void walk_hunks(Lines *old, Lines *new, const GArray *hunks, HunkFunc hunk, gpointer data)
+{
+  GArray *own = hunks ? NULL : hunks_of(old, new);
+
+  if (own)
+    hunks = own;
+  for (guint i = 0; i < hunks->len; i++) {
+    const DiffHunk *h = &g_array_index(hunks, DiffHunk, i);
+    hunk(h->old_start, h->deleted, h->new_start, h->added, data);
+  }
+  if (own)
+    g_array_unref(own);
 }
 
 /* HunkFunc for line_diff(): where both, the first added lines are modified ones; deleted lines
@@ -113,7 +157,7 @@ GArray *line_diff(const char *old_text, const char *new_text)
   split(&old, old_text);
   split(&new, new_text);
   g_array_set_size(marks, new.lines->len);
-  walk_hunks(&old, &new, mark_hunk, marks);
+  walk_hunks(&old, &new, NULL, mark_hunk, marks);
   lines_free(&old);
   lines_free(&new);
   return marks;
@@ -182,8 +226,8 @@ static void gap_hunk(guint old_start, guint deleted, guint new_start, guint adde
   g->new_at = new_start + added;
 }
 
-GArray *line_diff_gaps(const char *old_text, const char *new_text, const int *old_heights, const int *new_heights,
-                       gboolean for_old_side)
+GArray *line_diff_gaps(const char *old_text, const char *new_text, const GArray *hunks, const int *old_heights,
+                       const int *new_heights, gboolean for_old_side)
 {
   Lines old, new;
   Gaps g = { g_array_new(FALSE, FALSE, sizeof(DiffGap)), for_old_side, 0, old_heights, new_heights, 0, 0 };
@@ -191,7 +235,7 @@ GArray *line_diff_gaps(const char *old_text, const char *new_text, const int *ol
   split(&old, old_text);
   split(&new, new_text);
   g.lines = for_old_side ? old.lines->len : new.lines->len;
-  walk_hunks(&old, &new, gap_hunk, &g);
+  walk_hunks(&old, &new, hunks, gap_hunk, &g);
   line_up_same(&g, old.lines->len - g.old_at); /* the same lines at the end */
   lines_free(&old);
   lines_free(&new);
@@ -207,6 +251,27 @@ guint line_count(const char *text)
   n = l.lines->len;
   lines_free(&l);
   return n;
+}
+
+GArray *line_diff_folds(const GArray *hunks, guint new_lines, guint context, guint min_lines)
+{
+  GArray *folds = g_array_new(FALSE, FALSE, sizeof(DiffFold));
+  guint old_at = 0, new_at = 0;
+
+  for (guint i = 0; hunks->len && i <= hunks->len; i++) {
+    const DiffHunk *h = i < hunks->len ? &g_array_index(hunks, DiffHunk, i) : NULL;
+    guint same = (h ? h->new_start : new_lines) - new_at;               /* lines both have, up to the next change */
+    guint keep_head = i > 0 ? context : 0, keep_tail = h ? context : 1; /* the file's last line stays */
+    if (same >= keep_head + keep_tail + MAX(min_lines, 1)) {
+      DiffFold fold = { old_at + keep_head, new_at + keep_head, same - keep_head - keep_tail };
+      g_array_append_val(folds, fold);
+    }
+    if (h) {
+      old_at = h->old_start + h->deleted;
+      new_at = h->new_start + h->added;
+    }
+  }
+  return folds;
 }
 
 /* Changed words ------------------------------------------------------------------------------ */
@@ -319,14 +384,14 @@ static void span_hunk(guint old_start, guint deleted, guint new_start, guint add
   }
 }
 
-GArray *line_diff_spans(const char *old_text, const char *new_text, gboolean for_old_side)
+GArray *line_diff_spans(const char *old_text, const char *new_text, const GArray *hunks, gboolean for_old_side)
 {
   Lines old, new;
   Spans s = { g_array_new(FALSE, FALSE, sizeof(DiffSpan)), for_old_side, &old, &new };
 
   split(&old, old_text);
   split(&new, new_text);
-  walk_hunks(&old, &new, span_hunk, &s);
+  walk_hunks(&old, &new, hunks, span_hunk, &s);
   lines_free(&old);
   lines_free(&new);
   return s.spans;

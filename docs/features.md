@@ -123,7 +123,9 @@ where lines were deleted), following new commits by itself. **Compare with HEAD*
 and **File History** (`Ctrl+Alt+H`, pick a commit) open one tab ("file ↔ commit") with the file
 on the left and the old version read-only on the right, scrolling together and lined up (also with
 word wrap): changed lines are tinted, their changed words colored (green new, red old), and gap
-rows stand for missing lines; it opens at the first change. Closing the tab closes both sides; "Git: Stop Comparing" in the
+rows stand for missing lines; it opens at the first change. Only the changes show, with three
+lines around each: a row "⋯ N unchanged lines" stands for the rest (click it, or move the cursor
+into it, to show them; "Git: Show / Hide Unchanged Lines" toggles). Closing the tab closes both sides; "Git: Stop Comparing" in the
 command palette keeps the file, back to comparing with the last commit. The Files panel colors files by their git state (modified,
 added, untracked, conflicted, ignored) with the letter at the end of the row. The **Source
 Control** panel (`Ctrl+Shift+G`) commits, pushes, stages and unstages changes, and discards after

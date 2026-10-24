@@ -41,6 +41,9 @@ void stop_comparing(App *t);
 /* The same for one tab (the left side of a comparison); nothing when it compares nothing. */
 void stop_comparing_tab(Tab *tab);
 
+/* The current tab's comparison shows its unchanged lines, or hides them again (diffgutter.h). */
+void toggle_unchanged_lines(App *t);
+
 /* A comparison ends (left: its left side): the two sides stop scrolling each other. Their
  * adjustments may outlive them, and would reach a freed view. */
 void unsync_scroll(Tab *left);

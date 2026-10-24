@@ -46,6 +46,18 @@ int diff_gutter_line_pad(Tab *tab, int line);
  * its changed words are colored by a tag). */
 gboolean diff_gutter_line_changed(Tab *tab, int line);
 
+/* In a comparison, the unchanged lines folded away right above line (0: none); *row_px: the height
+ * of the row standing for them, above the line (part of diff_gutter_line_gaps' above_px). */
+int diff_gutter_line_folded(Tab *tab, int line, int *row_px);
+
+/* Whether line is one of them (hidden). */
+gboolean diff_gutter_line_hidden(Tab *tab, int line);
+
+/* A comparison (either side's tab) shows its unchanged lines, or hides them again but CONTEXT
+ * lines around each change (the default). The cursor going into hidden lines, or a click on the
+ * row standing for them, shows them too. */
+void diff_gutter_toggle_unchanged(Tab *tab);
+
 /* Called while drawing a compared view: when its text width or word wrap changed since its gaps
  * were made (a long line now wraps to another number of rows), they are made again. */
 void diff_gutter_check_width(Tab *tab);
