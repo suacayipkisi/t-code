@@ -758,19 +758,19 @@ static void on_row_menu(GtkGestureClick *gesture, int n_press G_GNUC_UNUSED, dou
 }
 
 /* A second left click on the same file within the double-click time (GTK's own count starts again
- * once the first click has moved the focus to the editor). */
-static gboolean is_double_click(GtkWidget *widget, const char *path)
+ * once the first click has moved the focus to the editor). time is the click's own (ms): opening the
+ * first click's file keeps the main loop busy, so the second is handled later than it happened. */
+static gboolean is_double_click(GtkWidget *widget, const char *path, guint32 time)
 {
   static char *last_path;
-  static gint64 last_time;
-  gint64 now = g_get_monotonic_time();
+  static guint32 last_time;
   int interval = 400; /* ms, GTK's default */
   gboolean twice;
 
   g_object_get(gtk_widget_get_settings(widget), "gtk-double-click-time", &interval, NULL);
-  twice = g_strcmp0(path, last_path) == 0 && now - last_time <= interval * 1000;
+  twice = g_strcmp0(path, last_path) == 0 && time - last_time <= (guint32)interval;
   g_set_str(&last_path, twice ? NULL : path); /* a third click is a first one again */
-  last_time = now;
+  last_time = time;
   return twice;
 }
 
@@ -785,7 +785,9 @@ static void on_row_click(GtkGestureClick *gesture, int n_press G_GNUC_UNUSED, do
     return;
   if (r->dir)
     activate_row(r->row, FALSE);
-  else if (button == GDK_BUTTON_MIDDLE || is_double_click(r->expander, r->path))
+  else if (button == GDK_BUTTON_MIDDLE ||
+           is_double_click(r->expander, r->path,
+                           gtk_event_controller_get_current_event_time(GTK_EVENT_CONTROLLER(gesture))))
     open_file(files.app, r->path);
   else
     activate_row(r->row, FALSE);
@@ -867,6 +869,9 @@ static void setup_row(GtkSignalListItemFactory *factory G_GNUC_UNUSED, GtkListIt
   g_signal_connect(drop, "drop", G_CALLBACK(on_drop), r);
   gtk_widget_add_controller(r->expander, GTK_EVENT_CONTROLLER(drop));
 
+  /* Not activatable: the list's own double click would claim the second click's events from the
+   * row's gesture (on_row_click), which then never sees it. Enter is on_key's. */
+  gtk_list_item_set_activatable(item, FALSE);
   g_object_set_data_full(G_OBJECT(item), "row", r, (GDestroyNotify)free_row);
   gtk_list_item_set_child(item, r->expander);
 }

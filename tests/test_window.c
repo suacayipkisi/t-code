@@ -730,10 +730,29 @@ static char *strip_names(int group)
   return g_string_free(text, FALSE);
 }
 
+typedef struct {
+  int group;
+  const char *want;
+} Strip;
+
+static gboolean strip_is(gconstpointer data)
+{
+  const Strip *strip = data;
+  char *now = strip_names(strip->group);
+  gboolean same = g_strcmp0(now, strip->want) == 0;
+
+  g_free(now);
+  return same;
+}
+
+/* The strip shows want, once its updates have run (the main loop may be slow under load). */
 static void assert_strip(int group, const char *want)
 {
-  char *now = strip_names(group);
+  Strip strip = { group, want };
+  char *now;
 
+  run_until(strip_is, &strip);
+  now = strip_names(group);
   g_assert_cmpstr(now, ==, want);
   g_free(now);
 }

@@ -325,20 +325,31 @@ static void test_open(void)
   forget_project();
 }
 
-/* A second click on the same file soon after is a double click; a third starts again; another file
- * or a late click is a first one. */
+/* A second click on the same file within the double-click time (by the clicks' own times, however
+ * late they are handled) is a double click; a third starts again; another file or a late click is a
+ * first one. */
 static void test_double_click(void)
 {
   GtkWidget *widget = files.panel;
 
-  g_assert_false(is_double_click(widget, "/p/a.c"));
-  g_assert_true(is_double_click(widget, "/p/a.c"));
-  g_assert_false(is_double_click(widget, "/p/a.c"));
-  g_assert_false(is_double_click(widget, "/p/b.c"));
-  g_object_set(gtk_widget_get_settings(widget), "gtk-double-click-time", 1, NULL); /* 1 ms */
-  g_usleep(5 * 1000);
-  g_assert_false(is_double_click(widget, "/p/b.c")); /* too late after the last b.c */
-  g_object_set(gtk_widget_get_settings(widget), "gtk-double-click-time", 400, NULL);
+  g_assert_false(is_double_click(widget, "/p/a.c", 1000));
+  g_usleep(450 * 1000); /* opening the first click's file kept the main loop busy */
+  g_assert_true(is_double_click(widget, "/p/a.c", 1300));
+  g_assert_false(is_double_click(widget, "/p/a.c", 1400)); /* a third */
+  g_assert_false(is_double_click(widget, "/p/b.c", 1500));
+  g_assert_false(is_double_click(widget, "/p/b.c", 2000)); /* 500 ms: too late */
+  g_assert_true(is_double_click(widget, "/p/b.c", 2400));
+}
+
+/* The rows are not activatable: the list would take a double click's second click for itself, and
+ * the row's own gesture would never see it. */
+static void test_rows_not_activatable(void)
+{
+  GtkListItem *item = g_object_new(GTK_TYPE_LIST_ITEM, NULL);
+
+  setup_row(NULL, item, NULL);
+  g_assert_false(gtk_list_item_get_activatable(item));
+  g_object_unref(item);
 }
 
 /* "." hides dotfiles (and shows them again); version control folders never show. */
@@ -456,6 +467,7 @@ int main(int argc, char **argv)
   g_test_add_func("/files/cut-paste", test_cut_paste);
   g_test_add_func("/files/open", test_open);
   g_test_add_func("/files/double-click", test_double_click);
+  g_test_add_func("/files/rows-not-activatable", test_rows_not_activatable);
   g_test_add_func("/files/dotfiles", test_dotfiles);
   g_test_add_func("/files/git", test_git);
   g_test_add_func("/files/problems", test_problems);
