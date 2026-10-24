@@ -2,12 +2,14 @@
  * The Files panel: a GtkListView over a GtkTreeListModel whose folders are files/folder.c lists
  * (filtered: dotfiles; sorted: folders first). A folder is read and watched only while it is open;
  * GtkTreeListModel frees its list when it closes. Git colors come from one `git status` per change
- * (files/gitmarks.c), file operations from files/fileops.c.
+ * (files/gitmarks.c), file operations from files/fileops.c. The names of open files with errors or
+ * warnings (and of the folders holding them) are drawn in those colors instead.
  */
 #include "files/files.h"
 
 #include "editor/editor.h"
 #include "editor/preview.h"
+#include "editor/tabs.h"
 #include "files/fileops.h"
 #include "files/folder.h"
 #include "files/gitmarks.h"
@@ -54,6 +56,8 @@ static struct {
   GHashTable *expanded; /* paths of the open folders, kept when a folder's list is read again */
   GPtrArray *rows;      /* the bound FileRows */
   GHashTable *marks;    /* git states (NULL outside a repository) */
+  GHashTable *problems; /* path -> PROBLEM_ERROR / PROBLEM_WARNING: open files and their folders */
+  guint problems_idle;
   GCancellable *git_cancel;
   guint git_timer, message_timer, settle_idle;
   char *reveal; /* a path to select once its folders have loaded */
@@ -170,7 +174,19 @@ static const char *git_color(char state)
   }
 }
 
-/* Icon, name in its git color (dimmed when cut) and the git letter of a file. */
+enum { PROBLEM_WARNING = 1, PROBLEM_ERROR };
+
+/* The name's color: its problems' over its git state's. */
+static const char *name_color(const char *path, char state)
+{
+  switch (files.problems ? GPOINTER_TO_INT(g_hash_table_lookup(files.problems, path)) : 0) {
+    case PROBLEM_ERROR: return palette_hex(PAL_ERROR);
+    case PROBLEM_WARNING: return palette_hex(PAL_WARNING);
+    default: return git_color(state);
+  }
+}
+
+/* Icon, name in its problems' or git color (dimmed when cut) and the git letter of a file. */
 static void paint(FileRow *r)
 {
   const char *name = strrchr(r->path, '/') + 1;
@@ -181,7 +197,7 @@ static void paint(FileRow *r)
   const char *badge = r->dir ? NULL : git_marks_badge(state);
 
   set_colored(r->icon, icon->glyph, cut ? palette_hex(PAL_FG_FAINT) : icon->color);
-  set_colored(r->name, name, cut ? palette_hex(PAL_FG_FAINT) : git_color(state));
+  set_colored(r->name, name, cut ? palette_hex(PAL_FG_FAINT) : name_color(r->path, state));
   gtk_widget_set_visible(r->badge, badge != NULL);
   if (badge)
     set_colored(r->badge, badge, git_color(state));
@@ -1027,6 +1043,7 @@ GtkWidget *files_panel(App *t)
   files.show_hidden = TRUE;
   files.expanded = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   files.rows = g_ptr_array_new();
+  files.problems = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   files.filter = GTK_FILTER(gtk_custom_filter_new(filter_shown, NULL, NULL));
   files.sorter = GTK_SORTER(gtk_custom_sorter_new(sort_rows, NULL, NULL));
   files.selection = gtk_single_selection_new(NULL);
@@ -1126,6 +1143,44 @@ void files_apply_font(App *t)
   pango_font_description_free(desc);
 }
 
+/* Marks path and its folders up to the project's root with problem, unless they have a worse one. */
+static void mark_problem(const char *root, const char *path, int problem)
+{
+  char *at = g_strdup(path);
+
+  while (at && GPOINTER_TO_INT(g_hash_table_lookup(files.problems, at)) < problem) {
+    char *up = g_path_get_dirname(at);
+    gboolean inside = root && g_str_has_prefix(up, root) && strlen(up) > strlen(root);
+    g_hash_table_insert(files.problems, at, GINT_TO_POINTER(problem));
+    at = inside ? up : NULL;
+    if (!inside)
+      g_free(up);
+  }
+  g_free(at);
+}
+
+static gboolean problems_now(gpointer data G_GNUC_UNUSED)
+{
+  App *t = files.app; /* the panel's window, whichever window's file changed */
+  const char *root = t->project.root;
+
+  files.problems_idle = 0;
+  g_hash_table_remove_all(files.problems);
+  for (int i = 0; i < tab_count(t); i++) {
+    Tab *tab = tab_nth(t, i);
+    if (tab->kind == TAB_EDITOR && tab->path && (tab->problems.errors || tab->problems.warnings))
+      mark_problem(root, tab->path, tab->problems.errors ? PROBLEM_ERROR : PROBLEM_WARNING);
+  }
+  paint_all();
+  return G_SOURCE_REMOVE;
+}
+
+void files_problems_changed(App *t)
+{
+  if (files.rows && !t->closing && !files.app->closing && !files.problems_idle)
+    files.problems_idle = g_idle_add(problems_now, NULL);
+}
+
 void files_restyle(App *t G_GNUC_UNUSED)
 {
   paint_all();
@@ -1136,6 +1191,7 @@ void files_stop(App *t G_GNUC_UNUSED)
   g_clear_handle_id(&files.git_timer, g_source_remove);
   g_clear_handle_id(&files.message_timer, g_source_remove);
   g_clear_handle_id(&files.settle_idle, g_source_remove);
+  g_clear_handle_id(&files.problems_idle, g_source_remove);
   if (files.git_cancel)
     g_cancellable_cancel(files.git_cancel);
 }

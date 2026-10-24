@@ -42,6 +42,19 @@ void open_project(App *t G_GNUC_UNUSED, const char *root G_GNUC_UNUSED) {}
 void cd_in_shell(App *t G_GNUC_UNUSED, const char *dir G_GNUC_UNUSED) {}
 /* clang-format on */
 
+/* The open editors (tabs.c's stand-in), for the problems' colors. */
+static Tab *open_editors[2];
+static int open_editor_count;
+
+int tab_count(App *t G_GNUC_UNUSED)
+{
+  return open_editor_count;
+}
+Tab *tab_nth(App *t G_GNUC_UNUSED, int index)
+{
+  return open_editors[index];
+}
+
 static App app;
 static GtkWidget *window;
 
@@ -376,6 +389,56 @@ static void test_git(void)
   forget_project();
 }
 
+static gboolean problems_read(void)
+{
+  return files.problems_idle == 0;
+}
+
+/* An open file with errors is named in the error color, one with only warnings in the warning
+ * color, and so are the folders holding them (the worse wins); a closed file loses its color. */
+static void test_problems(void)
+{
+  Tab deep = { .kind = TAB_EDITOR }, util = { .kind = TAB_EDITOR };
+  char *src, *lib;
+
+  project();
+  deep.path = g_build_filename(app.project.root, "src/lib/deep.c", NULL);
+  util.path = g_build_filename(app.project.root, "src/util.c", NULL);
+  src = g_build_filename(app.project.root, "src", NULL);
+  lib = g_build_filename(app.project.root, "src/lib", NULL);
+  deep.problems.errors = 1;
+  util.problems.warnings = 2;
+  open_editors[0] = &util;
+  open_editors[1] = &deep;
+  open_editor_count = 2;
+  files_problems_changed(&app);
+  g_assert_true(wait_for(problems_read));
+  g_assert_cmpstr(name_color(deep.path, 0), ==, palette_hex(PAL_ERROR));
+  g_assert_cmpstr(name_color(lib, 0), ==, palette_hex(PAL_ERROR));
+  g_assert_cmpstr(name_color(src, 0), ==, palette_hex(PAL_ERROR));
+  g_assert_cmpstr(name_color(util.path, 0), ==, palette_hex(PAL_WARNING));
+  g_assert_cmpstr(name_color(app.project.root, 0), ==, palette_hex(PAL_FG)); /* not the root */
+
+  open_editor_count = 1; /* deep.c closed */
+  files_problems_changed(&app);
+  g_assert_true(wait_for(problems_read));
+  g_assert_cmpstr(name_color(deep.path, 0), ==, palette_hex(PAL_FG));
+  g_assert_cmpstr(name_color(lib, 0), ==, palette_hex(PAL_FG));
+  g_assert_cmpstr(name_color(src, 0), ==, palette_hex(PAL_WARNING));
+
+  util.problems.warnings = 0; /* fixed */
+  files_problems_changed(&app);
+  g_assert_true(wait_for(problems_read));
+  g_assert_cmpstr(name_color(util.path, 0), ==, palette_hex(PAL_FG));
+  g_assert_cmpstr(name_color(src, 0), ==, palette_hex(PAL_FG));
+  open_editor_count = 0;
+  g_free(lib);
+  g_free(src);
+  g_free(util.path);
+  g_free(deep.path);
+  forget_project();
+}
+
 int main(int argc, char **argv)
 {
   gtk_test_init(&argc, &argv, NULL);
@@ -395,5 +458,6 @@ int main(int argc, char **argv)
   g_test_add_func("/files/double-click", test_double_click);
   g_test_add_func("/files/dotfiles", test_dotfiles);
   g_test_add_func("/files/git", test_git);
+  g_test_add_func("/files/problems", test_problems);
   return g_test_run();
 }

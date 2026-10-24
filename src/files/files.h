@@ -17,6 +17,9 @@ GtkWidget *files_panel(App *t);
 /* Shows the tree of t->project.root after a project switch. */
 void files_set_root(App *t);
 
+/* An open file's errors or warnings changed (or it closed): the names are colored again. */
+void files_problems_changed(App *t);
+
 /* git status changed (git/gitstatus.c): the git colors are read again. */
 void files_git_changed(App *t);
 

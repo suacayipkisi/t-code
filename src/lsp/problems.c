@@ -5,10 +5,10 @@
 
 #include "editor/editor.h"
 #include "editor/tabs.h"
+#include "files/files.h"
 #include "lsp/diagnostics.h"
 #include "window/window.h"
 
-#include <string.h>
 
 static const char *const problems_css =
     ".tcode-problems { background: var(--tc-panel); }"
@@ -168,6 +168,8 @@ static gboolean rebuild_now(gpointer data)
 /* The server publishes diagnostics file by file, often while typing: one rebuild for a burst. */
 void problems_update(App *t)
 {
+  if (t)
+    files_problems_changed(t);
   if (!pv.list || !t || t->closing || pv.update_id)
     return;
   pv.update_id = g_idle_add(rebuild_now, t);

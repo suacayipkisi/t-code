@@ -427,7 +427,8 @@ commits: the pointer on one shows its message, author, date and line counts, and
 shows it with its diff.
 
 **Files panel.** A folder is read when you open it and shows new, removed and renamed files by
-itself; the git colors follow commits and saves. Files and folders can be cut, copied and pasted
+itself; the git colors follow commits and saves, and an open file with errors or warnings (and
+the folders holding it) is named in red or yellow. Files and folders can be cut, copied and pasted
 (a name that is taken gets " copy"), dragged onto a folder (from another file manager they are
 copied), or dragged onto the editors to open them. A new file opens in the editor.
 A click opens a file in a temporary tab (its name in italics) that the next click
