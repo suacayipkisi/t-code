@@ -9,6 +9,7 @@
 #include "debug/debugger.h"
 #include "dialogs/about.h"
 #include "dialogs/keybinds.h"
+#include "editor/recovery.h"
 #include "editor/tabs.h"
 #include "files/files.h"
 #include "git/gitstatus.h"
@@ -37,8 +38,10 @@ static void on_confirm_answer(GObject *dialog, GAsyncResult *result, gpointer da
 {
   Confirm *c = data;
 
-  if (gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, NULL) == 1)
+  if (gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, NULL) == 1) {
+    recovery_forget_unsaved(c->app); /* their unsaved changes are given up on purpose */
     c->then(c->app, c->arg);
+  }
   g_free(c->arg);
   g_free(c);
 }

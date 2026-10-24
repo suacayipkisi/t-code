@@ -5,6 +5,7 @@
 
 #include "editor/editor.h"
 #include "editor/editorview.h"
+#include "editor/tabs.h"
 #include "window/statusbar.h"
 
 #include <glib.h>
@@ -65,7 +66,8 @@ void recovery_save_snapshot(Tab *tab)
   gint64 now = g_get_real_time() / G_USEC_PER_SEC;
   char *content = g_strdup_printf("TCODE_RECOVERY_V1 %" G_GINT64_FORMAT " %s\n%s", now, tab->path, text);
 
-  g_file_set_contents(journal, content, -1, NULL);
+  if (g_file_set_contents(journal, content, -1, NULL))
+    tab->view->journaled = TRUE;
 
   g_free(content);
   g_free(text);
@@ -90,6 +92,31 @@ void recovery_schedule_snapshot(Tab *tab)
   if (tab->view->recovery_id)
     g_source_remove(tab->view->recovery_id);
   tab->view->recovery_id = g_timeout_add(RECOVERY_DEBOUNCE_MS, on_snapshot_timer, tab);
+}
+
+void recovery_forget(Tab *tab)
+{
+  if (!tab || tab->kind != TAB_EDITOR || !tab->view)
+    return;
+  if (tab->view->recovery_id) {
+    g_source_remove(tab->view->recovery_id);
+    tab->view->recovery_id = 0;
+  }
+  if (tab->view->journaled) {
+    recovery_discard_snapshot(tab->path);
+    tab->view->journaled = FALSE;
+  }
+}
+
+void recovery_forget_unsaved(App *t)
+{
+  int n = tab_count(t);
+
+  for (int i = 0; i < n; i++) {
+    Tab *tab = tab_nth(t, i);
+    if (tab->kind == TAB_EDITOR && tab->modified)
+      recovery_forget(tab);
+  }
 }
 
 static char *read_journal_content(const char *journal, gint64 *out_time)
@@ -133,6 +160,7 @@ static void on_restore(GtkButton *btn G_GNUC_UNUSED, gpointer data)
   if (body) {
     gtk_text_buffer_set_text(GTK_TEXT_BUFFER(tab->buffer), body, -1);
     gtk_text_buffer_set_modified(GTK_TEXT_BUFFER(tab->buffer), TRUE);
+    tab->view->journaled = TRUE; /* the journal now stands for this buffer's changes */
     g_free(body);
     status_say(tab->app, "Unsaved changes restored from recovery journal");
   }
@@ -195,7 +223,18 @@ void recovery_check_and_prompt(Tab *tab)
     g_object_unref(info);
   }
   g_object_unref(gf);
+
+  /* Saved within the journal's second, or changes typed and undone: nothing to recover. */
+  GtkTextIter start, end;
+  gtk_text_buffer_get_bounds(GTK_TEXT_BUFFER(tab->buffer), &start, &end);
+  char *loaded = gtk_text_buffer_get_text(GTK_TEXT_BUFFER(tab->buffer), &start, &end, TRUE);
+  gboolean same = g_strcmp0(loaded, recovered_text) == 0;
+  g_free(loaded);
   g_free(recovered_text);
+  if (same) {
+    recovery_discard_snapshot(tab->path);
+    return;
+  }
 
   /* Build recovery banner over editor if not already built */
   if (!tab->view->recovery_bar) {

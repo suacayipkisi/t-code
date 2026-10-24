@@ -13,6 +13,7 @@
 #include "editor/breakpoints.h"
 #include "editor/editorview.h"
 #include "editor/preview.h"
+#include "editor/recovery.h"
 #include "editor/tabmenu.h"
 #include "editor/tabs.h"
 #include "files/fileops.h"
@@ -383,6 +384,37 @@ static void test_save_conflict(void)
   g_free(path);
 }
 
+/* An edit is journaled for crash recovery; saving it (or undoing it back to the saved text)
+ * deletes the journal, so it is not offered again the next time the file opens. */
+static void test_recovery_journal(void)
+{
+  char *path = g_build_filename(app.project.root, "journaled.txt", NULL);
+  char *hash = g_compute_checksum_for_string(G_CHECKSUM_SHA1, path, -1);
+  char *journal = g_build_filename(g_get_user_cache_dir(), "t-code", "recovery", hash, NULL);
+  Tab *tab;
+
+  g_assert_true(g_file_set_contents(path, "saved\n", -1, NULL));
+  open_file(&app, path);
+  tab = find_tab(&app, TAB_EDITOR, path);
+  run_until(loaded, tab);
+  gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(tab->buffer), "x", -1);
+  recovery_save_snapshot(tab); /* what the timer does a moment after the edit */
+  g_assert_true(g_file_test(journal, G_FILE_TEST_EXISTS));
+  save_editor(tab);
+  run_until(saved, tab);
+  g_assert_false(g_file_test(journal, G_FILE_TEST_EXISTS));
+
+  gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(tab->buffer), "y", -1);
+  recovery_save_snapshot(tab);
+  g_assert_true(g_file_test(journal, G_FILE_TEST_EXISTS));
+  gtk_text_buffer_set_modified(GTK_TEXT_BUFFER(tab->buffer), FALSE); /* back to the saved text */
+  g_assert_false(g_file_test(journal, G_FILE_TEST_EXISTS));
+  close_everything();
+  g_free(journal);
+  g_free(hash);
+  g_free(path);
+}
+
 static gboolean has_tab(gconstpointer path)
 {
   return find_tab(&app, TAB_EDITOR, path) != NULL;
@@ -572,8 +604,6 @@ static gboolean no_socket_event_clients(gconstpointer data G_GNUC_UNUSED)
 {
   return !app.socket_events || app.socket_events->len == 0;
 }
-
-
 
 static gboolean no_second_window(gconstpointer data G_GNUC_UNUSED)
 {
@@ -1344,7 +1374,8 @@ static void test_preview_look(void)
   gtk_text_iter_forward_chars(&iter, 2);
   gtk_text_view_get_iter_location(view, &iter, &where);
   if (where.height > 0) {
-    gtk_text_view_buffer_to_window_coords(view, GTK_TEXT_WINDOW_WIDGET, where.x + 1, where.y + where.height / 2, &x, &y);
+    gtk_text_view_buffer_to_window_coords(view, GTK_TEXT_WINDOW_WIDGET, where.x + 1, where.y + where.height / 2, &x,
+                                          &y);
     g_signal_emit_by_name(motion, "motion", (double)x, (double)y);
     iter = preview_find(buffer, "the link");
     gtk_text_iter_forward_chars(&iter, 2);
@@ -2000,7 +2031,11 @@ int main(int argc, char **argv)
   GtkApplication *gapp;
   int status = 0;
 
+  char *cache = g_build_filename(home, "cache", NULL);
+
   g_setenv("XDG_CONFIG_HOME", config, TRUE); /* not the real session.ini */
+  g_setenv("XDG_CACHE_HOME", cache, TRUE);   /* nor the real recovery journals */
+  g_free(cache);
   start_broadway();
   gtk_test_init(&argc, &argv, NULL);
   app.project.root = g_build_filename(home, "project", NULL);
@@ -2028,6 +2063,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/comparison-first-change", test_comparison_first_change);
   g_test_add_func("/window/comparisons-in-a-row", test_comparisons_in_a_row);
   g_test_add_func("/window/save-conflict", test_save_conflict);
+  g_test_add_func("/window/recovery-journal", test_recovery_journal);
   g_test_add_func("/window/socket-requests", test_socket_requests);
   g_test_add_func("/window/socket-events", test_socket_events);
   g_test_add_func("/window/second-window", test_second_window);

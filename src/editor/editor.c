@@ -140,6 +140,8 @@ static void on_modified_changed(GtkTextBuffer *buffer, Tab *tab)
   tab->modified = gtk_text_buffer_get_modified(buffer);
   if (tab->modified && !tab->view->loading) /* typed, not the file coming in */
     tab->temporary = FALSE;
+  if (!tab->modified) /* saved, undone to the saved text, or loaded again */
+    recovery_forget(tab);
   update_tab_label(tab);
 }
 
@@ -651,8 +653,10 @@ static void on_close_answer(GObject *dialog, GAsyncResult *result, gpointer data
     save_then(tab_of(c->page), close_after_save, c);
     return;
   }
-  if (c->page && answer == 1)
+  if (c->page && answer == 1) {
+    recovery_forget(tab_of(c->page)); /* the changes are thrown away on purpose */
     remove_tab(tab_of(c->page));
+  }
   closing_free(c);
 }
 

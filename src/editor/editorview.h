@@ -50,6 +50,7 @@ struct EditorView {
   gboolean save_failed;        /* told the user once; quiet until a save works again */
   GtkWidget *conflict;         /* the bar shown when the file changed on disk under unsaved changes */
   GtkWidget *recovery_bar;     /* the bar offering to restore unsaved changes after a crash */
+  gboolean journaled;          /* this session wrote (or restored) the file's recovery journal */
   gboolean overwrite;          /* the next save writes over a file changed on disk */
   GArray *next_waiters;        /* SaveWaiter: for the save after the one in flight */
   guint autosave_id, reload_id, scroll_id, recovery_id;
