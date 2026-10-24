@@ -145,7 +145,7 @@ void show_about(App *t)
   static GtkWidget *window;
   static const char *const authors[] = {
     "suacayipkisi https://github.com/suacayipkisi",
-    "ibrahmsql https://github.com/ibrahmsql",
+    "dontworryplz https://github.com/dontworryplz",
     NULL
   };
   static const char *const built_on[] = {
