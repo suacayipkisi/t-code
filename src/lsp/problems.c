@@ -9,7 +9,6 @@
 #include "lsp/diagnostics.h"
 #include "window/window.h"
 
-
 static const char *const problems_css =
     ".tcode-problems { background: var(--tc-panel); }"
     ".tcode-problems-header { padding: 4px 8px; border-bottom: 1px solid var(--tc-border); font-size: 0.85em; }"
