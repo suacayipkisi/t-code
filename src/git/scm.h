@@ -23,3 +23,8 @@ void scm_reset(void);
 /* Opens the n-th commit of Commits (from 0) in a tab: its message, author, line counts and diff
  * (its right-click menu's "Open Commit Details"; the tests call it). */
 void scm_open_commit_details(int n);
+
+/* "Stage Hunk…" / "Unstage Hunk…" (staged): saves the editors first when staging, then lists the
+ * file's hunks in the picker, each by its first changed line and its "@@" line; the one picked is
+ * applied to the index (its menu; the tests call it). */
+void scm_choose_hunk(const char *path, gboolean staged);

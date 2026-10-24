@@ -7,6 +7,7 @@
 #include "editor/editor.h"
 #include "editor/tabs.h"
 #include "git/compare.h"
+#include "popups/picker.h"
 
 #include <glib/gstdio.h>
 
@@ -34,6 +35,62 @@ void open_preview(App *t G_GNUC_UNUSED, const char *path) { g_set_str(&previewed
 /* clang-format on */
 
 static App app;
+
+/* The picker, as the hunk choice uses it: the rows of the last query and the callbacks. */
+static PickerQuery picker_query;
+static PickerChoose picker_choose;
+static PickerCancel picker_cancel;
+static GPtrArray *picked_rows; /* "label\tdetail\tpayload" */
+
+static void picker_run(App *t, const char *text)
+{
+  g_ptr_array_set_size(picked_rows, 0);
+  picker_query(t, text, 1);
+}
+
+void picker_open(App *t, const char *placeholder G_GNUC_UNUSED, PickerQuery query, PickerChoose choose)
+{
+  if (picker_cancel)
+    picker_cancel(t);
+  picker_query = query;
+  picker_choose = choose;
+  picker_cancel = NULL;
+  picker_run(t, "");
+}
+
+void picker_set_preview(App *t G_GNUC_UNUSED, PickerChoose preview G_GNUC_UNUSED, PickerCancel cancel)
+{
+  picker_cancel = cancel;
+}
+
+void picker_requery(App *t, PickerQuery query)
+{
+  if (query == picker_query)
+    picker_run(t, "");
+}
+
+void picker_add(App *t G_GNUC_UNUSED, guint generation G_GNUC_UNUSED, const char *label, const char *detail,
+                const char *payload)
+{
+  g_ptr_array_add(picked_rows, g_strdup_printf("%s\t%s\t%s", label, detail ? detail : "", payload));
+}
+
+void picker_message(App *t G_GNUC_UNUSED, guint generation G_GNUC_UNUSED, const char *text G_GNUC_UNUSED)
+{
+}
+
+int fuzzy_score(const char *query, const char *text)
+{
+  return strstr(text, query) ? 1 : -1;
+}
+
+/* Picks a row: the picker closes, so nothing is left to cancel. */
+static void picker_pick(const char *payload)
+{
+  picker_cancel = NULL;
+  picker_choose(&app, payload);
+}
+
 static char *tmp, *with_commits, *no_git, *no_commits;
 static int commits = 2; /* in with_commits */
 
@@ -281,6 +338,101 @@ static void test_commit_details(void)
   g_free(dir);
 }
 
+/* What git prints in dir for args. */
+static char *git_out(const char *dir, const char *const *args)
+{
+  GPtrArray *argv = g_ptr_array_new();
+  char *out = NULL;
+
+  g_ptr_array_add(argv, "git");
+  g_ptr_array_add(argv, "-C");
+  g_ptr_array_add(argv, (gpointer)dir);
+  for (int i = 0; args[i]; i++)
+    g_ptr_array_add(argv, (gpointer)args[i]);
+  g_ptr_array_add(argv, NULL);
+  g_assert_true(g_spawn_sync(NULL, (char **)argv->pdata, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDERR_TO_DEV_NULL, NULL,
+                             NULL, &out, NULL, NULL, NULL));
+  g_ptr_array_free(argv, TRUE);
+  return out;
+}
+
+static void wait_rows(guint count)
+{
+  for (gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+       picked_rows->len != count && g_get_monotonic_time() < end;)
+    g_main_context_iteration(NULL, FALSE);
+  g_assert_cmpuint(picked_rows->len, ==, count);
+}
+
+/* Runs the main loop until git diff --cached in dir is (or 5 s pass). */
+static char *wait_cached(const char *dir, gboolean empty)
+{
+  const char *const args[] = { "diff", "--cached", "--no-color", "-U0", NULL };
+  char *out = git_out(dir, args);
+
+  for (gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+       (*out == '\0') != empty && g_get_monotonic_time() < end;) {
+    runs_for(50);
+    g_free(out);
+    out = git_out(dir, args);
+  }
+  return out;
+}
+
+/* "Stage Hunk…" lists the file's hunks in the picker by their first changed line and "@@" line;
+ * the picked one goes into the index, a search narrows the list, and "Unstage Hunk…" takes it back. */
+static void test_stage_hunk(void)
+{
+  char *dir = make_dir("hunks", "h.txt"), *file = g_build_filename(dir, "h.txt", NULL), *cached;
+  const char *const commit[] = { "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "start", NULL };
+  GString *text = g_string_new(NULL);
+
+  for (int i = 1; i <= 20; i++)
+    g_string_append_printf(text, "line %d\n", i);
+  g_assert_true(g_file_set_contents(file, text->str, -1, NULL));
+  git(dir, (const char *[]){ "init", "-q", NULL });
+  git(dir, (const char *[]){ "add", "h.txt", NULL });
+  git(dir, commit);
+  g_string_replace(text, "line 2\n", "line two\n", 1);
+  g_string_replace(text, "line 18\n", "line eighteen\n", 1);
+  g_assert_true(g_file_set_contents(file, text->str, -1, NULL));
+  open_project_at(dir);
+  wait_for(1, 1);
+
+  picked_rows = g_ptr_array_new_with_free_func(g_free);
+  scm_choose_hunk(file, FALSE);
+  wait_rows(2);
+  g_assert_cmpstr(picked_rows->pdata[0], ==, "- line 2\t@@ -1,5 +1,5 @@\t0");
+  g_assert_cmpstr(picked_rows->pdata[1], ==, "- line 18\t@@ -15,6 +15,6 @@ line 14\t1");
+  picker_run(&app, "@@ -15");
+  g_assert_cmpuint(picked_rows->len, ==, 1);
+  picker_pick("1");
+  cached = wait_cached(dir, FALSE);
+  g_assert_nonnull(strstr(cached, "+line eighteen\n"));
+  g_assert_null(strstr(cached, "line two"));
+  g_free(cached);
+
+  /* Closed without a pick, then chosen again: still one hunk staged. */
+  g_ptr_array_set_size(picked_rows, 0); /* the rows of the last search */
+  scm_choose_hunk(file, TRUE);
+  wait_rows(1);
+  g_assert_cmpstr(picked_rows->pdata[0], ==, "- line 18\t@@ -15,6 +15,6 @@ line 14\t0");
+  picker_cancel(&app);
+  picker_cancel = NULL;
+  g_ptr_array_set_size(picked_rows, 0);
+  scm_choose_hunk(file, TRUE);
+  wait_rows(1);
+  picker_pick("0");
+  cached = wait_cached(dir, TRUE);
+  g_assert_cmpstr(cached, ==, "");
+  g_free(cached);
+
+  g_ptr_array_free(picked_rows, TRUE);
+  g_string_free(text, TRUE);
+  g_free(file);
+  g_free(dir);
+}
+
 int main(int argc, char **argv)
 {
   int status;
@@ -321,6 +473,7 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/head-moves", test_head_moves);
   g_test_add_func("/scm/commits-folded", test_commits_folded);
   g_test_add_func("/scm/commit-details", test_commit_details);
+  g_test_add_func("/scm/stage-hunk", test_stage_hunk);
   status = g_test_run();
 
   app.closing = TRUE;

@@ -19,6 +19,7 @@
 #include "editor/preview.h"
 #include "files/files.h"
 #include "popups/contextmenu.h"
+#include "popups/picker.h"
 #include "window/window.h"
 #include "window/palette.h"
 
@@ -284,8 +285,9 @@ typedef struct {
 typedef struct {
   HunkRequest *request;
   GPtrArray *patches;
-  char **buttons;
 } HunkChoice;
+
+static HunkChoice *choosing; /* the hunks the picker lists; one picker at a time */
 
 static void hunk_request_free(HunkRequest *request)
 {
@@ -300,7 +302,6 @@ static void hunk_choice_free(HunkChoice *choice)
     return;
   hunk_request_free(choice->request);
   g_ptr_array_free(choice->patches, TRUE);
-  g_strfreev(choice->buttons);
   g_free(choice);
 }
 
@@ -318,13 +319,68 @@ static void on_hunk_applied(gboolean ok, const char *out G_GNUC_UNUSED, const ch
   hunk_choice_free(choice);
 }
 
-static void on_hunk_chosen(GObject *dialog, GAsyncResult *result, gpointer data)
+/* A patch's "@@ -a,b +c,d @@ context" line, and its first added or removed line (sign kept,
+ * NULL when there is none). Free both. */
+static void hunk_lines(const char *patch, char **header, char **first)
 {
-  HunkChoice *choice = data;
-  int chosen = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, NULL);
+  const char *at = strstr(patch, "\n@@ ");
 
-  if (chosen < 0 || (guint)chosen >= choice->patches->len || scm.app->closing ||
-      g_strcmp0(scm.app->project.git_top, choice->request->root) != 0) {
+  *header = *first = NULL;
+  if (!at)
+    return;
+  for (const char *line = at + 1; *line;) {
+    const char *end = strchr(line, '\n');
+    int length = end ? (int)(end - line) : (int)strlen(line);
+    if (!*header)
+      *header = g_strndup(line, length);
+    else if (*line == '+' || *line == '-') {
+      char *text = g_strndup(line + 1, length - 1);
+      *first = g_strdup_printf("%c %s", *line, g_strstrip(text));
+      g_free(text);
+      break;
+    }
+    if (!end)
+      break;
+    line = end + 1;
+  }
+}
+
+static void hunk_query(App *t, const char *text, guint generation)
+{
+  int shown = 0;
+
+  if (!choosing) /* picker_open()'s first query, before the hunks are handed over */
+    return;
+  for (guint i = 0; i < choosing->patches->len; i++) {
+    char *header, *first, *haystack, *payload;
+    hunk_lines(g_ptr_array_index(choosing->patches, i), &header, &first);
+    char *label = first ? g_strdup(first) : g_strdup_printf("Hunk %u", i + 1);
+    haystack = g_strjoin(" ", label, header ? header : "", NULL);
+    if (!*text || fuzzy_score(text, haystack) >= 0) {
+      payload = g_strdup_printf("%u", i);
+      picker_add(t, generation, label, header, payload);
+      g_free(payload);
+      shown++;
+    }
+    g_free(haystack);
+    g_free(label);
+    g_free(header);
+    g_free(first);
+  }
+  if (!shown)
+    picker_message(t, generation, "No matching hunks");
+}
+
+/* A hunk was picked: git apply its patch to the index (reversed to unstage). */
+static void hunk_choose(App *t, const char *payload)
+{
+  HunkChoice *choice = g_steal_pointer(&choosing);
+  guint64 chosen;
+
+  if (!choice)
+    return;
+  if (!g_ascii_string_to_unsigned(payload, 10, 0, choice->patches->len - 1, &chosen, NULL) || t->closing ||
+      g_strcmp0(t->project.git_top, choice->request->root) != 0) {
     hunk_choice_free(choice);
     return;
   }
@@ -334,25 +390,16 @@ static void on_hunk_chosen(GObject *dialog, GAsyncResult *result, gpointer data)
                 on_hunk_applied, choice, (GDestroyNotify)hunk_choice_free);
 }
 
-static char *hunk_label(const char *patch, gboolean staged, guint index)
+static void hunk_cancel(App *t G_GNUC_UNUSED)
 {
-  const char *header = strstr(patch, "\n@@ ");
-  const char *end;
-
-  if (!header)
-    return g_strdup_printf("%s hunk %u", staged ? "Unstage" : "Stage", index + 1);
-  header++;
-  end = strchr(header, '\n');
-  int length = end ? (int)(end - header) : (int)strlen(header);
-  return g_strdup_printf("%s hunk %u: %.*s", staged ? "Unstage" : "Stage", index + 1, length, header);
+  g_clear_pointer(&choosing, hunk_choice_free);
 }
 
 static void on_hunks_read(gboolean ok, const char *out, const char *err, gpointer data)
 {
   HunkRequest *request = data;
   GPtrArray *patches;
-  HunkChoice *choice;
-  GtkAlertDialog *dialog;
+  char *name, *title;
 
   if (scm.app->closing || g_strcmp0(scm.app->project.git_top, request->root) != 0) {
     hunk_request_free(request);
@@ -370,20 +417,16 @@ static void on_hunks_read(gboolean ok, const char *out, const char *err, gpointe
     hunk_request_free(request);
     return;
   }
-  choice = g_new0(HunkChoice, 1);
-  choice->request = request;
-  choice->patches = patches;
-  choice->buttons = g_new0(char *, patches->len + 1);
-  for (guint i = 0; i < patches->len; i++)
-    choice->buttons[i] = hunk_label(g_ptr_array_index(patches, i), request->staged, i);
-  choice->buttons[patches->len] = g_strdup("Cancel");
-  dialog = gtk_alert_dialog_new("%s", request->staged ? "Unstage one hunk?" : "Stage one hunk?");
-  gtk_alert_dialog_set_detail(dialog, "Choose the hunk to change in the index.");
-  gtk_alert_dialog_set_buttons(dialog, (const char *const *)choice->buttons);
-  gtk_alert_dialog_set_cancel_button(dialog, patches->len);
-  gtk_alert_dialog_set_default_button(dialog, patches->len);
-  gtk_alert_dialog_choose(dialog, scm.app->window, NULL, on_hunk_chosen, choice);
-  g_object_unref(dialog);
+  name = g_path_get_basename(request->path);
+  title = g_strdup_printf("%s a hunk of %s", request->staged ? "Unstage" : "Stage", name);
+  picker_open(scm.app, title, hunk_query, hunk_choose); /* cancels a hunk picker still open */
+  choosing = g_new0(HunkChoice, 1);
+  choosing->request = request;
+  choosing->patches = patches;
+  picker_set_preview(scm.app, NULL, hunk_cancel);
+  picker_requery(scm.app, hunk_query);
+  g_free(title);
+  g_free(name);
 }
 
 static void read_hunks(HunkRequest *request)
@@ -407,7 +450,7 @@ static void on_saved_for_stage_hunk(App *t, gpointer data)
     hunk_request_free(request);
 }
 
-static void choose_hunk(const char *path, gboolean staged)
+void scm_choose_hunk(const char *path, gboolean staged)
 {
   HunkRequest *request = g_new0(HunkRequest, 1);
 
@@ -815,8 +858,8 @@ static void menu_open_file(gpointer data)
 /* clang-format off */
 static void menu_stage(gpointer data) { stage(((MenuChange *)data)->change.path); }
 static void menu_unstage(gpointer data) { unstage(&((MenuChange *)data)->change); }
-static void menu_stage_hunk(gpointer data) { choose_hunk(((MenuChange *)data)->change.path, FALSE); }
-static void menu_unstage_hunk(gpointer data) { choose_hunk(((MenuChange *)data)->change.path, TRUE); }
+static void menu_stage_hunk(gpointer data) { scm_choose_hunk(((MenuChange *)data)->change.path, FALSE); }
+static void menu_unstage_hunk(gpointer data) { scm_choose_hunk(((MenuChange *)data)->change.path, TRUE); }
 static void menu_discard(gpointer data) { discard(&((MenuChange *)data)->change); }
 static void menu_copy_relative(gpointer data) { copy_to_clipboard(((MenuChange *)data)->change.path); }
 /* clang-format on */
