@@ -1300,60 +1300,55 @@ static void test_semantic_delta(void)
   free_tab(tab); /* frees s */
 }
 
+/* Each file goes to its language's server (one per language), which hears its languageId; the
+ * servers stop once their files close. */
 static void test_language_routing(void)
 {
-  Tab *cpp, *python, *go, *rust;
+  static const struct {
+    const char *path, *source, *id; /* source: GtkSourceView's language */
+    ServerKind kind;
+  } files[] = {
+    { "routing.cpp", "cpp", "cpp", SERVER_CLANGD },
+    { "routing.py", "python", "python", SERVER_PYTHON },
+    { "routing.go", "go", "go", SERVER_GO },
+    { "routing.rs", "rust", "rust", SERVER_RUST },
+    { "routing.ts", "typescript", "typescript", SERVER_TYPESCRIPT },
+    { "routing.tsx", "typescript-jsx", "typescriptreact", SERVER_TYPESCRIPT },
+    { "routing.mjs", "js", "javascript", SERVER_TYPESCRIPT },
+    { "routing.jsx", "js", "javascriptreact", SERVER_TYPESCRIPT },
+  };
+  GtkSourceLanguageManager *languages = gtk_source_language_manager_get_default();
+  Tab *tabs[G_N_ELEMENTS(files)];
+  Lsp *servers[G_N_ELEMENTS(files)];
 
   lsp_stop(&app); /* Earlier integration tests can leave idle servers in the shared App. */
-  cpp = new_tab("/tmp/t-code-test/routing.cpp", "int value;\n");
-  python = new_tab("/tmp/t-code-test/routing.py", "value = 1\n");
-  go = new_tab("/tmp/t-code-test/routing.go", "package main\n");
-  rust = new_tab("/tmp/t-code-test/routing.rs", "fn main() {}\n");
-  gtk_source_buffer_set_language(
-      python->buffer, gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "python"));
-  gtk_source_buffer_set_language(
-      go->buffer, gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "go"));
-  gtk_source_buffer_set_language(
-      rust->buffer, gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "rust"));
-  gtk_source_buffer_set_language(
-      cpp->buffer, gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "cpp"));
-
-  g_assert_true(lsp_wants(cpp));
-  g_assert_true(lsp_wants(python));
-  g_assert_true(lsp_wants(go));
-  g_assert_true(lsp_wants(rust));
-  lsp_open(cpp);
-  lsp_open(python);
-  lsp_open(go);
-  lsp_open(rust);
-  g_assert_true(server_agrees(cpp));
-  g_assert_true(server_agrees(python));
-  g_assert_true(server_agrees(go));
-  g_assert_true(server_agrees(rust));
-  g_assert_cmpint(doc_of(cpp)->lsp->kind, ==, SERVER_CLANGD);
-  g_assert_cmpint(doc_of(python)->lsp->kind, ==, SERVER_PYTHON);
-  g_assert_cmpint(doc_of(go)->lsp->kind, ==, SERVER_GO);
-  g_assert_cmpint(doc_of(rust)->lsp->kind, ==, SERVER_RUST);
-  g_assert_cmpstr(server_language(SERVER_PYTHON), ==, "python");
-  g_assert_cmpstr(server_language(SERVER_GO), ==, "go");
-  g_assert_cmpstr(server_language(SERVER_RUST), ==, "rust");
-  g_assert_true(doc_of(python)->lsp != doc_of(go)->lsp);
-  g_assert_true(doc_of(go)->lsp != doc_of(rust)->lsp);
-  Lsp *servers[] = { doc_of(cpp)->lsp, doc_of(python)->lsp, doc_of(go)->lsp, doc_of(rust)->lsp };
-  lsp_close(cpp);
-  lsp_close(python);
-  lsp_close(go);
-  lsp_close(rust);
+  for (guint i = 0; i < G_N_ELEMENTS(files); i++) {
+    char *path = g_build_filename("/tmp/t-code-test", files[i].path, NULL);
+    tabs[i] = new_tab(path, "x\n");
+    gtk_source_buffer_set_language(tabs[i]->buffer,
+                                   gtk_source_language_manager_get_language(languages, files[i].source));
+    g_assert_true(lsp_wants(tabs[i]));
+    lsp_open(tabs[i]);
+    g_free(path);
+  }
+  for (guint i = 0; i < G_N_ELEMENTS(files); i++) {
+    g_assert_true(server_agrees(tabs[i]));
+    servers[i] = doc_of(tabs[i])->lsp;
+    g_assert_cmpint(servers[i]->kind, ==, files[i].kind);
+    g_assert_cmpstr(language_id(doc_of(tabs[i])), ==, files[i].id);
+  }
+  g_assert_true(servers[4] == servers[7]); /* TypeScript's serves JavaScript too */
+  g_assert_true(servers[1] != servers[2] && servers[2] != servers[3] && servers[3] != servers[4]);
+  for (guint i = 0; i < G_N_ELEMENTS(files); i++)
+    lsp_close(tabs[i]);
   run_for(2600);
-  for (guint i = 0; i < G_N_ELEMENTS(servers); i++)
+  for (guint i = 0; i < G_N_ELEMENTS(files); i++)
     g_assert_null(servers[i]->ch);
   lsp_stop(&app);
   g_assert_null(app.lsps);
   g_assert_null(app.lsp);
-  free_tab(cpp);
-  free_tab(python);
-  free_tab(go);
-  free_tab(rust);
+  for (guint i = 0; i < G_N_ELEMENTS(files); i++)
+    free_tab(tabs[i]);
 }
 
 /* The folder a server process runs in, from /proc. */

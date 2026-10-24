@@ -77,8 +77,10 @@ the mouse. On top of that:
 - A minimap, indent guides (the block around the cursor in its bracket color), the git diff gutter
   (green added, blue changed, red deleted), autosave a second after the last change.
 
-clangd starts when the first C or C++ file is shown; Python (`.py`), Go (`.go`) and Rust (`.rs`)
-files use `pylsp`, `gopls` and `rust-analyzer` respectively when the executable is on `PATH`
+clangd starts when the first C or C++ file is shown; Python (`.py`), Go (`.go`), Rust (`.rs`) and
+JavaScript / TypeScript (`.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`) files use `pylsp`,
+`gopls`, `rust-analyzer` and `typescript-language-server` (`npm install -g typescript-language-server
+typescript`) respectively when the executable is on `PATH`
 (`pylsp` also from the project's venv). **Python: Select Interpreter…** (command palette) picks the
 project's Python among its venvs, `$VIRTUAL_ENV`'s and `python3`; **Rust: Select Features…** and
 **Rust: Select Target…** pick Cargo features (the default ones, all, or some) and a target installed

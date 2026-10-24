@@ -1,6 +1,6 @@
 /*
  * Language servers are created lazily per language and project: clangd for C/C++, plus pylsp,
- * gopls and rust-analyzer when installed. Open editors are kept in sync with their server
+ * gopls, rust-analyzer and typescript-language-server (JavaScript too) when installed. Open editors are kept in sync with their server
  * change by change; what it says comes back as diagnostics (lsp/diagnostics.c). Other modules ask
  * it things (hover, completion, definition) with lsp_request().
  */

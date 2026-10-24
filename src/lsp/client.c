@@ -1,6 +1,6 @@
 /*
- * Per-language LSP clients (see client.h): clangd for C/C++, pylsp for Python, gopls for Go and
- * rust-analyzer for Rust. Each starts on first use, keeps a small LRU of open documents and stops
+ * Per-language LSP clients (see client.h): clangd for C/C++, pylsp for Python, gopls for Go,
+ * rust-analyzer for Rust and typescript-language-server for TypeScript and JavaScript. Each starts on first use, keeps a small LRU of open documents and stops
  * one minute after its last editor closes; a crash restarts that server up to MAX_CRASHES times.
  */
 #include "lsp/client.h"
@@ -42,6 +42,7 @@ typedef enum {
   SERVER_PYTHON,
   SERVER_GO,
   SERVER_RUST,
+  SERVER_TYPESCRIPT, /* JavaScript too */
   SERVER_NONE,
 } ServerKind;
 
@@ -52,6 +53,7 @@ static const char *const clangd_argv[] = { "clangd", "--background-index", "--pc
 static const char *const python_argv[] = { "pylsp", NULL };
 static const char *const go_argv[] = { "gopls", NULL };
 static const char *const rust_argv[] = { "rust-analyzer", NULL };
+static const char *const typescript_argv[] = { "typescript-language-server", "--stdio", NULL };
 /* clang-format on */
 #define TIDY_FLAG
 #else
@@ -69,6 +71,7 @@ static const char *const *server_command(ServerKind kind)
     case SERVER_PYTHON: return python_argv;
     case SERVER_GO: return go_argv;
     case SERVER_RUST: return rust_argv;
+    case SERVER_TYPESCRIPT: return typescript_argv;
     default: return NULL;
   }
 #endif
@@ -81,6 +84,7 @@ static const char *server_language(ServerKind kind)
     case SERVER_PYTHON: return "python";
     case SERVER_GO: return "go";
     case SERVER_RUST: return "rust";
+    case SERVER_TYPESCRIPT: return "typescript";
     default: return NULL;
   }
 }
@@ -505,6 +509,25 @@ static void evict_docs(Lsp *l)
   }
 }
 
+/* The file's language for didOpen. */
+static const char *language_id(Doc *doc)
+{
+  const char *path = doc->tab->path ? doc->tab->path : "";
+
+  if (doc->lsp->kind == SERVER_CLANGD) {
+    const char *source_id = gtk_source_language_get_id(gtk_source_buffer_get_language(doc->tab->buffer));
+    return g_str_has_prefix(source_id, "cpp") ? "cpp" : "c";
+  }
+  if (doc->lsp->kind == SERVER_TYPESCRIPT) {
+    gboolean react = g_str_has_suffix(path, "x"); /* .jsx, .tsx */
+    if (g_str_has_suffix(path, ".js") || g_str_has_suffix(path, ".mjs") || g_str_has_suffix(path, ".cjs") ||
+        g_str_has_suffix(path, ".jsx"))
+      return react ? "javascriptreact" : "javascript";
+    return react ? "typescriptreact" : "typescript";
+  }
+  return server_language(doc->lsp->kind);
+}
+
 /* Tells the server about the file: all of it, as it is now. */
 static void send_document(Doc *doc)
 {
@@ -517,11 +540,7 @@ static void send_document(Doc *doc)
     params = g_strdup_printf("{%s,\"version\":%d},\"contentChanges\":[{\"text\":%s}]}", document, ++doc->version, text);
     notify(doc->lsp, "textDocument/didChange", params);
   } else {
-    const char *id = server_language(doc->lsp->kind);
-    if (!id) {
-      const char *source_id = gtk_source_language_get_id(gtk_source_buffer_get_language(doc->tab->buffer));
-      id = g_str_has_prefix(source_id, "cpp") ? "cpp" : "c";
-    }
+    const char *id = language_id(doc);
     params =
         g_strdup_printf("{%s,\"languageId\":\"%s\",\"version\":%d,\"text\":%s}}", document, id, ++doc->version, text);
     notify(doc->lsp, "textDocument/didOpen", params);
@@ -559,6 +578,10 @@ static ServerKind server_kind_for_tab(Tab *tab)
     return SERVER_GO;
   if (g_str_has_suffix(path, ".rs"))
     return SERVER_RUST;
+  static const char *const scripts[] = { ".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx", NULL };
+  for (int i = 0; scripts[i]; i++)
+    if (g_str_has_suffix(path, scripts[i]))
+      return SERVER_TYPESCRIPT;
   return SERVER_NONE;
 }
 
