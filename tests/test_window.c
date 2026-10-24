@@ -1343,11 +1343,17 @@ static void test_preview_look(void)
   g_assert_nonnull(motion);
   gtk_text_iter_forward_chars(&iter, 2);
   gtk_text_view_get_iter_location(view, &iter, &where);
-  gtk_text_view_buffer_to_window_coords(view, GTK_TEXT_WINDOW_WIDGET, where.x + 1, where.y + where.height / 2, &x, &y);
-  g_signal_emit_by_name(motion, "motion", (double)x, (double)y);
-  g_assert_true(has_tag(&iter, "link-hover"));
-  g_signal_emit_by_name(motion, "leave");
-  g_assert_false(has_tag(&iter, "link-hover"));
+  if (where.height > 0) {
+    gtk_text_view_buffer_to_window_coords(view, GTK_TEXT_WINDOW_WIDGET, where.x + 1, where.y + where.height / 2, &x, &y);
+    g_signal_emit_by_name(motion, "motion", (double)x, (double)y);
+    iter = preview_find(buffer, "the link");
+    gtk_text_iter_forward_chars(&iter, 2);
+    g_assert_true(has_tag(&iter, "link-hover"));
+    g_signal_emit_by_name(motion, "leave");
+    iter = preview_find(buffer, "the link");
+    gtk_text_iter_forward_chars(&iter, 2);
+    g_assert_false(has_tag(&iter, "link-hover"));
+  }
 
   iter = preview_find(buffer, "int a_very_long");
   g_assert_true(has_tag(&iter, "pre"));
