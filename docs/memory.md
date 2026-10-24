@@ -14,8 +14,9 @@ split between the processes, so the rows add up):
 * **clangd**: usually the biggest when C / C++ files are open, 345–367 MB in Fedora's runs *with
   25 of this repository's files open*, and nothing at all when none is open (`lsp/client.c` stops
   it a minute after its last file closes). Since 0.3.1, `pylsp`, `gopls` and `rust-analyzer` show
-  up as their own rows the same way, and so does `typescript-language-server` (with the `tsserver`
-  it runs under node).
+  up as their own rows the same way, and so do `typescript-language-server` (with the `tsserver`
+  it runs under node), the JSON and YAML servers (node) and `marksman`. The JSON server is given no
+  generated or big JSON file (a compile database, a lock file, over 512 KB) and downloads no schema.
 * **the shells**: a few MB each
 * the 0.1.1-era helpers (a micro process per tab, 50 helper processes) are gone since 0.2
 

@@ -85,9 +85,15 @@ typescript`) respectively when the executable is on `PATH`
 project's Python among its venvs, `$VIRTUAL_ENV`'s and `python3`; **Rust: Select Features…** and
 **Rust: Select Target…** pick Cargo features (the default ones, all, or some) and a target installed
 with rustup. The choice is kept per project and used by the language server and by Build, Run and Test.
+JSON (`.json`, `.jsonc`), YAML (`.yaml`, `.yml`) and Markdown (`.md`) files use the JSON language
+server (`npm install -g vscode-langservers-extracted`), `yaml-language-server` and `marksman`. The
+JSON one only validates: against a file's own local `$schema`, downloading nothing and leaving the
+formatting alone; generated files (`compile_commands.json`, `package-lock.json`, `*.min.json`) and
+JSON files over 512 KB get no server. YAML files are validated and formatted with the schemas of
+the SchemaStore catalog; Markdown files get link and heading navigation and keep word completion.
 Each server starts on first use and stops a minute after the last file it serves closes. Files are
 sent only once their tab is shown, so restored sessions cost the servers little. Other files
-(Markdown, Makefiles and scripts) get completion from the words in the file. "Restart Language
+(Makefiles, scripts) get completion from the words in the file. "Restart Language
 Servers" in the command palette restarts active servers (including one that gave up after crashes);
 after installing an optional server, reopen its file to activate it. When clangd cannot find
 includes and the project has no `compile_commands.json` or `compile_flags.txt`, the status bar shows

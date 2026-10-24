@@ -42,3 +42,19 @@ NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPO
 NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
 OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## Language servers
+
+t-code includes no language server: it runs the ones below when they are installed, as separate
+programs. Their sources and licenses:
+
+| Language | Server | Source | License |
+|---|---|---|---|
+| C, C++ | clangd | [llvm/llvm-project](https://github.com/llvm/llvm-project) | Apache-2.0 WITH LLVM-exception |
+| Python | pylsp | [python-lsp/python-lsp-server](https://github.com/python-lsp/python-lsp-server) | MIT |
+| Go | gopls | [golang/tools](https://github.com/golang/tools) | BSD-3-Clause |
+| Rust | rust-analyzer | [rust-lang/rust-analyzer](https://github.com/rust-lang/rust-analyzer) | MIT or Apache-2.0 |
+| JavaScript, TypeScript | typescript-language-server | [typescript-language-server/typescript-language-server](https://github.com/typescript-language-server/typescript-language-server) | Apache-2.0 |
+| JSON | vscode-langservers-extracted | [hrsh7th/vscode-langservers-extracted](https://github.com/hrsh7th/vscode-langservers-extracted) | MIT |
+| YAML | yaml-language-server | [redhat-developer/yaml-language-server](https://github.com/redhat-developer/yaml-language-server) | MIT |
+| Markdown | marksman | [artempyanykh/marksman](https://github.com/artempyanykh/marksman) | MIT |

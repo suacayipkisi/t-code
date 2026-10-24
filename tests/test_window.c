@@ -791,8 +791,10 @@ static void test_tab_strip(void)
   g_object_unref(controllers);
   g_assert_nonnull(target);
   run_until(laid_out, gtk_widget_get_first_child(strip)); /* the drop is placed by the tabs' places */
+  graphene_point_t at; /* on s1's left edge, wherever the strip is scrolled to (s3, the last opened) */
+  g_assert_true(gtk_widget_compute_point(gtk_widget_get_first_child(strip), scrolled, &GRAPHENE_POINT_INIT(1, 0), &at));
   gboolean dropped = FALSE;
-  g_signal_emit_by_name(target, "drop", &value, 0.0, 0.0, &dropped);
+  g_signal_emit_by_name(target, "drop", &value, (double)at.x, 0.0, &dropped);
   g_assert_true(dropped);
   run(20);
   assert_strip(0, "s3.txt! s1.txt s2.txt");

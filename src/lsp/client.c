@@ -1,6 +1,7 @@
 /*
  * Per-language LSP clients (see client.h): clangd for C/C++, pylsp for Python, gopls for Go,
- * rust-analyzer for Rust and typescript-language-server for TypeScript and JavaScript. Each starts on first use, keeps a small LRU of open documents and stops
+ * rust-analyzer for Rust, typescript-language-server for TypeScript and JavaScript, the JSON language
+ * server, yaml-language-server and marksman for Markdown. Each starts on first use, keeps a small LRU of open documents and stops
  * one minute after its last editor closes; a crash restarts that server up to MAX_CRASHES times.
  */
 #include "lsp/client.h"
@@ -15,6 +16,7 @@
 #include "project/toolchain.h"
 #include "window/statusbar.h"
 
+#include <glib/gstdio.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -28,6 +30,8 @@
 #define MAX_OPEN_DOCS 5 /* per-server LRU of open documents */
 #endif
 #define MAX_CRASHES 3
+
+#define MAX_JSON_BYTES (512 * 1024) /* a bigger JSON file is data, not something edited by hand */
 
 /* A compile database written (make, cmake) is told to the server this long after its last change. */
 #define DATABASE_MS 1500
@@ -43,6 +47,9 @@ typedef enum {
   SERVER_GO,
   SERVER_RUST,
   SERVER_TYPESCRIPT, /* JavaScript too */
+  SERVER_JSON,
+  SERVER_YAML,
+  SERVER_MARKDOWN,
   SERVER_NONE,
 } ServerKind;
 
@@ -54,6 +61,9 @@ static const char *const python_argv[] = { "pylsp", NULL };
 static const char *const go_argv[] = { "gopls", NULL };
 static const char *const rust_argv[] = { "rust-analyzer", NULL };
 static const char *const typescript_argv[] = { "typescript-language-server", "--stdio", NULL };
+static const char *const json_argv[] = { "vscode-json-language-server", "--stdio", NULL };
+static const char *const yaml_argv[] = { "yaml-language-server", "--stdio", NULL };
+static const char *const markdown_argv[] = { "marksman", "server", NULL };
 /* clang-format on */
 #define TIDY_FLAG
 #else
@@ -72,6 +82,9 @@ static const char *const *server_command(ServerKind kind)
     case SERVER_GO: return go_argv;
     case SERVER_RUST: return rust_argv;
     case SERVER_TYPESCRIPT: return typescript_argv;
+    case SERVER_JSON: return json_argv;
+    case SERVER_YAML: return yaml_argv;
+    case SERVER_MARKDOWN: return markdown_argv;
     default: return NULL;
   }
 #endif
@@ -85,6 +98,9 @@ static const char *server_language(ServerKind kind)
     case SERVER_GO: return "go";
     case SERVER_RUST: return "rust";
     case SERVER_TYPESCRIPT: return "typescript";
+    case SERVER_JSON: return "json";
+    case SERVER_YAML: return "yaml";
+    case SERVER_MARKDOWN: return "markdown";
     default: return NULL;
   }
 }
@@ -525,6 +541,8 @@ static const char *language_id(Doc *doc)
       return react ? "javascriptreact" : "javascript";
     return react ? "typescriptreact" : "typescript";
   }
+  if (doc->lsp->kind == SERVER_JSON && g_str_has_suffix(path, ".jsonc"))
+    return "jsonc";
   return server_language(doc->lsp->kind);
 }
 
@@ -564,6 +582,19 @@ static void doc_free(Doc *doc)
 
 /* The server ------------------------------------------------------------------------------- */
 
+/* Whether a JSON file gets the JSON server: not a generated one (a compile database, a lock file) nor
+ * one bigger than MAX_JSON_BYTES, which the server would parse on every change for nothing. */
+static gboolean json_worth_serving(const char *path)
+{
+  static const char *const generated[] = { "compile_commands.json", "package-lock.json", NULL };
+  const char *name = strrchr(path, '/') ? strrchr(path, '/') + 1 : path;
+  GStatBuf info;
+
+  if (g_strv_contains(generated, name) || g_str_has_suffix(name, ".min.json"))
+    return FALSE;
+  return g_stat(path, &info) != 0 || info.st_size <= MAX_JSON_BYTES; /* not saved yet: small */
+}
+
 static ServerKind server_kind_for_tab(Tab *tab)
 {
   GtkSourceLanguage *language = tab && tab->kind == TAB_EDITOR ? gtk_source_buffer_get_language(tab->buffer) : NULL;
@@ -582,6 +613,12 @@ static ServerKind server_kind_for_tab(Tab *tab)
   for (int i = 0; scripts[i]; i++)
     if (g_str_has_suffix(path, scripts[i]))
       return SERVER_TYPESCRIPT;
+  if (g_str_has_suffix(path, ".json") || g_str_has_suffix(path, ".jsonc"))
+    return json_worth_serving(path) ? SERVER_JSON : SERVER_NONE;
+  if (g_str_has_suffix(path, ".yaml") || g_str_has_suffix(path, ".yml"))
+    return SERVER_YAML;
+  if (g_str_has_suffix(path, ".md") || g_str_has_suffix(path, ".markdown"))
+    return SERVER_MARKDOWN;
   return SERVER_NONE;
 }
 
@@ -600,9 +637,12 @@ static char *venv_pylsp(App *t)
 }
 #endif
 
-/* initializationOptions for the server: rust-analyzer's Cargo features and target; NULL for none. */
+/* initializationOptions for the server: the JSON server neither formats nor reads schemas other than
+ * local files; rust-analyzer's Cargo features and target. NULL for none. */
 static char *server_options(Lsp *l)
 {
+  if (l->kind == SERVER_JSON)
+    return g_strdup("{\"provideFormatter\":false,\"handledSchemaProtocols\":[\"file\"]}");
   if (l->kind != SERVER_RUST)
     return NULL;
   char *features = toolchain_rust_features(l->app), *target = toolchain_rust_target(l->app);
@@ -613,10 +653,18 @@ static char *server_options(Lsp *l)
   return options;
 }
 
-/* The settings sent after initialize (workspace/didChangeConfiguration): pylsp's Python for jedi;
- * NULL for none. */
+/* The settings sent after initialize (workspace/didChangeConfiguration) and given when the server
+ * asks (workspace/configuration): JSON's validation, against a file's own local "$schema" only (no
+ * downloads, no formatting); YAML's validation, formatting and schemas (the SchemaStore catalog's);
+ * pylsp's Python for jedi. NULL for none. */
 static char *server_settings(Lsp *l)
 {
+  if (l->kind == SERVER_JSON)
+    return g_strdup("{\"json\":{\"validate\":{\"enable\":true},\"format\":{\"enable\":false},"
+                    "\"schemaDownload\":{\"enable\":false},\"schemas\":[]}}");
+  if (l->kind == SERVER_YAML)
+    return g_strdup("{\"yaml\":{\"validate\":true,\"hover\":true,\"completion\":true,\"format\":{\"enable\":true},"
+                    "\"schemaStore\":{\"enable\":true}}}");
   if (l->kind != SERVER_PYTHON)
     return NULL;
   char *python = toolchain_python(l->app, NULL), *quoted = python ? json_quote(python) : NULL;
@@ -847,10 +895,20 @@ static void answer_server(Lsp *l, JsonNode *message)
     navigate_apply_edit(l->app, json_at(message, "params.edit"), FALSE, l->utf16);
     g_string_assign(result, "{\"applied\":true}");
   } else if (g_strcmp0(method, "workspace/configuration") == 0 && items && JSON_NODE_HOLDS_ARRAY(items)) {
+    char *text = server_settings(l);
+    JsonNode *settings = text ? json_from_string(text, NULL) : NULL;
     g_string_assign(result, "[");
-    for (guint i = 0; i < json_array_get_length(json_node_get_array(items)); i++)
-      g_string_append(result, i ? ",null" : "null");
+    for (guint i = 0; i < json_array_get_length(json_node_get_array(items)); i++) {
+      const char *section = json_string_at(json_array_get_element(json_node_get_array(items), i), "section");
+      JsonNode *value = !settings ? NULL : section ? json_at(settings, section) : settings; /* "yaml", "json.format" */
+      char *answer = value ? json_to_string(value, FALSE) : g_strdup("null");
+      g_string_append_printf(result, "%s%s", i ? "," : "", answer);
+      g_free(answer);
+    }
     g_string_append(result, "]");
+    if (settings)
+      json_node_unref(settings);
+    g_free(text);
   }
   char *body = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}", id_text, result->str);
   channel_send(l->ch, body);

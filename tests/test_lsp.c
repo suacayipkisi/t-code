@@ -104,6 +104,8 @@ static void fake_publish(const char *uri, GString *text)
   g_free(quoted_uri);
 }
 
+static char *fake_config_uri; /* the file that asked for settings */
+
 static void fake_text_free(gpointer text)
 {
   g_string_free(text, TRUE);
@@ -139,6 +141,19 @@ static int fake_server(void)
       GString *text = g_string_new(json_string_at(message, "params.textDocument.text"));
       g_hash_table_insert(fake_docs, g_strdup(uri), text);
       fake_publish(uri, text);
+      if (g_str_has_suffix(uri, ".yaml")) { /* asks for settings; the answer comes back as the problem */
+        g_free(fake_config_uri);
+        fake_config_uri = g_strdup(uri);
+        fake_send("{\"jsonrpc\":\"2.0\",\"id\":\"config\",\"method\":\"workspace/configuration\",\"params\":"
+                  "{\"items\":[{\"section\":\"yaml.format\"},{\"section\":\"nothing\"}]}}");
+      }
+    } else if (!method && g_strcmp0(json_string_at(message, "id"), "config") == 0 && fake_config_uri) {
+      GString *answer = g_string_new(NULL);
+      char *result = json_to_string(json_at(message, "result"), FALSE);
+      g_string_assign(answer, result);
+      fake_publish(fake_config_uri, answer);
+      g_string_free(answer, TRUE);
+      g_free(result);
     } else if (g_strcmp0(method, "textDocument/didChange") == 0) {
       GString *text = g_hash_table_lookup(fake_docs, uri);
       JsonArray *changes = json_node_get_array(json_at(message, "params.contentChanges"));
@@ -506,6 +521,57 @@ static void test_toolchain_options(void)
   g_assert_null(server_settings(&rust));
   g_assert_null(server_options(&c));
   toolchain_test_features = toolchain_test_target = toolchain_test_python = NULL;
+}
+
+/* The JSON server validates only (no formatting, no schema downloads) and is not given generated or
+ * big JSON files; YAML gets its settings; a server asking for a section of them
+ * (workspace/configuration) gets it, null for one there is not. */
+static void test_data_language_settings(void)
+{
+  Lsp json = { .kind = SERVER_JSON, .app = &app }, yaml = { .kind = SERVER_YAML, .app = &app };
+  char *text = server_options(&json);
+  JsonNode *node = json_from_string(text, NULL);
+
+  g_assert_false(json_node_get_boolean(json_at(node, "provideFormatter")));
+  g_assert_cmpstr(json_string_at(node, "handledSchemaProtocols.0"), ==, "file"); /* nothing downloaded */
+  g_assert_null(json_at(node, "handledSchemaProtocols.1"));
+  json_node_unref(node);
+  g_free(text);
+  text = server_settings(&json);
+  node = json_from_string(text, NULL);
+  g_assert_true(json_node_get_boolean(json_at(node, "json.validate.enable")));
+  g_assert_false(json_node_get_boolean(json_at(node, "json.format.enable")));
+  g_assert_false(json_node_get_boolean(json_at(node, "json.schemaDownload.enable")));
+  json_node_unref(node);
+  g_free(text);
+  text = server_settings(&yaml);
+  node = json_from_string(text, NULL);
+  g_assert_true(json_node_get_boolean(json_at(node, "yaml.schemaStore.enable")));
+  json_node_unref(node);
+  g_free(text);
+
+  char *dir = g_dir_make_tmp("t-code-json-XXXXXX", NULL), *big = g_build_filename(dir, "data.json", NULL);
+  char *data = g_strnfill(MAX_JSON_BYTES + 1, ' ');
+  g_assert_true(json_worth_serving("/p/settings.json"));
+  g_assert_false(json_worth_serving("/p/build/compile_commands.json"));
+  g_assert_false(json_worth_serving("/p/package-lock.json"));
+  g_assert_false(json_worth_serving("/p/dist/app.min.json"));
+  g_assert_true(g_file_set_contents(big, data, -1, NULL));
+  g_assert_false(json_worth_serving(big));
+  g_unlink(big);
+  g_rmdir(dir);
+  g_free(data);
+  g_free(big);
+  g_free(dir);
+
+  Tab *tab = new_tab("/tmp/t-code-test/config.yaml", "a: 1\n");
+  gtk_source_buffer_set_language(tab->buffer, NULL); /* new_tab's C would go to clangd */
+  gint64 deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+  lsp_open(tab);
+  while (g_strcmp0(server_text(tab), "[{\"enable\":true},null]") != 0 && g_get_monotonic_time() < deadline)
+    g_main_context_iteration(NULL, TRUE);
+  g_assert_cmpstr(server_text(tab), ==, "[{\"enable\":true},null]");
+  free_tab(tab);
 }
 
 static gboolean workspace_answered(void)
@@ -1316,6 +1382,10 @@ static void test_language_routing(void)
     { "routing.tsx", "typescript-jsx", "typescriptreact", SERVER_TYPESCRIPT },
     { "routing.mjs", "js", "javascript", SERVER_TYPESCRIPT },
     { "routing.jsx", "js", "javascriptreact", SERVER_TYPESCRIPT },
+    { "routing.json", "json", "json", SERVER_JSON },
+    { "routing.jsonc", "json", "jsonc", SERVER_JSON },
+    { "routing.yml", "yaml", "yaml", SERVER_YAML },
+    { "routing.md", "markdown", "markdown", SERVER_MARKDOWN },
   };
   GtkSourceLanguageManager *languages = gtk_source_language_manager_get_default();
   Tab *tabs[G_N_ELEMENTS(files)];
@@ -1338,7 +1408,9 @@ static void test_language_routing(void)
     g_assert_cmpstr(language_id(doc_of(tabs[i])), ==, files[i].id);
   }
   g_assert_true(servers[4] == servers[7]); /* TypeScript's serves JavaScript too */
+  g_assert_true(servers[8] == servers[9]); /* .json and .jsonc */
   g_assert_true(servers[1] != servers[2] && servers[2] != servers[3] && servers[3] != servers[4]);
+  g_assert_true(servers[4] != servers[8] && servers[8] != servers[10] && servers[10] != servers[11]);
   for (guint i = 0; i < G_N_ELEMENTS(files); i++)
     lsp_close(tabs[i]);
   run_for(2600);
@@ -1423,6 +1495,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/hover", test_hover);
   g_test_add_func("/lsp/hover-fixes", test_hover_fixes);
   g_test_add_func("/lsp/toolchain-options", test_toolchain_options);
+  g_test_add_func("/lsp/data-language-settings", test_data_language_settings);
   g_test_add_func("/lsp/document-highlight", test_document_highlight);
   g_test_add_func("/lsp/inactive-regions", test_inactive_regions);
   g_test_add_func("/lsp/cancel", test_cancel);

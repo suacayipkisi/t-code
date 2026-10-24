@@ -10,6 +10,7 @@
 #include "editor/diffgutter.h"
 #include "editor/editorview.h"
 #include "editor/folding.h"
+#include "editor/preview.h"
 #include "editor/tabs.h"
 #include "editor/recovery.h"
 #include "git/compare.h"
@@ -428,13 +429,15 @@ static void on_loaded(GObject *source, GAsyncResult *result, gpointer data)
     watch_file(tab);
     diff_gutter_loaded(tab);
     breakpoints_loaded(tab);
-    if (!lsp_wants(tab))
+    if (!lsp_wants(tab) || is_markdown(tab->path)) /* prose: its words, beside the server's links */
       completion_use_words(tab);
-    else if (gtk_widget_get_mapped(GTK_WIDGET(tab->source)) || lsp_has(tab)) /* loaded again */
-      lsp_open(tab);
-    else
-      v->lsp_pending = TRUE; /* a hidden tab: once it is shown */
-    if (v->save_again) {     /* asked for while it loaded: the buffer is what the file holds now */
+    if (lsp_wants(tab)) {
+      if (gtk_widget_get_mapped(GTK_WIDGET(tab->source)) || lsp_has(tab)) /* loaded again */
+        lsp_open(tab);
+      else
+        v->lsp_pending = TRUE; /* a hidden tab: once it is shown */
+    }
+    if (v->save_again) { /* asked for while it loaded: the buffer is what the file holds now */
       GArray *waiting = v->next_waiters;
       v->save_again = FALSE;
       v->next_waiters = g_array_new(FALSE, FALSE, sizeof(SaveWaiter));
