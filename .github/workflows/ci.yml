@@ -4,6 +4,12 @@ on:
   push:
   pull_request:
 
+# A newer push to the same branch (or PR) cancels the run still going: the newest commit holds the
+# earlier ones, and runs no longer queue up behind each other.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     # The same container the Fedora packages build in: gcc 14+, GTK4, GtkSourceView 5, VTE, md4c.
