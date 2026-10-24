@@ -21,17 +21,28 @@ if [[ -d "$APPDIR/usr/share/X11/locale" ]] && [[ -z "${XLOCALEDIR:-}" ]]; then
   export XLOCALEDIR="$APPDIR/usr/share/X11/locale"
 fi
 
-# GdkPixbuf loaders for SVG and icon rendering
+# GdkPixbuf loaders for SVG and icon rendering. The cache holds the loaders' absolute paths, and
+# the AppImage is mounted at a new /tmp/.mount_t-code* every run: one cache per AppDir location
+# (a cache shared between runs pointed at an earlier mount, and every icon failed to load).
 LOADERS_BIN="$APPDIR/usr/lib/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders"
+LOADERS_DIR="$APPDIR/usr/lib/gdk-pixbuf-2.0/loaders"
 if [[ -x "$LOADERS_BIN" ]]; then
   RUNTIME_CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/t-code-${UID:-$(id -u)}"
   mkdir -p -m 700 "$RUNTIME_CACHE_DIR" 2>/dev/null || RUNTIME_CACHE_DIR="/tmp"
-  LOADERS_CACHE="$RUNTIME_CACHE_DIR/gdk-pixbuf-loaders.cache"
+  key="$(printf '%s' "$APPDIR" | cksum | cut -d' ' -f1)"
+  LOADERS_CACHE="$RUNTIME_CACHE_DIR/gdk-pixbuf-loaders-$key.cache"
 
-  # Generate or update cache for current AppDir mount point
-  if [[ ! -s "$LOADERS_CACHE" ]] || [[ "$APPDIR" -nt "$LOADERS_CACHE" ]]; then
-    "$LOADERS_BIN" "$APPDIR"/usr/lib/gdk-pixbuf-2.0/loaders/*.so > "$LOADERS_CACHE" 2>/dev/null || true
+  if [[ ! -s "$LOADERS_CACHE" ]] || [[ "$LOADERS_DIR" -nt "$LOADERS_CACHE" ]]; then
+    { printf '# appdir: %s\n' "$APPDIR"; "$LOADERS_BIN" "$LOADERS_DIR"/*.so 2>/dev/null; } \
+      > "$LOADERS_CACHE.$$" && mv -f "$LOADERS_CACHE.$$" "$LOADERS_CACHE"
   fi
+  # The caches of mounts that are gone (earlier runs), and the one 0.3.2 shared between runs
+  rm -f "$RUNTIME_CACHE_DIR/gdk-pixbuf-loaders.cache"
+  for old in "$RUNTIME_CACHE_DIR"/gdk-pixbuf-loaders-*.cache; do
+    [[ -f "$old" ]] || continue
+    dir="$(sed -n '1s/^# appdir: //p' "$old")"
+    [[ -n "$dir" && -d "$dir" ]] || rm -f "$old"
+  done
 
   if [[ -s "$LOADERS_CACHE" ]]; then
     export GDK_PIXBUF_MODULE_FILE="$LOADERS_CACHE"

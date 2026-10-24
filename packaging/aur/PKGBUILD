@@ -1,8 +1,9 @@
 # Maintainer: suacayipkisi <konuki8523@gmail.com>
-# The source is the v$pkgver tag's archive on GitHub. For a new release: bump pkgver, push the tag,
-# then put the archive's checksum in sha256sums (`makepkg -g`) and regenerate the metadata with
-# `makepkg --printsrcinfo > .SRCINFO`. packaging/build.sh cannot catch a stale checksum: it builds
-# from the working tree's tarball and replaces the checksum with that one's.
+# The source is the v$pkgver tag's archive on GitHub. For a new release: bump pkgver (and the
+# metadata: `makepkg --printsrcinfo > .SRCINFO`), push the tag, then run
+# packaging/aur/update-checksum.sh, which puts that archive's sha256 here and in .SRCINFO.
+# packaging/build.sh cannot catch a stale checksum: it builds from the working tree's tarball and
+# replaces the checksum with that one's.
 pkgname=t-code
 pkgver=0.3.2
 pkgrel=1

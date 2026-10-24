@@ -54,6 +54,15 @@ check "libpthread.so is NOT bundled in usr/lib" sh -c "! ls '$APPDIR'/usr/lib/li
 check "libGL.so is NOT bundled in usr/lib" sh -c "! ls '$APPDIR'/usr/lib/libGL.so* 2>/dev/null"
 check "libEGL.so is NOT bundled in usr/lib" sh -c "! ls '$APPDIR'/usr/lib/libEGL.so* 2>/dev/null"
 check "libdrm.so is NOT bundled in usr/lib" sh -c "! ls '$APPDIR'/usr/lib/libdrm.so* 2>/dev/null"
+# The host's Mesa loads its own Wayland / X11 client libraries, and the font stack reads the
+# host's /etc/fonts: bundled older copies broke EGL on Wayland and flooded fontconfig warnings.
+for lib in libwayland-client libwayland-egl libwayland-cursor libX11 libX11-xcb libxcb libfontconfig \
+  libfreetype libharfbuzz; do
+  check "$lib.so is NOT bundled in usr/lib" sh -c "! ls '$APPDIR'/usr/lib/$lib.so* 2>/dev/null"
+done
+check "librsvg (the SVG icon loader's library) is bundled" sh -c "ls '$APPDIR'/usr/lib/librsvg-2.so* >/dev/null 2>&1"
+check "the SVG loader finds librsvg inside the AppDir" \
+  sh -c "ldd '$APPDIR/usr/lib/gdk-pixbuf-2.0/loaders/libpixbufloader_svg.so' | grep librsvg | grep -q '$APPDIR'"
 
 echo "=== 4. RPATH and Subprocess Isolation Checks ==="
 check "t-code binary has RUNPATH with \$ORIGIN/../lib" \
@@ -124,6 +133,23 @@ check "no GTK criticals or segfaults in log" sh -c "! grep -E 'CRITICAL|segfault
 
 echo "=== 6. Extracted AppDir (AppRun) Execution ==="
 check "extracted AppRun starts and responds to --version" "$APPDIR/AppRun" --version
+
+# The AppImage mounts at a new path every run: each AppDir location gets a loaders cache of its own,
+# pointing at its own loaders (one shared cache kept an earlier mount's paths: no icons from the
+# second start on).
+OTHER="$EXTRACT_DIR/moved-root"
+cp -a "$APPDIR" "$OTHER"
+"$APPDIR/AppRun" --version >/dev/null 2>&1
+"$OTHER/AppRun" --version >/dev/null 2>&1
+caches="$XDG_RUNTIME_DIR/t-code-$(id -u)"
+check "a loaders cache points at the first AppDir's loaders" \
+  sh -c "grep -l '\"$APPDIR/usr/lib/gdk-pixbuf-2.0/loaders/libpixbufloader_svg.so\"' '$caches'/gdk-pixbuf-loaders-*.cache"
+check "another one points at the moved AppDir's loaders" \
+  sh -c "grep -l '\"$OTHER/usr/lib/gdk-pixbuf-2.0/loaders/libpixbufloader_svg.so\"' '$caches'/gdk-pixbuf-loaders-*.cache"
+rm -rf "$OTHER"
+"$APPDIR/AppRun" --version >/dev/null 2>&1
+check "the gone AppDir's cache is removed at the next start" \
+  sh -c "! grep -l '$OTHER/' '$caches'/gdk-pixbuf-loaders-*.cache"
 
 if ((failures)); then
   echo "--- t-code log ---"

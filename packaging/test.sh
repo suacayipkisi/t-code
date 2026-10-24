@@ -18,8 +18,11 @@ declare -A INSTALL=(
   ["debian"]='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
             $(ls /out/t-code_$VERSION-[0-9]*_amd64.deb) xvfb dbus python3
             procps desktop-file-utils'
+  # The AppImage takes the display client and font libraries from the host (every desktop has them).
   ["appimage"]='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
-              xvfb dbus python3 procps desktop-file-utils clangd git file binutils libglib2.0-bin'
+              xvfb dbus python3 procps desktop-file-utils clangd git file binutils libglib2.0-bin
+              libwayland-client0 libwayland-egl1 libwayland-cursor0 libx11-6 libx11-xcb1 libxcb1
+              libfontconfig1 libfreetype6 libharfbuzz0b fonts-dejavu-core'
   # A local repository: xbps installs from repositories only, not from a package file.
   ["void"]='xbps-install -Syu xbps && xbps-install -Syu && mkdir -p /tmp/repo &&
           cp /out/t-code-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&

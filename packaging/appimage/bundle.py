@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 bundle.py: Resolves and copies libraries and assets into AppDir for t-code AppImage.
-Ensures RPATH isolation and excludes host-specific drivers (OpenGL, libc, X11, Wayland).
+Ensures RPATH isolation and excludes what has to match the host: libc, the graphics drivers and
+the libraries they load themselves (Wayland, X11 / xcb), and the font stack that reads the host's
+font configuration.
 """
 
 import os
@@ -30,6 +32,20 @@ EXCLUDE_PREFIXES = (
     "libOpenGL.so",
     "libdrm.so",
     "libgbm.so",
+    # Display client libraries: the host's Mesa EGL / GLX load the host's copies; a bundled older
+    # libwayland-client next to them made EGL fail (GTK fell back to Cairo, or crashed on a real GPU)
+    "libwayland-client.so",
+    "libwayland-cursor.so",
+    "libwayland-egl.so",
+    "libwayland-server.so",
+    "libX11.so",
+    "libX11-xcb.so",
+    "libxcb.so",
+    # Font stack: it reads the host's /etc/fonts and font caches, which a bundled older fontconfig
+    # does not understand (dozens of "invalid attribute" warnings at every start)
+    "libfontconfig.so",
+    "libfreetype.so",
+    "libharfbuzz.so",
     # Audio
     "libasound.so",
 )
@@ -84,18 +100,19 @@ def main():
     to_inspect = [str(tcode_bin)]
     collected_libs: dict[str, str] = {}  # soname -> source path
 
-    # Also include gdk-pixbuf loaders (like librsvg) so SVG icons render cleanly
+    # Also include the gdk-pixbuf loaders and what each needs (librsvg for the SVG one, which
+    # draws the icons): all of them, not only the first one found
     pixbuf_loader_dir = None
     for p in [
         Path("/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0"),
         Path("/usr/lib64/gdk-pixbuf-2.0"),
         Path("/usr/lib/gdk-pixbuf-2.0"),
     ]:
-        if p.exists():
-            for loader in p.glob("**/loaders/*.so"):
-                to_inspect.append(str(loader))
-                pixbuf_loader_dir = loader.parent
-                break
+        loaders = sorted(p.glob("**/loaders/*.so")) if p.exists() else []
+        if loaders:
+            to_inspect.extend(str(loader) for loader in loaders)
+            pixbuf_loader_dir = loaders[0].parent
+            break
 
     visited = set()
     while to_inspect:

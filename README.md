@@ -176,10 +176,10 @@ imported. F5 debugger tracing is unavailable under strict confinement. See
 ### As an AppImage (x86_64, for everything else)
 
 [t-code-x86_64.AppImage](https://github.com/suacayipkisi/t-code/releases): a single file without an
-install — t-code with its GTK4, GtkSourceView, VTE and the rest bundled inside. It needs nothing of
-the distribution but the ones t-code's packages pull (`clangd`, `git`), and stops asking for them:
-the color theme stays in the file (give the editor its fonts from the system as before, so
-Settings' font picker suffices). Built by `packaging/appimage.sh` like the packages above.
+install — t-code with its GTK4, GtkSourceView, VTE and the rest bundled inside. From the
+distribution it takes `clangd` and `git`, and what every desktop already has and must match its
+graphics drivers and font settings: the Wayland and X11 client libraries, fontconfig, FreeType and
+HarfBuzz. Built by `packaging/appimage.sh` like the packages above.
 
 ### Building the packages yourself
 
