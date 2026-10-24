@@ -1,5 +1,5 @@
 /*
- * update.h — the new-release check: updates.c offers it.
+ * The new-release check: the latest GitHub release's version against t-code's own.
  */
 #pragma once
 
@@ -10,8 +10,9 @@
  * leads to the release page. Also "Check for Updates Now" in the command palette. */
 void updates_start(App *t);
 
-/* The same check, right now ("Check for Updates Now"): it asks even when the setting is off, and
- * the answer shows even when it found nothing new. */
+/* The same check, right now ("Check for Updates Now"): it asks even when the setting is off; when
+ * nothing is newer (or no answer came) it says so on stderr. */
+void updates_check_now(App *t);
+
 /* Compares two version strings: TRUE when theirs is newer than ours. */
 gboolean newer_version(const char *ours, const char *theirs);
-void updates_check_now(App *t);

@@ -81,7 +81,30 @@ clang-format -i $(git ls-files 'src/*.c' 'src/*.h')
 
 ---
 
-## 4. Packaging Guidelines
+## 4. Code Conventions
+
+* **English only** in code: comments, identifiers, log messages, commit messages.
+* **Naming:** types and enums `PascalCase`, enum constants `UPPER_SNAKE_CASE`, functions, variables
+  and struct fields `snake_case`; GObject types are `Tcode<Name>`.
+* **One module = one `.c` with a `.h` next to it** in its feature's folder (`src/editor/`,
+  `src/lsp/`, ...). The `.h` documents what other modules may call; everything else is `static`.
+  The `.c` includes its own header first.
+* **GLib-only modules stay GLib-only** (`editor/detect.c`, `editor/indentconf.c`,
+  `git/linediff.c`, `git/patch.c`, `search/searchmatch.c`, `lsp/compiledb.c`, `lsp/json.c`,
+  `debug/dap.c`, `files/{fileops,folder,gitmarks,icons}.c`): they are tested without a display
+  and under ASan.
+* **Low memory is the point of t-code:** long-lived code frees everything per tab and per
+  document, and async answers that can arrive after a tab is gone must not touch it (cancellables,
+  tokens, or looking the tab up again). Measure with `tools/` instead of guessing.
+* **Add a test** with changes to the editor, the language server client, the debugger, search,
+  the Files panel, the git gutter, plugins or the socket.
+* **Keep the docs in step:** a new socket command goes into `src/ipc/socket.h` and
+  `docs/plugins.md`; a new key into `src/window/commands.c` (the palette and the Keybinds window
+  follow) and the README's key table.
+
+---
+
+## 5. Packaging Guidelines
 
 T-Code packages are distributed in multiple formats (Native packages for Fedora/Arch/Debian/Void, AppImage, Flatpak, Snap, AUR).
 * **Subprocess Safety:** T-Code spawns developer tools (terminal shells, `clangd`, `gcc`, `make`, `gdb`, `git`). Packaging scripts must **never** export a blanket `LD_LIBRARY_PATH` that could poison or break system compilers in the embedded terminal. RPATH (`$ORIGIN`) isolation must be preserved.

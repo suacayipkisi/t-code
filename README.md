@@ -12,7 +12,9 @@ A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) 
 
 **New in 0.3.2:** fixes for the update release URL launcher and clangd compile command flag escaping.
 
-**In 0.3.1:** an out-of-process **Plugin System** (via UNIX socket `$TCODE_SOCKET`), a unified **Problems panel** (`Ctrl+Shift+M`), a configurable **Tasks runner** (`.tcode/tasks.json`), **Crash recovery** for dirty buffers, and comprehensive distribution packaging for **Flatpak**, **Snap**, and **AUR** alongside Fedora, Arch, Debian, Void Linux and AppImage.
+**In 0.3.1:** language servers for **Python, Go and Rust** (`pylsp`, `gopls`, `rust-analyzer`, when installed) next to clangd, an out-of-process **Plugin System** (over the UNIX socket `$TCODE_SOCKET`), a **Problems panel** (`Ctrl+Shift+M`), **project tasks** (`.t-code/tasks.json`) and a **Test** command, Meson projects, **crash recovery** for unsaved changes, staging single hunks, Go to Symbol in Workspace, a check for new releases, and packages for **Flatpak**, **Snap**, **AUR** and **AppImage** alongside Fedora, Arch, Debian and Void Linux.
+
+**Next (0.4):** multiple terminals, as tabs in the shell panel (planned for 0.3.1, postponed).
 
 **In 0.3:** a debugger (gdb: breakpoints, stepping, variables, call stack, watch, conditional
 breakpoints, values under the pointer, disassembly), quick fixes, code folding, sticky scroll, color
@@ -27,9 +29,10 @@ whose tabs ran [micro](https://micro-editor.github.io) in terminals (0.1.1) live
 One window, one process (besides its language servers, your shell, and plugins):
 
 - **left:** the Files panel (open tabs over the project's folder tree, with file icons and git
-  colors), Source Control, Search, Run and Debug, and the **Problems panel** (`Ctrl+Shift+M`)
-- **middle:** editor tabs (GtkSourceView), sharing each language server for the project
-- **bottom:** your shell, the debugged program's terminal, and task outputs
+  colors), Source Control, Search, and Run and Debug
+- **middle:** editor tabs (GtkSourceView), sharing one language server per language
+- **bottom:** your shell (where Build, Run, Test and tasks run), the debugged program's terminal,
+  and the **Problems panel** (`Ctrl+Shift+M`)
 
 Every panel can be dragged by its icon to another dock (left, bottom, right, stacked or side by
 side), hidden and shown again from its button in the title bar; "View: Reset Panel Layout" puts
@@ -239,7 +242,11 @@ change (`tools/headless.sh`).
 
 ## Plugins
 
-t-code features a native, out-of-process Plugin System with zero idle memory overhead. Plugins are discovered in `~/.config/t-code/plugins/<plugin_id>/` and `/usr/share/t-code/plugins/<plugin_id>/`.
+t-code runs plugins as separate programs, started only when one of their commands is used, so an
+installed plugin costs nothing while idle. Plugins are discovered in
+`~/.config/t-code/plugins/<plugin_id>/` and `/usr/share/t-code/plugins/<plugin_id>/` (and, running
+from the source tree, `plugins/`, which holds the `word-count` example). A plugin runs with your
+user's rights: install only plugins you trust.
 
 Each plugin provides a `plugin.json` manifest:
 
@@ -261,7 +268,8 @@ Each plugin provides a `plugin.json` manifest:
 ```
 
 When invoked from the Command Palette (`Ctrl+Shift+P`) or its manifest shortcut:
-1. The executable is launched asynchronously with environment variables:
+1. The executable is started in its plugin's folder, with the command id and the active file as
+   its arguments and these environment variables:
    - `TCODE_SOCKET`: UNIX control socket path.
    - `TCODE_PLUGIN_ID`: plugin identifier.
    - `TCODE_COMMAND_ID`: executed command identifier.
@@ -277,11 +285,12 @@ See [`docs/plugins.md`](docs/plugins.md) for the manifest and socket protocol.
 
 ## Creating a Plugin
 
-If you are interested to write a plugin for t-code, all types of plugins will be gladly accepted. However, you also have to consider the main idea about t-code's existance which is as low as possible resource usage. Because of that I highly recommend writing the plugin in the C language which is the laguage t-code written with. You can also use AI. Also plugin must be safe.
+If you are interested in writing a plugin for t-code, all types of plugins will be gladly accepted. However, you also have to consider the main idea of t-code's existence, which is as low resource usage as possible. Because of that I highly recommend writing the plugin in the C language, which is the language t-code is written in. You can also use AI. Also, the plugin must be safe.
 
 ## Contributing
 
-If you want to contribute, all contributions will be gladly accepted. Please open a pull request.
+If you want to contribute, all contributions will be gladly accepted. Please read
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and open a pull request.
 
 ## AI Usage in Project  
 
@@ -352,22 +361,23 @@ palette) finds any command by name.
 
 **Editing and Crash recovery.** A file with changes is saved a second after the last one (the
 autosave setting), so `Ctrl+S` is rarely needed; a tab shows `●` while its file has unsaved changes,
-and closing it then asks whether to save. If t-code or the system terminates unexpectedly, unsaved
-buffer snapshots in `~/.config/t-code/recovery/` are safely preserved and prompted for recovery on
-next startup. A file changed on disk (a `git checkout`, another program) is loaded again when the
+and closing it then asks whether to save. Unsaved changes are also copied to
+`~/.cache/t-code/recovery/` a moment after each edit: if t-code or the system stops unexpectedly,
+opening the file again shows a bar that restores them (or discards the copy). A file changed on disk (a `git checkout`, another program) is loaded again when the
 editor has nothing unsaved.
 
-**Problems panel (`Ctrl+Shift+M`).** A dedicated dockable view aggregating compiler and language
-server diagnostics across open files. View errors and warnings at a glance, filter by severity, see
-file coordinates, and click any item to navigate immediately to the issue in the editor.
+**Problems panel (`Ctrl+Shift+M`).** The language servers' errors, warnings and notes in every open
+file, in one list with their counts on top and `file:line:column` beside each; a click goes there.
+It sits in the bottom dock and moves like any other panel.
 
-**Tasks runner.** Configure project build, test, and lint tasks in `.tcode/tasks.json`. Run them
-via the Command Palette (`Tasks: Run Task`) with automatic output redirection to the integrated terminal
-or background process monitoring.
+**Project tasks.** A `.t-code/tasks.json` (or `t-code.json`) in the project tells Build, Run, Test
+and F5 what to run (with arguments, environment, working folder, and named profiles such as
+`debug` / `release`), instead of t-code guessing; the commands run in the shell. See
+[`docs/tasks.md`](docs/tasks.md).
 
-**Status bar**: the git branch (`*` when there are changes), clangd's errors and
+**Status bar**: the git branch (`*` when there are changes), the language servers' errors and
 warnings in the open files, **⚠ No compile flags** when clangd lacks them, **⚙ Build** and
-**▶ Run** with what they would build, the file's indentation (**Spaces: 4**, **Tab Size: 8**), the
+**▶ Run** with what they would build (a plugin's or recovery's short messages show there too), the file's indentation (**Spaces: 4**, **Tab Size: 8**), the
 cursor's line and column, and **⌨ Keybinds**.
 
 **Indentation.** Each file gets the indentation its project asks for: the Settings' tab size and
@@ -468,7 +478,7 @@ preview, other local files open in an editor, and web links open in the browser.
 ## Performance
 
 t-code is meant to be light: GtkSourceView editors and the folder tree in one process, and one
-clangd that only knows the files you have looked at.
+language server per language that only knows the files you have looked at.
 
 Measured on Fedora 44 (x86_64) with `tools/headless.sh` (t-code run invisibly, then
 `tools/proc-report.sh`), the same 25 C files of this repository opened, each tab then shown in
@@ -543,11 +553,11 @@ src/                 t-code, the window (src/app.h: the shared types and a map o
                      (diffgutter.c), a file's indentation and language (detect.c), what
                      .editorconfig and .clang-format say about it (indentconf.c); markdown preview
                      (preview.c), crash recovery (recovery.c)
-  lsp/               the language server: the client and clangd's lifetime (client.c, over
-                     channel.c), diagnostics and unified Problems panel (diagnostics.c, problems.c), hover,
+  lsp/               the language servers: the client and each server's lifetime (client.c, over
+                     channel.c), diagnostics and the Problems panel (diagnostics.c, problems.c), hover,
                      completion, parameter hints (signature.c), definition / references / rename / format
                      (navigate.c, edits.c), colors by meaning (semantic.c), finding the compile database (compiledb.c)
-  plugins/           native out-of-process plugins system (plugins.c)
+  plugins/           plugins: finding their manifests, palette commands and shortcuts, running them (plugins.c)
   search/            the Search tab, Ctrl+Shift+F (ripgrep); searchmatch.c is its GLib-only part
   git/               the Source Control tab (scm.c), per-hunk patches (patch.c), git status in the
                      background (gitstatus.c), comparing with HEAD or history (compare.c), line
@@ -556,17 +566,19 @@ src/                 t-code, the window (src/app.h: the shared types and a map o
                      references and rename
   dialogs/           the Settings, Keyboard Shortcuts and About windows
   project/           switching folders (project.c), remembering the window and tabs (session.c),
-                     build and run (run.c)
+                     build, run, test and project tasks (run.c)
   files/             the Files panel (files.c): a folder's entries read and watched (folder.c), file
                      operations (fileops.c), git colors (gitmarks.c), file icons (icons.c)
   update/            the new-release check: GitHub's latest release against this one (update.c)
   ipc/               requests from scripts and tools over $TCODE_SOCKET (socket.c)
 styles/              the editor's colors: Dark Classic as a GtkSourceView style scheme
+plugins/             word-count, an example plugin (found when t-code runs from the source tree)
+docs/                plugins.md (manifest and socket protocol), tasks.md, memory.md, screenshots
 tests/               make test: editing and the find bar, the language server client (with a fake
                      server), detect.c and indentconf.c, linediff.c, searchmatch.c, the Files panel
-                     and its GIO half, the Search panel, Source Control, tabs in a whole window and
-                     About; make test-asan: the ones without
-                     GTK under ASan
+                     and its GIO half, the Search panel, Source Control and hunk patches, tabs in a
+                     whole window, About, plugins, the update check and crash recovery; make
+                     test-asan: the ones without a display, plus plugins, update and recovery, under ASan
 tools/               measuring memory and CPU: the running process tree, a headless t-code, clangd
 desktop/             app menu entry template and the app icon
 packaging/           install.sh, uninstall.sh, build.sh, test.sh: Fedora (fedora/t-code.spec), Arch
