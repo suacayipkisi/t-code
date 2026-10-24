@@ -141,11 +141,11 @@ struct App {
   } paths;
 
   GSocketService *service;
-  GPtrArray *socket_events; /* subscribed control-socket output streams */
-  Lsp *lsp;            /* clangd, retained for its compile-flag status hint */
-  GPtrArray *lsps;     /* lazily started language servers, each idle-stopped after its last file */
-  GPtrArray *plugins;  /* installed plugins (plugins/plugins.h) */
-  GtkWidget *problems; /* the Problems panel widget (lsp/problems.h) */
+  GPtrArray *socket_events; /* the control socket's "subscribe" clients (socket.c's Client) */
+  Lsp *lsp;                 /* clangd, retained for its compile-flag status hint */
+  GPtrArray *lsps;          /* lazily started language servers, each idle-stopped after its last file */
+  GPtrArray *plugins;       /* installed plugins (plugins/plugins.h) */
+  GtkWidget *problems;      /* the Problems panel widget (lsp/problems.h) */
 
   /* debugging */
   struct {

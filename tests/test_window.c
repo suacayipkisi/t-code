@@ -605,6 +605,53 @@ static gboolean no_socket_event_clients(gconstpointer data G_GNUC_UNUSED)
   return !app.socket_events || app.socket_events->len == 0;
 }
 
+/* A plugin that subscribes and then never reads its events: t-code is not held up (the events used to
+ * be written with blocking calls on the main loop, which froze it once the socket's buffer filled),
+ * and once its unread output passes the limit it is dropped and its connection closed. */
+static void test_socket_stalled_subscriber(void)
+{
+  GSocketClient *client = g_socket_client_new();
+  GSocketAddress *address = g_unix_socket_address_new(app.paths.socket);
+  GSocketConnection *conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
+  GInputStream *input;
+  char *path = g_strdup_printf("%s/%0200d.c", app.project.root, 0), buffer[4096], *line;
+  gsize received = 0;
+  gssize got;
+  int sent = 0;
+
+  g_assert_nonnull(conn);
+  g_assert_true(
+      g_output_stream_write_all(g_io_stream_get_output_stream(G_IO_STREAM(conn)), "subscribe\n", 10, NULL, NULL, NULL));
+  GDataInputStream *lines = g_data_input_stream_new(g_io_stream_get_input_stream(G_IO_STREAM(conn)));
+  g_filter_input_stream_set_close_base_stream(G_FILTER_INPUT_STREAM(lines), FALSE);
+  line = read_socket_line(lines);
+  g_assert_cmpstr(line, ==, "{\"event\":\"subscribed\"}");
+  g_free(line);
+  g_object_unref(lines);
+  g_assert_cmpuint(app.socket_events->len, ==, 1);
+
+  /* About 2 MB of events, more than the socket's buffer and the limit together. */
+  for (; sent < 8000 && app.socket_events->len > 0; sent++) {
+    socket_did_save(&app, path);
+    if (sent % 100 == 0)
+      run(1); /* the writes in flight go on */
+  }
+  g_assert_cmpuint(app.socket_events->len, ==, 0); /* dropped */
+  g_assert_cmpint(sent, <, 8000);
+
+  run(100); /* its connection is closed */
+  input = g_io_stream_get_input_stream(G_IO_STREAM(conn));
+  while ((got = g_input_stream_read(input, buffer, sizeof buffer, NULL, NULL)) > 0)
+    received += got;
+  g_assert_cmpint(got, ==, 0); /* the end, not an error */
+  g_assert_cmpuint(received, <, (gsize)sent * (strlen(path) + 32));
+
+  g_object_unref(conn);
+  g_object_unref(address);
+  g_object_unref(client);
+  g_free(path);
+}
+
 static gboolean no_second_window(gconstpointer data G_GNUC_UNUSED)
 {
   return app.editors.second == NULL;
@@ -2066,6 +2113,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/recovery-journal", test_recovery_journal);
   g_test_add_func("/window/socket-requests", test_socket_requests);
   g_test_add_func("/window/socket-events", test_socket_events);
+  g_test_add_func("/window/socket-stalled-subscriber", test_socket_stalled_subscriber);
   g_test_add_func("/window/second-window", test_second_window);
   g_test_add_func("/window/tab-strip", test_tab_strip);
   g_test_add_func("/window/open-tabs", test_open_tabs);

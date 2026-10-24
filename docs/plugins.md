@@ -103,7 +103,9 @@ Send `subscribe\n` and keep the socket connection open. The server first replies
 
 `did_open` is sent once the file has loaded, including a new file that does not exist yet; load
 failures other than “not found” do not emit it. `did_save` follows a successful disk write, including
-autosaves. Closing the client connection unsubscribes it.
+autosaves. Closing the client connection unsubscribes it. Read the events as they come: t-code
+never waits for a subscriber, but one that leaves more than 256 KB unread is dropped and its
+connection closed.
 
 #### Execution Flow
 
