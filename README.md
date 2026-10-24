@@ -563,3 +563,9 @@ Makefile             VERSION, make install; also writes build/compile_commands.j
 
 MIT, see [LICENSE](LICENSE). The color themes' sources and their licenses are in
 [THIRD-PARTY.md](THIRD-PARTY.md).
+
+## Contributors                                                                                  
+                                                                                                     
+- [@suacayipkisi](https://github.com/suacayipkisi) — Creator & Lead Maintainer                   
+- [@ibrahmsql](https://github.com/ibrahmsql) — Plugin system, unified problems panel, tasks runner, 
+crash recovery, Flatpak, Snap & AUR packaging

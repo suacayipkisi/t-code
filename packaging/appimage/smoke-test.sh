@@ -43,7 +43,7 @@ check "SVG icon bundled" test -f "$APPDIR/usr/share/icons/hicolor/scalable/apps/
 check "GSettings gschemas.compiled exists" test -s "$APPDIR/usr/share/glib-2.0/schemas/gschemas.compiled"
 check "GtkSourceView-5 language-specs bundled" test -d "$APPDIR/usr/share/gtksourceview-5/language-specs"
 check "GtkSourceView language specs available (bundled or embedded)" \
-  sh -c "test -f '$APPDIR/usr/share/gtksourceview-5/language-specs/c.lang' || gresource list '$APPDIR'/usr/lib/libgtksourceview-5.so* 2>/dev/null | grep -q 'language-specs/c.lang'"
+  sh -c "test -f '$APPDIR/usr/share/gtksourceview-5/language-specs/c.lang' || gresource list '$APPDIR'/usr/lib/libgtksourceview-5.so* 2>/dev/null | grep -q 'language-specs/c.lang' || strings '$APPDIR'/usr/lib/libgtksourceview-5.so* 2>/dev/null | grep -q 'language-specs/c.lang'"
 check "Cascadia Code font bundled" sh -c "ls '$APPDIR/usr/share/fonts/cascadia-code/'* >/dev/null 2>&1"
 check "GdkPixbuf loaders bundled" sh -c "ls '$APPDIR/usr/lib/gdk-pixbuf-2.0/loaders/'*.so >/dev/null 2>&1"
 

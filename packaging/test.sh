@@ -19,7 +19,7 @@ declare -A INSTALL=(
             $(ls /out/t-code_$VERSION-[0-9]*_amd64.deb) xvfb dbus python3
             procps desktop-file-utils'
   ["appimage"]='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
-              xvfb dbus python3 procps desktop-file-utils clangd git file binutils'
+              xvfb dbus python3 procps desktop-file-utils clangd git file binutils libglib2.0-bin'
   # A local repository: xbps installs from repositories only, not from a package file.
   ["void"]='xbps-install -Syu xbps && xbps-install -Syu && mkdir -p /tmp/repo &&
           cp /out/t-code-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&

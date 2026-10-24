@@ -11,6 +11,10 @@
 #include <gnu/libc-version.h>
 #endif
 
+#ifndef TCODE_VERSION /* set by the Makefile */
+#define TCODE_VERSION "unknown"
+#endif
+
 static const char license[] =
 #include "license.h"
     ;
@@ -139,7 +143,11 @@ static char *libraries(App *t)
 void show_about(App *t)
 {
   static GtkWidget *window;
-  static const char *const authors[] = { "suacayipkisi https://github.com/suacayipkisi", NULL };
+  static const char *const authors[] = {
+    "suacayipkisi https://github.com/suacayipkisi",
+    "ibrahmsql https://github.com/ibrahmsql",
+    NULL
+  };
   static const char *const built_on[] = {
     "clangd https://clangd.llvm.org",
     "GDB https://www.sourceware.org/gdb",
