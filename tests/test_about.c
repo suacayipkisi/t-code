@@ -33,6 +33,10 @@ static void test_contents(void)
 
   g_assert_nonnull(dialog);
   g_assert_cmpstr(gtk_about_dialog_get_version(dialog), ==, TCODE_VERSION);
+  int width, height;
+  gtk_window_get_default_size(GTK_WINDOW(dialog), &width, &height);
+  g_assert_cmpint(width, ==, ABOUT_WIDTH); /* not GTK's small default */
+  g_assert_cmpint(height, ==, ABOUT_HEIGHT);
   g_assert_nonnull(strstr(gtk_about_dialog_get_license(dialog), "MIT License"));
   g_assert_nonnull(strstr(gtk_about_dialog_get_license(dialog), "Permission is hereby granted"));
 

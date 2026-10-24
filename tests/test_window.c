@@ -133,10 +133,22 @@ static char *tabs(void)
   return g_string_free(text, FALSE);
 }
 
-static void assert_tabs(const char *want)
+static gboolean tabs_are(gconstpointer want)
 {
   char *now = tabs();
+  gboolean same = g_strcmp0(now, want) == 0;
 
+  g_free(now);
+  return same;
+}
+
+/* The tabs are want, once what closes or opens them has run (the main loop may be slow under load). */
+static void assert_tabs(const char *want)
+{
+  char *now;
+
+  run_until(tabs_are, want);
+  now = tabs();
   g_assert_cmpstr(now, ==, want);
   g_free(now);
 }
@@ -809,17 +821,24 @@ static void test_tab_strip(void)
   close_everything();
 }
 
-/* Chooses the item labelled label in the right-click menu shown on widget, as a click would. */
-static void choose_menu_item(GtkWidget *widget, const char *label)
+/* The right-click menu shown on widget. */
+static GtkPopoverMenu *shown_menu(GtkWidget *widget)
 {
   GtkWidget *popover = NULL;
-  char *action = NULL;
 
   for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child))
     if (GTK_IS_POPOVER_MENU(child))
       popover = child;
   g_assert_nonnull(popover);
-  GMenuModel *model = gtk_popover_menu_get_menu_model(GTK_POPOVER_MENU(popover));
+  return GTK_POPOVER_MENU(popover);
+}
+
+/* The action of the item labelled label in the menu shown on widget, or NULL (free it). */
+static char *menu_action(GtkWidget *widget, const char *label)
+{
+  GMenuModel *model = gtk_popover_menu_get_menu_model(shown_menu(widget));
+  char *action = NULL;
+
   for (int s = 0; s < g_menu_model_get_n_items(model) && !action; s++) {
     GMenuModel *section = g_menu_model_get_item_link(model, s, G_MENU_LINK_SECTION);
     for (int i = 0; i < g_menu_model_get_n_items(section) && !action; i++) {
@@ -830,10 +849,18 @@ static void choose_menu_item(GtkWidget *widget, const char *label)
     }
     g_object_unref(section);
   }
+  return action;
+}
+
+/* Chooses the item labelled label in the right-click menu shown on widget, as a click would. */
+static void choose_menu_item(GtkWidget *widget, const char *label)
+{
+  char *action = menu_action(widget, label);
+
   g_assert_nonnull(action);
   g_assert_true(gtk_widget_activate_action(widget, action, NULL));
   g_free(action);
-  gtk_popover_popdown(GTK_POPOVER(popover));
+  gtk_popover_popdown(GTK_POPOVER(shown_menu(widget)));
   run(20);
 }
 
@@ -850,7 +877,8 @@ static void count_free(gpointer data G_GNUC_UNUSED)
 }
 
 /* A right-click menu runs the chosen item once it closed and frees its data, chosen or not; a
- * tab's menu closes the tabs right of it, and moves a tab to the other group. */
+ * tab's menu closes the tabs right of it, moves a tab to the other group, and previews a Markdown
+ * file (only a Markdown file). */
 static void test_context_menus(void)
 {
   int ran = 0;
@@ -886,6 +914,23 @@ static void test_context_menus(void)
   choose_menu_item(widget, "Move to Other Group");
   assert_strip(0, "m1.txt!");
   assert_strip(1, "m2.txt!");
+  close_everything();
+
+  /* "Open Preview" on a Markdown file's tab only */
+  open_kept("m1.txt");
+  open_kept("notes.md");
+  run(20);
+  widget = tab_nth(&app, 0)->item;
+  tab_menu(tab_nth(&app, 0), widget, 1, 1);
+  char *none = menu_action(widget, "Open Preview");
+  g_assert_null(none);
+  gtk_popover_popdown(GTK_POPOVER(shown_menu(widget)));
+  run(20);
+  widget = tab_nth(&app, 1)->item;
+  tab_menu(tab_nth(&app, 1), widget, 1, 1);
+  choose_menu_item(widget, "Open Preview");
+  g_assert_cmpint(current_tab(&app)->kind, ==, TAB_PREVIEW);
+  g_assert_true(g_str_has_suffix(current_tab(&app)->path, "notes.md"));
   close_everything();
 }
 

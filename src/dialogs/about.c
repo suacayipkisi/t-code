@@ -15,6 +15,10 @@
 #define TCODE_VERSION "unknown"
 #endif
 
+/* GTK's own size leaves the credits and the system information in a small scrolled box. */
+#define ABOUT_WIDTH 600
+#define ABOUT_HEIGHT 640 /* fits a 768 pixel high screen */
+
 static const char license[] =
 #include "license.h"
     ;
@@ -165,6 +169,8 @@ void show_about(App *t)
   window = g_object_new(GTK_TYPE_ABOUT_DIALOG,
                         "transient-for", t->window,
                         "modal", TRUE,
+                        "default-width", ABOUT_WIDTH,
+                        "default-height", ABOUT_HEIGHT,
                         "program-name", "t-code",
                         "version", TCODE_VERSION,
                         "logo-icon-name", "io.github.tcode",

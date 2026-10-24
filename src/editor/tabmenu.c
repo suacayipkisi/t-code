@@ -5,6 +5,7 @@
 #include "editor/tabmenu.h"
 
 #include "editor/editor.h"
+#include "editor/preview.h"
 #include "editor/tabs.h"
 #include "files/files.h"
 #include "git/compare.h"
@@ -152,6 +153,14 @@ static void on_stop_comparing(gpointer data)
     stop_comparing_tab(tab);
 }
 
+static void on_preview(gpointer data)
+{
+  Tab *tab = target_tab(data);
+
+  if (tab)
+    open_preview(tab->app, tab->path);
+}
+
 static void on_copy_path(gpointer data)
 {
   Tab *tab = target_tab(data);
@@ -196,6 +205,8 @@ void tab_menu(Tab *tab, GtkWidget *widget, double x, double y)
   items[n++] = (MenuItem){ NULL, NULL };
   if (tab->temporary)
     items[n++] = (MenuItem){ "Keep Open", on_keep };
+  if (tab->kind == TAB_EDITOR && is_markdown(tab->path) && !tab->compare.with)
+    items[n++] = (MenuItem){ "Open Preview", on_preview };
   items[n++] = (MenuItem){ group == 0   ? "Move to Other Group"
                            : group == 1 ? "Move to First Group"
                                         : "Move to Main Window",
