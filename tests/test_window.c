@@ -802,7 +802,8 @@ static void test_tab_strip(void)
   }
   g_object_unref(controllers);
   g_assert_nonnull(target);
-  run_until(laid_out, gtk_widget_get_first_child(strip)); /* the drop is placed by the tabs' places */
+  for (GtkWidget *w = gtk_widget_get_first_child(strip); w; w = gtk_widget_get_next_sibling(w))
+    run_until(laid_out, w); /* the drop is placed by the tabs' places */
   graphene_point_t at; /* on s1's left edge, wherever the strip is scrolled to (s3, the last opened) */
   g_assert_true(gtk_widget_compute_point(gtk_widget_get_first_child(strip), scrolled, &GRAPHENE_POINT_INIT(1, 0), &at));
   gboolean dropped = FALSE;
@@ -1512,7 +1513,15 @@ static void test_preview_look(void)
   g_object_unref(controllers);
   g_assert_nonnull(motion);
   gtk_text_iter_forward_chars(&iter, 2);
-  gtk_text_view_get_iter_location(view, &iter, &where);
+  /* Where the link is once the view is laid out (under load that takes a while): the point found
+   * must lead back to the link. */
+  gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+  GtkTextIter back;
+  do {
+    run(20);
+    gtk_text_view_get_iter_location(view, &iter, &where);
+    gtk_text_view_get_iter_at_location(view, &back, where.x + 1, where.y + where.height / 2);
+  } while ((where.height <= 0 || !has_tag(&back, "link")) && g_get_monotonic_time() < end);
   if (where.height > 0) {
     gtk_text_view_buffer_to_window_coords(view, GTK_TEXT_WINDOW_WIDGET, where.x + 1, where.y + where.height / 2, &x,
                                           &y);
