@@ -1,11 +1,10 @@
 name: Packages
 
-# Pull requests exercise every package format; v* tags also publish the collected artifacts.
+# Packages are built and published for releases (tags like v*), or manually via workflow_dispatch.
 on:
+  workflow_dispatch:
   push:
-    branches: ["**"]
     tags: ["v*"]
-  pull_request:
 
 permissions:
   contents: read
