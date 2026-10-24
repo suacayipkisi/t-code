@@ -25,6 +25,7 @@
 #include "project/run.h"
 #include "project/session.h"
 #include "project/userfiles.h"
+#include "update/update.h"
 #include "window/secondwindow.h"
 #include "window/palette.h"
 #include "window/theme.h"
@@ -1694,6 +1695,78 @@ static void test_panel_buttons(void)
   g_assert_true(button_on("files"));
 }
 
+/* The label under widget that shows text, or NULL. */
+static GtkWidget *label_under(GtkWidget *widget, const char *text)
+{
+  if (GTK_IS_LABEL(widget) && g_strcmp0(gtk_label_get_text(GTK_LABEL(widget)), text) == 0)
+    return widget;
+  for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child)) {
+    GtkWidget *found = label_under(child, text);
+    if (found)
+      return found;
+  }
+  return NULL;
+}
+
+/* The toplevel window showing a label with text (a dialog), or NULL. */
+static GtkWindow *window_saying(gconstpointer text)
+{
+  GtkWindow *found = NULL;
+
+  for (guint i = 0; i < g_list_model_get_n_items(gtk_window_get_toplevels()) && !found; i++) {
+    GtkWindow *window = g_list_model_get_item(gtk_window_get_toplevels(), i);
+    if (label_under(GTK_WIDGET(window), text))
+      found = window;
+    g_object_unref(window);
+  }
+  return found;
+}
+
+static gboolean shows(gconstpointer text)
+{
+  return window_saying(text) != NULL;
+}
+
+/* "Check for Updates Now" answers on screen: the latest release, a newer one's window, or no answer
+ * (it used to print to stderr only). curl is a script that answers like GitHub's API. */
+static void test_update_check_now(void)
+{
+  char *bin = g_build_filename(app.project.root, "update-bin", NULL);
+  char *saved_path = g_strdup(g_getenv("PATH")), *path_env = g_strdup_printf("%s:%s", bin, saved_path);
+  char *same = g_strdup_printf("#!/bin/sh\necho '{\"tag_name\":\"v%s\",\"html_url\":\"https://example.invalid\"}'\n",
+                               TCODE_VERSION);
+  char *latest = g_strdup_printf("You have the latest release, t-code %s.", TCODE_VERSION);
+  const char *offline = "Could not check for updates: no answer from GitHub (offline?).";
+
+  g_setenv("PATH", path_env, TRUE);
+  g_free(put(bin, "curl", same, 0755));
+  updates_check_now(&app);
+  run_until(shows, latest);
+  g_assert_true(shows(latest));
+  gtk_window_destroy(window_saying(latest));
+
+  g_free(put(bin, "curl", "#!/bin/sh\nexit 6\n", 0755)); /* could not resolve host */
+  updates_check_now(&app);
+  run_until(shows, offline);
+  g_assert_true(shows(offline));
+  gtk_window_destroy(window_saying(offline));
+
+  g_free(
+      put(bin, "curl", "#!/bin/sh\necho '{\"tag_name\":\"v99.0\",\"html_url\":\"https://example.invalid\"}'\n", 0755));
+  updates_check_now(&app);
+  run_until(shows, "t-code 99.0 is out");
+  g_assert_true(shows("t-code 99.0 is out"));
+  gtk_window_destroy(window_saying("t-code 99.0 is out"));
+  run(50);
+
+  g_setenv("PATH", saved_path, TRUE);
+  g_free(latest);
+  g_free(same);
+  g_free(path_env);
+  g_free(saved_path);
+  g_free(bin);
+}
+
 /* The open Settings window, or NULL. */
 static GtkWindow *settings_window(void)
 {
@@ -2114,6 +2187,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/socket-requests", test_socket_requests);
   g_test_add_func("/window/socket-events", test_socket_events);
   g_test_add_func("/window/socket-stalled-subscriber", test_socket_stalled_subscriber);
+  g_test_add_func("/window/update-check-now", test_update_check_now);
   g_test_add_func("/window/second-window", test_second_window);
   g_test_add_func("/window/tab-strip", test_tab_strip);
   g_test_add_func("/window/open-tabs", test_open_tabs);

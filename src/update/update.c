@@ -72,7 +72,29 @@ gboolean newer_version(const char *ours, const char *theirs)
   return FALSE;
 }
 
+char *update_check_message(const char *ours, const char *latest)
+{
+  if (!latest)
+    return g_strdup("Could not check for updates: no answer from GitHub (offline?).");
+  if (newer_version(ours, latest))
+    return NULL; /* the update window says it */
+  if (newer_version(latest, ours))
+    return g_strdup_printf("You have t-code %s, newer than the latest release (%s).", ours,
+                           *latest == 'v' ? latest + 1 : latest);
+  return g_strdup_printf("You have the latest release, t-code %s.", ours);
+}
+
 /* The window -------------------------------------------------------------------------------- */
+
+/* "Check for Updates Now" with nothing newer: what it found, over the window. */
+static void show_message(App *t, const char *message)
+{
+  GtkAlertDialog *dialog = gtk_alert_dialog_new("%s", message);
+
+  gtk_alert_dialog_set_buttons(dialog, (const char *const[]){ "OK", NULL });
+  gtk_alert_dialog_show(dialog, t->window);
+  g_object_unref(dialog);
+}
 
 /* The update window while it waits (at most one exists). */
 static GtkWidget *update_window;
@@ -180,12 +202,10 @@ static void show_result(Check *check)
   if (check->latest && check->url && newer_version(TCODE_VERSION, check->latest))
     show_update(check);
   else {
-    if (!check->silent) {
-      if (check->latest)
-        g_printerr("t-code: %s is the newest release\n", check->latest);
-      else
-        g_printerr("t-code: could not check for updates (no answer)\n");
-    }
+    char *message = check->silent || check->app->closing ? NULL : update_check_message(TCODE_VERSION, check->latest);
+    if (message)
+      show_message(check->app, message);
+    g_free(message);
     on_update_close(NULL, check); /* the window never shows, so it frees the Check itself */
   }
 }
@@ -200,8 +220,10 @@ static void read_release(JsonParser *parser, Check *check)
   JsonObject *release = root && JSON_NODE_HOLDS_OBJECT(root) ? json_node_get_object(root) : NULL;
 
   if (release && (json_object_has_member(release, "tag_name") || json_object_has_member(release, "html_url"))) {
-    if (json_object_has_member(release, "tag_name"))
-      g_set_str(&check->latest, json_object_get_string_member(release, "tag_name"));
+    if (json_object_has_member(release, "tag_name")) {
+      const char *tag = json_object_get_string_member(release, "tag_name");
+      g_set_str(&check->latest, tag && *tag == 'v' ? tag + 1 : tag); /* "v0.4" is t-code 0.4 */
+    }
     if (json_object_has_member(release, "html_url"))
       g_set_str(&check->url, json_object_get_string_member(release, "html_url"));
   }
@@ -241,7 +263,7 @@ static void fetch_latest(Check *check)
   if (!process) { /* neither downloader is there: the check quietly stops this time */
     g_clear_error(&error);
     if (!check->silent)
-      g_printerr("t-code: no curl or wget to ask about new releases\n");
+      show_message(check->app, "Could not check for updates: neither curl nor wget is installed.");
     on_update_close(NULL, check);
     return;
   }

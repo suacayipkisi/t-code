@@ -11,8 +11,12 @@
 void updates_start(App *t);
 
 /* The same check, right now ("Check for Updates Now"): it asks even when the setting is off; when
- * nothing is newer (or no answer came) it says so on stderr. */
+ * nothing is newer (or no answer came) a small dialog says so. */
 void updates_check_now(App *t);
 
 /* Compares two version strings: TRUE when theirs is newer than ours. */
 gboolean newer_version(const char *ours, const char *theirs);
+
+/* What "Check for Updates Now" says when the latest release (its tag, NULL: no answer) is not newer
+ * than ours; NULL when it is (the update window shows instead). Free it. */
+char *update_check_message(const char *ours, const char *latest);
