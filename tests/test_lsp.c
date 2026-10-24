@@ -990,11 +990,18 @@ static void test_problem_end(void)
   free_tab(tab);
 }
 
+/* Runs the Problems panel's waiting rebuild. */
+static void flush_problems(void)
+{
+  while (pv.update_id)
+    g_main_context_iteration(NULL, TRUE);
+}
+
 /* The Problems panel lists every editor's diagnostics with their counts, a row opens its place, and
  * rebuilding the list again and again leaves nothing behind. */
 static void test_problems_panel(void)
 {
-  static GtkWidget *panel; /* kept: problems.c holds on to its widgets */
+  GtkWidget *panel;
   Tab *tab = new_tab("/tmp/t-code-test/problems.c", "int a\nint b;\n");
   JsonNode *list = json_of("[{\"range\":{\"start\":{\"line\":0,\"character\":4},\"end\":{\"line\":0,"
                            "\"character\":5}},\"severity\":1,\"message\":\"expected ';'\"},"
@@ -1003,11 +1010,14 @@ static void test_problems_panel(void)
   GtkListBoxRow *row;
   size_t before = 0;
 
-  if (!panel)
-    panel = g_object_ref_sink(problems_panel(&app));
+  panel = g_object_ref_sink(problems_panel(&app));
   page_test_tabs[0] = tab;
   page_test_tab_count = 1;
   diagnostics_show(tab, list);
+  g_assert_cmpuint(pv.update_id, !=, 0); /* not yet: a burst of files makes one rebuild */
+  problems_update(&app);
+  problems_update(&app);
+  flush_problems();
   g_assert_cmpstr(gtk_label_get_text(pv.err_label), ==, "1 Errors");
   g_assert_cmpstr(gtk_label_get_text(pv.warn_label), ==, "1 Warnings");
   g_assert_cmpstr(gtk_label_get_text(pv.info_label), ==, "0 Notes");
@@ -1027,17 +1037,31 @@ static void test_problems_panel(void)
       malloc_trim(0);
       before = mallinfo2().uordblks;
     }
-    for (int i = 0; i < 500; i++)
+    for (int i = 0; i < 500; i++) {
       problems_update(&app);
+      flush_problems();
+    }
   }
   malloc_trim(0);
   g_test_message("heap grew by %zd bytes", (ssize_t)(mallinfo2().uordblks - before));
   g_assert_cmpint((gssize)(mallinfo2().uordblks - before), <, 8 * 1024); /* 500 leaked names are 16 KB */
 
   diagnostics_clear(tab);
+  flush_problems();
   g_assert_cmpstr(gtk_label_get_text(pv.err_label), ==, "0 Errors");
   g_assert_null(gtk_list_box_get_row_at_index(GTK_LIST_BOX(pv.list), 0));
   g_assert_true(gtk_widget_get_visible(pv.empty_label));
+
+  /* The window goes with a rebuild still waiting: it must not run on the freed widgets. */
+  problems_update(&app);
+  g_assert_cmpuint(pv.update_id, !=, 0);
+  g_object_unref(panel);
+  g_assert_cmpuint(pv.update_id, ==, 0);
+  g_assert_null(pv.list);
+  problems_update(&app); /* no panel: nothing waits */
+  g_assert_cmpuint(pv.update_id, ==, 0);
+  while (g_main_context_iteration(NULL, FALSE))
+    ;
   page_test_tab_count = 0;
   json_node_unref(list);
   free_tab(tab);

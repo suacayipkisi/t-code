@@ -15,9 +15,9 @@ static const char *const problems_css =
     ".tcode-problems-header { padding: 4px 8px; border-bottom: 1px solid var(--tc-border); font-size: 0.85em; }"
     ".tcode-problems-badge { font-weight: bold; margin-right: 12px; }"
     ".tcode-problem-row { padding: 4px 8px; }"
-    ".tcode-problem-error { color: #f44747; }"
-    ".tcode-problem-warning { color: #cca700; }"
-    ".tcode-problem-info { color: #75beff; }"
+    ".tcode-problem-error { color: var(--tc-error); }"
+    ".tcode-problem-warning { color: var(--tc-warning); }"
+    ".tcode-problem-info { color: var(--tc-info); }"
     ".tcode-problem-location { color: var(--tc-fg-dim); font-size: 0.85em; margin-left: 8px; }";
 
 typedef struct {
@@ -28,6 +28,7 @@ typedef struct {
   GtkLabel *err_label;
   GtkLabel *warn_label;
   GtkLabel *info_label;
+  guint update_id; /* a rebuild waiting for the main loop to be idle */
 } ProblemsView;
 
 static ProblemsView pv = { 0 };
@@ -56,11 +57,9 @@ void show_problems(App *t)
   problems_focus(t);
 }
 
-void problems_update(App *t)
+/* Rebuilds the list from every open editor's diagnostics. */
+static void rebuild(App *t)
 {
-  if (!pv.list || !t)
-    return;
-
   /* Clear existing rows */
   GtkWidget *child = gtk_widget_get_first_child(pv.list);
   while (child) {
@@ -159,6 +158,28 @@ void problems_update(App *t)
     gtk_widget_set_visible(pv.list, total > 0);
 }
 
+static gboolean rebuild_now(gpointer data)
+{
+  pv.update_id = 0;
+  rebuild(data);
+  return G_SOURCE_REMOVE;
+}
+
+/* The server publishes diagnostics file by file, often while typing: one rebuild for a burst. */
+void problems_update(App *t)
+{
+  if (!pv.list || !t || t->closing || pv.update_id)
+    return;
+  pv.update_id = g_idle_add(rebuild_now, t);
+}
+
+/* The panel goes with its window: a rebuild still waiting must not reach its widgets. */
+static void on_panel_destroy(GtkWidget *panel G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+{
+  g_clear_handle_id(&pv.update_id, g_source_remove);
+  pv = (ProblemsView){ 0 };
+}
+
 GtkWidget *problems_panel(App *t)
 {
   pv.app = t;
@@ -215,7 +236,8 @@ GtkWidget *problems_panel(App *t)
   gtk_box_append(GTK_BOX(box), scroll);
 
   pv.panel = box;
-  problems_update(t);
+  g_signal_connect(box, "destroy", G_CALLBACK(on_panel_destroy), NULL);
+  rebuild(t);
 
   return box;
 }
