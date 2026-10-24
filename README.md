@@ -275,9 +275,14 @@ When invoked from the Command Palette (`Ctrl+Shift+P`) or its manifest shortcut:
    an event subscriber stays connected until it closes its socket.
 See [`docs/plugins.md`](docs/plugins.md) for the manifest and socket protocol.
 
+## Creating a Plugin
+
+If you are interested to write a plugin for t-code, all types of plugins will be gladly accepted. However, you also have to consider the main idea about t-code's existance which is as low as possible resource usage. Because of that I highly recommend writing the plugin in the C language which is the laguage t-code written with. You can also use AI. Also plugin must be safe.
+
 ## Contributing
 
 If you want to contribute, all contributions will be gladly accepted. Please open a pull request.
+
 ## AI Usage in Project  
 
 Most of the structure and code written with using AI coding agent. Every single line of code is reviewed or currently under review. I did not spend enough time to write just myself because I just want an ide that uses not much ram as immediately as possible, the editor I used was using too much then I got angry and tada... BUT I will review every detail of this project and after than I will continue to add new features as I wish.
