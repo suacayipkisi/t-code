@@ -113,11 +113,10 @@ typedef struct {
 struct Lsp {
   gatomicrefcount refs;
   ServerKind kind;
-  char *workspace; /* the project folder, retained while the server is idle */
+  char *workspace; /* the project folder it runs in; fixed: a project switch stops every server (lsp_stop) */
   App *app;
   GSubprocess *process;
   Channel *ch;
-  char *root;     /* the folder it runs in */
   gboolean ready; /* initialize answered */
   gboolean utf16; /* positions count UTF-16 units, not UTF-8 bytes */
   gboolean stopping;
@@ -666,7 +665,7 @@ static void on_folder_changed(GFileMonitor *monitor G_GNUC_UNUSED, GFile *file, 
 static void watch_databases(Lsp *l)
 {
   for (int i = 0; i < 2; i++) {
-    char *path = i ? g_build_filename(l->root, "build", NULL) : g_strdup(l->root);
+    char *path = i ? g_build_filename(l->workspace, "build", NULL) : g_strdup(l->workspace);
     GFile *folder = g_file_new_for_path(path);
     l->watch[i] = g_file_monitor_directory(folder, G_FILE_MONITOR_WATCH_MOVES, NULL, NULL);
     if (l->watch[i])
@@ -698,7 +697,6 @@ static void server_stop(Lsp *l)
   g_clear_object(&l->process);
   l->ready = FALSE;
   g_clear_pointer(&l->capabilities, json_node_unref);
-  g_clear_pointer(&l->root, g_free);
   fail_pending(l, NULL);
   g_hash_table_iter_init(&iter, l->docs);
   while (g_hash_table_iter_next(&iter, NULL, &doc)) {
@@ -890,7 +888,6 @@ static void server_start(Lsp *l)
     g_clear_error(&error);
     return;
   }
-  l->root = g_strdup(l->workspace);
   if (l->kind == SERVER_CLANGD) {
     if (!l->written)
       l->written = g_string_new(NULL);
@@ -902,7 +899,7 @@ static void server_start(Lsp *l)
   l->ch->on_closed = on_server_closed;
   channel_read(l->ch);
 
-  uri = lsp_path_to_uri(l->root);
+  uri = lsp_path_to_uri(l->workspace);
   quoted = json_quote(uri ? uri : "");
   params = g_strdup_printf(
       "{\"processId\":%d,\"rootUri\":%s,\"workspaceFolders\":[{\"uri\":%s,\"name\":\"root\"}],"
@@ -976,8 +973,6 @@ void lsp_open(Tab *tab)
     g_source_remove(l->idle_id);
     l->idle_id = 0;
   }
-  if (l->ch && g_strcmp0(l->root, l->workspace) != 0)
-    server_stop(l);
   if (!l->ch)
     server_start(l); /* the file goes once it has answered initialize */
   else if (l->ready)

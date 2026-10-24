@@ -1249,6 +1249,58 @@ static void test_language_routing(void)
   free_tab(rust);
 }
 
+/* The folder a server process runs in, from /proc. */
+static char *server_cwd(Lsp *l)
+{
+  char *link = g_strdup_printf("/proc/%s/cwd", g_subprocess_get_identifier(l->process));
+  char *cwd = g_file_read_link(link, NULL);
+
+  g_free(link);
+  return cwd;
+}
+
+/* A project switch stops every server (lsp_stop); the next file starts one in the new folder. */
+static void test_project_switch(void)
+{
+  char *first = g_dir_make_tmp("t-code-first-XXXXXX", NULL), *second = g_dir_make_tmp("t-code-second-XXXXXX", NULL);
+  char *old_root = app.project.root, *cwd;
+  Tab *tab;
+  Lsp *l;
+
+  lsp_stop(&app);
+  app.project.root = first;
+  tab = new_tab("/tmp/t-code-test/switch.c", "int a;\n");
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  l = doc_of(tab)->lsp;
+  g_assert_cmpstr(l->workspace, ==, first);
+  cwd = server_cwd(l);
+  g_assert_cmpstr(cwd, ==, first);
+  g_free(cwd);
+
+  lsp_stop(&app); /* what switch_project does before loading the new folder */
+  g_assert_false(lsp_has(tab));
+  app.project.root = second;
+  diagnostics_clear(tab);
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  l = doc_of(tab)->lsp;
+  g_assert_cmpuint(app.lsps->len, ==, 1);
+  g_assert_cmpstr(l->workspace, ==, second);
+  cwd = server_cwd(l);
+  g_assert_cmpstr(cwd, ==, second);
+  g_free(cwd);
+
+  lsp_close(tab);
+  free_tab(tab);
+  lsp_stop(&app);
+  app.project.root = old_root;
+  g_rmdir(first);
+  g_rmdir(second);
+  g_free(first);
+  g_free(second);
+}
+
 int main(int argc, char **argv)
 {
   if (argc > 1 && strcmp(argv[1], "--fake-server") == 0)
@@ -1293,5 +1345,6 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/workspace-symbols", test_workspace_symbols);
   g_test_add_func("/lsp/language-routing", test_language_routing);
   g_test_add_func("/lsp/cancel-shutdown", test_cancel_shutdown);
+  g_test_add_func("/lsp/project-switch", test_project_switch);
   return g_test_run();
 }
