@@ -129,7 +129,8 @@ into it, to show them; "Git: Show / Hide Unchanged Lines" toggles). Closing the 
 command palette keeps the file, back to comparing with the last commit. The Files panel colors files by their git state (modified,
 added, untracked, conflicted, ignored) with the letter at the end of the row. The **Source
 Control** panel (`Ctrl+Shift+G`) commits, pushes, stages and unstages changes, and discards after
-confirmation. Right-click a modified file to stage or unstage an individual hunk. It also lists
+confirmation. A commit message not committed yet is kept with the project, also when t-code
+closes, until the commit. Right-click a modified file to stage or unstage an individual hunk. It also lists
 commits: the pointer on one shows its message, author, date and line counts, and "Open Commit Details"
 shows it with its diff.
 

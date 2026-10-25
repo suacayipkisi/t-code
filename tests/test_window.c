@@ -19,6 +19,7 @@
 #include "files/fileops.h"
 #include "files/opentabs.h"
 #include "git/compare.h"
+#include "git/scm.h"
 #include "ipc/socket.h"
 #include "lsp/navigate.h"
 #include "popups/contextmenu.h"
@@ -1639,6 +1640,33 @@ static void test_font_fallback(void)
   g_assert_cmpstr(pango_font_description_get_family(font), ==, "Cascadia Code,monospace");
 }
 
+/* A commit message typed but not committed is kept with the project: closing t-code (or opening
+ * another folder) saves it, and the project brings it back; once empty, it is gone from the session. */
+static void test_commit_message_kept(void)
+{
+  char *message;
+
+  scm_set_message("Fix the parser\n\nIt dropped the last token.");
+  session_save(&app);
+  scm_set_message("");
+  session_load_project(&app);
+  message = scm_message();
+  g_assert_cmpstr(message, ==, "Fix the parser\n\nIt dropped the last token.");
+  g_free(message);
+
+  scm_reset(); /* another project: the draft stays until that project's own replaces it */
+  message = scm_message();
+  g_assert_cmpstr(message, ==, "Fix the parser\n\nIt dropped the last token.");
+  g_free(message);
+
+  scm_set_message("  ");
+  session_save(&app);
+  scm_set_message("left over");
+  session_load_project(&app);
+  message = scm_message();
+  g_assert_cmpstr(message, ==, "");
+  g_free(message);
+}
 /* The settings session.ini kept before 0.3 moved into settings.ini, each with its comment. */
 static void test_settings_moved(void)
 {
@@ -2324,6 +2352,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/first-run-layout", test_first_run_layout);
   g_test_add_func("/window/font-fallback", test_font_fallback);
   g_test_add_func("/window/settings-moved", test_settings_moved);
+  g_test_add_func("/window/commit-message-kept", test_commit_message_kept);
   g_test_add_func("/window/settings-edited", test_settings_edited);
   g_test_add_func("/window/open-user-files", test_open_user_files);
   g_test_add_func("/window/settings-pages", test_settings_pages);

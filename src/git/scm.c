@@ -557,6 +557,17 @@ static char *message_text(void)
   return g_strstrip(gtk_text_buffer_get_text(buffer, &start, &end, FALSE));
 }
 
+char *scm_message(void)
+{
+  return scm.app ? message_text() : g_strdup("");
+}
+
+void scm_set_message(const char *message)
+{
+  if (scm.app)
+    gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(scm.message)), message ? message : "", -1);
+}
+
 /* git commit finished: the message box empties, or the error shows. */
 static void on_committed(gboolean ok, const char *out, const char *err, gpointer data G_GNUC_UNUSED)
 {
@@ -1710,7 +1721,6 @@ void scm_reset(void)
   g_clear_pointer(&scm.open_commit, g_free);
   if (!scm.app)
     return;
-  gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(scm.message)), "", -1);
   set_note(NULL, FALSE);
   g_ptr_array_set_size(scm.staged, 0);
   g_ptr_array_set_size(scm.changes, 0);

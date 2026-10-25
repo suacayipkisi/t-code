@@ -17,8 +17,14 @@ void scm_update(App *t, const char *out, gsize size);
 gboolean scm_commits_shown(void);
 void scm_show_commits(gboolean shown);
 
-/* Empties the panel at once (another project was opened); the next git status fills it again. */
+/* Empties the panel at once (another project was opened); the next git status fills it again. The
+ * commit message stays: session_load_project() puts the new project's draft in it. */
 void scm_reset(void);
+
+/* The commit message typed but not committed yet (stripped; "" for none), and putting one back (the
+ * session keeps it per project until the commit). */
+char *scm_message(void);
+void scm_set_message(const char *message);
 
 /* Opens the n-th commit of Commits (from 0) in a tab: its message, author, line counts and diff
  * (its right-click menu's "Open Commit Details"; the tests call it). */

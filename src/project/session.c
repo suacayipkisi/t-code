@@ -336,6 +336,9 @@ void session_load_project(App *t)
   char **watches = g_key_file_get_string_list(kf, group, "watch", NULL, NULL);
   debug_view_set_watches(watches);
   g_strfreev(watches);
+  char *message = g_key_file_get_string(kf, group, "commit-message", NULL);
+  scm_set_message(message); /* none: the last project's goes */
+  g_free(message);
   g_free(group);
   g_key_file_free(kf);
 }
@@ -509,6 +512,12 @@ void session_save(App *t)
   g_key_file_set_boolean(kf, "window", "open-tabs", open_tabs_shown());
 
   g_key_file_set_string(kf, group, "root", t->project.root);
+  char *message = scm_message(); /* a commit message not committed yet comes back with the project */
+  if (*message)
+    g_key_file_set_string(kf, group, "commit-message", message);
+  else
+    g_key_file_remove_key(kf, group, "commit-message", NULL);
+  g_free(message);
   for (int g = 0; g < GROUPS; g++) {
     GtkNotebook *notebook = t->editors.groups[g]; /* NULL: no second window */
     int n = notebook ? gtk_notebook_get_n_pages(notebook) : 0, kept = 0, active = 0;
