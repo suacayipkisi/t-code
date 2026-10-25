@@ -145,6 +145,7 @@ void session_load_settings(App *t)
   t->settings.detect_indent = get_bool(kf, "settings", "detect-indentation", TRUE);
   t->settings.guides = get_bool(kf, "settings", "indent-guides", TRUE);
   t->settings.word_wrap = get_bool(kf, "settings", "word-wrap", FALSE);
+  t->settings.ruler = CLAMP(get_int(kf, "settings", "ruler", 0), 0, 300);
   t->settings.clang_tidy = get_bool(kf, "settings", "clang-tidy", FALSE);
   t->settings.format_on_save = get_bool(kf, "settings", "format-on-save", FALSE);
   t->settings.square = g_strcmp0(theme ? g_strstrip(theme) : NULL, "square") == 0;
@@ -211,6 +212,8 @@ void session_save_settings(App *t)
   explain(kf, "indent-guides", " Lines at each indentation level; the block around the cursor in color");
   g_key_file_set_boolean(kf, "settings", "word-wrap", t->settings.word_wrap);
   explain(kf, "word-wrap", " Lines longer than the editor continue on the next row");
+  g_key_file_set_integer(kf, "settings", "ruler", t->settings.ruler);
+  explain(kf, "ruler", " A vertical line after this column in editors, to keep lines short (80, 120, ...); 0 for none");
   g_key_file_set_integer(kf, "settings", "tab-size", t->settings.tab_size);
   explain(kf, "tab-size",
           " 1 to 16, for projects without their own: the status bar's choice, .editorconfig or .clang-format come"

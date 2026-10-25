@@ -69,9 +69,10 @@ static void reload_settings(App *t)
          old.reopen_last == t->settings.reopen_last && old.autosave == t->settings.autosave &&
          old.tabs_to_spaces == t->settings.tabs_to_spaces && old.tab_size == t->settings.tab_size &&
          old.detect_indent == t->settings.detect_indent && old.guides == t->settings.guides &&
-         old.word_wrap == t->settings.word_wrap && old.clang_tidy == t->settings.clang_tidy &&
-         old.format_on_save == t->settings.format_on_save && old.square == t->settings.square &&
-         g_strcmp0(old.font, t->settings.font) == 0 && g_strcmp0(old.files_font, t->settings.files_font) == 0 &&
+         old.word_wrap == t->settings.word_wrap && old.ruler == t->settings.ruler &&
+         old.clang_tidy == t->settings.clang_tidy && old.format_on_save == t->settings.format_on_save &&
+         old.square == t->settings.square && g_strcmp0(old.font, t->settings.font) == 0 &&
+         g_strcmp0(old.files_font, t->settings.files_font) == 0 &&
          g_strcmp0(old.color_theme, t->settings.color_theme) == 0;
   if (!same)
     settings_changed(t, old.clang_tidy != t->settings.clang_tidy);

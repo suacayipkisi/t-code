@@ -151,8 +151,11 @@ saving the same file would overwrite each other.
 **Second window.** "Open in New Window" (the Files panel's menu, a tab's menu) moves a file into a
 second window of the same project, sharing its language servers; closing it moves its tabs back.
 
-**Projects.** The title bar has buttons to open another folder and to pick a recent one.
-For a second project next to the first, middle-click the dock icon (or pick "New Window" from
+**Menu bar.** On the left of the title bar: Files (open a folder, recent folders), T-Code (new
+window, command palette, updates, quit), Settings, Panels (each panel, checked while it shows),
+About and Help (keyboard shortcuts, reset panel layout). The middle shows the project's name.
+
+**Projects.** For a second project next to the first, middle-click the dock icon (or pick "New Window" from
 its menu, or run `t-code --new-window`): a new window opens and asks for a folder.
 Switching remembers and closes the current project's tabs, shows the new folder in the Files
 panel, restarts the shell there, and brings back that folder's tabs from last time. t-code also remembers
@@ -169,9 +172,10 @@ grep searches everything but `.git` and `build`.
 preview, in a rounded or a square look; the editor, the terminals and the panels all follow.
 `theme.css` and the editor's style scheme can be edited by hand ("Preferences: Open …").
 
-**Settings** (`Ctrl+,` or the gear in the title bar, its pages listed on the left): minimap, code coloring, indent guides,
+**Settings** (`Ctrl+,` or Settings in the menu bar, its pages listed on the left): minimap, code coloring, indent guides,
 word wrap (off by default; with it off, long lines run off the screen and scroll sideways with
-the horizontal scrollbar or Shift + wheel), tab size (2 by default), spaces for Tab, detecting a file's own indentation, autosave,
+the horizontal scrollbar or Shift + wheel), a ruler (a vertical line after a chosen column, like 80
+or 120; off by default), tab size (2 by default), spaces for Tab, detecting a file's own indentation, autosave,
 format on save (`Ctrl+S` formats C and C++ first; off by default), clang-tidy checks (the project's
 `.clang-tidy`; off by default), checking for updates (the latest release on GitHub against this
 one, asking once when a newer one is out; "Check for Updates Now" from the palette asks at any

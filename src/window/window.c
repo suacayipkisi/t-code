@@ -35,7 +35,7 @@
 const char *const panel_names[PANELS] = { "files", "scm", "search", "shell", "debug", "run", "problems" };
 const int panel_default_docks[PANELS] = { 0, 0, 0, 4, 4, 0, 4 };
 
-static void queue_panel_buttons(App *t);
+static void queue_panel_checks(App *t);
 
 static const char *panel_icon(const char *page)
 {
@@ -242,7 +242,7 @@ static void set_dock_collapsed(App *t, int d, gboolean collapsed)
   if (btn)
     gtk_button_set_icon_name(GTK_BUTTON(btn), collapsed ? "pan-end-symbolic" : "pan-down-symbolic");
   sync_side_paneds(t, d / 4);
-  queue_panel_buttons(t);
+  queue_panel_checks(t);
 }
 
 static void update_docks(App *t)
@@ -394,43 +394,43 @@ void toggle_panel(App *t, const char *page)
     hide_dock(t, panel_dock(t, page));
   else
     show_sidebar_page(t, page);
-  queue_panel_buttons(t);
+  queue_panel_checks(t);
 }
 
-/* The title bar's panel buttons look pressed while their panel shows. */
-static gboolean sync_panel_buttons(gpointer data)
+/* The Panels menu checks the panels that show (their win.panel-<name> actions' state). */
+static gboolean sync_panel_checks(gpointer data)
 {
   App *t = data;
 
-  t->dock.buttons_id = 0;
-  for (int i = 0; i < PANELS && !t->closing; i++)
-    if (t->dock.panel_buttons[i]) {
-      if (panel_shown(t, panel_names[i]))
-        gtk_widget_add_css_class(t->dock.panel_buttons[i], "tcode-panel-on");
-      else
-        gtk_widget_remove_css_class(t->dock.panel_buttons[i], "tcode-panel-on");
-    }
+  t->dock.checks_id = 0;
+  for (int i = 0; i < PANELS && !t->closing; i++) {
+    char *name = g_strconcat("panel-", panel_names[i], NULL);
+    GAction *action = g_action_map_lookup_action(G_ACTION_MAP(t->window), name);
+
+    if (action)
+      g_simple_action_set_state(G_SIMPLE_ACTION(action), g_variant_new_boolean(panel_shown(t, panel_names[i])));
+    g_free(name);
+  }
   return G_SOURCE_REMOVE;
 }
 
-/* Something about the panels changed: their buttons follow in an idle, once for many changes. */
-static void queue_panel_buttons(App *t)
+/* Something about the panels changed: the menu's checks follow in an idle, once for many changes. */
+static void queue_panel_checks(App *t)
 {
-  if (!t->dock.buttons_id)
-    t->dock.buttons_id = g_idle_add(sync_panel_buttons, t);
+  if (!t->dock.checks_id)
+    t->dock.checks_id = g_idle_add(sync_panel_checks, t);
 }
 
 static void on_layout_changed(GObject *object G_GNUC_UNUSED, GParamSpec *spec G_GNUC_UNUSED, App *t)
 {
-  queue_panel_buttons(t);
+  queue_panel_checks(t);
 }
 
-/* The window goes: the buttons with it. */
+/* The window goes: the menu's actions with it. */
 static void on_window_destroy(GtkWidget *window G_GNUC_UNUSED, App *t)
 {
-  g_clear_handle_id(&t->dock.buttons_id, g_source_remove);
+  g_clear_handle_id(&t->dock.checks_id, g_source_remove);
   g_clear_handle_id(&t->status.say_id, g_source_remove); /* its label goes with the window */
-  memset(t->dock.panel_buttons, 0, sizeof t->dock.panel_buttons);
   plugins_stop(t);
 }
 
@@ -457,7 +457,7 @@ void reset_panel_layout(App *t)
   show_side(t, 1, TRUE);
   gtk_stack_set_visible_child_name(t->dock.stacks[panel_dock(t, "shell")], "shell");
   show_sidebar_page(t, "files");
-  queue_panel_buttons(t);
+  queue_panel_checks(t);
 }
 
 static void update_scm_badge(GtkStackPage *sp, GParamSpec *pspec G_GNUC_UNUSED, App *t)
@@ -1093,10 +1093,7 @@ static void create_docks(App *t)
       ".tcode-sidebar stackswitcher button:checked { color: var(--tc-fg-bright); background: color-mix(in srgb, var(--tc-fg) 10%, transparent); }"
       ".tcode-sidebar stackswitcher button:hover, .tcode-dock-close:hover {"
       "  color: var(--tc-fg-bright); background: color-mix(in srgb, var(--tc-fg) 5%, transparent); }"
-      ".tcode-scm-badge { font-size: 0.78em; font-weight: bold; }"
-      ".tcode-panel-buttons button { color: var(--tc-fg-dim); }"
-      ".tcode-panel-buttons button.tcode-panel-on { color: var(--tc-fg-bright);"
-      "  background: color-mix(in srgb, var(--tc-fg) 12%, transparent); }";
+      ".tcode-scm-badge { font-size: 0.78em; font-weight: bold; }";
   GtkCssProvider *provider = gtk_css_provider_new();
   GtkDropTarget *ed_drop = gtk_drop_target_new(G_TYPE_INVALID, GDK_ACTION_MOVE | GDK_ACTION_COPY);
   GType dropped[] = { G_TYPE_INT, G_TYPE_FILE }; /* a panel's icon, a file from the Files panel */
@@ -1126,7 +1123,7 @@ static void create_docks(App *t)
   t->layout.bottom = build_side_chain(t, 1, GTK_ORIENTATION_HORIZONTAL, 480);
   t->layout.right = build_side_chain(t, 2, GTK_ORIENTATION_VERTICAL, 320);
   update_docks(t);
-  /* the title bar's panel buttons follow whatever shows or hides a panel */
+  /* the Panels menu's checks follow whatever shows or hides a panel */
   for (int d = 0; d < DOCKS; d++) {
     g_signal_connect(t->dock.cards[d], "notify::visible", G_CALLBACK(on_layout_changed), t);
     g_signal_connect(t->dock.stacks[d], "notify::visible-child", G_CALLBACK(on_layout_changed), t);
@@ -1156,53 +1153,135 @@ static void on_toggle_bottom(App *t)
   toggle_pane(t, side_has_pages(t, 1) ? t->layout.bottom : GTK_WIDGET(t->shell.term));
 }
 
-/* A panel's button in the title bar: shows or hides it. */
-static void on_panel_button(GtkButton *button, App *t)
+/* win.panel-<name> (the Panels menu): shows or hides that panel. */
+static void on_panel_action(GSimpleAction *action, GVariant *param G_GNUC_UNUSED, gpointer t)
 {
-  toggle_panel(t, g_object_get_data(G_OBJECT(button), "tcode-panel"));
+  toggle_panel(t, g_action_get_name(G_ACTION(action)) + strlen("panel-"));
 }
 
-/* Open Folder, Recent Folders and a button per panel on the left; the main menu, Settings, the
- * sides' toggles and Split Editor on the right. */
+/* win.command: runs commands[]'s command of that name (window/commands.c), for the menu bar. */
+static void on_command_action(GSimpleAction *action G_GNUC_UNUSED, GVariant *param, gpointer t)
+{
+  run_command(t, g_variant_get_string(param, NULL));
+}
+
+/* win.quit: closes the window, asking about unsaved files as its close button does. */
+static void on_quit_action(GSimpleAction *action G_GNUC_UNUSED, GVariant *param G_GNUC_UNUSED, gpointer t)
+{
+  gtk_window_close(((App *)t)->window);
+}
+
+/* The menu bar's actions: a checked one per panel, win.command and win.quit. */
+static void add_menu_actions(App *t)
+{
+  static const GActionEntry actions[] = {
+    { .name = "command", .activate = on_command_action, .parameter_type = "s" },
+    { .name = "quit", .activate = on_quit_action },
+  };
+
+  g_action_map_add_action_entries(G_ACTION_MAP(t->window), actions, G_N_ELEMENTS(actions), t);
+  for (int i = 0; i < PANELS; i++) {
+    char *name = g_strconcat("panel-", panel_names[i], NULL);
+    GSimpleAction *action = g_simple_action_new_stateful(name, NULL, g_variant_new_boolean(FALSE));
+
+    g_signal_connect(action, "activate", G_CALLBACK(on_panel_action), t);
+    g_action_map_add_action(G_ACTION_MAP(t->window), G_ACTION(action));
+    g_object_unref(action);
+    g_free(name);
+  }
+}
+
+/* An item running action (with target, a string, when not NULL), its shortcut accel shown. */
+static void add_item(GMenu *menu, const char *label, const char *action, const char *target, const char *accel)
+{
+  GMenuItem *item = g_menu_item_new(label, NULL);
+
+  g_menu_item_set_action_and_target_value(item, action, target ? g_variant_new_string(target) : NULL);
+  if (accel)
+    g_menu_item_set_attribute(item, "accel", "s", accel);
+  g_menu_append_item(menu, item);
+  g_object_unref(item);
+}
+
+/* An item running commands[]'s command of that name. */
+static void add_command(GMenu *menu, const char *label, const char *command, const char *accel)
+{
+  add_item(menu, label, "win.command", command, accel);
+}
+
+static void add_submenu(GMenu *bar, const char *label, GMenu *menu)
+{
+  g_menu_append_submenu(bar, label, G_MENU_MODEL(menu));
+  g_object_unref(menu);
+}
+
+/* Files, T-Code, Settings, Panels (checked while they show), About and Help. */
+static GMenu *menu_bar_model(App *t)
+{
+  static const char *const labels[PANELS] = { "Files", "Source Control", "Search",  "Terminal",
+                                              "Debug", "Run and Debug",  "Problems" };
+  static const char *const accels[PANELS] = { "<Alt>1", "<Control><Shift>g", "<Control><Shift>f", "<Control>j",
+                                              NULL,     "<Control><Shift>d", "<Control><Shift>m" };
+  GMenu *bar = g_menu_new(), *menu = g_menu_new(), *section = g_menu_new();
+
+  add_command(menu, "Open Folder…", "Open Folder…", "<Control><Shift>o");
+  g_menu_append_submenu(menu, "Recent Folders", G_MENU_MODEL(t->recent_menu));
+  add_submenu(bar, "Files", menu);
+
+  menu = g_menu_new();
+  add_item(menu, "New Window", "app.new-window", NULL, NULL);
+  add_command(menu, "Command Palette…", "Command Palette…", "<Control><Shift>p");
+  add_command(menu, "Check for Updates Now", "Check for Updates Now", NULL);
+  add_item(section, "Quit", "win.quit", NULL, NULL);
+  g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
+  g_object_unref(section);
+  add_submenu(bar, "T-Code", menu);
+
+  menu = g_menu_new();
+  section = g_menu_new();
+  add_command(menu, "Settings…", "Settings…", "<Control>comma");
+  add_command(menu, "Color Theme…", "Preferences: Color Theme…", NULL);
+  add_command(section, "Open Settings File", "Preferences: Open Settings File", NULL);
+  add_command(section, "Open Theme CSS", "Preferences: Open Theme CSS", NULL);
+  add_command(section, "Open Editor Colors", "Preferences: Open Editor Colors", NULL);
+  g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
+  g_object_unref(section);
+  add_submenu(bar, "Settings", menu);
+
+  menu = g_menu_new();
+  for (int i = 0; i < PANELS; i++) {
+    char *action = g_strconcat("win.panel-", panel_names[i], NULL);
+
+    add_item(menu, labels[i], action, NULL, accels[i]);
+    g_free(action);
+  }
+  add_submenu(bar, "Panels", menu);
+
+  menu = g_menu_new();
+  add_item(menu, "About t-code", "win.about", NULL, NULL);
+  add_submenu(bar, "About", menu);
+
+  menu = g_menu_new();
+  add_item(menu, "Keyboard Shortcuts", "win.keybinds", NULL, NULL);
+  add_item(menu, "Reset Panel Layout", "win.reset-panels", NULL, NULL);
+  add_submenu(bar, "Help", menu);
+  return bar;
+}
+
+/* The menu bar on the left; the sides' toggles and Split Editor on the right. */
 static GtkWidget *header_bar(App *t)
 {
-  static const char *const tips[PANELS] = {
-    "Files (Alt+1)", "Source Control (Ctrl+Shift+G)", "Search (Ctrl+Shift+F)",  "Terminal (Ctrl+J)",
-    "Debug (F5)",    "Run and Debug (Ctrl+Shift+D)",  "Problems (Ctrl+Shift+M)"
-  };
-  GtkWidget *panels = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
   GtkWidget *header = gtk_header_bar_new();
-  GtkWidget *open = gtk_button_new_from_icon_name("folder-open-symbolic");
-  GtkWidget *recent = gtk_menu_button_new();
+  GMenu *model = menu_bar_model(t);
+  GtkWidget *menu_bar = gtk_popover_menu_bar_new_from_model(G_MENU_MODEL(model));
   GtkWidget *left_btn = gtk_button_new_from_icon_name("sidebar-show-symbolic");
   GtkWidget *right_btn = gtk_button_new_from_icon_name("sidebar-show-right-symbolic");
   GtkWidget *bottom_btn = gtk_button_new_from_icon_name("go-bottom-symbolic");
   GtkWidget *split = gtk_toggle_button_new();
-  GtkWidget *settings = gtk_button_new_from_icon_name("emblem-system-symbolic");
-  GtkWidget *menu = gtk_menu_button_new();
-  GMenu *items = g_menu_new();
 
-  gtk_widget_set_tooltip_text(open, "Open Folder… (Ctrl+Shift+O)");
-  gtk_actionable_set_action_name(GTK_ACTIONABLE(open), "win.open-folder");
-  gtk_header_bar_pack_start(GTK_HEADER_BAR(header), open);
-
-  gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(recent), "document-open-recent-symbolic");
-  gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(recent), G_MENU_MODEL(t->recent_menu));
-  gtk_widget_set_tooltip_text(recent, "Recent Folders");
-  gtk_header_bar_pack_start(GTK_HEADER_BAR(header), recent);
-
-  gtk_widget_add_css_class(panels, "tcode-panel-buttons");
-  gtk_widget_set_margin_start(panels, 12);
-  for (int i = 0; i < PANELS; i++) {
-    GtkWidget *button = gtk_button_new_from_icon_name(panel_icon(panel_names[i]));
-    gtk_widget_set_tooltip_text(button, tips[i]);
-    gtk_widget_set_focusable(button, FALSE);
-    g_object_set_data(G_OBJECT(button), "tcode-panel", (gpointer)panel_names[i]);
-    g_signal_connect(button, "clicked", G_CALLBACK(on_panel_button), t);
-    gtk_box_append(GTK_BOX(panels), button);
-    t->dock.panel_buttons[i] = button;
-  }
-  gtk_header_bar_pack_start(GTK_HEADER_BAR(header), panels);
+  add_menu_actions(t);
+  gtk_header_bar_pack_start(GTK_HEADER_BAR(header), menu_bar);
+  g_object_unref(model);
 
   gtk_button_set_icon_name(GTK_BUTTON(split), "view-dual-symbolic");
   gtk_widget_set_tooltip_text(split, "Split Editor (Ctrl+\\)");
@@ -1221,20 +1300,6 @@ static GtkWidget *header_bar(App *t)
   gtk_widget_set_tooltip_text(left_btn, "Toggle Left Sidebar (Ctrl+B)");
   g_signal_connect_swapped(left_btn, "clicked", G_CALLBACK(on_toggle_left), t);
   gtk_header_bar_pack_end(GTK_HEADER_BAR(header), left_btn);
-
-  gtk_widget_set_tooltip_text(settings, "Settings (Ctrl+,)");
-  g_signal_connect_swapped(settings, "clicked", G_CALLBACK(show_settings), t);
-  gtk_header_bar_pack_end(GTK_HEADER_BAR(header), settings);
-
-  g_menu_append(items, "Reset Panel Layout", "win.reset-panels");
-  g_menu_append(items, "Keyboard Shortcuts", "win.keybinds");
-  g_menu_append(items, "About t-code", "win.about");
-  gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(menu), "open-menu-symbolic");
-  gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(menu), G_MENU_MODEL(items));
-  gtk_menu_button_set_primary(GTK_MENU_BUTTON(menu), TRUE);
-  gtk_widget_set_tooltip_text(menu, "Main Menu");
-  gtk_header_bar_pack_end(GTK_HEADER_BAR(header), menu);
-  g_object_unref(items);
   return header;
 }
 

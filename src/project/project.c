@@ -72,14 +72,12 @@ void unless_unsaved(App *t, const char *question, const char *button, ConfirmedF
 
 /* Switching ---------------------------------------------------------------------------------- */
 
-/* The folder's name, then the program's. */
+/* The folder's name. */
 void update_title(App *t)
 {
   char *name = g_path_get_basename(t->project.root);
-  char *title = g_strdup_printf("%s - t-code", name);
 
-  gtk_window_set_title(t->window, title);
-  g_free(title);
+  gtk_window_set_title(t->window, name);
   g_free(name);
 }
 

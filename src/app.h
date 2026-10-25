@@ -89,9 +89,8 @@ struct App {
     GtkStack *stacks[DOCKS]; /* the stack of panels in each dock */
     gboolean collapsed[DOCKS];
     int saved_pos[DOCKS];
-    GtkStack *scm_stack;              /* the dock stack currently holding t->scm */
-    GtkWidget *panel_buttons[PANELS]; /* the title bar's button per panel (panel_names' order) */
-    guint buttons_id;                 /* the idle that updates them */
+    GtkStack *scm_stack; /* the dock stack currently holding t->scm */
+    guint checks_id;     /* the idle that updates the Panels menu's checks */
   } dock;
 
   /* editors */
@@ -177,6 +176,7 @@ struct App {
     gboolean detect_indent;  /* a file's own indentation overrides the two above */
     gboolean guides;         /* indent and bracket pair guides in editors */
     gboolean word_wrap;      /* long lines continue on the next row instead of running off */
+    int ruler;               /* a vertical line after this column in editors, 0 for none */
     gboolean clang_tidy;     /* clangd also runs the project's .clang-tidy checks */
     gboolean format_on_save; /* Ctrl+S formats the file with clangd first */
     char *font;              /* editors and the shell, a Pango font description */

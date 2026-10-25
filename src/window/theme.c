@@ -38,6 +38,11 @@ static const char *const css =
     "  border-radius: 7px; background: none; box-shadow: none; border: none; color: var(--tc-fg); }"
     "headerbar button:hover { background: color-mix(in srgb, var(--tc-fg) 8%, transparent); }"
     "headerbar button:active, headerbar button:checked { background: color-mix(in srgb, var(--tc-fg) 14%, transparent); color: var(--tc-fg-strong); }"
+    /* The menu bar (Files, T-Code, ...): its items look like the buttons, the open one pressed. */
+    "headerbar menubar { padding: 0; }"
+    "headerbar menubar > item { min-height: 22px; padding: 0 8px; margin: 4px 1px; border-radius: 7px; color: var(--tc-fg); }"
+    "headerbar menubar > item:hover { background: color-mix(in srgb, var(--tc-fg) 8%, transparent); }"
+    "headerbar menubar > item:selected { background: color-mix(in srgb, var(--tc-fg) 14%, transparent); color: var(--tc-fg-strong); }"
     "windowcontrols { border-spacing: 2px; margin-left: 8px; }"
     "windowcontrols > button { min-width: 36px; min-height: 22px; padding: 0; margin: 4px 0; border-radius: 7px; }"
     "windowcontrols > button > image, windowcontrols > button:hover > image,"
@@ -81,6 +86,8 @@ static const char *const square_css =
     ".tcode-card { border-radius: 0; }"
     "headerbar { border-bottom: 1px solid var(--tc-border); }"
     "headerbar button, windowcontrols > button { border-radius: 4px; }"
+    /* The menu bar and its menus without corners: with the menus' shadow, even small ones looked round. */
+    "headerbar menubar > item, menubar popover > contents, menubar popover modelbutton { border-radius: 0; }"
     ".tcode-status { border-top: 1px solid var(--tc-border); padding: 0 6px; }"
     ".tcode-status button { border-radius: 0; padding: 3px 8px; }"
 

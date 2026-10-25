@@ -116,6 +116,15 @@ static void on_word_wrap(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpoi
   session_save_settings(t);
 }
 
+static void on_ruler(GtkSpinButton *spin, gpointer data G_GNUC_UNUSED)
+{
+  App *t = app_of(GTK_WIDGET(spin));
+
+  t->settings.ruler = gtk_spin_button_get_value_as_int(spin);
+  each_editor(t);
+  session_save_settings(t);
+}
+
 /* clangd starts again with the checks on or off. */
 static void on_clang_tidy(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
 {
@@ -424,6 +433,8 @@ void show_settings(App *t)
           switch_for(t->settings.guides, G_CALLBACK(on_guides)));
   add_row(GTK_GRID(grid), &row, "Word wrap", "Lines longer than the editor continue on the next row",
           switch_for(t->settings.word_wrap, G_CALLBACK(on_word_wrap)));
+  add_row(GTK_GRID(grid), &row, "Ruler column", "A vertical line after this column, to keep lines short; 0 for none",
+          spin_for(0, 300, 1, t->settings.ruler, G_CALLBACK(on_ruler)));
 
   grid = add_page(GTK_STACK(stack), "indentation", "Indentation", &row);
   add_row(GTK_GRID(grid), &row, "Tab size",

@@ -1106,6 +1106,22 @@ static void test_sticky(void)
   g_string_free(text, TRUE);
 }
 
+/* The ruler: a line after the chosen column, none at 0. */
+static void test_ruler(void)
+{
+  Tab *tab = new_tab("int a;\n");
+
+  app.settings.ruler = 80;
+  editor_view_apply_settings(tab);
+  g_assert_true(gtk_source_view_get_show_right_margin(tab->source));
+  g_assert_cmpuint(gtk_source_view_get_right_margin_position(tab->source), ==, 80);
+
+  app.settings.ruler = 0;
+  editor_view_apply_settings(tab);
+  g_assert_false(gtk_source_view_get_show_right_margin(tab->source));
+  free_tab(tab);
+}
+
 /* The indentation in use: the settings, then the file's own, the config files, the project's
  * choice; a Makefile keeps tabs. */
 static void test_indent_order(void)
@@ -1356,6 +1372,7 @@ int main(int argc, char **argv)
   g_test_add_func("/diff-gutter/wrapped-heights", test_wrapped_heights);
   g_test_add_func("/folding/fold-unfold", test_folding);
   g_test_add_func("/sticky/heads", test_sticky);
+  g_test_add_func("/settings/ruler", test_ruler);
   g_test_add_func("/guides/brackets", test_guide_brackets);
   g_test_add_func("/guides/pair", test_guide_pair);
   g_test_add_func("/guides/pair-in-comment", test_guide_pair_in_comment);
