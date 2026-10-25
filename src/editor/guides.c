@@ -356,6 +356,33 @@ static void draw_guides(TcodeView *self, GtkSnapshot *snapshot)
   }
 }
 
+/* The ruler's x after its column (Settings), in buffer coordinates; -1 when it is off. */
+static double ruler_x(TcodeView *self)
+{
+  int column = self->tab->app->settings.ruler;
+  GdkRectangle start;
+  GtkTextIter iter;
+
+  if (column <= 0)
+    return -1;
+  gtk_text_buffer_get_start_iter(GTK_TEXT_BUFFER(self->tab->buffer), &iter);
+  gtk_text_view_get_iter_location(GTK_TEXT_VIEW(self), &iter, &start); /* the text's left edge */
+  return start.x + column * char_width(self);
+}
+
+/* The ruler, our own: GtkSourceView's right margin moves on the cursor's line when there is a gutter.
+ * Over the current line's color, under the text. */
+static void draw_ruler(TcodeView *self, GtkSnapshot *snapshot)
+{
+  double x = ruler_x(self);
+  GdkRectangle visible;
+
+  if (x < 0)
+    return;
+  gtk_text_view_get_visible_rect(GTK_TEXT_VIEW(self), &visible);
+  draw_guide(snapshot, palette_rgba(PAL_GUIDE), x, visible.y, visible.height);
+}
+
 static void snapshot_layer(GtkTextView *view, GtkTextViewLayer layer, GtkSnapshot *snapshot)
 {
   TcodeView *self = TCODE_VIEW(view);
@@ -364,6 +391,7 @@ static void snapshot_layer(GtkTextView *view, GtkTextViewLayer layer, GtkSnapsho
   if (layer == GTK_TEXT_VIEW_LAYER_BELOW_TEXT && self->tab && self->tab->view && !self->tab->view->loading) {
     diff_gutter_check_width(self->tab);
     draw_diff_gaps(self, snapshot);
+    draw_ruler(self, snapshot);
     if (self->tab->app->settings.guides)
       draw_guides(self, snapshot);
     diagnostics_draw(self->tab, view, snapshot);

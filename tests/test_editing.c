@@ -1106,19 +1106,40 @@ static void test_sticky(void)
   g_string_free(text, TRUE);
 }
 
-/* The ruler: a line after the chosen column, none at 0. */
+/* The minimap's width. */
+static int map_width(Tab *tab)
+{
+  int minimum, natural;
+
+  gtk_widget_measure(tab->view->map, GTK_ORIENTATION_HORIZONTAL, -1, &minimum, &natural, NULL, NULL);
+  return natural;
+}
+
+/* The ruler: our own line after the chosen column (GtkSourceView's right margin moves on the
+ * cursor's line), none at 0; the minimap, which follows that right margin, keeps its width. */
 static void test_ruler(void)
 {
   Tab *tab = new_tab("int a;\n");
+  TcodeView *view = TCODE_VIEW(tab->source);
+  GdkRectangle start;
+  GtkTextIter iter;
+  int width;
 
-  app.settings.ruler = 80;
-  editor_view_apply_settings(tab);
-  g_assert_true(gtk_source_view_get_show_right_margin(tab->source));
-  g_assert_cmpuint(gtk_source_view_get_right_margin_position(tab->source), ==, 80);
-
+  app.settings.minimap = TRUE; /* a hidden one measures 0 */
   app.settings.ruler = 0;
   editor_view_apply_settings(tab);
+  width = map_width(tab);
+  g_assert_cmpfloat(ruler_x(view), <, 0);
+
+  app.settings.ruler = 20;
+  editor_view_apply_settings(tab);
+  gtk_text_buffer_get_start_iter(GTK_TEXT_BUFFER(tab->buffer), &iter);
+  gtk_text_view_get_iter_location(GTK_TEXT_VIEW(view), &iter, &start);
+  g_assert_cmpfloat_with_epsilon(ruler_x(view), start.x + 20 * char_width(view), 1e-9);
+  g_assert_cmpfloat(char_width(view), >, 0);
   g_assert_false(gtk_source_view_get_show_right_margin(tab->source));
+  g_assert_cmpint(map_width(tab), ==, width);
+  app.settings.ruler = 0;
   free_tab(tab);
 }
 

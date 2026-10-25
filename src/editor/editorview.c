@@ -187,9 +187,6 @@ void editor_view_apply_settings(Tab *tab)
   gtk_source_view_set_indent_width(view, -1); /* the tab width */
   gtk_source_view_set_insert_spaces_instead_of_tabs(view, !v->tabs);
   gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(view), t->settings.word_wrap ? GTK_WRAP_WORD_CHAR : GTK_WRAP_NONE);
-  gtk_source_view_set_show_right_margin(view, t->settings.ruler > 0);
-  if (t->settings.ruler > 0)
-    gtk_source_view_set_right_margin_position(view, t->settings.ruler);
   gtk_source_buffer_set_highlight_syntax(tab->buffer, !t->settings.plain);
   gtk_source_buffer_set_style_scheme(tab->buffer, editor_style_scheme(t)); /* a new one after a rescan */
   occurrences_recolor(tab);
@@ -200,7 +197,7 @@ void editor_view_apply_settings(Tab *tab)
     gtk_widget_queue_draw(v->overview);
   if (lsp_has(tab))
     semantic_update(tab);                  /* code coloring may have been turned off or on */
-  gtk_widget_queue_draw(GTK_WIDGET(view)); /* the indent guides, turned off or on */
+  gtk_widget_queue_draw(GTK_WIDGET(view)); /* the indent guides and the ruler, turned off or on */
   if (tab->compare.old_side)               /* a comparison's right side is in no tab list */
     editor_view_apply_settings(tab->compare.old_side);
   sticky_apply_settings(tab);
