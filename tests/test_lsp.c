@@ -1487,7 +1487,7 @@ int main(int argc, char **argv)
   gtk_source_init();
   app.project.root = g_strdup("/tmp");
   app.settings.tab_size = 4;
-  app.font_scale = 1.0;
+  app.settings.font_scale = 1.0;
   app.paths.styles = g_canonicalize_filename("styles", NULL);
   g_test_add_func("/lsp/sync-utf8", test_sync_utf8);
   g_test_add_func("/lsp/sync-utf16", test_sync_utf16);

@@ -24,7 +24,7 @@ void set_terminal_font(App *t, VteTerminal *term, const char *font)
 
   pango_font_description_set_family(desc, families);
   vte_terminal_set_font(term, desc);
-  vte_terminal_set_font_scale(term, t->font_scale);
+  vte_terminal_set_font_scale(term, t->settings.font_scale);
   pango_font_description_free(desc);
   g_free(families);
 }

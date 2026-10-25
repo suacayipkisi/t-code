@@ -1333,7 +1333,7 @@ int main(int argc, char **argv)
   gtk_source_init();
   app.settings.tab_size = 4;
   app.settings.tabs_to_spaces = TRUE;
-  app.font_scale = 1.0;
+  app.settings.font_scale = 1.0;
   app.paths.styles = g_canonicalize_filename("styles", NULL); /* run from the repository (make test) */
   g_test_add_func("/editing/comment-lines", test_comment_lines);
   g_test_add_func("/editing/breakpoints", test_breakpoints);

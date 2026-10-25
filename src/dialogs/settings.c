@@ -68,7 +68,7 @@ static void on_coloring(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpoin
 {
   App *t = app_of(GTK_WIDGET(toggle));
 
-  if (gtk_switch_get_active(toggle) == t->plain)
+  if (gtk_switch_get_active(toggle) == t->settings.plain)
     toggle_syntax(t); /* saves the settings */
 }
 
@@ -427,13 +427,14 @@ void show_settings(App *t)
   add_row(GTK_GRID(grid), &row, "Sticky scroll",
           "The first lines of the blocks around the top (namespace, function, loop) stay at the top",
           switch_for(t->settings.sticky_scroll, G_CALLBACK(on_sticky_scroll)));
-  add_row(GTK_GRID(grid), &row, "Code coloring", "Also F7", switch_for(!t->plain, G_CALLBACK(on_coloring)));
+  add_row(GTK_GRID(grid), &row, "Code coloring", "Also F7", switch_for(!t->settings.plain, G_CALLBACK(on_coloring)));
   add_row(GTK_GRID(grid), &row, "Indent guides",
           "Lines at each indentation level; the block around the cursor in color",
           switch_for(t->settings.guides, G_CALLBACK(on_guides)));
   add_row(GTK_GRID(grid), &row, "Word wrap", "Lines longer than the editor continue on the next row",
           switch_for(t->settings.word_wrap, G_CALLBACK(on_word_wrap)));
-  add_row(GTK_GRID(grid), &row, "Ruler column", "A vertical line after this column, to keep lines short; 0 for none",
+  add_row(GTK_GRID(grid), &row, "Ruler column",
+          "A vertical line after this column, to keep lines short. Type 0 to turn it off",
           spin_for(0, 300, 1, t->settings.ruler, G_CALLBACK(on_ruler)));
 
   grid = add_page(GTK_STACK(stack), "indentation", "Indentation", &row);
@@ -457,9 +458,9 @@ void show_settings(App *t)
   add_row(GTK_GRID(grid), &row, "Files panel font", "File icons need a Nerd Font installed",
           font_for(&t->settings.files_font));
   add_row(GTK_GRID(grid), &row, "Text size (%)", "Also Ctrl+= and Ctrl+-",
-          spin_for(50, 300, 10, t->font_scale * 100, G_CALLBACK(on_text_size)));
+          spin_for(50, 300, 10, t->settings.font_scale * 100, G_CALLBACK(on_text_size)));
   add_row(GTK_GRID(grid), &row, "Preview size (%)", "Markdown previews; also Ctrl+= and Ctrl+- in a preview tab",
-          spin_for(50, 300, 10, t->preview_scale * 100, G_CALLBACK(on_preview_size)));
+          spin_for(50, 300, 10, t->settings.preview_scale * 100, G_CALLBACK(on_preview_size)));
 
   grid = add_page(GTK_STACK(stack), "c", "C / C++", &row);
   add_row(GTK_GRID(grid), &row, "Format on save",

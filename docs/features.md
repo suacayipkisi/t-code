@@ -177,7 +177,7 @@ preview, in a rounded or a square look; the editor, the terminals and the panels
 **Settings** (`Ctrl+,` or Settings in the menu bar, its pages listed on the left): minimap, code coloring, indent guides,
 word wrap (off by default; with it off, long lines run off the screen and scroll sideways with
 the horizontal scrollbar or Shift + wheel), a ruler (a vertical line after a chosen column, like 80
-or 120; off by default), tab size (2 by default), spaces for Tab, detecting a file's own indentation, autosave,
+or 120; 80 by default, 0 turns it off), tab size (2 by default), spaces for Tab, detecting a file's own indentation, autosave,
 format on save (`Ctrl+S` formats C and C++ first; off by default), clang-tidy checks (the project's
 `.clang-tidy`; off by default), checking for updates (the latest release on GitHub against this
 one, asking once when a newer one is out; "Check for Updates Now" from the palette asks at any

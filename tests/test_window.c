@@ -1554,12 +1554,12 @@ static void test_preview_look(void)
   g_object_get(base, "size-points", &before, NULL);
   run_command(&app, "Zoom In");
   g_object_get(base, "size-points", &after, NULL);
-  g_assert_cmpfloat_with_epsilon(app.preview_scale, 1.1, 1e-9);
-  g_assert_cmpfloat(app.font_scale, ==, 1.0);
+  g_assert_cmpfloat_with_epsilon(app.settings.preview_scale, 1.1, 1e-9);
+  g_assert_cmpfloat(app.settings.font_scale, ==, 1.0);
   g_assert_cmpfloat_with_epsilon(after, before * 1.1, 0.01); /* Pango keeps 1/1024 points */
   run_command(&app, "Reset Zoom");
-  g_assert_cmpfloat(app.preview_scale, ==, 1.0);
-  g_assert_cmpfloat(app.font_scale, ==, 1.0);
+  g_assert_cmpfloat(app.settings.preview_scale, ==, 1.0);
+  g_assert_cmpfloat(app.settings.font_scale, ==, 1.0);
 
   remove_tab(tab);
   g_unlink(path);
@@ -2338,8 +2338,8 @@ int main(int argc, char **argv)
   start_broadway();
   gtk_test_init(&argc, &argv, NULL);
   app.project.root = g_build_filename(home, "project", NULL);
-  app.font_scale = 1;
-  app.preview_scale = 1.0;
+  app.settings.font_scale = 1;
+  app.settings.preview_scale = 1.0;
   g_mkdir_with_parents(app.project.root, 0755);
   char *session = g_build_filename(config, "t-code", "session.ini", NULL), *dir = g_path_get_dirname(session);
   g_mkdir_with_parents(dir, 0700);

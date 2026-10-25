@@ -343,7 +343,7 @@ static void draw_guides(TcodeView *self, GtkSnapshot *snapshot)
   if (cursor_pair(self, &open, &close)) {
     int column = MIN(indent_of(buffer, open, ts) < 0 ? G_MAXINT : indent_of(buffer, open, ts),
                      indent_of(buffer, close, ts) < 0 ? G_MAXINT : indent_of(buffer, close, ts));
-    const GdkRGBA *ink = palette_rgba(self->tab->app->plain ? PAL_GUIDE_ACTIVE : PAL_PAIR1 + column / ts % 3);
+    const GdkRGBA *ink = palette_rgba(self->tab->app->settings.plain ? PAL_GUIDE_ACTIVE : PAL_PAIR1 + column / ts % 3);
     for (int line = MAX(open + 1, first); column != G_MAXINT && line < close && line <= last; line++) {
       int y, height, above_px = 0, below_px = 0, indent = indent_of(buffer, line, ts);
       if ((indent >= 0 && indent <= column) || diff_gutter_line_hidden(self->tab, line))

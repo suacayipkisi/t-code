@@ -453,7 +453,7 @@ static void test_problems(void)
 int main(int argc, char **argv)
 {
   gtk_test_init(&argc, &argv, NULL);
-  app.font_scale = 1;
+  app.settings.font_scale = 1;
   app.settings.files_font = "Cascadia Code 11";
   app.project.root = g_strdup(g_get_tmp_dir());
   window = gtk_window_new();

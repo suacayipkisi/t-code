@@ -159,10 +159,7 @@ struct App {
     VteTerminal *term;    /* the program's terminal */
   } debug;
 
-  double font_scale;
-  double preview_scale;
   gboolean closing;
-  gboolean plain; /* syntax coloring off (F7) */
 
   /* settings */
   struct {
@@ -183,5 +180,8 @@ struct App {
     char *files_font;        /* the Files panel */
     gboolean square;         /* the square theme (flat panels, lines between them), not rounded cards */
     char *color_theme;       /* window/palette.c's id: "dark-classic", ... */
+    gboolean plain;          /* syntax coloring off (F7) */
+    double font_scale;       /* editors, terminals and the Files panel (Ctrl+= / Ctrl+-); session.ini keeps it */
+    double preview_scale;    /* Markdown previews' text size; session.ini keeps it */
   } settings;
 };

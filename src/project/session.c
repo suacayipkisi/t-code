@@ -145,7 +145,7 @@ void session_load_settings(App *t)
   t->settings.detect_indent = get_bool(kf, "settings", "detect-indentation", TRUE);
   t->settings.guides = get_bool(kf, "settings", "indent-guides", TRUE);
   t->settings.word_wrap = get_bool(kf, "settings", "word-wrap", FALSE);
-  t->settings.ruler = CLAMP(get_int(kf, "settings", "ruler", 0), 0, 300);
+  t->settings.ruler = CLAMP(get_int(kf, "settings", "ruler", 80), 0, 300);
   t->settings.clang_tidy = get_bool(kf, "settings", "clang-tidy", FALSE);
   t->settings.format_on_save = get_bool(kf, "settings", "format-on-save", FALSE);
   t->settings.square = g_strcmp0(theme ? g_strstrip(theme) : NULL, "square") == 0;
@@ -155,7 +155,7 @@ void session_load_settings(App *t)
     g_set_str(&t->settings.color_theme, "dark-classic");
   else /* a renamed theme's old id */
     g_set_str(&t->settings.color_theme, palette_known_id(t->settings.color_theme));
-  t->plain = !get_bool(kf, "settings", "code-coloring", TRUE);
+  t->settings.plain = !get_bool(kf, "settings", "code-coloring", TRUE);
   g_free(t->settings.font);
   g_free(t->settings.files_font);
   t->settings.font = g_key_file_get_string(kf, "settings", "font", NULL);
@@ -206,14 +206,16 @@ void session_save_settings(App *t)
   explain(kf, "sticky-scroll",
           " The first lines of the blocks around the editor's top (namespace, function, loop) stay\n"
           " at its top");
-  g_key_file_set_boolean(kf, "settings", "code-coloring", !t->plain);
+  g_key_file_set_boolean(kf, "settings", "code-coloring", !t->settings.plain);
   explain(kf, "code-coloring", " Syntax colors in the editors (also F7)");
   g_key_file_set_boolean(kf, "settings", "indent-guides", t->settings.guides);
   explain(kf, "indent-guides", " Lines at each indentation level; the block around the cursor in color");
   g_key_file_set_boolean(kf, "settings", "word-wrap", t->settings.word_wrap);
   explain(kf, "word-wrap", " Lines longer than the editor continue on the next row");
   g_key_file_set_integer(kf, "settings", "ruler", t->settings.ruler);
-  explain(kf, "ruler", " A vertical line after this column in editors, to keep lines short (80, 120, ...); 0 for none");
+  explain(
+      kf, "ruler",
+      " A vertical line after this column in editors, to keep lines short (80 by default, 120, ...); 0 turns it off");
   g_key_file_set_integer(kf, "settings", "tab-size", t->settings.tab_size);
   explain(kf, "tab-size",
           " 1 to 16, for projects without their own: the status bar's choice, .editorconfig or .clang-format come"
@@ -238,8 +240,8 @@ void session_save_settings(App *t)
   explain(kf, "check-updates",
           " Once at start-up, the latest release on GitHub goes against this version; a newer one asks");
   store_to(kf, path);
-  g_key_file_set_double(session, "window", "font-scale", t->font_scale);
-  g_key_file_set_double(session, "window", "preview-scale", t->preview_scale);
+  g_key_file_set_double(session, "window", "font-scale", t->settings.font_scale);
+  g_key_file_set_double(session, "window", "preview-scale", t->settings.preview_scale);
   store(session);
   g_key_file_free(session);
   g_key_file_free(kf);
@@ -506,8 +508,8 @@ void session_save(App *t)
     vis = gtk_stack_get_visible_child_name(t->dock.scm_stack);
   if (vis)
     g_key_file_set_string(kf, "window", "sidebar-page", vis);
-  g_key_file_set_double(kf, "window", "font-scale", t->font_scale);
-  g_key_file_set_double(kf, "window", "preview-scale", t->preview_scale);
+  g_key_file_set_double(kf, "window", "font-scale", t->settings.font_scale);
+  g_key_file_set_double(kf, "window", "preview-scale", t->settings.preview_scale);
   g_key_file_set_boolean(kf, "window", "scm-commits", scm_commits_shown());
   g_key_file_set_boolean(kf, "window", "open-tabs", open_tabs_shown());
 

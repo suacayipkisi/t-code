@@ -691,7 +691,7 @@ void toggle_syntax(App *t)
 {
   int n = tab_count(t);
 
-  t->plain = !t->plain;
+  t->settings.plain = !t->settings.plain;
   session_save_settings(t);
   for (int i = 0; i < n; i++)
     if (tab_nth(t, i)->kind == TAB_EDITOR)

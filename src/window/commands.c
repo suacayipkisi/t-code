@@ -66,9 +66,9 @@ static void zoom(App *t, double factor)
   Tab *tab = current_tab(t);
 
   if (tab && tab->kind == TAB_PREVIEW)
-    set_preview_zoom_scale(t, factor ? t->preview_scale * factor : 1.0);
+    set_preview_zoom_scale(t, factor ? t->settings.preview_scale * factor : 1.0);
   else
-    set_font_scale(t, factor ? t->font_scale * factor : 1.0);
+    set_font_scale(t, factor ? t->settings.font_scale * factor : 1.0);
 }
 static void zoom_in(App *t) { zoom(t, 1.1); }
 static void zoom_out(App *t) { zoom(t, 1 / 1.1); }

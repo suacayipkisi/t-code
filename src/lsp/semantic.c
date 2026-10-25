@@ -367,7 +367,7 @@ static void on_tokens(JsonNode *result, gpointer data)
   if (s && s->request == request) {
     gboolean current = request->changes == s->tab->view->changes;
     s->request = NULL;
-    if (!result || s->tab->app->plain)
+    if (!result || s->tab->app->settings.plain)
       ;
     else if (json_at(result, "edits") && s->data)
       apply_delta(s, result, current);
@@ -417,7 +417,7 @@ void semantic_update(Tab *tab)
 {
   Semantic *s = tab->view->semantic;
 
-  if (tab->app->plain) {
+  if (tab->app->settings.plain) {
     remove_colors(tab);
     if (s)
       forget_tokens(s);

@@ -14,7 +14,7 @@
 /* ~/.config/t-code/settings.ini (free it). */
 char *settings_file(void);
 
-/* Reads settings.ini into t->settings (and t->plain); missing values get their defaults. Without a
+/* Reads settings.ini into t->settings; missing values get their defaults. Without a
  * settings.ini yet, the settings session.ini kept before 0.3 move into one. */
 void session_load_settings(App *t);
 

@@ -80,7 +80,7 @@ void editor_view_free(EditorView *view);
 /* Applies the settings (tab size, spaces, word wrap, minimap, code coloring) to an editor. */
 void editor_view_apply_settings(Tab *tab);
 
-/* The editor font (t->settings.font at t->font_scale) for all editors. */
+/* The editor font (t->settings.font at t->settings.font_scale) for all editors. */
 void editor_view_set_font(App *t);
 
 /* The problems strip draws the editor's diagnostics again. */

@@ -58,18 +58,17 @@ static char *path_of(UserFile which)
 static void reload_settings(App *t)
 {
   typeof(t->settings) old = t->settings;
-  gboolean plain = t->plain;
   gboolean same;
 
   old.font = g_strdup(t->settings.font);
   old.files_font = g_strdup(t->settings.files_font);
   old.color_theme = g_strdup(t->settings.color_theme);
   session_load_settings(t);
-  same = plain == t->plain && old.minimap == t->settings.minimap && old.sticky_scroll == t->settings.sticky_scroll &&
-         old.reopen_last == t->settings.reopen_last && old.autosave == t->settings.autosave &&
-         old.tabs_to_spaces == t->settings.tabs_to_spaces && old.tab_size == t->settings.tab_size &&
-         old.detect_indent == t->settings.detect_indent && old.guides == t->settings.guides &&
-         old.word_wrap == t->settings.word_wrap && old.ruler == t->settings.ruler &&
+  same = old.plain == t->settings.plain && old.minimap == t->settings.minimap &&
+         old.sticky_scroll == t->settings.sticky_scroll && old.reopen_last == t->settings.reopen_last &&
+         old.autosave == t->settings.autosave && old.tabs_to_spaces == t->settings.tabs_to_spaces &&
+         old.tab_size == t->settings.tab_size && old.detect_indent == t->settings.detect_indent &&
+         old.guides == t->settings.guides && old.word_wrap == t->settings.word_wrap && old.ruler == t->settings.ruler &&
          old.clang_tidy == t->settings.clang_tidy && old.format_on_save == t->settings.format_on_save &&
          old.square == t->settings.square && g_strcmp0(old.font, t->settings.font) == 0 &&
          g_strcmp0(old.files_font, t->settings.files_font) == 0 &&

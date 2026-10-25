@@ -1131,7 +1131,7 @@ void files_apply_font(App *t)
   PangoFontDescription *desc = pango_font_description_from_string(t->settings.files_font);
   const char *family = pango_font_description_get_family(desc);
   int size = pango_font_description_get_size(desc);
-  double points = (size > 0 ? size / (double)PANGO_SCALE : 11) * t->font_scale;
+  double points = (size > 0 ? size / (double)PANGO_SCALE : 11) * t->settings.font_scale;
   char number[G_ASCII_DTOSTR_BUF_SIZE]; /* "11.5", not the locale's "11,5": CSS wants a dot */
   char *css_text =
       g_strdup_printf(".tcode-files listview, .tcode-files .title, .tcode-opentabs list"

@@ -107,7 +107,7 @@ void editor_view_set_font(App *t)
   if (size <= 0)
     size = 11;
   /* "11.5", also where the locale writes "11,5" (CSS would reject it) */
-  g_ascii_formatd(points, sizeof points, "%.1f", size * t->font_scale);
+  g_ascii_formatd(points, sizeof points, "%.1f", size * t->settings.font_scale);
   rule = g_strdup_printf(
       ".tcode-editor textview.tcode-source { font-family: \"%s\", monospace; font-size: %spt;"
       " font-feature-settings: \"calt\" 0, \"liga\" 0; }", /* "->" stays two characters */
@@ -190,7 +190,7 @@ void editor_view_apply_settings(Tab *tab)
   gtk_source_view_set_show_right_margin(view, t->settings.ruler > 0);
   if (t->settings.ruler > 0)
     gtk_source_view_set_right_margin_position(view, t->settings.ruler);
-  gtk_source_buffer_set_highlight_syntax(tab->buffer, !t->plain);
+  gtk_source_buffer_set_highlight_syntax(tab->buffer, !t->settings.plain);
   gtk_source_buffer_set_style_scheme(tab->buffer, editor_style_scheme(t)); /* a new one after a rescan */
   occurrences_recolor(tab);
   gtk_widget_queue_draw(
