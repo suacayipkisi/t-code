@@ -130,7 +130,8 @@ command palette keeps the file, back to comparing with the last commit. The File
 added, untracked, conflicted, ignored) with the letter at the end of the row. The **Source
 Control** panel (`Ctrl+Shift+G`) commits, pushes, stages and unstages changes, and discards after
 confirmation. A commit message not committed yet is kept with the project, also when t-code
-closes, until the commit. Right-click a modified file to stage or unstage an individual hunk. It also lists
+closes, until the commit; Up on its first line brings back earlier commits' messages (Down goes
+back to what was typed). Right-click a modified file to stage or unstage an individual hunk. It also lists
 commits: the pointer on one shows its message, author, date and line counts, and "Open Commit Details"
 shows it with its diff.
 

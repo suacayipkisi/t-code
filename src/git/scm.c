@@ -50,7 +50,14 @@ static struct {
   gboolean committing; /* a commit waits for the editors to save */
   GQueue waiting;      /* such commands that wait for it (GitCall) */
   char *open_commit;   /* the commit whose files are shown */
-} scm;
+  /* Up and Down in the message go through the earlier commits' messages, as in a shell. */
+  GPtrArray *history; /* their messages, newest first; NULL until the first Up */
+  gboolean history_asked;
+  int recalled;       /* the one shown, -1 for what was typed */
+  int pending;        /* a step asked for while the history loads (+1 Up, -1 Down, 0 none) */
+  char *draft;        /* what was typed before the first Up */
+  gboolean recalling; /* the message is being replaced by one of them */
+} scm = { .recalled = -1 };
 
 static const char *const css =
     ".tcode-scm { background: var(--tc-panel); }"
@@ -566,6 +573,75 @@ void scm_set_message(const char *message)
 {
   if (scm.app)
     gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(scm.message)), message ? message : "", -1);
+}
+
+/* Message history ---------------------------------------------------------------------------- */
+
+/* HEAD moved or another project opened: the history is asked for again at the next Up. */
+static void forget_history(void)
+{
+  g_clear_pointer(&scm.history, g_ptr_array_unref);
+  scm.history_asked = FALSE;
+  scm.pending = 0;
+}
+
+/* Shows the step-th message from the one shown (+1 older, -1 newer); past the newest, what was
+ * typed comes back. The cursor goes to the start going up and to the end going down, so the next
+ * press goes on. */
+static void step_history(int step);
+
+/* data: the HEAD it was asked for (a later HEAD asks again). */
+static void on_history(gboolean ok G_GNUC_UNUSED, const char *out, const char *err G_GNUC_UNUSED, gpointer data)
+{
+  int pending = scm.pending;
+  gboolean stale = g_strcmp0(data, scm.head) != 0 || !scm.history_asked || scm.history;
+
+  g_free(data);
+  if (stale)
+    return;
+  scm.history = g_ptr_array_new_with_free_func(g_free);
+  if (out) {
+    char **records = g_strsplit(out, "\x1e", -1);
+    for (int i = 0; records[i]; i++) {
+      char *message = g_strstrip(records[i]);
+      if (*message)
+        g_ptr_array_add(scm.history, g_strdup(message));
+    }
+    g_strfreev(records);
+  }
+  scm.pending = 0;
+  if (pending)
+    step_history(pending);
+}
+
+static void step_history(int step)
+{
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(scm.message));
+  GtkTextIter start, end;
+  int next = scm.recalled + step;
+
+  if (!scm.history) {
+    const char *args[] = { "log", "-n", "200", "--format=%B%x1e", NULL };
+    scm.pending = step;
+    if (!scm.history_asked && scm.head) {
+      scm.history_asked = TRUE;
+      run_git_owned(args, NULL, TRUE, on_history, g_strdup(scm.head), g_free);
+    }
+    return;
+  }
+  if (next < -1 || next >= (int)scm.history->len)
+    return;
+  gtk_text_buffer_get_bounds(buffer, &start, &end);
+  if (scm.recalled < 0) {
+    g_free(scm.draft);
+    scm.draft = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+  }
+  scm.recalling = TRUE;
+  gtk_text_buffer_set_text(buffer, next < 0 ? scm.draft : g_ptr_array_index(scm.history, next), -1);
+  scm.recalling = FALSE;
+  scm.recalled = next;
+  gtk_text_buffer_get_bounds(buffer, &start, &end);
+  gtk_text_buffer_place_cursor(buffer, step > 0 ? &start : &end);
 }
 
 /* git commit finished: the message box empties, or the error shows. */
@@ -1495,6 +1571,7 @@ void scm_update(App *t, const char *out, gsize size)
   if (!head || scm.initial || g_strcmp0(head, scm.head) != 0) {
     g_free(scm.head);
     scm.head = head;
+    forget_history(); /* a commit of its own or a checkout: other earlier messages */
     scm.commits_stale = FALSE;
     if (head && !scm.initial && !scm_commits_shown())
       scm.commits_stale = TRUE; /* folded: no git log until it opens */
@@ -1535,6 +1612,10 @@ static void show_changes(App *t)
 static void on_message_changed(GtkTextBuffer *buffer, gpointer data G_GNUC_UNUSED)
 {
   gtk_widget_set_visible(scm.placeholder, gtk_text_buffer_get_char_count(buffer) == 0);
+  if (!scm.recalling) { /* typed (or a recalled message edited): that is what was typed now */
+    scm.recalled = -1;
+    g_clear_pointer(&scm.draft, g_free);
+  }
 }
 
 /* Ctrl+Enter in the commit message commits. */
@@ -1544,6 +1625,21 @@ static gboolean on_message_key(GtkEventControllerKey *controller G_GNUC_UNUSED, 
   if ((key == GDK_KEY_Return || key == GDK_KEY_KP_Enter) && (state & GDK_CONTROL_MASK)) {
     commit();
     return TRUE;
+  }
+  if ((key == GDK_KEY_Up || key == GDK_KEY_Down) && !(state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK | GDK_ALT_MASK))) {
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(scm.message));
+    GtkTextIter cursor;
+
+    gtk_text_buffer_get_iter_at_mark(buffer, &cursor, gtk_text_buffer_get_insert(buffer));
+    if (key == GDK_KEY_Up && gtk_text_iter_get_line(&cursor) == 0) {
+      step_history(1);
+      return TRUE;
+    }
+    if (key == GDK_KEY_Down && scm.recalled >= 0 &&
+        gtk_text_iter_get_line(&cursor) == gtk_text_buffer_get_line_count(buffer) - 1) {
+      step_history(-1);
+      return TRUE;
+    }
   }
   return FALSE;
 }
@@ -1719,6 +1815,7 @@ void scm_reset(void)
 {
   g_clear_pointer(&scm.head, g_free);
   g_clear_pointer(&scm.open_commit, g_free);
+  forget_history();
   if (!scm.app)
     return;
   set_note(NULL, FALSE);

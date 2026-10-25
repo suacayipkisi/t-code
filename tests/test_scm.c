@@ -303,6 +303,98 @@ static void test_commits_folded(void)
   wait_for(2, commits);
 }
 
+/* The commit message's text view (the panel's only one). */
+static GtkWidget *message_view(GtkWidget *w)
+{
+  if (GTK_IS_TEXT_VIEW(w))
+    return w;
+  for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c)) {
+    GtkWidget *found = message_view(c);
+    if (found)
+      return found;
+  }
+  return NULL;
+}
+
+/* Presses key in the message (its key controller's handler), as the window would. */
+static gboolean press(guint key)
+{
+  GListModel *controllers = gtk_widget_observe_controllers(message_view(app.scm));
+  gboolean handled = FALSE;
+
+  for (guint i = 0; i < g_list_model_get_n_items(controllers); i++) {
+    GObject *controller = g_list_model_get_item(controllers, i);
+    if (GTK_IS_EVENT_CONTROLLER_KEY(controller) && !handled)
+      g_signal_emit_by_name(controller, "key-pressed", key, 0, 0, &handled);
+    g_object_unref(controller);
+  }
+  g_object_unref(controllers);
+  return handled;
+}
+
+static void assert_message(const char *expected)
+{
+  char *message = NULL;
+
+  for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC; g_get_monotonic_time() < until;) {
+    g_free(message);
+    message = scm_message();
+    if (strcmp(message, expected) == 0)
+      break;
+    g_main_context_iteration(NULL, FALSE);
+  }
+  g_assert_cmpstr(message, ==, expected);
+  g_free(message);
+}
+
+/* Up on the message's first line shows the earlier commits' messages, newest first; Down on its last
+ * line goes back, to what was typed in the end. Typing makes the shown one what was typed. */
+static void test_message_history(void)
+{
+  char *dir = make_dir("history", "x.txt"), *file = g_build_filename(dir, "x.txt", NULL);
+  GtkTextBuffer *buffer;
+  const char *const messages[] = { "first", "second", "third\n\nwith a body" };
+
+  git(dir, (const char *[]){ "init", "-q", NULL });
+  for (int i = 0; i < 3; i++) {
+    char *text = g_strdup_printf("%d\n", i);
+    g_assert_true(g_file_set_contents(file, text, -1, NULL));
+    git(dir, (const char *[]){ "add", "x.txt", NULL });
+    git(dir, (const char *[]){ "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", messages[i],
+                               NULL });
+    g_free(text);
+  }
+  open_project_at(dir);
+  wait_for(2, 3);
+  buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(message_view(app.scm)));
+
+  scm_set_message("typed");
+  g_assert_false(press(GDK_KEY_Down)); /* nothing recalled: Down is the text's own */
+  g_assert_true(press(GDK_KEY_Up));
+  assert_message("third\n\nwith a body");
+  g_assert_true(press(GDK_KEY_Up)); /* the cursor went to the start: Up goes on */
+  assert_message("second");
+  g_assert_true(press(GDK_KEY_Up));
+  assert_message("first");
+  g_assert_true(press(GDK_KEY_Up)); /* the oldest stays */
+  assert_message("first");
+  g_assert_true(press(GDK_KEY_Down));
+  assert_message("second");
+  g_assert_true(press(GDK_KEY_Down));
+  assert_message("third\n\nwith a body");
+  g_assert_true(press(GDK_KEY_Down));
+  assert_message("typed");
+
+  g_assert_true(press(GDK_KEY_Up));
+  assert_message("third\n\nwith a body");
+  gtk_text_buffer_insert_at_cursor(buffer, "x", -1); /* edited: now what was typed */
+  g_assert_false(press(GDK_KEY_Down));
+  assert_message("xthird\n\nwith a body");
+  scm_set_message("");
+  g_free(file);
+  g_free(dir);
+}
+
 /* "Open Commit Details" (a commit's right-click menu) writes its whole message, author, line counts,
  * files and diff into a Markdown file and previews it. */
 static void test_commit_details(void)
@@ -473,6 +565,7 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/head-moves", test_head_moves);
   g_test_add_func("/scm/commits-folded", test_commits_folded);
   g_test_add_func("/scm/commit-details", test_commit_details);
+  g_test_add_func("/scm/message-history", test_message_history);
   g_test_add_func("/scm/stage-hunk", test_stage_hunk);
   status = g_test_run();
 
