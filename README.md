@@ -6,9 +6,9 @@ A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) 
 
 ![t-code 0.3 in the Dark Classic color theme with the rounded look](docs/dark_classic-rounded.png)
 
-![t-code 0.3 in the Gruvbox color theme with the square look](docs/gruvbox-square.png)
+![t-code 0.3 in the Dark Classic color theme with the square look](docs/dark_classic-squared.png)
 
-<sub>t-code 0.3: Dark Classic, rounded (top) and Gruvbox, square (bottom).</sub>
+<sub>t-code 0.3: Dark Classic, rounded (top) and Dark Classic, square (bottom).</sub>
 
 **New in 0.3.2:** fixes for the update release URL launcher and clangd compile command flag escaping.
 **0.3.1** added language servers for Python, Go and Rust, plugins, the Problems panel, project
