@@ -355,8 +355,9 @@ static gboolean load_task_profile(const char *root, TaskProfile *tp)
   return ok;
 }
 
-/* What to build: another language's file in its own project or alone; else tasks.json, CMake,
- * Meson or Make from the current file's folder upwards, or else the current C / C++ file alone. */
+/* What to build, from the current file's folder upwards: tasks.json first; else another language's
+ * file in its own project or alone, or a script; else CMake, Meson or Make, or else the current C /
+ * C++ file alone. */
 static Project find_project(App *t)
 {
   static const char *const tasks[] = { ".t-code/tasks.json", "t-code.json", NULL };
@@ -417,6 +418,15 @@ static char *send_verb(const char *verb, const char *what)
   g_free(exe);
   return command;
 }
+/* The folder a task profile's commands run in: its cwd (relative to root, the tasks file's folder)
+ * or root. */
+static char *task_folder(const char *root, const TaskProfile *tp)
+{
+  if (!tp->cwd)
+    return g_strdup(root);
+  return g_path_is_absolute(tp->cwd) ? g_strdup(tp->cwd) : g_build_filename(root, tp->cwd, NULL);
+}
+
 /* The shell command that builds, runs or debugs according to .t-code/tasks.json (or t-code.json). */
 static char *tasks_command(const char *root, Goal goal)
 {
@@ -425,8 +435,7 @@ static char *tasks_command(const char *root, Goal goal)
     return goal == GOAL_TEST ? g_strdup("echo 't-code: could not read .t-code/tasks.json'; false")
                              : g_strdup("echo 't-code: could not read .t-code/tasks.json'");
 
-  char *workdir =
-      tp.cwd ? (g_path_is_absolute(tp.cwd) ? g_strdup(tp.cwd) : g_build_filename(root, tp.cwd, NULL)) : g_strdup(root);
+  char *workdir = task_folder(root, &tp);
   char *qdir = g_shell_quote(workdir);
   char *cmd = NULL;
 
@@ -1008,6 +1017,25 @@ static void run_saved(App *t, gpointer data)
   g_free(command);
 }
 
+/* The folder p's program runs in: a file's own folder when it is built alone, a task profile's cwd,
+ * else the project's. */
+static char *run_folder(App *t, const Project *p)
+{
+  gboolean alone =
+      p->kind == PROJECT_FILE || p->kind == PROJECT_SCRIPT || p->kind == PROJECT_RUSTC; /* root: the file */
+  TaskProfile tp = { 0 };
+  char *folder;
+
+  if (alone)
+    return g_path_get_dirname(p->root);
+  if (p->kind == PROJECT_TASKS && load_task_profile(p->root, &tp)) {
+    folder = task_folder(p->root, &tp);
+    task_profile_clear(&tp);
+    return folder;
+  }
+  return g_strdup(p->root ? p->root : t->project.root);
+}
+
 /* The command for goal; *cwd (may be NULL) gets the folder the program runs in. */
 static char *goal_command(App *t, Goal goal, char **cwd)
 {
@@ -1052,8 +1080,8 @@ static char *goal_command(App *t, Goal goal, char **cwd)
               : g_strdup("echo 't-code: nothing to build here (open a C file, or add a Makefile or CMakeLists.txt)'");
   }
   gboolean alone = p.kind == PROJECT_FILE || p.kind == PROJECT_SCRIPT || p.kind == PROJECT_RUSTC; /* root: the file */
-  if (cwd) /* the file's folder, as run does; the project's otherwise */
-    *cwd = alone ? g_path_get_dirname(p.root) : g_strdup(p.root ? p.root : t->project.root);
+  if (cwd) /* where Run starts it too */
+    *cwd = run_folder(t, &p);
   if (goal == GOAL_DEBUG && p.kind != PROJECT_NONE) { /* a failed build says so: the debugger stops waiting */
     char *dir = alone ? g_path_get_dirname(p.root) : g_strdup(p.root);
     char *qdir = g_shell_quote(dir), *failed = send_verb("debug-failed", qdir);
@@ -1097,6 +1125,15 @@ void build_project(App *t, gboolean run)
 void run_project_tests(App *t)
 {
   save_all(t, run_saved, project_test_command(t));
+}
+
+char *project_run_folder(App *t)
+{
+  Project p = find_project(t);
+  char *folder = run_folder(t, &p);
+
+  project_clear(&p);
+  return folder;
 }
 
 char *build_for_debug(App *t)

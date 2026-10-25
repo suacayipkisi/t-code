@@ -28,5 +28,8 @@ gboolean project_can_debug(App *t);
  * in (free it). */
 char *build_for_debug(App *t);
 
+/* The folder build_for_debug() gives the debugger for the current project (free it). */
+char *project_run_folder(App *t);
+
 /* What Build would build, for the status bar: "CMake: name", "Make: name", "gcc: file.c", "Cargo: name", "python3: file.py". */
 char *project_summary(App *t);

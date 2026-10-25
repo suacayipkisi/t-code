@@ -804,7 +804,7 @@ static void test_tab_strip(void)
   g_assert_nonnull(target);
   for (GtkWidget *w = gtk_widget_get_first_child(strip); w; w = gtk_widget_get_next_sibling(w))
     run_until(laid_out, w); /* the drop is placed by the tabs' places */
-  graphene_point_t at; /* on s1's left edge, wherever the strip is scrolled to (s3, the last opened) */
+  graphene_point_t at;      /* on s1's left edge, wherever the strip is scrolled to (s3, the last opened) */
   g_assert_true(gtk_widget_compute_point(gtk_widget_get_first_child(strip), scrolled, &GRAPHENE_POINT_INIT(1, 0), &at));
   gboolean dropped = FALSE;
   g_signal_emit_by_name(target, "drop", &value, (double)at.x, 0.0, &dropped);
@@ -1201,6 +1201,11 @@ static void test_run_tests(void)
   char *expected = g_strdup_printf("%s/work\n", task_root);
   g_assert_cmpstr(output, ==, expected);
   g_free(expected);
+  char *folder = project_run_folder(&app); /* F5's program starts where Run's does: the profile's cwd */
+  expected = g_strdup_printf("%s/work", task_root);
+  g_assert_cmpstr(folder, ==, expected);
+  g_free(expected);
+  g_free(folder);
   g_free(output);
   g_free(command);
   g_free(path);

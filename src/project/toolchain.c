@@ -254,15 +254,36 @@ static void target_choose(App *t, const char *payload)
   toolchain_set(t, "rust-target", payload);
 }
 
-void toolchain_pick_target(App *t)
+static void open_target_picker(App *t)
 {
-  const char *argv[] = { "rustup", "target", "list", "--installed", NULL };
+  picker_open(t, "Rust target for rust-analyzer, Build, Run and Test", target_query, target_choose);
+}
+
+/* rustup answered (or could not): the targets it listed, in the picker. */
+static void on_targets(GObject *source, GAsyncResult *result, gpointer data)
+{
+  App *t = data;
   char *out = NULL;
 
-  g_clear_pointer(&targets, g_strfreev);
-  if (g_spawn_sync(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL, &out, NULL,
-                   NULL, NULL))
+  if (g_subprocess_communicate_utf8_finish(G_SUBPROCESS(source), result, &out, NULL, NULL) &&
+      g_subprocess_get_successful(G_SUBPROCESS(source)) && out)
     targets = g_strsplit(g_strstrip(out), "\n", -1);
   g_free(out);
-  picker_open(t, "Rust target for rust-analyzer, Build, Run and Test", target_query, target_choose);
+  g_object_unref(source);
+  if (!t->closing)
+    open_target_picker(t);
+}
+
+void toolchain_pick_target(App *t)
+{
+  GSubprocess *rustup = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL,
+                                         "rustup", "target", "list", "--installed", NULL);
+
+  g_clear_pointer(&targets, g_strfreev);
+  if (!rustup) { /* not installed: only the host */
+    open_target_picker(t);
+    return;
+  }
+  /* rustup reads its own files only, but the window does not wait for it */
+  g_subprocess_communicate_utf8_async(rustup, NULL, NULL, on_targets, t);
 }

@@ -2,7 +2,7 @@
  * Per-language LSP clients (see client.h): clangd for C/C++, pylsp for Python, gopls for Go,
  * rust-analyzer for Rust, typescript-language-server for TypeScript and JavaScript, the JSON language
  * server, yaml-language-server and marksman for Markdown. Each starts on first use, keeps a small LRU of open documents and stops
- * one minute after its last editor closes; a crash restarts that server up to MAX_CRASHES times.
+ * IDLE_SECONDS after its last editor closes; a crash restarts that server up to MAX_CRASHES times.
  */
 #include "lsp/client.h"
 
@@ -730,8 +730,6 @@ static Lsp *lsp_of(Tab *tab)
 }
 static void server_start(Lsp *l);
 
-/* Stops the server: stdin closes, and it exits. Requests get NULL; the files are sent again to the
- * next one. */
 /* The compile database changed: the server hears of it, and the open files go again, so that it
  * reads their flags anew (a "No compile flags" hint goes once make wrote the database). */
 static gboolean database_written(gpointer data)
@@ -794,6 +792,8 @@ static void watch_databases(Lsp *l)
   }
 }
 
+/* Stops the server: stdin closes, and it exits. Requests get NULL; the files are sent again to the
+ * next one. */
 static void server_stop(Lsp *l)
 {
   GHashTableIter iter;
@@ -1081,7 +1081,7 @@ static void server_start(Lsp *l)
   g_free(uri);
 }
 
-/* A minute without editors: the server stops. */
+/* IDLE_SECONDS without editors: the server stops. */
 static gboolean idle_stop(gpointer data)
 {
   Lsp *l = data;

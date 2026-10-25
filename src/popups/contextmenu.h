@@ -20,8 +20,5 @@ void context_menu(GtkWidget *widget, double x, double y, const MenuItem *items, 
 typedef void (*ContextMenuShow)(GtkWidget *widget, double x, double y, gpointer data);
 void context_menu_attach(GtkWidget *widget, ContextMenuShow show, gpointer data);
 
-/* Closes any active context menu if one is open. */
-void context_menu_close(void);
-
 /* Puts text on the clipboard. */
 void copy_to_clipboard(const char *text);

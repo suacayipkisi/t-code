@@ -271,7 +271,7 @@ static void fetch_latest(Check *check)
   g_object_unref(process);
 }
 
-/* Heats the check after the window has come up (updates_start put this one in its place). */
+/* Starts the check after the window has come up (begin_first_check put this one in its place). */
 static gboolean start_check(gpointer data)
 {
   Check *check = data;

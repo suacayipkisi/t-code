@@ -66,12 +66,6 @@ static void on_closed(GtkPopover *popover G_GNUC_UNUSED, Menu *menu)
     menu->finish_id = g_idle_add(finish, menu); /* an item's action comes in after closed */
 }
 
-void context_menu_close(void)
-{
-  if (active_menu)
-    menu_free(active_menu, FALSE);
-}
-
 void context_menu(GtkWidget *widget, double x, double y, const MenuItem *items, int n, gpointer data,
                   GDestroyNotify free_data)
 {
