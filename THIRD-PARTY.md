@@ -58,3 +58,4 @@ programs. Their sources and licenses:
 | JSON | vscode-langservers-extracted | [hrsh7th/vscode-langservers-extracted](https://github.com/hrsh7th/vscode-langservers-extracted) | MIT |
 | YAML | yaml-language-server | [redhat-developer/yaml-language-server](https://github.com/redhat-developer/yaml-language-server) | MIT |
 | Markdown | marksman | [artempyanykh/marksman](https://github.com/artempyanykh/marksman) | MIT |
+| CMake | neocmakelsp | [neocmakelsp/neocmakelsp](https://github.com/neocmakelsp/neocmakelsp) | MIT |

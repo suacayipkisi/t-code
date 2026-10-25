@@ -40,9 +40,28 @@ cleanup() {
 trap cleanup EXIT
 sleep 0.5
 
+# The private D-Bus session starts no services, and GTK uses no portals: a document portal started
+# there mounted itself over the desktop's /run/user/<uid>/doc and unmounted it when the run ended,
+# and GNOME Shell crashed right then.
+cat > "$work/session.conf" <<'CONF'
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <listen>unix:tmpdir=/tmp</listen>
+  <auth>EXTERNAL</auth>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+CONF
+
 # Relative paths are taken from the repo, like t-code started there.
 (cd "$root" && GDK_BACKEND=broadway BROADWAY_DISPLAY=":$display" XDG_CONFIG_HOME="$work/config" \
-  exec dbus-run-session -- "$root/build/t-code" "$@") > "$work/t-code.log" 2>&1 &
+  GDK_DEBUG=no-portals GTK_USE_PORTAL=0 \
+  exec dbus-run-session --config-file="$work/session.conf" -- "$root/build/t-code" "$@") > "$work/t-code.log" 2>&1 &
 
 for _ in $(seq 50); do
   tcode=$(pgrep -n -x t-code -U "$(id -u)" || true)
@@ -54,8 +73,7 @@ done
 echo "t-code $tcode on Broadway :$display, measuring in ${wait}s"
 sleep "$wait"
 "$root/tools/proc-report.sh" "$sample" "$tcode"
-# The desktop portals started in the private D-Bus session complain about the display: not t-code.
-problems=$(grep -E 'CRITICAL|WARNING' "$work/t-code.log" | grep -v portal || true)
+problems=$(grep -E 'CRITICAL|WARNING' "$work/t-code.log" || true)
 if [[ -n "$problems" ]]; then
   echo
   echo "--- t-code log ---"

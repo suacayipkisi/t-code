@@ -1,7 +1,7 @@
 /*
  * Per-language LSP clients (see client.h): clangd for C/C++, pylsp for Python, gopls for Go,
  * rust-analyzer for Rust, typescript-language-server for TypeScript and JavaScript, the JSON language
- * server, yaml-language-server and marksman for Markdown. Each starts on first use, keeps a small LRU of open documents and stops
+ * server, yaml-language-server, marksman for Markdown and neocmakelsp for CMake. Each starts on first use, keeps a small LRU of open documents and stops
  * IDLE_SECONDS after its last editor closes; a crash restarts that server up to MAX_CRASHES times.
  */
 #include "lsp/client.h"
@@ -27,6 +27,9 @@
 #ifndef FLUSH_MS
 #define FLUSH_MS 50 /* changes typed within this go in one didChange */
 #endif
+#ifndef PULL_MS
+#define PULL_MS 300 /* a server that is asked for its diagnostics: this long after the last change */
+#endif
 #ifndef MAX_OPEN_DOCS
 #define MAX_OPEN_DOCS 5 /* per-server LRU of open documents */
 #endif
@@ -51,6 +54,7 @@ typedef enum {
   SERVER_JSON,
   SERVER_YAML,
   SERVER_MARKDOWN,
+  SERVER_CMAKE,
   SERVER_NONE,
 } ServerKind;
 
@@ -65,6 +69,7 @@ static const char *const typescript_argv[] = { "typescript-language-server", "--
 static const char *const json_argv[] = { "vscode-json-language-server", "--stdio", NULL };
 static const char *const yaml_argv[] = { "yaml-language-server", "--stdio", NULL };
 static const char *const markdown_argv[] = { "marksman", "server", NULL };
+static const char *const cmake_argv[] = { "neocmakelsp", "stdio", NULL };
 /* clang-format on */
 #define TIDY_FLAG
 #else
@@ -86,6 +91,7 @@ static const char *const *server_command(ServerKind kind)
     case SERVER_JSON: return json_argv;
     case SERVER_YAML: return yaml_argv;
     case SERVER_MARKDOWN: return markdown_argv;
+    case SERVER_CMAKE: return cmake_argv;
     default: return NULL;
   }
 #endif
@@ -102,6 +108,7 @@ static const char *server_language(ServerKind kind)
     case SERVER_JSON: return "json";
     case SERVER_YAML: return "yaml";
     case SERVER_MARKDOWN: return "markdown";
+    case SERVER_CMAKE: return "cmake";
     default: return NULL;
   }
 }
@@ -117,6 +124,7 @@ typedef struct {
   gboolean opened;  /* didOpen went to the running server */
   GString *changes; /* contentChanges not sent yet, comma separated */
   guint flush_id;
+  guint pull_id;            /* asks a server with pull diagnostics (textDocument/diagnostic) for them */
   gboolean include_missing; /* clangd's last diagnostics had an #include it cannot find */
 } Doc;
 static Doc *doc_of(Tab *tab);
@@ -393,6 +401,36 @@ static Doc *doc_of(Tab *tab)
   return NULL;
 }
 
+static void on_pulled(JsonNode *result, gpointer data)
+{
+  Tab *tab = data; /* still there: a request about a closed editor gets NULL */
+
+  if (result && g_strcmp0(json_string_at(result, "kind"), "full") == 0 && json_at(result, "items"))
+    diagnostics_show(tab, json_at(result, "items"));
+}
+
+static gboolean pull(gpointer data)
+{
+  Doc *doc = data;
+  char *document = lsp_document_params(doc->tab), *params = g_strdup_printf("{%s}", document);
+
+  doc->pull_id = 0;
+  lsp_request(doc->tab, "textDocument/diagnostic", params, NULL, on_pulled, doc->tab);
+  g_free(params);
+  g_free(document);
+  return G_SOURCE_REMOVE;
+}
+
+/* Servers that do not send their diagnostics (neocmakelsp) are asked for them, once the typing
+ * stops: the others send them by themselves (t-code does not offer pulling). */
+static void pull_later(Doc *doc)
+{
+  if (!doc->lsp->capabilities || !json_at(doc->lsp->capabilities, "diagnosticProvider"))
+    return;
+  g_clear_handle_id(&doc->pull_id, g_source_remove);
+  doc->pull_id = g_timeout_add(PULL_MS, pull, doc);
+}
+
 /* Sends the changes collected for a document. */
 static void flush(Doc *doc)
 {
@@ -409,6 +447,7 @@ static void flush(Doc *doc)
   params = g_strdup_printf("{%s,\"version\":%d},\"contentChanges\":[%s]}", document, ++doc->version, doc->changes->str);
   notify(doc->lsp, "textDocument/didChange", params);
   g_string_truncate(doc->changes, 0);
+  pull_later(doc);
   g_free(params);
   g_free(document);
 }
@@ -582,6 +621,7 @@ static void send_document(Doc *doc)
     evict_docs(doc->lsp);
   }
   semantic_update(doc->tab);
+  pull_later(doc);
   g_free(params);
   g_free(text);
   g_free(document);
@@ -591,6 +631,7 @@ static void doc_free(Doc *doc)
 {
   if (doc->flush_id)
     g_source_remove(doc->flush_id);
+  g_clear_handle_id(&doc->pull_id, g_source_remove);
   g_signal_handlers_disconnect_by_data(doc->tab->buffer, doc);
   g_string_free(doc->changes, TRUE);
   g_free(doc);
@@ -635,6 +676,8 @@ static ServerKind server_kind_for_tab(Tab *tab)
     return SERVER_YAML;
   if (g_str_has_suffix(path, ".md") || g_str_has_suffix(path, ".markdown"))
     return SERVER_MARKDOWN;
+  if (g_str_has_suffix(path, "/CMakeLists.txt") || g_str_has_suffix(path, ".cmake"))
+    return SERVER_CMAKE;
   return SERVER_NONE;
 }
 
@@ -651,14 +694,46 @@ static char *venv_pylsp(App *t)
   g_free(python);
   return pylsp;
 }
+
+/* Where the server's program is: the project's venv's pylsp, then PATH, then the folders language
+ * installers put programs in (pipx, cargo install, go install), which are not on the PATH of a
+ * t-code started from the desktop's menu. NULL when it is nowhere. */
+static char *server_program(App *t, ServerKind kind)
+{
+  const char *name = server_command(kind)[0];
+  char *path = kind == SERVER_PYTHON ? venv_pylsp(t) : NULL;
+  const char *gopath = g_getenv("GOPATH");
+  char **gopaths = gopath && *gopath ? g_strsplit(gopath, ":", 2) : NULL;
+  char *folders[] = {
+    g_build_filename(g_get_home_dir(), ".local", "bin", NULL),
+    g_build_filename(g_get_home_dir(), ".cargo", "bin", NULL),
+    gopaths ? g_build_filename(gopaths[0], "bin", NULL) : g_build_filename(g_get_home_dir(), "go", "bin", NULL),
+  };
+
+  if (!path)
+    path = g_find_program_in_path(name);
+  for (size_t i = 0; i < G_N_ELEMENTS(folders); i++) {
+    char *candidate = g_build_filename(folders[i], name, NULL);
+    if (!path && g_file_test(candidate, G_FILE_TEST_IS_EXECUTABLE))
+      path = g_steal_pointer(&candidate);
+    g_free(candidate);
+    g_free(folders[i]);
+  }
+  g_strfreev(gopaths);
+  return path;
+}
 #endif
 
 /* initializationOptions for the server: the JSON server neither formats nor reads schemas other than
- * local files; rust-analyzer's Cargo features and target. NULL for none. */
+ * local files; neocmakelsp formats and lints; rust-analyzer's Cargo features and target. NULL for
+ * none. */
 static char *server_options(Lsp *l)
 {
   if (l->kind == SERVER_JSON)
     return g_strdup("{\"provideFormatter\":false,\"handledSchemaProtocols\":[\"file\"]}");
+  if (l->kind == SERVER_CMAKE) /* the packages' own CMake files are not read through: memory */
+    return g_strdup("{\"format\":{\"enable\":true},\"lint\":{\"enable\":true},\"scan_cmake_in_package\":false,"
+                    "\"semantic_token\":false}");
   if (l->kind != SERVER_RUST)
     return NULL;
   char *features = toolchain_rust_features(l->app), *target = toolchain_rust_target(l->app);
@@ -701,11 +776,7 @@ static gboolean server_installed(App *t, ServerKind kind)
     return TRUE;
   if (kind == SERVER_NONE)
     return FALSE;
-  const char *const *argv = server_command(kind);
-  char *path = kind == SERVER_PYTHON ? venv_pylsp(t) : NULL;
-
-  if (!path)
-    path = g_find_program_in_path(argv[0]);
+  char *path = server_program(t, kind);
   gboolean found = path != NULL;
 
   g_free(path);
@@ -1068,13 +1139,13 @@ static void server_start(Lsp *l)
   char *uri, *quoted, *params, *options;
 
 #ifndef SERVER_ARGV
-  char *pylsp = l->kind == SERVER_PYTHON ? venv_pylsp(l->app) : NULL;
+  char *program = server_program(l->app, l->kind);
 #else
-  char *pylsp = NULL;
+  char *program = NULL;
 #endif
 
   for (int i = 0; server_argv[i]; i++)
-    g_ptr_array_add(argv, i == 0 && pylsp ? pylsp : (char *)server_argv[i]);
+    g_ptr_array_add(argv, i == 0 && program ? program : (char *)server_argv[i]);
 #ifdef TIDY_FLAG
   if (l->kind == SERVER_CLANGD)
     g_ptr_array_add(argv, l->app->settings.clang_tidy ? "--clang-tidy" : "--clang-tidy=false");
@@ -1086,7 +1157,7 @@ static void server_start(Lsp *l)
   l->process = g_subprocess_launcher_spawnv(launcher, (const char *const *)argv->pdata, &error);
   g_object_unref(launcher);
   g_ptr_array_free(argv, TRUE);
-  g_free(pylsp);
+  g_free(program);
   if (!l->process) {
     g_warning("t-code: cannot start %s: %s", server_argv[0], error->message);
     l->missing = TRUE;
@@ -1175,14 +1246,12 @@ const char *lsp_missing_server(Tab *tab)
   ServerKind kind = server_kind_for_tab(tab);
 
   if (kind == SERVER_NONE || tab->kind != TAB_EDITOR || tab->view->readonly || tab->compare.with)
-    return NULL;               /* a Markdown preview has the .md path too */
-  if (kind == SERVER_CLANGD) { /* server_installed takes it as there: it is a dependency */
-    char *path = g_find_program_in_path(clangd_argv[0]);
-    gboolean found = path != NULL;
-    g_free(path);
-    return found ? NULL : clangd_argv[0];
-  }
-  return server_installed(tab->app, kind) ? NULL : server_command(kind)[0];
+    return NULL;                                  /* a Markdown preview has the .md path too */
+  char *program = server_program(tab->app, kind); /* clangd too: server_installed takes it as there */
+  gboolean found = program != NULL;
+
+  g_free(program);
+  return found ? NULL : server_command(kind)[0];
 #endif
 }
 
@@ -1239,6 +1308,7 @@ void lsp_saved(Tab *tab)
   document = lsp_document_params(tab);
   char *params = g_strdup_printf("{%s}", document);
   notify(doc->lsp, "textDocument/didSave", params);
+  pull_later(doc); /* some lint only when saved */
   g_free(params);
   g_free(document);
 }

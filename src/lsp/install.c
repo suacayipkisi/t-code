@@ -18,13 +18,16 @@ typedef struct {
 static const ServerInstall servers[] = {
   { "clangd", "the C/C++ language server (clangd)", "sudo dnf install clang-tools-extra", "sudo apt install clangd",
     "sudo pacman -S clang", "sudo xbps-install clang-tools-extra", NULL, NULL },
-  { "pylsp", "the Python language server (pylsp)", "sudo dnf install python3-lsp-server+all",
+  { "pylsp", "the Python language server (pylsp)", "sudo dnf install python3-lsp-server+all python3-lsp-ruff",
     "sudo apt install python3-pylsp python3-pyflakes python3-pycodestyle",
     "sudo pacman -S python-lsp-server python-pyflakes python-pycodestyle", NULL,
-    "pipx install 'python-lsp-server[all]'", "pyflakes and pycodestyle give its errors and warnings." },
+    "pipx install 'python-lsp-server[all]' && pipx inject python-lsp-server python-lsp-ruff",
+    "pyflakes and pycodestyle give its errors and warnings; with python-lsp-ruff, ruff gives them and "
+    "quick fixes (remove an unused import, ...)." },
   { "gopls", "the Go language server (gopls)", "sudo dnf install gopls", "sudo apt install gopls",
-    "sudo pacman -S gopls", NULL, "go install golang.org/x/tools/gopls@latest",
-    "go install puts gopls in ~/go/bin, which must be on PATH." },
+    "sudo pacman -S gopls", NULL, "GOTOOLCHAIN=auto go install golang.org/x/tools/gopls@latest",
+    "The newest gopls may need a newer Go than the distribution's: GOTOOLCHAIN=auto fetches it. "
+    "t-code finds gopls in ~/go/bin even when it is not on PATH." },
   { "rust-analyzer", "the Rust language server (rust-analyzer)", "sudo dnf install rust-analyzer", NULL,
     "sudo pacman -S rust-analyzer", NULL, "rustup component add rust-analyzer", NULL },
   { "typescript-language-server", "the JavaScript and TypeScript language server (typescript-language-server)", NULL,
@@ -35,6 +38,9 @@ static const ServerInstall servers[] = {
     "sudo npm install -g vscode-langservers-extracted", NPM_NOTE },
   { "yaml-language-server", "the YAML language server (yaml-language-server)", NULL, NULL,
     "sudo pacman -S yaml-language-server", NULL, "sudo npm install -g yaml-language-server", NPM_NOTE },
+  { "neocmakelsp", "the CMake language server (neocmakelsp)", NULL, NULL, NULL, NULL, "cargo install neocmakelsp",
+    "cargo comes with Rust (rustup or the distribution's cargo package); t-code finds neocmakelsp in "
+    "~/.cargo/bin even when it is not on PATH." },
   { "marksman", "the Markdown language server (marksman)", NULL, NULL, "sudo pacman -S marksman", NULL,
     "mkdir -p ~/.local/bin && curl -L -o ~/.local/bin/marksman "
     "https://github.com/artempyanykh/marksman/releases/latest/download/marksman-linux-x64 && "

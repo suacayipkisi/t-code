@@ -30,7 +30,8 @@ static void test_every_server(void)
                                          "typescript-language-server",
                                          "vscode-json-language-server",
                                          "yaml-language-server",
-                                         "marksman" };
+                                         "marksman",
+                                         "neocmakelsp" };
   static const char *const distros[] = { "fedora", "debian", "arch", "void", NULL };
 
   for (size_t i = 0; i < G_N_ELEMENTS(servers); i++) {
@@ -55,7 +56,7 @@ static void test_commands(void)
   GStrv other = install_commands("marksman", "fedora"), unknown = install_commands("clangd", NULL);
 
   g_assert_cmpuint(g_strv_length(fedora), ==, 2);
-  g_assert_cmpstr(fedora[0], ==, "sudo dnf install python3-lsp-server+all");
+  g_assert_cmpstr(fedora[0], ==, "sudo dnf install python3-lsp-server+all python3-lsp-ruff");
   g_assert_true(g_str_has_prefix(fedora[1], "pipx install"));
   g_assert_cmpstr(arch[0], ==, "sudo pacman -S marksman");
   g_assert_cmpuint(g_strv_length(other), ==, 1); /* no Fedora package: the download only */

@@ -43,13 +43,14 @@ closes. All but clangd are optional: t-code uses them when they are on `PATH`.
 | Files | Server | Install |
 |---|---|---|
 | C, C++ | `clangd` | the package's dependency |
-| Python | `pylsp` (also from the project's venv) | `pip install python-lsp-server` |
-| Go | `gopls` | `go install golang.org/x/tools/gopls@latest` |
+| Python | `pylsp` (also from the project's venv) | `pipx install 'python-lsp-server[all]'`, plus `python-lsp-ruff` for quick fixes |
+| Go | `gopls` | `GOTOOLCHAIN=auto go install golang.org/x/tools/gopls@latest` |
 | Rust | `rust-analyzer` | `rustup component add rust-analyzer` |
-| JavaScript, TypeScript | `typescript-language-server` | `npm install -g typescript-language-server typescript` |
+| JavaScript, TypeScript | `typescript-language-server` | `npm install -g typescript-language-server typescript@6` |
 | JSON | the JSON language server | `npm install -g vscode-langservers-extracted` |
 | YAML | `yaml-language-server` | `npm install -g yaml-language-server` |
 | Markdown | `marksman` | your distribution or its GitHub releases |
+| CMake | `neocmakelsp` | `cargo install neocmakelsp` |
 
 **Python: Select Interpreter…**, **Rust: Select Features…** and **Rust: Select Target…** (command
 palette) set the project's Python, Cargo features and target for the server and for Build, Run and

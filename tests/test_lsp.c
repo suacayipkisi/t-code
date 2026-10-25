@@ -11,6 +11,7 @@
 
 #define IDLE_SECONDS 1
 #define FLUSH_MS 2
+#define PULL_MS 2
 #define SERVER_ARGV "/proc/self/exe", "--fake-server",
 
 #include "editor_page.h"
@@ -83,24 +84,37 @@ static void fake_position(const char *text, gsize offset, int *line, int *charac
     *character += g_utf8_get_char(p) >= 0x10000 ? 2 : 1;
 }
 
-/* The diagnostic that tells the test what the server has; with clangd's code for a header not
- * found when the text includes <missing.h>. */
-static void fake_publish(const char *uri, GString *text)
+static gboolean fake_pull; /* like neocmakelsp: diagnostics only when asked (textDocument/diagnostic) */
+
+/* The diagnostics (a JSON array) that tell the test what the server has; with clangd's code for a
+ * header not found when the text includes <missing.h>. */
+static char *fake_diagnostics(GString *text)
 {
-  char *quoted_uri = json_quote(uri), *quoted_text = json_quote(text->str), *body;
+  char *quoted_text = json_quote(text->str), *list;
   const char *x = strchr(text->str, 'X');
   int line = 0, character = 0;
 
   if (x)
     fake_position(text->str, x - text->str, &line, &character);
-  body = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":"
-                         "{\"uri\":%s,\"diagnostics\":[{\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
-                         "\"end\":{\"line\":%d,\"character\":%d}},\"severity\":1,%s\"message\":%s}]}}",
-                         quoted_uri, line, character, line, character + (x ? 1 : 0),
+  list = g_strdup_printf("[{\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
+                         "\"end\":{\"line\":%d,\"character\":%d}},\"severity\":1,%s\"message\":%s}]",
+                         line, character, line, character + (x ? 1 : 0),
                          strstr(text->str, "<missing.h>") ? "\"code\":\"pp_file_not_found\"," : "", quoted_text);
-  fake_send(body);
-  g_free(body);
   g_free(quoted_text);
+  return list;
+}
+
+static void fake_publish(const char *uri, GString *text)
+{
+  char *quoted_uri = json_quote(uri), *list = fake_diagnostics(text), *body;
+
+  body = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":"
+                         "{\"uri\":%s,\"diagnostics\":%s}}",
+                         quoted_uri, list);
+  if (!fake_pull)
+    fake_send(body);
+  g_free(body);
+  g_free(list);
   g_free(quoted_uri);
 }
 
@@ -130,13 +144,15 @@ static int fake_server(void)
     method = json_string_at(message, "method");
     uri = json_string_at(message, "params.textDocument.uri");
     if (g_strcmp0(method, "initialize") == 0) {
+      fake_pull = json_at(message, "params.initializationOptions.lint") != NULL; /* the CMake server */
       char *reply =
           g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":{\"capabilities\":"
-                          "{\"positionEncoding\":\"%s\",\"hoverProvider\":true,"
+                          "{\"positionEncoding\":\"%s\",\"hoverProvider\":true,%s"
                           "\"executeCommandProvider\":{\"commands\":[\"fake.fix\"]},\"semanticTokensProvider\":"
                           "{\"legend\":{\"tokenTypes\":[\"function\",\"variable\",\"comment\"],"
                           "\"tokenModifiers\":[\"declaration\",\"readonly\"]}}}}}",
-                          json_int_at(message, "id", 0), fake_utf16 ? "utf-16" : "utf-8");
+                          json_int_at(message, "id", 0), fake_utf16 ? "utf-16" : "utf-8",
+                          fake_pull ? "\"diagnosticProvider\":{\"interFileDependencies\":false}," : "");
       fake_send(reply);
       g_free(reply);
     } else if (g_strcmp0(method, "textDocument/didOpen") == 0) {
@@ -210,6 +226,15 @@ static int fake_server(void)
                           json_int_at(message, "params.position.character", 0));
       fake_send(reply);
       g_free(reply);
+    } else if (g_strcmp0(method, "textDocument/diagnostic") == 0) {
+      GString *text = g_hash_table_lookup(fake_docs, uri);
+      char *list = text ? fake_diagnostics(text) : g_strdup("[]");
+      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT
+                                    ",\"result\":{\"kind\":\"full\",\"items\":%s}}",
+                                    json_int_at(message, "id", 0), list);
+      fake_send(reply);
+      g_free(reply);
+      g_free(list);
     } else if (g_strcmp0(method, "textDocument/codeAction") == 0) {
       /* For the problems sent along, asking for quick fixes only: a refactoring (not one), a fix and
        * the preferred fix, both editing the problem's character at 0:4; fixes with a command it does
@@ -778,6 +803,39 @@ static void test_idle_stop(void)
   tab = new_tab("/tmp/t-code-test/idle.c", "y\n");
   lsp_open(tab);
   g_assert_true(server_agrees(tab));
+  free_tab(tab);
+}
+
+/* CMake files go to their server (neocmakelsp), which sends no diagnostics by itself: it is asked
+ * for them (textDocument/diagnostic) once a change stops; the others are not asked. */
+static void test_pull_diagnostics(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/CMakeLists.txt", "project(X)\n");
+  Tab *module = new_tab("/tmp/t-code-test/cmake/Find.cmake", "x\n");
+  Tab *text = new_tab("/tmp/t-code-test/NotCMakeLists.txt", "x\n");
+  Lsp cmake = { .kind = SERVER_CMAKE, .app = &app };
+  GtkSourceLanguageManager *languages = gtk_source_language_manager_get_default();
+  GtkTextIter end;
+  char *options = server_options(&cmake);
+
+  /* As t-code opens them (new_tab makes C files). */
+  gtk_source_buffer_set_language(tab->buffer, gtk_source_language_manager_get_language(languages, "cmake"));
+  gtk_source_buffer_set_language(module->buffer, gtk_source_language_manager_get_language(languages, "cmake"));
+  gtk_source_buffer_set_language(text->buffer, NULL);
+  g_assert_cmpint(server_kind_for_tab(tab), ==, SERVER_CMAKE);
+  g_assert_cmpint(server_kind_for_tab(module), ==, SERVER_CMAKE);
+  g_assert_cmpint(server_kind_for_tab(text), ==, SERVER_NONE);
+  g_assert_nonnull(strstr(options, "\"scan_cmake_in_package\":false"));
+  g_free(options);
+
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab)); /* the first pull, after didOpen */
+  g_assert_nonnull(json_at(doc_of(tab)->lsp->capabilities, "diagnosticProvider"));
+  gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(tab->buffer), &end);
+  gtk_text_buffer_insert(GTK_TEXT_BUFFER(tab->buffer), &end, "add_executable(a main.c)\n", -1);
+  g_assert_true(server_agrees(tab)); /* pulled again after the change */
+  free_tab(text);
+  free_tab(module);
   free_tab(tab);
 }
 
@@ -1552,6 +1610,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/close-waiting", test_close_waiting);
   g_test_add_func("/lsp/idle-stop", test_idle_stop);
   g_test_add_func("/lsp/progress", test_progress);
+  g_test_add_func("/lsp/pull-diagnostics", test_pull_diagnostics);
   g_test_add_func("/lsp/lru-pool", test_lru_pool);
   g_test_add_func("/lsp/crash", test_crash);
   g_test_add_func("/lsp/churn", test_churn);

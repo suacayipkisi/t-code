@@ -55,6 +55,9 @@ JSON one only validates: against a file's own local `$schema`, downloading nothi
 formatting alone; generated files (`compile_commands.json`, `package-lock.json`, `*.min.json`) and
 JSON files over 512 KB get no server. YAML files are validated and formatted with the schemas of
 the SchemaStore catalog; Markdown files get link and heading navigation and keep word completion.
+CMake files (`CMakeLists.txt`, `*.cmake`) use `neocmakelsp`: completion, hover, errors, formatting
+(it does not read the found packages' own CMake files, to stay small). Servers are looked for on
+`PATH` and in `~/.local/bin`, `~/.cargo/bin` and `~/go/bin`, where pipx, cargo and go install them.
 Each server starts on first use and stops 30 seconds after the last file it serves closes. Files are
 sent only once their tab is shown, so restored sessions cost the servers little. Other files
 (Makefiles, scripts) get completion from the words in the file. "Restart Language
