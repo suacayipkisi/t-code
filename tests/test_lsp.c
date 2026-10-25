@@ -130,11 +130,13 @@ static int fake_server(void)
     method = json_string_at(message, "method");
     uri = json_string_at(message, "params.textDocument.uri");
     if (g_strcmp0(method, "initialize") == 0) {
-      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":{\"capabilities\":"
-                                    "{\"positionEncoding\":\"%s\",\"hoverProvider\":true,\"semanticTokensProvider\":"
-                                    "{\"legend\":{\"tokenTypes\":[\"function\",\"variable\",\"comment\"],"
-                                    "\"tokenModifiers\":[\"declaration\",\"readonly\"]}}}}}",
-                                    json_int_at(message, "id", 0), fake_utf16 ? "utf-16" : "utf-8");
+      char *reply =
+          g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":{\"capabilities\":"
+                          "{\"positionEncoding\":\"%s\",\"hoverProvider\":true,"
+                          "\"executeCommandProvider\":{\"commands\":[\"fake.fix\"]},\"semanticTokensProvider\":"
+                          "{\"legend\":{\"tokenTypes\":[\"function\",\"variable\",\"comment\"],"
+                          "\"tokenModifiers\":[\"declaration\",\"readonly\"]}}}}}",
+                          json_int_at(message, "id", 0), fake_utf16 ? "utf-16" : "utf-8");
       fake_send(reply);
       g_free(reply);
     } else if (g_strcmp0(method, "textDocument/didOpen") == 0) {
@@ -210,7 +212,8 @@ static int fake_server(void)
       g_free(reply);
     } else if (g_strcmp0(method, "textDocument/codeAction") == 0) {
       /* For the problems sent along, asking for quick fixes only: a refactoring (not one), a fix and
-       * the preferred fix, both editing the problem's character at 0:4. */
+       * the preferred fix, both editing the problem's character at 0:4; fixes with a command it does
+       * not run and one to resolve first (neither can be applied), and one with its own command. */
       JsonNode *diagnostics = json_at(message, "params.context.diagnostics");
       gboolean asked = diagnostics && json_array_get_length(json_node_get_array(diagnostics)) == 1 &&
                        g_strcmp0(json_string_at(message, "params.context.only.0"), "quickfix") == 0;
@@ -223,7 +226,11 @@ static int fake_server(void)
             "\"range\":{\"start\":{\"line\":0,\"character\":4},\"end\":{\"line\":0,\"character\":5}}}]}}},"
             "{\"title\":\"Delete X\",\"kind\":\"quickfix\",\"isPreferred\":true,\"edit\":{\"changes\":{%s:[{"
             "\"newText\":\"\",\"range\":{\"start\":{\"line\":0,\"character\":4},\"end\":{\"line\":0,"
-            "\"character\":5}}}]}}}]}",
+            "\"character\":5}}}]}}},"
+            "{\"title\":\"Sort\",\"kind\":\"quickfix\",\"command\":{\"title\":\"Sort\",\"command\":\"json.sort\"}},"
+            "{\"title\":\"Resolve me\",\"kind\":\"quickfix\",\"data\":{}},"
+            "{\"title\":\"Run fake fix\",\"kind\":\"quickfix\",\"command\":{\"title\":\"Run\",\"command\":"
+            "\"fake.fix\"}}]}",
             json_int_at(message, "id", 0), quoted_uri, quoted_uri);
       else
         reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":[]}",
@@ -473,9 +480,10 @@ static void test_hover_fixes(void)
     g_main_context_iteration(NULL, TRUE);
   g_assert_cmpint(done, ==, 1);
   buttons = hover_buttons(GTK_WIDGET(display), g_ptr_array_new());
-  g_assert_cmpuint(buttons->len, ==, 2);
+  g_assert_cmpuint(buttons->len, ==, 3); /* "Sort" and "Resolve me" cannot be applied */
   g_assert_cmpstr(gtk_button_get_label(g_ptr_array_index(buttons, 0)), ==, "Quick Fix: Delete X");
   g_assert_cmpstr(gtk_button_get_label(g_ptr_array_index(buttons, 1)), ==, "Quick Fix: Rename X to Y");
+  g_assert_cmpstr(gtk_button_get_label(g_ptr_array_index(buttons, 2)), ==, "Quick Fix: Run fake fix");
   g_signal_emit_by_name(g_ptr_array_index(buttons, 0), "clicked");
   text = text_of(tab);
   g_assert_cmpstr(text, ==, "int ;\n");
@@ -770,6 +778,48 @@ static void test_idle_stop(void)
   tab = new_tab("/tmp/t-code-test/idle.c", "y\n");
   lsp_open(tab);
   g_assert_true(server_agrees(tab));
+  free_tab(tab);
+}
+
+/* Feeds the server's $/progress for token (JSON: "a" or 7) to tab's server. */
+static void send_progress(Tab *tab, const char *token, const char *value)
+{
+  char *body = g_strdup_printf("{\"method\":\"$/progress\",\"params\":{\"token\":%s,\"value\":%s}}", token, value);
+  JsonNode *message = json_from_string(body, NULL);
+
+  progress(doc_of(tab)->lsp, message);
+  json_node_unref(message);
+  g_free(body);
+}
+
+/* The status bar's progress follows each token's begin, reports and end, the one that spoke last
+ * first; the server's name comes before it. */
+static void test_progress(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/progress.c", "x\n");
+  char *text;
+
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  g_assert_null(lsp_progress(&app)); /* ready and idle */
+  send_progress(tab, "\"a\"", "{\"kind\":\"begin\",\"title\":\"Indexing\",\"percentage\":0}");
+  send_progress(tab, "\"a\"", "{\"kind\":\"report\",\"message\":\"3/10\",\"percentage\":30}");
+  text = lsp_progress(&app);
+  g_assert_cmpstr(text, ==, "exe: Indexing 30% (3/10)"); /* the fake server is /proc/self/exe */
+  g_free(text);
+  send_progress(tab, "7", "{\"kind\":\"begin\",\"title\":\"Loading\"}");
+  text = lsp_progress(&app);
+  g_assert_cmpstr(text, ==, "exe: Loading");
+  g_free(text);
+  send_progress(tab, "7", "{\"kind\":\"end\"}");
+  text = lsp_progress(&app);
+  g_assert_cmpstr(text, ==, "exe: Indexing 30% (3/10)"); /* the other one still runs */
+  g_free(text);
+  send_progress(tab, "\"a\"", "{\"kind\":\"end\"}");
+  g_assert_null(lsp_progress(&app));
+  send_progress(tab, "\"b\"", "{\"kind\":\"begin\",\"title\":\"Fetching\"}");
+  server_stop(doc_of(tab)->lsp); /* its work ends with it, without an "end" */
+  g_assert_null(lsp_progress(&app));
   free_tab(tab);
 }
 
@@ -1501,6 +1551,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/cancel", test_cancel);
   g_test_add_func("/lsp/close-waiting", test_close_waiting);
   g_test_add_func("/lsp/idle-stop", test_idle_stop);
+  g_test_add_func("/lsp/progress", test_progress);
   g_test_add_func("/lsp/lru-pool", test_lru_pool);
   g_test_add_func("/lsp/crash", test_crash);
   g_test_add_func("/lsp/churn", test_churn);

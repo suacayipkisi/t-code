@@ -634,6 +634,24 @@ void navigate_apply_action(Tab *tab, JsonNode *action, gboolean utf16)
   }
 }
 
+gboolean navigate_action_runnable(Tab *tab, JsonNode *action)
+{
+  JsonNode *command = json_at(action, "command"), *commands;
+  const char *name;
+
+  if (json_at(action, "edit"))
+    return TRUE;
+  if (command && JSON_NODE_HOLDS_VALUE(command))
+    command = action; /* a Command: {title, command, arguments} */
+  name = command && JSON_NODE_HOLDS_OBJECT(command) ? json_string_at(command, "command") : NULL;
+  commands = name && tab ? lsp_capability(tab, "executeCommandProvider.commands") : NULL;
+  for (guint i = 0;
+       commands && JSON_NODE_HOLDS_ARRAY(commands) && i < json_array_get_length(json_node_get_array(commands)); i++)
+    if (g_strcmp0(json_array_get_string_element(json_node_get_array(commands), i), name) == 0)
+      return TRUE;
+  return FALSE;
+}
+
 static void actions_choose(App *t, const char *payload)
 {
   guint i = (guint)atoi(payload);
@@ -650,6 +668,7 @@ static void on_actions(JsonNode *result, gpointer data)
 {
   Asked *asked = data;
   JsonArray *array = result && JSON_NODE_HOLDS_ARRAY(result) ? json_node_get_array(result) : NULL;
+  Tab *tab = find_tab(asked->app, TAB_EDITOR, asked->path);
 
   if (!actions)
     actions = g_ptr_array_new_with_free_func(g_free);
@@ -657,6 +676,8 @@ static void on_actions(JsonNode *result, gpointer data)
   for (guint i = 0; array && i < json_array_get_length(array); i++) {
     JsonNode *action = json_array_get_element(array, i);
     gboolean preferred = json_at(action, "isPreferred") && json_node_get_boolean(json_at(action, "isPreferred"));
+    if (!navigate_action_runnable(tab, action))
+      continue;
     char *text = json_to_string(action, FALSE);
     if (preferred)
       g_ptr_array_insert(actions, 0, text); /* the server's best fix first */

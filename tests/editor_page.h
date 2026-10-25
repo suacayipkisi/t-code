@@ -74,6 +74,7 @@ gboolean disassembly_breakpoint_at(App *t G_GNUC_UNUSED, int line G_GNUC_UNUSED)
 void disassembly_toggle_breakpoint(App *t G_GNUC_UNUSED, int line G_GNUC_UNUSED) {}
 void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page G_GNUC_UNUSED) {}
 void status_say(App *t G_GNUC_UNUSED, const char *message G_GNUC_UNUSED) {}
+void status_progress_changed(App *t G_GNUC_UNUSED) {}
 void files_problems_changed(App *t G_GNUC_UNUSED) {}
 /* clang-format on */
 
@@ -95,6 +96,7 @@ char *toolchain_rust_target(App *t G_GNUC_UNUSED)
 
 void status_show_indent(App *t G_GNUC_UNUSED) {}
 int tab_count(App *t G_GNUC_UNUSED) { return page_test_tab_count; }
+Tab *current_tab(App *t G_GNUC_UNUSED) { return page_test_tab_count ? page_test_tabs[0] : NULL; }
 Tab *tab_nth(App *t G_GNUC_UNUSED, int index) { return page_test_tabs[index]; }
 Tab *find_tab(App *t G_GNUC_UNUSED, TabKind kind, const char *path)
 {

@@ -2,7 +2,7 @@
  * The status bar at the bottom:
  *   left   git branch ("*" when there are changes), clangd errors and warnings in the open files,
  *          a warning when clangd has no compile flags, Build and Run buttons and what they would build
- *   right  "No LSP" when the current file's language server is not installed (a click shows how to
+ *   right  what a language server is busy with ("rust-analyzer: Indexing 45%"), "No LSP" when the current file's language server is not installed (a click shows how to
  *          install it), the current editor's indentation ("Spaces: 4", a click chooses the
  *          project's), cursor line and column, and the Keybinds button
  */
@@ -33,6 +33,10 @@ static const char *const css =
 
 /* How long a status_say() message stays before the Build / Run target comes back. */
 #define SAY_MS 3000
+/* At most this often the language servers' progress is shown again. */
+#define PROGRESS_MS 150
+
+static void status_show_progress(App *t);
 
 void update_status(App *t)
 {
@@ -79,6 +83,7 @@ void update_status(App *t)
   }
   gtk_widget_set_visible(t->status.no_lsp, server != NULL);
 
+  status_show_progress(t);
   status_show_indent(t);
   status_show_position(t);
 }
@@ -188,6 +193,33 @@ static gboolean said(gpointer data)
   return G_SOURCE_REMOVE;
 }
 
+static void status_show_progress(App *t)
+{
+  char *text = lsp_progress(t);
+
+  if (text)
+    gtk_label_set_text(t->status.progress, text);
+  gtk_widget_set_tooltip_text(GTK_WIDGET(t->status.progress), text);
+  gtk_widget_set_visible(GTK_WIDGET(t->status.progress), text != NULL);
+  g_free(text);
+}
+
+static gboolean show_progress(gpointer data)
+{
+  App *t = data;
+
+  t->status.progress_id = 0;
+  if (t->status.progress && !t->closing)
+    status_show_progress(t);
+  return G_SOURCE_REMOVE;
+}
+
+void status_progress_changed(App *t)
+{
+  if (t && t->status.progress && !t->closing && !t->status.progress_id)
+    t->status.progress_id = g_timeout_add(PROGRESS_MS, show_progress, t);
+}
+
 void status_say(App *t, const char *message)
 {
   if (!t || !t->status.build || t->closing)
@@ -295,6 +327,10 @@ GtkWidget *status_bar(App *t)
 
   gtk_widget_set_hexpand(spacer, TRUE);
   gtk_box_append(GTK_BOX(bar), spacer);
+  t->status.progress = status_label(bar, TRUE);
+  gtk_label_set_ellipsize(t->status.progress, PANGO_ELLIPSIZE_END);
+  gtk_label_set_max_width_chars(t->status.progress, 48);
+  gtk_widget_set_visible(GTK_WIDGET(t->status.progress), FALSE);
   t->status.no_lsp = status_button(bar, "⚠ No LSP", NULL, G_CALLBACK(on_no_lsp), t);
   gtk_widget_add_css_class(t->status.no_lsp, "warning");
   gtk_widget_set_visible(t->status.no_lsp, FALSE);

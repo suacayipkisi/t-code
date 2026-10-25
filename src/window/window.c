@@ -431,6 +431,7 @@ static void on_window_destroy(GtkWidget *window G_GNUC_UNUSED, App *t)
 {
   g_clear_handle_id(&t->dock.checks_id, g_source_remove);
   g_clear_handle_id(&t->status.say_id, g_source_remove); /* its label goes with the window */
+  g_clear_handle_id(&t->status.progress_id, g_source_remove);
   plugins_stop(t);
 }
 

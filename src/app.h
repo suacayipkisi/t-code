@@ -117,10 +117,12 @@ struct App {
   /* status */
   struct {
     GtkLabel *branch, *problems, *build, *position;
-    GtkWidget *flags;  /* "No compile flags": clangd cannot find a file's headers */
-    GtkWidget *no_lsp; /* "No LSP": the current file's language server is not installed */
-    GtkWidget *indent; /* "Spaces: 4": the current editor's indentation, a click changes it */
-    guint say_id;      /* a status_say() message is shown in build's place until this runs */
+    GtkLabel *progress; /* "rust-analyzer: Indexing 45%": what a language server is busy with */
+    guint progress_id;  /* shows the progress when it runs */
+    GtkWidget *flags;   /* "No compile flags": clangd cannot find a file's headers */
+    GtkWidget *no_lsp;  /* "No LSP": the current file's language server is not installed */
+    GtkWidget *indent;  /* "Spaces: 4": the current editor's indentation, a click changes it */
+    guint say_id;       /* a status_say() message is shown in build's place until this runs */
   } status;
 
   /* project */

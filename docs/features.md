@@ -85,6 +85,7 @@ and F5 what to run (with arguments, environment, working folder, and named profi
 **Status bar**: the git branch (`*` when there are changes), the language servers' errors and
 warnings in the open files, **⚠ No compile flags** when clangd lacks them, **⚙ Build** and
 **▶ Run** with what they would build (a plugin's or recovery's short messages show there too),
+what a language server is busy with (**rust-analyzer: Indexing 45%**, **clangd: starting**),
 **⚠ No LSP** when the file's language server is not installed, the file's indentation (**Spaces: 4**, **Tab Size: 8**), the
 cursor's line and column, and **⌨ Keybinds**.
 

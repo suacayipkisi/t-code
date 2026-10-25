@@ -154,7 +154,22 @@ struct Lsp {
   GFileMonitor *watch[2]; /* the root and its build/ folder, for a compile database written */
   GString *written;       /* didChangeWatchedFiles changes not sent yet, comma separated */
   guint written_id;
+  GHashTable *progress; /* $/progress token -> Progress, while that work runs */
+  char *progress_last;  /* the token that spoke last */
 };
+
+/* Work a server reports with $/progress. */
+typedef struct {
+  char *title; /* the begin's: "Indexing" */
+  char *text;  /* for the status bar: "Indexing 45% (12/40)" */
+} Progress;
+
+static void progress_free(Progress *p)
+{
+  g_free(p->title);
+  g_free(p->text);
+  g_free(p);
+}
 
 static void lsp_ref(Lsp *l)
 {
@@ -724,6 +739,7 @@ static Lsp *lsp_of(Tab *tab)
   l->workspace = g_strdup(t->project.root);
   l->pending = g_hash_table_new(g_int64_hash, g_int64_equal);
   l->docs = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, (GDestroyNotify)doc_free);
+  l->progress = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)progress_free);
   g_ptr_array_add(t->lsps, l);
   if (kind == SERVER_CLANGD)
     t->lsp = l;
@@ -816,6 +832,9 @@ static void server_stop(Lsp *l)
   }
   g_clear_object(&l->process);
   l->ready = FALSE;
+  g_hash_table_remove_all(l->progress); /* its work ends with it */
+  g_clear_pointer(&l->progress_last, g_free);
+  status_progress_changed(l->app);
   g_clear_pointer(&l->capabilities, json_node_unref);
   fail_pending(l, NULL);
   g_hash_table_iter_init(&iter, l->docs);
@@ -862,6 +881,7 @@ static void on_initialized(JsonNode *result, gpointer data)
     encoding = json_string_at(result, "offsetEncoding"); /* clangd's own name for it */
   l->utf16 = g_strcmp0(encoding, "utf-8") != 0;
   l->ready = TRUE;
+  status_progress_changed(l->app); /* no longer "starting" */
   notify(l, "initialized", "{}");
   char *settings = server_settings(l);
   if (settings) {
@@ -918,6 +938,45 @@ static void answer_server(Lsp *l, JsonNode *message)
   g_free(id_text);
 }
 
+/* $/progress: work the server reports ("begin" with a title, "report"s, "end"), like loading the
+ * project or indexing; kept by token for the status bar. */
+static void progress(Lsp *l, JsonNode *message)
+{
+  JsonNode *token = json_at(message, "params.token");
+  const char *kind = json_string_at(message, "params.value.kind");
+  char *key = token ? json_to_string(token, FALSE) : NULL;
+
+  if (!key || !kind) {
+    g_free(key);
+    return;
+  }
+  if (strcmp(kind, "end") == 0) {
+    g_hash_table_remove(l->progress, key);
+    if (g_strcmp0(key, l->progress_last) == 0)
+      g_clear_pointer(&l->progress_last, g_free);
+    g_free(key);
+  } else {
+    const char *detail = json_string_at(message, "params.value.message");
+    JsonNode *percentage = json_at(message, "params.value.percentage");
+    Progress *p = g_hash_table_lookup(l->progress, key);
+    if (!p) {
+      p = g_new0(Progress, 1);
+      p->title = g_strdup(json_string_at(message, "params.value.title"));
+      g_hash_table_insert(l->progress, g_strdup(key), p);
+    }
+    GString *text = g_string_new(p->title ? p->title : "Working");
+    if (percentage && JSON_NODE_HOLDS_VALUE(percentage))
+      g_string_append_printf(text, " %d%%", (int)json_node_get_int(percentage));
+    if (detail && *detail)
+      g_string_append_printf(text, " (%s)", detail);
+    g_free(p->text);
+    p->text = g_string_free(text, FALSE);
+    g_free(l->progress_last);
+    l->progress_last = key;
+  }
+  status_progress_changed(l->app);
+}
+
 /* The editor whose file uri is, or NULL. */
 static Tab *tab_of_uri(Lsp *l, const char *uri)
 {
@@ -967,6 +1026,8 @@ static void on_message(gpointer owner, const char *body)
       doc_of(tab)->include_missing = include_not_found(json_at(message, "params.diagnostics"));
       diagnostics_show(tab, json_at(message, "params.diagnostics")); /* updates the status bar */
     }
+  } else if (g_strcmp0(method, "$/progress") == 0) {
+    progress(l, message);
   } else if (g_strcmp0(method, "textDocument/inactiveRegions") == 0) { /* clangd's: #if branches left out */
     Tab *tab = tab_of_uri(l, json_string_at(message, "params.textDocument.uri"));
     if (tab)
@@ -1040,6 +1101,7 @@ static void server_start(Lsp *l)
   l->ch = channel_new(g_subprocess_get_stdout_pipe(l->process), g_subprocess_get_stdin_pipe(l->process),
                       G_OBJECT(l->process), l);
   l->ch->message = on_message;
+  status_progress_changed(l->app); /* "starting" */
   l->ch->on_closed = on_server_closed;
   channel_read(l->ch);
 
@@ -1050,6 +1112,7 @@ static void server_start(Lsp *l)
       "{\"processId\":%d,\"rootUri\":%s,\"workspaceFolders\":[{\"uri\":%s,\"name\":\"root\"}],"
       "\"capabilities\":{"
       "\"general\":{\"positionEncodings\":[\"utf-8\",\"utf-16\"]},"
+      "\"window\":{\"workDoneProgress\":true},"
       "\"offsetEncoding\":[\"utf-8\",\"utf-16\"],"
       "\"textDocument\":{"
       "\"synchronization\":{\"didSave\":true},"
@@ -1224,6 +1287,7 @@ void lsp_stop(App *t)
       g_source_remove(l->restart_id);
     g_hash_table_destroy(l->docs);
     g_hash_table_destroy(l->pending);
+    g_hash_table_destroy(l->progress);
     if (l->written)
       g_string_free(l->written, TRUE);
     g_free(l->workspace);
@@ -1292,6 +1356,36 @@ void lsp_open_installed(App *t)
       lsp_open(tab);
   }
   update_status(t);
+}
+
+/* "rust-analyzer: Indexing 45%" for l, or NULL when it is idle. */
+static char *progress_text(Lsp *l)
+{
+  Progress *p = l->progress_last ? g_hash_table_lookup(l->progress, l->progress_last) : NULL;
+  char *name = g_path_get_basename(server_command(l->kind)[0]), *text = NULL;
+  GHashTableIter iter;
+
+  if (!p) { /* the last one ended: another still running */
+    g_hash_table_iter_init(&iter, l->progress);
+    g_hash_table_iter_next(&iter, NULL, (gpointer *)&p);
+  }
+  if (p)
+    text = g_strdup_printf("%s: %s", name, p->text);
+  else if (l->ch && !l->ready)
+    text = g_strdup_printf("%s: starting", name);
+  g_free(name);
+  return text;
+}
+
+char *lsp_progress(App *t)
+{
+  Tab *tab = current_tab(t);
+  Doc *doc = tab ? doc_of(tab) : NULL;
+  char *text = doc ? progress_text(doc->lsp) : NULL;
+
+  for (guint i = 0; !text && t->lsps && i < t->lsps->len; i++)
+    text = progress_text(g_ptr_array_index(t->lsps, i));
+  return text;
 }
 
 void lsp_restart_clangd(App *t)

@@ -46,6 +46,10 @@ void quick_fix(Tab *tab);
 /* Applies a CodeAction or Command of tab's server: its edit goes in; a command is run by the server,
  * which sends the edit back (workspace/applyEdit). */
 void navigate_apply_action(Tab *tab, JsonNode *action, gboolean utf16);
+/* Whether action can be applied: it has an edit, or its command is one tab's server runs (some
+ * servers offer commands their own editor runs, like the JSON server's "Sort JSON"). Actions that
+ * would need codeAction/resolve are not. */
+gboolean navigate_action_runnable(Tab *tab, JsonNode *action);
 
 /* Applies a WorkspaceEdit to the files it names (the open ones saved when save). */
 void navigate_apply_edit(App *t, JsonNode *edit, gboolean save, gboolean utf16);

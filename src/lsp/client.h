@@ -54,6 +54,10 @@ gboolean lsp_wants(Tab *tab);
  * ("pylsp"), else NULL (also for tab NULL, a tab that is no editor or a file no server reads). */
 const char *lsp_missing_server(Tab *tab);
 
+/* What a language server is busy with, for the status bar: "rust-analyzer: Indexing 45% (12/40)",
+ * "pylsp: starting"; the current editor's server first. NULL when none is busy. */
+char *lsp_progress(App *t);
+
 /* After the user installed a server: tries the ones that were not found again and opens the
  * editors that now have one. */
 void lsp_open_installed(App *t);

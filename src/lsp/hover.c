@@ -189,6 +189,7 @@ static void on_fixes(JsonNode *result, gpointer data)
   GTask *task = data;
   Job *job = g_task_get_task_data(task);
   JsonArray *array = result && JSON_NODE_HOLDS_ARRAY(result) ? json_node_get_array(result) : NULL;
+  Tab *tab = array ? find_tab(job->app, TAB_EDITOR, job->path) : NULL;
 
   for (guint i = 0; array && i < json_array_get_length(array); i++) {
     JsonNode *action = json_array_get_element(array, i);
@@ -196,6 +197,8 @@ static void on_fixes(JsonNode *result, gpointer data)
     const char *kind = json_string_at(action, "kind");
     if (!json_string_at(action, "title") || (kind && g_strcmp0(kind, "quickfix") != 0))
       continue; /* a CodeAction of another kind (a Command has none: the server picked it for "only") */
+    if (!navigate_action_runnable(tab, action))
+      continue;
     if (preferred && json_node_get_boolean(preferred))
       g_ptr_array_insert(job->fixes, 0, json_to_string(action, FALSE));
     else

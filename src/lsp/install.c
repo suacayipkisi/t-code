@@ -1,4 +1,4 @@
- /*
+/*
  * How to install a language server (see install.h): one row per server, with its package on each
  * distribution (NULL where it has none) and the language's own installer.
  */
@@ -29,7 +29,8 @@ static const ServerInstall servers[] = {
     "sudo pacman -S rust-analyzer", NULL, "rustup component add rust-analyzer", NULL },
   { "typescript-language-server", "the JavaScript and TypeScript language server (typescript-language-server)", NULL,
     NULL, "sudo pacman -S typescript-language-server", NULL,
-    "sudo npm install -g typescript-language-server typescript", NPM_NOTE },
+    "sudo npm install -g typescript-language-server typescript@6",
+    "It needs TypeScript 6: TypeScript 7 has no tsserver.js. " NPM_NOTE },
   { "vscode-json-language-server", "the JSON language server", NULL, NULL, NULL, NULL,
     "sudo npm install -g vscode-langservers-extracted", NPM_NOTE },
   { "yaml-language-server", "the YAML language server (yaml-language-server)", NULL, NULL,
