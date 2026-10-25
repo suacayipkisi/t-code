@@ -210,7 +210,7 @@ palette) finds any command by name.
 | anywhere    | `Alt+1` / `Alt+2` / `Alt+3`            | Files / editor / shell                    |
 | anywhere    | `Ctrl+B` / `Ctrl+J`                    | hide / show the Files panel / the shell   |
 | anywhere    | `F7`                                   | code coloring on / off (all tabs)         |
-| anywhere    | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`         | bigger / smaller / normal text            |
+| anywhere    | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`         | bigger / smaller / normal text (in a preview tab: the previews' text only) |
 | shell       | `Ctrl+Click` on `file.c:12:5`          | open the file at that line (compiler messages) |
 | tab         | left click / middle click / `×`        | switch to / close / close                 |
 | tab         | double click                           | keep a temporary (italic) tab             |

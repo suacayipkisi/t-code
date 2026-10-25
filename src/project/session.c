@@ -116,6 +116,18 @@ static gboolean get_bool(GKeyFile *kf, const char *group, const char *key, gbool
   return value;
 }
 
+static double get_double(GKeyFile *kf, const char *group, const char *key, double fallback)
+{
+  GError *error = NULL;
+  double value = g_key_file_get_double(kf, group, key, &error);
+
+  if (error) {
+    g_error_free(error);
+    return fallback;
+  }
+  return value;
+}
+
 void session_load_settings(App *t)
 {
   char *path = settings_file();
@@ -224,6 +236,7 @@ void session_save_settings(App *t)
           " Once at start-up, the latest release on GitHub goes against this version; a newer one asks");
   store_to(kf, path);
   g_key_file_set_double(session, "window", "font-scale", t->font_scale);
+  g_key_file_set_double(session, "window", "preview-scale", t->preview_scale);
   store(session);
   g_key_file_free(session);
   g_key_file_free(kf);
@@ -233,8 +246,8 @@ void session_save_settings(App *t)
 void session_apply_window(App *t)
 {
   GKeyFile *kf = load();
-  GError *error = NULL;
-  double scale = g_key_file_get_double(kf, "window", "font-scale", &error);
+  double scale = get_double(kf, "window", "font-scale", 1.0);
+  double preview_scale = get_double(kf, "window", "preview-scale", 1.0);
   int layout = get_int(kf, "window", "dock-layout", 0);
   char **order = g_key_file_get_string_list(kf, "window", "panel-order", NULL, NULL);
 
@@ -297,9 +310,10 @@ void session_apply_window(App *t)
   if (d >= 0)
     gtk_stack_set_visible_child_name(t->dock.stacks[d], page);
   g_free(page);
-  if (!error && scale > 0)
+  if (scale > 0)
     set_font_scale(t, scale);
-  g_clear_error(&error);
+  if (preview_scale > 0)
+    set_preview_zoom_scale(t, preview_scale);
   g_key_file_free(kf);
 }
 
@@ -487,6 +501,7 @@ void session_save(App *t)
   if (vis)
     g_key_file_set_string(kf, "window", "sidebar-page", vis);
   g_key_file_set_double(kf, "window", "font-scale", t->font_scale);
+  g_key_file_set_double(kf, "window", "preview-scale", t->preview_scale);
   g_key_file_set_boolean(kf, "window", "scm-commits", scm_commits_shown());
   g_key_file_set_boolean(kf, "window", "open-tabs", open_tabs_shown());
 

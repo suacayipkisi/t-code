@@ -27,6 +27,7 @@
 #include "project/toolchain.h"
 #include "project/userfiles.h"
 #include "update/update.h"
+#include "window/commands.h"
 #include "window/secondwindow.h"
 #include "window/statusbar.h"
 #include "window/palette.h"
@@ -1546,6 +1547,19 @@ static void test_preview_look(void)
   g_object_get(gtk_text_tag_table_lookup(gtk_text_buffer_get_tag_table(buffer), "pre"), "wrap-mode", &wrap, NULL);
   g_assert_cmpint(wrap, !=, GTK_WRAP_NONE); /* a long line wraps: the preview does not scroll sideways */
 
+  /* Ctrl+= in a preview tab sizes the previews' text only, not the editors'; Ctrl+0 brings it back. */
+  GtkTextTag *base = gtk_text_tag_table_lookup(gtk_text_buffer_get_tag_table(buffer), "base");
+  double before, after;
+  g_object_get(base, "size-points", &before, NULL);
+  run_command(&app, "Zoom In");
+  g_object_get(base, "size-points", &after, NULL);
+  g_assert_cmpfloat_with_epsilon(app.preview_scale, 1.1, 1e-9);
+  g_assert_cmpfloat(app.font_scale, ==, 1.0);
+  g_assert_cmpfloat_with_epsilon(after, before * 1.1, 0.01); /* Pango keeps 1/1024 points */
+  run_command(&app, "Reset Zoom");
+  g_assert_cmpfloat(app.preview_scale, ==, 1.0);
+  g_assert_cmpfloat(app.font_scale, ==, 1.0);
+
   remove_tab(tab);
   g_unlink(path);
   g_free(path);
@@ -2292,6 +2306,7 @@ int main(int argc, char **argv)
   gtk_test_init(&argc, &argv, NULL);
   app.project.root = g_build_filename(home, "project", NULL);
   app.font_scale = 1;
+  app.preview_scale = 1.0;
   g_mkdir_with_parents(app.project.root, 0755);
   char *session = g_build_filename(config, "t-code", "session.ini", NULL), *dir = g_path_get_dirname(session);
   g_mkdir_with_parents(dir, 0700);

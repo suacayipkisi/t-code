@@ -161,6 +161,7 @@ struct App {
   } debug;
 
   double font_scale;
+  double preview_scale;
   gboolean closing;
   gboolean plain; /* syntax coloring off (F7) */
 

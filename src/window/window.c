@@ -267,17 +267,22 @@ static void hide_dock(App *t, int d)
 
 void set_font_scale(App *t, double scale)
 {
-  int n = tab_count(t);
-
   t->font_scale = CLAMP(scale, 0.5, 3.0);
   vte_terminal_set_font_scale(t->shell.term, t->font_scale);
   if (t->debug.term)
     vte_terminal_set_font_scale(t->debug.term, t->font_scale);
   editor_view_set_font(t);
   files_apply_font(t);
+}
+
+void set_preview_zoom_scale(App *t, double scale)
+{
+  int n = tab_count(t);
+
+  t->preview_scale = CLAMP(scale, 0.5, 3.0);
   for (int i = 0; i < n; i++)
     if (tab_nth(t, i)->kind == TAB_PREVIEW)
-      preview_set_zoom(tab_nth(t, i), t->font_scale);
+      preview_set_zoom(tab_nth(t, i), t->preview_scale);
 }
 
 static void show_side(App *t, int side, gboolean visible)

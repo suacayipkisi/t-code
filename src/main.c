@@ -198,7 +198,7 @@ static void on_new_window_action(GSimpleAction *action G_GNUC_UNUSED, GVariant *
  * on_open, runs the main loop until the window closes, then calls on_shutdown. */
 int main(int argc, char **argv)
 {
-  App t = { .project.root = g_get_current_dir(), .font_scale = 1.0 };
+  App t = { .project.root = g_get_current_dir(), .font_scale = 1.0, .preview_scale = 1.0 };
   GtkApplication *app = gtk_application_new("io.github.tcode", G_APPLICATION_HANDLES_OPEN | G_APPLICATION_NON_UNIQUE);
   int status;
 

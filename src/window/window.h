@@ -24,8 +24,11 @@ extern const int panel_default_docks[PANELS];
  * the application's "activate" or "open" signal. */
 void build_window(App *t, GtkApplication *app);
 
-/* Text size of the shell, editors, previews and the Files panel (Ctrl+= / Ctrl+-), 0.5 to 3. */
+/* Text size of the shell, editors and the Files panel (Ctrl+= / Ctrl+-), 0.5 to 3. */
 void set_font_scale(App *t, double scale);
+
+/* Text size of the Markdown previews (Ctrl+= / Ctrl+- in a preview tab), 0.5 to 3. */
+void set_preview_zoom_scale(App *t, double scale);
 
 /* Shows or hides a pane (the sidebar or the shell); a pane that had the keyboard gives it to the
  * current tab. */

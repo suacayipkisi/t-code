@@ -64,7 +64,7 @@ struct Preview {
   GPtrArray *tables;   /* PreviewTable: the tables shown, sized to the view's width */
   GPtrArray *pictures; /* the images shown, sized to the view's width */
   int width;           /* the view's width the images were sized for */
-  double scale;        /* the window's text size */
+  double scale;        /* the previews' text size (t->preview_scale) */
   gboolean over_link;
   int hovered; /* the link under the pointer (its index in links, underlined), or -1 */
   GFileMonitor *monitor;
@@ -1585,7 +1585,7 @@ void open_preview(App *t, const char *path)
   GtkEventController *motion = gtk_event_controller_motion_new();
   GFile *file = g_file_new_for_path(path);
 
-  p->scale = t->font_scale;
+  p->scale = t->preview_scale;
   p->links = g_array_new(FALSE, FALSE, sizeof(Link));
   p->code_spans = g_array_new(FALSE, FALSE, sizeof(CodeSpan));
   p->blocks = g_array_new(FALSE, FALSE, sizeof(Block));

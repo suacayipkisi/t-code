@@ -33,7 +33,6 @@
 #include "window/secondwindow.h"
 #include "window/statusbar.h"
 #include "window/window.h"
-#include "window/palette.h"
 #include "window/theme.h"
 
 #include <stdlib.h>
@@ -60,10 +59,21 @@ static void next_tab(App *t) { step_tab(t, 1); }
 static void prev_tab(App *t) { step_tab(t, -1); }
 static void focus_left(App *t) { focus_group(t, 0); }
 static void focus_right(App *t) { focus_group(t, 1); }
-static void zoom_in(App *t) { set_font_scale(t, t->font_scale * 1.1); }
-static void zoom_out(App *t) { set_font_scale(t, t->font_scale / 1.1); }
+/* Ctrl+= / Ctrl+- / Ctrl+0: in a preview tab the previews' text size, elsewhere everything else's; a factor of 0
+ * goes back to normal. */
+static void zoom(App *t, double factor)
+{
+  Tab *tab = current_tab(t);
+
+  if (tab && tab->kind == TAB_PREVIEW)
+    set_preview_zoom_scale(t, factor ? t->preview_scale * factor : 1.0);
+  else
+    set_font_scale(t, factor ? t->font_scale * factor : 1.0);
+}
+static void zoom_in(App *t) { zoom(t, 1.1); }
+static void zoom_out(App *t) { zoom(t, 1 / 1.1); }
+static void zoom_reset(App *t) { zoom(t, 0); }
 static void check_updates_now(App *t) { updates_check_now(t); }
-static void zoom_reset(App *t) { set_font_scale(t, 1.0); }
 static void toggle_files(App *t) { toggle_pane(t, t->layout.left); }
 static void toggle_shell(App *t) { toggle_pane(t, GTK_WIDGET(t->shell.term)); }
 static void show_scm(App *t) { show_sidebar_page(t, "scm"); }

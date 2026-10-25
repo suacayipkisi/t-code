@@ -221,6 +221,14 @@ static void on_text_size(GtkSpinButton *spin, gpointer data G_GNUC_UNUSED)
   session_save_settings(t); /* kept even if t-code does not close normally */
 }
 
+static void on_preview_size(GtkSpinButton *spin, gpointer data G_GNUC_UNUSED)
+{
+  App *t = app_of(GTK_WIDGET(spin));
+
+  set_preview_zoom_scale(t, gtk_spin_button_get_value(spin) / 100);
+  session_save_settings(t);
+}
+
 /* Font buttons: data is the setting (&t->settings.font or files_font) they change. */
 static void on_font(GtkFontDialogButton *button, GParamSpec *spec G_GNUC_UNUSED, gpointer data)
 {
@@ -439,6 +447,8 @@ void show_settings(App *t)
           font_for(&t->settings.files_font));
   add_row(GTK_GRID(grid), &row, "Text size (%)", "Also Ctrl+= and Ctrl+-",
           spin_for(50, 300, 10, t->font_scale * 100, G_CALLBACK(on_text_size)));
+  add_row(GTK_GRID(grid), &row, "Preview size (%)", "Markdown previews; also Ctrl+= and Ctrl+- in a preview tab",
+          spin_for(50, 300, 10, t->preview_scale * 100, G_CALLBACK(on_preview_size)));
 
   grid = add_page(GTK_STACK(stack), "c", "C / C++", &row);
   add_row(GTK_GRID(grid), &row, "Format on save",
