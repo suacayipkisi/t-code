@@ -51,5 +51,9 @@ void navigate_apply_action(Tab *tab, JsonNode *action, gboolean utf16);
  * would need codeAction/resolve are not. */
 gboolean navigate_action_runnable(Tab *tab, JsonNode *action);
 
+/* window/showDocument: a server asks to show a file (opened at its selection's start) or a web page
+ * (gopls' documentation and assembly views, in the browser). Other schemes are refused (FALSE). */
+gboolean navigate_show_document(App *t, JsonNode *params);
+
 /* Applies a WorkspaceEdit to the files it names (the open ones saved when save). */
 void navigate_apply_edit(App *t, JsonNode *edit, gboolean save, gboolean utf16);

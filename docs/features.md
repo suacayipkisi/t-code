@@ -21,7 +21,9 @@ the mouse. On top of that:
   Workspace** (from the command palette), **Switch Source / Header** (`Alt+O`).
 - **Quick fixes** (`Ctrl+.`): clangd's fixes for the problems on the line (a missing `;` or
   `#include`, a misspelled name) and its refactorings, one pick away; resting the pointer on a
-  problem shows its fixes as buttons (`Quick Fix: #include <iostream>`) under the message.
+  problem shows its fixes as buttons (`Quick Fix: #include <iostream>`) under the message. Other
+  servers' fixes come the same way; pages a server shows (gopls' package documentation and
+  assembly) open in the browser.
 - **Code folding** (the arrow beside a block, `Ctrl+Shift+[` / `]`) and **sticky scroll**: the
   heads of the function, loop or namespace you are in stay at the top of the editor.
 - **Colors by meaning**: clangd tells functions (yellow), types (teal), macros (blue), constants and

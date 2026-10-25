@@ -634,6 +634,31 @@ void navigate_apply_action(Tab *tab, JsonNode *action, gboolean utf16)
   }
 }
 
+gboolean navigate_show_document(App *t, JsonNode *params)
+{
+  const char *uri = json_string_at(params, "uri");
+  JsonNode *external = json_at(params, "external");
+  char *scheme = uri ? g_uri_parse_scheme(uri) : NULL;
+  gboolean shown = FALSE;
+
+  if (g_strcmp0(scheme, "file") == 0 && !(external && json_node_get_boolean(external))) {
+    char *path = lsp_uri_to_path(uri);
+    if (path) {
+      open_file_at(t, path, (int)json_int_at(params, "selection.start.line", 0) + 1,
+                   (int)json_int_at(params, "selection.start.character", 0) + 1);
+      shown = TRUE;
+    }
+    g_free(path);
+  } else if (g_strcmp0(scheme, "http") == 0 || g_strcmp0(scheme, "https") == 0) {
+    GtkUriLauncher *launcher = gtk_uri_launcher_new(uri);
+    gtk_uri_launcher_launch(launcher, t->window, NULL, NULL, NULL);
+    g_object_unref(launcher);
+    shown = TRUE;
+  }
+  g_free(scheme);
+  return shown;
+}
+
 gboolean navigate_action_runnable(Tab *tab, JsonNode *action)
 {
   JsonNode *command = json_at(action, "command"), *commands;

@@ -986,6 +986,9 @@ static void answer_server(Lsp *l, JsonNode *message)
   if (g_strcmp0(method, "workspace/applyEdit") == 0) { /* a quick fix run as a command */
     navigate_apply_edit(l->app, json_at(message, "params.edit"), FALSE, l->utf16);
     g_string_assign(result, "{\"applied\":true}");
+  } else if (g_strcmp0(method, "window/showDocument") == 0) { /* gopls' "Browse documentation" */
+    g_string_printf(result, "{\"success\":%s}",
+                    navigate_show_document(l->app, json_at(message, "params")) ? "true" : "false");
   } else if (g_strcmp0(method, "workspace/configuration") == 0 && items && JSON_NODE_HOLDS_ARRAY(items)) {
     char *text = server_settings(l);
     JsonNode *settings = text ? json_from_string(text, NULL) : NULL;
@@ -1183,7 +1186,7 @@ static void server_start(Lsp *l)
       "{\"processId\":%d,\"rootUri\":%s,\"workspaceFolders\":[{\"uri\":%s,\"name\":\"root\"}],"
       "\"capabilities\":{"
       "\"general\":{\"positionEncodings\":[\"utf-8\",\"utf-16\"]},"
-      "\"window\":{\"workDoneProgress\":true},"
+      "\"window\":{\"workDoneProgress\":true,\"showDocument\":{\"support\":true}},"
       "\"offsetEncoding\":[\"utf-8\",\"utf-16\"],"
       "\"textDocument\":{"
       "\"synchronization\":{\"didSave\":true},"

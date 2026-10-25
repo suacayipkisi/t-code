@@ -839,6 +839,27 @@ static void test_pull_diagnostics(void)
   free_tab(tab);
 }
 
+/* window/showDocument: a file opens at the selection's start; a file to show "externally" and other
+ * schemes are refused (web pages go to the browser, which a test does not start). */
+static void test_show_document(void)
+{
+  JsonNode *file = json_from_string("{\"uri\":\"file:///tmp/t-code-test/shown.go\",\"selection\":{\"start\":"
+                                    "{\"line\":4,\"character\":2},\"end\":{\"line\":4,\"character\":2}}}",
+                                    NULL);
+  JsonNode *outside = json_from_string("{\"uri\":\"file:///tmp/x.pdf\",\"external\":true}", NULL);
+  JsonNode *other = json_from_string("{\"uri\":\"ftp://example.invalid/x\"}", NULL);
+
+  g_assert_true(navigate_show_document(&app, file));
+  g_assert_cmpstr(opened_path, ==, "/tmp/t-code-test/shown.go");
+  g_assert_cmpint(opened_line, ==, 5);
+  g_assert_cmpint(opened_column, ==, 3);
+  g_assert_false(navigate_show_document(&app, outside));
+  g_assert_false(navigate_show_document(&app, other));
+  json_node_unref(other);
+  json_node_unref(outside);
+  json_node_unref(file);
+}
+
 /* Feeds the server's $/progress for token (JSON: "a" or 7) to tab's server. */
 static void send_progress(Tab *tab, const char *token, const char *value)
 {
@@ -1611,6 +1632,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/idle-stop", test_idle_stop);
   g_test_add_func("/lsp/progress", test_progress);
   g_test_add_func("/lsp/pull-diagnostics", test_pull_diagnostics);
+  g_test_add_func("/lsp/show-document", test_show_document);
   g_test_add_func("/lsp/lru-pool", test_lru_pool);
   g_test_add_func("/lsp/crash", test_crash);
   g_test_add_func("/lsp/churn", test_churn);
