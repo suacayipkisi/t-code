@@ -1889,6 +1889,38 @@ static gboolean build_label_is_target(gconstpointer data G_GNUC_UNUSED)
   return same;
 }
 
+/* A file whose language server is not on PATH shows "No LSP"; its click opens the window with the
+ * commands that install it. Without a file there is no notice. */
+static void test_no_lsp(void)
+{
+  char *saved_path = g_strdup(g_getenv("PATH")), *path = file("notes.yaml");
+  GtkWindow *install = NULL;
+
+  g_setenv("PATH", "/nonexistent", TRUE);
+  open_file(&app, path);
+  run(20);
+  update_status(&app);
+  g_assert_true(gtk_widget_get_visible(app.status.no_lsp));
+  g_assert_nonnull(strstr(gtk_widget_get_tooltip_text(app.status.no_lsp), "yaml-language-server"));
+  g_signal_emit_by_name(app.status.no_lsp, "clicked");
+  GListModel *toplevels = gtk_window_get_toplevels();
+  for (guint i = 0; i < g_list_model_get_n_items(toplevels) && !install; i++) {
+    GtkWindow *each = g_list_model_get_item(toplevels, i);
+    if (g_strcmp0(gtk_window_get_title(each), "Install yaml-language-server") == 0)
+      install = each;
+    g_object_unref(each);
+  }
+  g_assert_nonnull(install);
+  gtk_window_close(install);
+
+  g_setenv("PATH", saved_path ? saved_path : "", TRUE);
+  close_all_tabs(&app); /* no file, no notice */
+  update_status(&app);
+  g_assert_false(gtk_widget_get_visible(app.status.no_lsp));
+  g_free(path);
+  g_free(saved_path);
+}
+
 /* A plugin's "say" stays in the status bar for a few seconds: status updates (diagnostics, tab
  * changes, many a second while typing) used to replace it at once. Then the Build target is back. */
 static void test_status_say(void)
@@ -2370,6 +2402,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/socket-stalled-subscriber", test_socket_stalled_subscriber);
   g_test_add_func("/window/update-check-now", test_update_check_now);
   g_test_add_func("/window/status-say", test_status_say);
+  g_test_add_func("/window/no-lsp", test_no_lsp);
   g_test_add_func("/window/second-window", test_second_window);
   g_test_add_func("/window/tab-strip", test_tab_strip);
   g_test_add_func("/window/open-tabs", test_open_tabs);

@@ -59,7 +59,9 @@ Each server starts on first use and stops 30 seconds after the last file it serv
 sent only once their tab is shown, so restored sessions cost the servers little. Other files
 (Makefiles, scripts) get completion from the words in the file. "Restart Language
 Servers" in the command palette restarts active servers (including one that gave up after crashes);
-after installing an optional server, reopen its file to activate it. When clangd cannot find
+when the current file's server is not installed, the status bar shows **⚠ No LSP**: a click shows
+the commands that install it on your distribution (each with a Copy button), and **Try Again** starts
+it once it is there. When clangd cannot find
 includes and the project has no `compile_commands.json` or `compile_flags.txt`, the status bar shows
 **⚠ No compile flags**; a click explains how to give it the flags (and points out a misnamed
 `compile-flags.txt`).
@@ -82,7 +84,8 @@ and F5 what to run (with arguments, environment, working folder, and named profi
 
 **Status bar**: the git branch (`*` when there are changes), the language servers' errors and
 warnings in the open files, **⚠ No compile flags** when clangd lacks them, **⚙ Build** and
-**▶ Run** with what they would build (a plugin's or recovery's short messages show there too), the file's indentation (**Spaces: 4**, **Tab Size: 8**), the
+**▶ Run** with what they would build (a plugin's or recovery's short messages show there too),
+**⚠ No LSP** when the file's language server is not installed, the file's indentation (**Spaces: 4**, **Tab Size: 8**), the
 cursor's line and column, and **⌨ Keybinds**.
 
 **Indentation.** Each file gets the indentation its project asks for: the Settings' tab size and

@@ -58,6 +58,10 @@ build/test-linediff: tests/test_linediff.c src/git/linediff.c src/git/linediff.h
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_linediff.c src/git/linediff.c \
 	  $(shell pkg-config --libs glib-2.0)
 
+build/test-lspinstall: tests/test_lspinstall.c src/lsp/install.c src/lsp/install.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_lspinstall.c src/lsp/install.c \
+	  $(shell pkg-config --libs glib-2.0)
+
 build/test-langenv: tests/test_langenv.c src/project/langenv.c src/project/langenv.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0) -o $@ tests/test_langenv.c src/project/langenv.c \
 	  $(shell pkg-config --libs json-glib-1.0)
@@ -123,12 +127,13 @@ build/test-recovery: tests/test_recovery.c src/editor/recovery.c src/editor/reco
 	  $(shell pkg-config --libs $(PKGS))
 
 
-test: build/test-searchmatch build/test-detect build/test-langenv build/test-linediff build/test-fileops build/test-lsp build/test-debug \
+test: build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
       build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-files build/test-window build/test-about \
       build/test-plugins build/test-update build/test-recovery
 	build/test-searchmatch
 	build/test-detect
 	build/test-langenv
+	build/test-lspinstall
 	build/test-linediff
 	build/test-fileops
 	build/test-lsp
@@ -169,6 +174,9 @@ test-asan: | build
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags json-glib-1.0) -o build/asan/test-langenv \
 	  tests/test_langenv.c src/project/langenv.c $(shell pkg-config --libs json-glib-1.0)
 	$(ASAN_ENV) build/asan/test-langenv
+	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-lspinstall \
+	  tests/test_lspinstall.c src/lsp/install.c $(shell pkg-config --libs glib-2.0)
+	$(ASAN_ENV) build/asan/test-lspinstall
 	$(ASAN_ENV) build/asan/test-linediff
 	$(ASAN_ENV) build/asan/test-gitpatch
 	$(ASAN_ENV) build/asan/test-fileops

@@ -50,6 +50,14 @@ char *lsp_flags_hint(App *t, const char **problem);
 /* Whether an editor's file is routed to an LSP (optional servers must be installed). */
 gboolean lsp_wants(Tab *tab);
 
+/* The program of the language server an editor's file would use, when it is not installed
+ * ("pylsp"), else NULL (also for tab NULL, a tab that is no editor or a file no server reads). */
+const char *lsp_missing_server(Tab *tab);
+
+/* After the user installed a server: tries the ones that were not found again and opens the
+ * editors that now have one. */
+void lsp_open_installed(App *t);
+
 /* Requests ----------------------------------------------------------------------------------- */
 
 /* The answer to a request: its "result", or NULL (an error, no server, the editor went, or it was

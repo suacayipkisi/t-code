@@ -7,6 +7,7 @@
 #include "lsp/client.h"
 
 #include "editor/editorview.h"
+#include "editor/tabs.h"
 #include "lsp/channel.h"
 #include "lsp/compiledb.h"
 #include "lsp/diagnostics.h"
@@ -1102,6 +1103,26 @@ gboolean lsp_wants(Tab *tab)
   return !tab->view->readonly && !tab->compare.with && kind != SERVER_NONE && server_installed(tab->app, kind);
 }
 
+const char *lsp_missing_server(Tab *tab)
+{
+#ifdef SERVER_ARGV
+  (void)tab;
+  return NULL; /* the fake server is always there */
+#else
+  ServerKind kind = server_kind_for_tab(tab);
+
+  if (kind == SERVER_NONE || tab->kind != TAB_EDITOR || tab->view->readonly || tab->compare.with)
+    return NULL;               /* a Markdown preview has the .md path too */
+  if (kind == SERVER_CLANGD) { /* server_installed takes it as there: it is a dependency */
+    char *path = g_find_program_in_path(clangd_argv[0]);
+    gboolean found = path != NULL;
+    g_free(path);
+    return found ? NULL : clangd_argv[0];
+  }
+  return server_installed(tab->app, kind) ? NULL : server_command(kind)[0];
+#endif
+}
+
 void lsp_open(Tab *tab)
 {
   Lsp *l;
@@ -1252,6 +1273,23 @@ void lsp_restart_language(App *t, const char *language)
     Lsp *l = g_ptr_array_index(t->lsps, i);
     if (g_strcmp0(server_language(l->kind), language) == 0)
       restart_one(l);
+  }
+  update_status(t);
+}
+
+void lsp_open_installed(App *t)
+{
+  int n = tab_count(t);
+
+  for (guint i = 0; t->lsps && i < t->lsps->len; i++) {
+    Lsp *l = g_ptr_array_index(t->lsps, i);
+    if (l->missing)
+      restart_one(l);
+  }
+  for (int i = 0; i < n; i++) {
+    Tab *tab = tab_nth(t, i);
+    if (tab->kind == TAB_EDITOR && !tab->view->loading && !doc_of(tab) && lsp_wants(tab))
+      lsp_open(tab);
   }
   update_status(t);
 }

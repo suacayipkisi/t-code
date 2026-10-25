@@ -2,12 +2,14 @@
  * The status bar at the bottom:
  *   left   git branch ("*" when there are changes), clangd errors and warnings in the open files,
  *          a warning when clangd has no compile flags, Build and Run buttons and what they would build
- *   right  the current editor's indentation ("Spaces: 4", a click chooses the project's), cursor
- *          line and column, and the Keybinds button
+ *   right  "No LSP" when the current file's language server is not installed (a click shows how to
+ *          install it), the current editor's indentation ("Spaces: 4", a click chooses the
+ *          project's), cursor line and column, and the Keybinds button
  */
 #include "window/statusbar.h"
 
 #include "dialogs/keybinds.h"
+#include "dialogs/lspinstall.h"
 #include "editor/editorview.h"
 #include "editor/tabs.h"
 #include "git/gitstatus.h"
@@ -68,6 +70,14 @@ void update_status(App *t)
   gtk_widget_set_tooltip_text(t->status.flags, text);
   gtk_widget_set_visible(t->status.flags, text != NULL);
   g_free(text);
+
+  const char *server = lsp_missing_server(current_tab(t));
+  if (server) {
+    text = g_strdup_printf("%s is not installed: click for the commands that install it", server);
+    gtk_widget_set_tooltip_text(t->status.no_lsp, text);
+    g_free(text);
+  }
+  gtk_widget_set_visible(t->status.no_lsp, server != NULL);
 
   status_show_indent(t);
   status_show_position(t);
@@ -240,6 +250,15 @@ static void on_flags(App *t)
   g_free(hint);
 }
 
+/* "No LSP": how to install the current file's language server. */
+static void on_no_lsp(App *t)
+{
+  const char *server = lsp_missing_server(current_tab(t));
+
+  if (server)
+    show_lsp_install(t, server);
+}
+
 /* The Build and Run buttons. */
 static void on_build(App *t)
 {
@@ -276,6 +295,9 @@ GtkWidget *status_bar(App *t)
 
   gtk_widget_set_hexpand(spacer, TRUE);
   gtk_box_append(GTK_BOX(bar), spacer);
+  t->status.no_lsp = status_button(bar, "⚠ No LSP", NULL, G_CALLBACK(on_no_lsp), t);
+  gtk_widget_add_css_class(t->status.no_lsp, "warning");
+  gtk_widget_set_visible(t->status.no_lsp, FALSE);
   t->status.indent = status_button(bar, "", NULL, G_CALLBACK(status_pick_indent), t);
   gtk_widget_set_visible(t->status.indent, FALSE);
   t->status.position = status_label(bar, FALSE);
