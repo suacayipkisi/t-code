@@ -1,14 +1,15 @@
 /*
  * Line differences (see linediff.h). The lines both versions start and end with are left out
- * first; what remains (an edit is small) is lined up by its longest common subsequence. Past
- * MAX_CELLS of that table its lines just count as modified: a gutter needs no perfect diff of a
- * file that was rewritten.
+ * first; what remains is lined up by Myers' algorithm, whose cost grows with the lines added and
+ * deleted, not with the file: two small edits far apart in a long file stay two small hunks. Past
+ * MAX_EDITS the middle just counts as modified: a gutter needs no perfect diff of a file that was
+ * rewritten.
  */
 #include "git/linediff.h"
 
 #include <string.h>
 
-#define MAX_CELLS (2000 * 2000)
+#define MAX_EDITS 1000 /* lines added plus deleted; the search keeps up to (MAX_EDITS + 1)^2 ints */
 
 /* A file's lines (no line breaks), sharing its text. */
 typedef struct {
@@ -44,6 +45,11 @@ static const char *line(Lines *l, guint i)
   return g_ptr_array_index(l->lines, i);
 }
 
+/* A run of lines both versions share: old's from x, new's from y. */
+typedef struct {
+  int x, y, length;
+} Snake;
+
 static void add_hunk(GArray *hunks, guint old_start, guint deleted, guint new_start, guint added)
 {
   DiffHunk hunk = { old_start, deleted, new_start, added };
@@ -65,7 +71,7 @@ static GArray *hunks_of(Lines *old, Lines *new)
   n = old->lines->len - head - tail;
   m = new->lines->len - head - tail;
 
-  if (n == 0 || m == 0 || (gsize)n * m > MAX_CELLS) {
+  if (n == 0 || m == 0) {
     if (n || m)
       add_hunk(hunks, head, n, head, m);
     return hunks;
@@ -76,32 +82,61 @@ static GArray *hunks_of(Lines *old, Lines *new)
     old_hash[k] = g_str_hash(line(old, head + k));
   for (guint k = 0; k < m; k++)
     new_hash[k] = g_str_hash(line(new, head + k));
-  /* lcs[i][j]: the common lines of old[i..] and new[j..] (of the middle part). */
-  guint16 *lcs = g_new0(guint16, (gsize)(n + 1) * (m + 1));
-  guint i = 0, j = 0, start_i = 0, start_j = 0;
-#define LCS(a, b) lcs[(gsize)(a) * (m + 1) + (b)]
 #define SAME(a, b) (old_hash[a] == new_hash[b] && strcmp(line(old, head + (a)), line(new, head + (b))) == 0)
-  for (int a = (int)n - 1; a >= 0; a--)
-    for (int b = (int)m - 1; b >= 0; b--)
-      LCS(a, b) = SAME(a, b) ? LCS(a + 1, b + 1) + 1 : MAX(LCS(a + 1, b), LCS(a, b + 1));
-  /* Walk it: a common line ends a stretch of deletions and additions. */
-  while (i < n || j < m) {
-    if (i < n && j < m && SAME(i, j)) {
-      if (i > start_i || j > start_j)
-        add_hunk(hunks, head + start_i, i - start_i, head + start_j, j - start_j);
-      i++, j++;
-      start_i = i, start_j = j;
-    } else if (j < m && (i == n || LCS(i, j + 1) >= LCS(i + 1, j))) {
-      j++;
-    } else {
-      i++;
+  /* v[k]: how far into old the furthest path with d edits gets on diagonal k (= x - y), at
+   * v[k + offset]; trace keeps v of each d (its 2d + 1 diagonals from -d, at d * d) to walk back,
+   * growing with the edits found. */
+  int max = (int)MIN(n + m, MAX_EDITS), offset = max + 1, edits = -1;
+  int *v = g_new0(int, 2 * max + 3);
+  GArray *trace = g_array_new(FALSE, FALSE, sizeof(int));
+  for (int d = 0; d <= max && edits < 0; d++) {
+    for (int k = -d; k <= d; k += 2) {
+      int x = k == -d || (k != d && v[k - 1 + offset] < v[k + 1 + offset]) ? v[k + 1 + offset] : v[k - 1 + offset] + 1;
+      int y = x - k;
+      while (x < (int)n && y < (int)m && SAME(x, y))
+        x++, y++;
+      v[k + offset] = x;
+      if (x >= (int)n && y >= (int)m)
+        edits = d;
     }
+    g_array_append_vals(trace, v + offset - d, 2 * d + 1);
   }
-  if (i > start_i || j > start_j)
-    add_hunk(hunks, head + start_i, i - start_i, head + start_j, j - start_j);
+  if (edits < 0) {
+    add_hunk(hunks, head, n, head, m);
+  } else {
+    /* Walk back from the end: each edit is followed by a run of common lines (a snake). */
+    GArray *snakes = g_array_new(FALSE, FALSE, sizeof(Snake));
+    int x = (int)n, y = (int)m;
+    for (int d = edits; d >= 0; d--) {
+      int k = x - y, prev_x = 0, prev_y = 0, start_x = 0;
+      if (d > 0) {
+        int *prev = (int *)trace->data + (gsize)(d - 1) * (d - 1) + (d - 1); /* prev[k]: v of d - 1 */
+        int down = k == -d || (k != d && prev[k - 1] < prev[k + 1]);         /* an addition, else a deletion */
+        int prev_k = down ? k + 1 : k - 1;
+        prev_x = prev[prev_k];
+        prev_y = prev_x - prev_k;
+        start_x = down ? prev_x : prev_x + 1;
+      }
+      Snake snake = { start_x, start_x - k, x - start_x };
+      if (snake.length > 0)
+        g_array_prepend_val(snakes, snake);
+      x = prev_x, y = prev_y;
+    }
+    /* Between two runs of common lines: one hunk of the deletions and additions there. */
+    int i = 0, j = 0;
+    for (guint e = 0; e < snakes->len; e++) {
+      Snake *snake = &g_array_index(snakes, Snake, e);
+      if (snake->x > i || snake->y > j)
+        add_hunk(hunks, head + i, snake->x - i, head + j, snake->y - j);
+      i = snake->x + snake->length, j = snake->y + snake->length;
+    }
+    if (i < (int)n || j < (int)m)
+      add_hunk(hunks, head + i, n - i, head + j, m - j);
+    g_array_free(snakes, TRUE);
+  }
 #undef SAME
-#undef LCS
-  g_free(lcs);
+  g_array_free(trace, TRUE);
+  g_free(v);
   g_free(old_hash);
   g_free(new_hash);
   return hunks;

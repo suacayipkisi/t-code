@@ -78,6 +78,37 @@ static void test_big(void)
   g_string_free(old, TRUE);
 }
 
+/* A long file with one line added near its start and one near its end: two small hunks, not the
+ * whole middle (the lines in between are many more than the old table's size allowed). */
+static void test_far_apart(void)
+{
+  GString *old = g_string_new(NULL), *new = g_string_new(NULL);
+  GArray *hunks;
+
+  for (int i = 0; i < 3000; i++) {
+    g_string_append_printf(old, "line %d\n", i);
+    if (i == 30)
+      g_string_append(new, "added near the start\n");
+    if (i == 2950)
+      g_string_append(new, "added near the end\n");
+    g_string_append_printf(new, "line %d\n", i);
+  }
+  hunks = line_diff_hunks(old->str, new->str);
+  g_assert_cmpuint(hunks->len, ==, 2);
+  DiffHunk *first = &g_array_index(hunks, DiffHunk, 0), *second = &g_array_index(hunks, DiffHunk, 1);
+  g_assert_cmpuint(first->old_start, ==, 30);
+  g_assert_cmpuint(first->deleted, ==, 0);
+  g_assert_cmpuint(first->new_start, ==, 30);
+  g_assert_cmpuint(first->added, ==, 1);
+  g_assert_cmpuint(second->old_start, ==, 2950);
+  g_assert_cmpuint(second->deleted, ==, 0);
+  g_assert_cmpuint(second->new_start, ==, 2951);
+  g_assert_cmpuint(second->added, ==, 1);
+  g_array_free(hunks, TRUE);
+  g_string_free(new, TRUE);
+  g_string_free(old, TRUE);
+}
+
 /* The gaps as a string: "<line>:<count>" (below that line) or "^:<count>" (above line 0); rows:
  * the screen rows of each line with word wrap (NULL: one each). */
 static char *wrapped_gaps_of(const char *old, const char *new, const int *old_rows, const int *new_rows,
@@ -251,6 +282,7 @@ int main(int argc, char **argv)
   g_test_add_func("/linediff/deleted", test_deleted);
   g_test_add_func("/linediff/hunks", test_hunks);
   g_test_add_func("/linediff/big", test_big);
+  g_test_add_func("/linediff/far-apart", test_far_apart);
   g_test_add_func("/linediff/gaps", test_gaps);
   g_test_add_func("/linediff/wrapped-gaps", test_wrapped_gaps);
   g_test_add_func("/linediff/spans", test_spans);
