@@ -19,6 +19,6 @@ pkgbase = t-code
 	optdepends = ripgrep: faster Search panel (falls back to grep)
 	optdepends = gdb: the debugger (F5)
 	source = t-code-0.4.0.tar.gz::https://github.com/suacayipkisi/t-code/archive/refs/tags/v0.4.0.tar.gz
-	sha256sums = 22bd89ac48c27d4039fad3b3d7acd92739e3fc999d4fc9c0aab9fd2d045bd6d6
+	sha256sums = 0076f6eea270c5fc0005e12289e067d062aae61f67c155489183bb2032bc20e7
 
 pkgname = t-code
