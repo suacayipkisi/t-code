@@ -857,7 +857,19 @@ static char *menu_action(GtkWidget *widget, const char *label)
   return action;
 }
 
-/* Chooses the item labelled label in the right-click menu shown on widget, as a click would. */
+/* Whether widget holds no right-click menu any more (it went once it closed and its item ran). */
+static gboolean menu_gone(gconstpointer widget)
+{
+  for (GtkWidget *child = gtk_widget_get_first_child((GtkWidget *)widget); child;
+       child = gtk_widget_get_next_sibling(child))
+    if (GTK_IS_POPOVER_MENU(child))
+      return FALSE;
+  return TRUE;
+}
+
+/* Chooses the item labelled label in the right-click menu shown on widget, as a click would. The item
+ * runs once the menu has closed, in an idle: waited for (a fixed 20 ms was too short on a busy CI
+ * machine). */
 static void choose_menu_item(GtkWidget *widget, const char *label)
 {
   char *action = menu_action(widget, label);
@@ -866,6 +878,8 @@ static void choose_menu_item(GtkWidget *widget, const char *label)
   g_assert_true(gtk_widget_activate_action(widget, action, NULL));
   g_free(action);
   gtk_popover_popdown(GTK_POPOVER(shown_menu(widget)));
+  run_until(menu_gone, widget);
+  g_assert_true(menu_gone(widget));
   run(20);
 }
 
@@ -904,7 +918,7 @@ static void test_context_menus(void)
   for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child))
     if (GTK_IS_POPOVER_MENU(child))
       gtk_popover_popdown(GTK_POPOVER(child)); /* closed without a choice */
-  run(20);
+  run_until(menu_gone, widget);
   g_assert_cmpint(ran, ==, 1);
   g_assert_cmpint(menu_freed, ==, 2);
 
