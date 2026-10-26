@@ -20,6 +20,7 @@
 #include "project/session.h"
 #include "project/userfiles.h"
 #include "lsp/hierarchy.h"
+#include "lsp/inlay.h"
 #include "lsp/outline.h"
 #include "lsp/problems.h"
 #include "search/search.h"
@@ -439,6 +440,7 @@ static void on_window_destroy(GtkWidget *window G_GNUC_UNUSED, App *t)
 {
   g_clear_handle_id(&t->dock.checks_id, g_source_remove);
   g_clear_handle_id(&t->status.say_id, g_source_remove); /* its label goes with the window */
+  g_clear_handle_id(&t->editors.peek_id, g_source_remove);
   g_clear_handle_id(&t->status.progress_id, g_source_remove);
   plugins_stop(t);
 }
@@ -1334,6 +1336,7 @@ void build_window(App *t, GtkApplication *app)
   gtk_window_set_default_icon_name("io.github.tcode");
 
   t->window = GTK_WINDOW(gtk_application_window_new(app));
+  inlay_peek_keys(t, t->window);
   gtk_window_set_default_size(t->window, 1400, 900);
   add_project_actions(t);
   gtk_window_set_titlebar(t->window, header_bar(t));

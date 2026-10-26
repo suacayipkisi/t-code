@@ -4,15 +4,17 @@
 #include "lsp/inlay.h"
 
 #include "editor/editorview.h"
+#include "editor/tabs.h"
 #include "lsp/client.h"
 #include "lsp/json.h"
 #include "window/palette.h"
 
 #include <string.h>
 
-#define INLAY_MS 400     /* after the last change */
-#define INLAY_AROUND 100 /* lines asked for above and below the shown ones */
-#define INLAY_PAD 3      /* pixels on each side of a hint's text */
+#define INLAY_MS 400      /* after the last change */
+#define INLAY_AROUND 100  /* lines asked for above and below the shown ones */
+#define INLAY_PAD 3       /* pixels on each side of a hint's text */
+#define INLAY_PEEK_MS 200 /* Ctrl+Alt held this long alone shows (or hides) the hints */
 
 /* Which character holds a hint's gap. */
 typedef enum {
@@ -55,7 +57,8 @@ static Inlay *inlay_of(Tab *tab)
 
 static gboolean inlay_wanted(Inlay *in)
 {
-  return in->tab->app->settings.inlay_hints && !in->tab->view->readonly;
+  /* Ctrl+Alt held turns the setting round for the while. */
+  return in->tab->app->settings.inlay_hints != in->tab->app->editors.inlay_peek && !in->tab->view->readonly;
 }
 
 static void inlay_clear(Inlay *in)
@@ -273,16 +276,85 @@ void inlay_apply_setting(Tab *tab)
   if (!in)
     return;
   if (inlay_wanted(in)) {
-    if (in->asked_from < 0)
-      inlay_update(tab);
+    if (in->asked_from < 0 && !in->update_id)
+      in->update_id = g_idle_add(inlay_ask, in); /* at once: Ctrl+Alt may be held for them */
     return;
   }
   inlay_stop_asking(in);
   g_clear_handle_id(&in->update_id, g_source_remove);
-  if (in->hints->len > 0) {
-    inlay_clear(in);
-    gtk_widget_queue_draw(GTK_WIDGET(tab->source));
+  inlay_clear(in); /* also what was asked for: the text may change while they are off */
+  gtk_widget_queue_draw(GTK_WIDGET(tab->source));
+}
+
+void inlay_peek(App *t, gboolean on)
+{
+  int n = tab_count(t);
+
+  g_clear_handle_id(&t->editors.peek_id, g_source_remove);
+  if (t->editors.inlay_peek == on)
+    return;
+  t->editors.inlay_peek = on;
+  for (int i = 0; i < n; i++)
+    if (tab_nth(t, i)->kind == TAB_EDITOR)
+      inlay_apply_setting(tab_nth(t, i));
+}
+
+static gboolean inlay_peek_start(gpointer data)
+{
+  App *t = data;
+
+  t->editors.peek_id = 0;
+  inlay_peek(t, TRUE);
+  return G_SOURCE_REMOVE;
+}
+
+static gboolean is_control_or_alt(guint key)
+{
+  return key == GDK_KEY_Control_L || key == GDK_KEY_Control_R || key == GDK_KEY_Alt_L || key == GDK_KEY_Alt_R;
+}
+
+/* Ctrl+Alt alone held a moment: the peek starts; any other key (Ctrl+Alt+D) ends it or stops it from
+ * starting, so shortcuts do not flash the hints. */
+static gboolean on_peek_key(GtkEventControllerKey *keys G_GNUC_UNUSED, guint key, guint code G_GNUC_UNUSED,
+                            GdkModifierType state, App *t)
+{
+  GdkModifierType held = state & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SHIFT_MASK | GDK_SUPER_MASK);
+
+  if (key == GDK_KEY_Control_L || key == GDK_KEY_Control_R)
+    held |= GDK_CONTROL_MASK;
+  else if (key == GDK_KEY_Alt_L || key == GDK_KEY_Alt_R)
+    held |= GDK_ALT_MASK;
+  if (is_control_or_alt(key) && held == (GDK_CONTROL_MASK | GDK_ALT_MASK)) {
+    if (!t->editors.inlay_peek && !t->editors.peek_id)
+      t->editors.peek_id = g_timeout_add(INLAY_PEEK_MS, inlay_peek_start, t);
+  } else {
+    inlay_peek(t, FALSE);
   }
+  return GDK_EVENT_PROPAGATE;
+}
+
+static void on_peek_release(GtkEventControllerKey *keys G_GNUC_UNUSED, guint key, guint code G_GNUC_UNUSED,
+                            GdkModifierType state G_GNUC_UNUSED, App *t)
+{
+  if (is_control_or_alt(key))
+    inlay_peek(t, FALSE);
+}
+
+static void on_peek_window_active(GtkWindow *window, GParamSpec *spec G_GNUC_UNUSED, App *t)
+{
+  if (!gtk_window_is_active(window)) /* the release went to another window */
+    inlay_peek(t, FALSE);
+}
+
+void inlay_peek_keys(App *t, GtkWindow *window)
+{
+  GtkEventController *keys = gtk_event_controller_key_new();
+
+  gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+  g_signal_connect(keys, "key-pressed", G_CALLBACK(on_peek_key), t);
+  g_signal_connect(keys, "key-released", G_CALLBACK(on_peek_release), t);
+  gtk_widget_add_controller(GTK_WIDGET(window), keys);
+  g_signal_connect(window, "notify::is-active", G_CALLBACK(on_peek_window_active), t);
 }
 
 /* Drawing ---------------------------------------------------------------------------------- */

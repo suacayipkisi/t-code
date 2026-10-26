@@ -27,7 +27,8 @@ the mouse. On top of that:
 - **Inlay hints:** parameter names before arguments (`add(left: 1, right: 2)`) and deduced types
   after names (`auto item: Widget = ...`), dim, inside the line; the text itself does not change.
   From clangd, rust-analyzer, gopls and the TypeScript server, for the shown lines; the "Inlay hints"
-  setting turns them off.
+  setting turns them off. Holding `Ctrl+Alt` (alone) turns them the other way while held: shows them
+  when they are off, hides them when they are on.
 - **Outline and breadcrumbs:** the **Outline** panel (Panels menu, or "View: Toggle Outline") lists
   the current file's classes, functions and fields as the language server sees them, the one around
   the cursor selected; a click goes there. Over each editor, the breadcrumbs show the file's folders
@@ -275,6 +276,7 @@ palette) finds any command by name.
 | editor      | `F12`, `Ctrl+Click` / `Alt+←`          | go to definition / back                   |
 | editor      | `Shift+F12` / `F2`                     | find all references / rename symbol       |
 | editor      | `Shift+Alt+H`                          | call hierarchy (the Hierarchy panel)      |
+| editor      | hold `Ctrl+Alt`                        | inlay hints the other way while held      |
 | editor      | `Shift+Alt+F`                          | format the file with clangd               |
 | editor      | `Ctrl+.` / `Ctrl+Shift+.` / `Alt+O`    | quick fix / go to a symbol in the file / switch source and header |
 | editor      | `Ctrl+Shift+[` / `Ctrl+Shift+]`        | fold / unfold the block                   |

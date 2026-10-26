@@ -101,6 +101,8 @@ struct App {
     int active;                  /* the group new tabs go to */
     GtkPaned *split;             /* groups[0] | groups[1] */
     GtkToggleButton *split_button;
+    gboolean inlay_peek; /* Ctrl+Alt held: inlay hints the other way round from the setting (lsp/inlay.c) */
+    guint peek_id;       /* starts the peek once Ctrl+Alt is held a moment */
   } editors;
 
   /* shell */

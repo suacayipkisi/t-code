@@ -1034,6 +1034,20 @@ static int spacing_at(Tab *tab, int line, int column)
   return spacing;
 }
 
+/* Whether tab's hints come within 5 seconds. */
+static gboolean inlay_hints_come(Tab *tab)
+{
+  gboolean come = FALSE;
+
+  for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC; !come && g_get_monotonic_time() < until;) {
+    char *text = inlay_text(tab);
+    come = *text != '\0';
+    g_free(text);
+    g_main_context_iteration(NULL, FALSE);
+  }
+  return come;
+}
+
 /* Inlay hints come for the text and sit in gaps: on the space before or after them, or on the
  * character before (hidden, drawn again); an edit asks again; the setting takes them away. */
 static void test_inlay_hints(void)
@@ -1084,6 +1098,36 @@ static void test_inlay_hints(void)
   g_assert_cmpstr(text, ==, "");
   g_free(text);
   g_assert_cmpint(spacing_at(tab, 0, 9), ==, 0);
+
+  /* Ctrl+Alt held alone: they show while it is held, and go when it is let go. */
+  page_test_tabs[0] = tab;
+  page_test_tab_count = 1;
+  on_peek_key(NULL, GDK_KEY_Control_L, 0, 0, &app);
+  on_peek_key(NULL, GDK_KEY_Alt_L, 0, GDK_CONTROL_MASK, &app);
+  g_assert_true(inlay_hints_come(tab));
+  on_peek_release(NULL, GDK_KEY_Alt_L, 0, GDK_CONTROL_MASK | GDK_ALT_MASK, &app);
+  g_assert_false(app.editors.inlay_peek);
+  text = inlay_text(tab);
+  g_assert_cmpstr(text, ==, "");
+  g_free(text);
+  /* Ctrl+Alt+D (a shortcut) does not flash them. */
+  on_peek_key(NULL, GDK_KEY_Alt_L, 0, GDK_CONTROL_MASK, &app);
+  on_peek_key(NULL, GDK_KEY_d, 0, GDK_CONTROL_MASK | GDK_ALT_MASK, &app);
+  run_for(INLAY_PEEK_MS + 200);
+  g_assert_false(app.editors.inlay_peek);
+  /* With the setting on, holding hides them. */
+  app.settings.inlay_hints = TRUE;
+  inlay_apply_setting(tab);
+  g_assert_true(inlay_hints_come(tab));
+  on_peek_key(NULL, GDK_KEY_Control_R, 0, GDK_ALT_MASK, &app);
+  run_for(INLAY_PEEK_MS + 100);
+  text = inlay_text(tab);
+  g_assert_cmpstr(text, ==, "");
+  g_free(text);
+  on_peek_release(NULL, GDK_KEY_Control_R, 0, GDK_CONTROL_MASK | GDK_ALT_MASK, &app);
+  g_assert_true(inlay_hints_come(tab));
+  app.settings.inlay_hints = FALSE;
+  page_test_tab_count = 0;
   free_tab(tab);
 }
 
