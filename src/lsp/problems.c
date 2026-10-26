@@ -6,7 +6,7 @@
 #include "editor/editor.h"
 #include "editor/tabs.h"
 #include "files/files.h"
-#include "lsp/diagnostics.h"
+#include "lsp/inline/diagnostics.h"
 #include "window/window.h"
 #include "window/palette.h"
 

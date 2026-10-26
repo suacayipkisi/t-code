@@ -45,23 +45,49 @@ static App *app_of(GtkWidget *widget)
   return g_object_get_data(G_OBJECT(gtk_widget_get_root(widget)), "t-code-app");
 }
 
-/* The switches and spin buttons: each sets its setting, applies it to the open tabs and saves. */
-static void on_minimap(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+/* A switch or number field for a setting changed: the setting takes its value, apply (when not
+ * NULL) puts it into effect, and the settings are saved. */
+static void setting_changed(GtkWidget *control, App *t)
 {
-  App *t = app_of(GTK_WIDGET(toggle));
+  void (*apply)(App *t) = g_object_get_data(G_OBJECT(control), "t-code-apply");
 
-  t->settings.minimap = gtk_switch_get_active(toggle);
-  each_editor(t);
+  if (apply)
+    apply(t);
   session_save_settings(t);
 }
 
-static void on_sticky_scroll(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+static void on_setting_switch(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gboolean *setting)
 {
-  App *t = app_of(GTK_WIDGET(toggle));
+  *setting = gtk_switch_get_active(toggle);
+  setting_changed(GTK_WIDGET(toggle), app_of(GTK_WIDGET(toggle)));
+}
 
-  t->settings.sticky_scroll = gtk_switch_get_active(toggle);
-  each_editor(t);
-  session_save_settings(t);
+static void on_setting_spin(GtkSpinButton *spin, int *setting)
+{
+  *setting = gtk_spin_button_get_value_as_int(spin);
+  setting_changed(GTK_WIDGET(spin), app_of(GTK_WIDGET(spin)));
+}
+
+/* A switch showing *setting, which sets it when flipped (then apply; see setting_changed). */
+static GtkWidget *setting_switch(gboolean *setting, void (*apply)(App *t))
+{
+  GtkWidget *toggle = gtk_switch_new();
+
+  gtk_switch_set_active(GTK_SWITCH(toggle), *setting);
+  g_object_set_data(G_OBJECT(toggle), "t-code-apply", apply);
+  g_signal_connect(toggle, "notify::active", G_CALLBACK(on_setting_switch), setting);
+  return toggle;
+}
+
+/* A number field from low to high showing *setting, which sets it when it changes (then apply). */
+static GtkWidget *setting_spin(int *setting, int low, int high, void (*apply)(App *t))
+{
+  GtkWidget *spin = gtk_spin_button_new_with_range(low, high, 1);
+
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin), *setting);
+  g_object_set_data(G_OBJECT(spin), "t-code-apply", apply);
+  g_signal_connect(spin, "value-changed", G_CALLBACK(on_setting_spin), setting);
+  return spin;
 }
 
 static void on_coloring(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
@@ -70,103 +96,6 @@ static void on_coloring(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpoin
 
   if (gtk_switch_get_active(toggle) == t->settings.plain)
     toggle_syntax(t); /* saves the settings */
-}
-
-static void on_tabs_to_spaces(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(toggle));
-
-  t->settings.tabs_to_spaces = gtk_switch_get_active(toggle);
-  each_editor(t);
-  session_save_settings(t);
-}
-
-static void on_tab_size(GtkSpinButton *spin, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(spin));
-
-  t->settings.tab_size = gtk_spin_button_get_value_as_int(spin);
-  each_editor(t);
-  session_save_settings(t);
-}
-
-static void on_detect_indent(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(toggle));
-
-  t->settings.detect_indent = gtk_switch_get_active(toggle);
-  session_save_settings(t);
-}
-
-static void on_guides(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(toggle));
-
-  t->settings.guides = gtk_switch_get_active(toggle);
-  each_editor(t);
-  session_save_settings(t);
-}
-
-static void on_breadcrumbs(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(toggle));
-
-  t->settings.breadcrumbs = gtk_switch_get_active(toggle);
-  each_editor(t);
-  session_save_settings(t);
-}
-
-static void on_inlay_hints(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(toggle));
-
-  t->settings.inlay_hints = gtk_switch_get_active(toggle);
-  each_editor(t);
-  session_save_settings(t);
-}
-
-static void on_word_wrap(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(toggle));
-
-  t->settings.word_wrap = gtk_switch_get_active(toggle);
-  each_editor(t);
-  session_save_settings(t);
-}
-
-static void on_ruler(GtkSpinButton *spin, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(spin));
-
-  t->settings.ruler = gtk_spin_button_get_value_as_int(spin);
-  each_editor(t);
-  session_save_settings(t);
-}
-
-/* clangd starts again with the checks on or off. */
-static void on_clang_tidy(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(toggle));
-
-  t->settings.clang_tidy = gtk_switch_get_active(toggle);
-  lsp_restart_clangd(t);
-  session_save_settings(t);
-}
-
-static void on_format_on_save(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(toggle));
-
-  t->settings.format_on_save = gtk_switch_get_active(toggle);
-  session_save_settings(t);
-}
-
-static void on_autosave(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(toggle));
-
-  t->settings.autosave = gtk_switch_get_active(toggle);
-  session_save_settings(t);
 }
 
 static void on_theme(GtkDropDown *choice, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
@@ -222,22 +151,6 @@ static GtkWidget *open_button(void (*open)(App *t))
 
   g_signal_connect(button, "clicked", G_CALLBACK(on_open_file), open);
   return button;
-}
-
-static void on_reopen_last(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(toggle));
-
-  t->settings.reopen_last = gtk_switch_get_active(toggle);
-  session_save_settings(t);
-}
-
-static void on_check_updates(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  App *t = app_of(GTK_WIDGET(toggle));
-
-  t->settings.check_updates = gtk_switch_get_active(toggle);
-  session_save_settings(t);
 }
 
 static void on_text_size(GtkSpinButton *spin, gpointer data G_GNUC_UNUSED)
@@ -421,45 +334,45 @@ void show_settings(App *t)
 
   grid = add_page(GTK_STACK(stack), "general", "General", &row);
   add_row(GTK_GRID(grid), &row, "Autosave", "Save a second after the last change",
-          switch_for(t->settings.autosave, G_CALLBACK(on_autosave)));
+          setting_switch(&t->settings.autosave, NULL));
   add_row(GTK_GRID(grid), &row, "Reopen the last project",
           "When started from the app menu (not from a folder in a terminal)",
-          switch_for(t->settings.reopen_last, G_CALLBACK(on_reopen_last)));
+          setting_switch(&t->settings.reopen_last, NULL));
   add_row(GTK_GRID(grid), &row, "Check for updates",
           "Once at start-up, the latest release on GitHub goes against t-code; a newer one asks (also"
           " \"Check for Updates Now\")",
-          switch_for(t->settings.check_updates, G_CALLBACK(on_check_updates)));
+          setting_switch(&t->settings.check_updates, NULL));
 
   grid = add_page(GTK_STACK(stack), "editor", "Editor", &row);
   add_row(GTK_GRID(grid), &row, "Minimap", "A small picture of the file next to the scrollbar",
-          switch_for(t->settings.minimap, G_CALLBACK(on_minimap)));
+          setting_switch(&t->settings.minimap, each_editor));
   add_row(GTK_GRID(grid), &row, "Sticky scroll",
           "The first lines of the blocks around the top (namespace, function, loop) stay at the top",
-          switch_for(t->settings.sticky_scroll, G_CALLBACK(on_sticky_scroll)));
+          setting_switch(&t->settings.sticky_scroll, each_editor));
   add_row(GTK_GRID(grid), &row, "Code coloring", "Also F7", switch_for(!t->settings.plain, G_CALLBACK(on_coloring)));
   add_row(GTK_GRID(grid), &row, "Indent guides",
           "Lines at each indentation level; the block around the cursor in color",
-          switch_for(t->settings.guides, G_CALLBACK(on_guides)));
+          setting_switch(&t->settings.guides, each_editor));
   add_row(GTK_GRID(grid), &row, "Word wrap", "Lines longer than the editor continue on the next row",
-          switch_for(t->settings.word_wrap, G_CALLBACK(on_word_wrap)));
+          setting_switch(&t->settings.word_wrap, each_editor));
   add_row(GTK_GRID(grid), &row, "Inlay hints",
           "Parameter names and deduced types inside the lines, from the language servers",
-          switch_for(t->settings.inlay_hints, G_CALLBACK(on_inlay_hints)));
+          setting_switch(&t->settings.inlay_hints, each_editor));
   add_row(GTK_GRID(grid), &row, "Breadcrumbs", "The file's folders and the symbols around the cursor, over each editor",
-          switch_for(t->settings.breadcrumbs, G_CALLBACK(on_breadcrumbs)));
+          setting_switch(&t->settings.breadcrumbs, each_editor));
   add_row(GTK_GRID(grid), &row, "Ruler column",
           "A vertical line after this column, to keep lines short. Type 0 to turn it off",
-          spin_for(0, 300, 1, t->settings.ruler, G_CALLBACK(on_ruler)));
+          setting_spin(&t->settings.ruler, 0, 300, each_editor));
 
   grid = add_page(GTK_STACK(stack), "indentation", "Indentation", &row);
   add_row(GTK_GRID(grid), &row, "Tab size",
           "For projects without their own: the status bar's choice, .editorconfig or .clang-format come first",
-          spin_for(1, 16, 1, t->settings.tab_size, G_CALLBACK(on_tab_size)));
+          setting_spin(&t->settings.tab_size, 1, 16, each_editor));
   add_row(GTK_GRID(grid), &row, "Insert spaces for Tab", NULL,
-          switch_for(t->settings.tabs_to_spaces, G_CALLBACK(on_tabs_to_spaces)));
+          setting_switch(&t->settings.tabs_to_spaces, each_editor));
   add_row(GTK_GRID(grid), &row, "Detect indentation",
           "Files indented with tabs or another number of spaces keep it (applies to files opened from now on)",
-          switch_for(t->settings.detect_indent, G_CALLBACK(on_detect_indent)));
+          setting_switch(&t->settings.detect_indent, NULL));
 
   grid = add_page(GTK_STACK(stack), "appearance", "Appearance", &row);
   GtkWidget *theme = gtk_drop_down_new_from_strings((const char *const[]){ "Rounded", "Square", NULL });
@@ -479,10 +392,10 @@ void show_settings(App *t)
   grid = add_page(GTK_STACK(stack), "c", "C / C++", &row);
   add_row(GTK_GRID(grid), &row, "Format on save",
           "Ctrl+S formats C and C++ files with clangd first (the project's .clang-format); autosave does not",
-          switch_for(t->settings.format_on_save, G_CALLBACK(on_format_on_save)));
+          setting_switch(&t->settings.format_on_save, NULL));
   add_row(GTK_GRID(grid), &row, "clang-tidy checks",
           "clangd also reports what the project's .clang-tidy asks for (more CPU while typing)",
-          switch_for(t->settings.clang_tidy, G_CALLBACK(on_clang_tidy)));
+          setting_switch(&t->settings.clang_tidy, lsp_restart_clangd));
 
   grid = add_page(GTK_STACK(stack), "files", "Edit by Hand", &row);
   add_row(GTK_GRID(grid), &row, "Settings file", "settings.ini: these settings, each with a note",

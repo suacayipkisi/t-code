@@ -41,7 +41,7 @@ build/compile_commands.json: Makefile $(APP_SRC) $(TEST_SRC) | build
 	       "$$sep" "$(CURDIR)" "$$f" "$(CFLAGS) $(APP_CFLAGS)" "$(VERSION)" "$$f"; sep=,; done; \
 	   printf '\n]\n' ) > $@
 
-# Tests: searchmatch.c, editor/detect.c, git/linediff.c and files/{fileops,folder,gitmarks}.c alone (GLib); the Search
+# Tests: searchmatch.c, editor/text/detect.c, git/linediff.c and files/{fileops,folder,gitmarks}.c alone (GLib); the Search
 # panel, editing, Source Control, the Files panel and About in a window (they need a display for some or all of
 # their tests).
 build/test-searchmatch: tests/test_searchmatch.c tests/util.h src/search/searchmatch.c src/search/searchmatch.h | build
@@ -66,17 +66,17 @@ build/test-langenv: tests/test_langenv.c tests/util.h src/project/langenv.c src/
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0) -o $@ tests/test_langenv.c src/project/langenv.c \
 	  $(shell pkg-config --libs json-glib-1.0)
 
-build/test-detect: tests/test_detect.c tests/util.h src/editor/detect.c src/editor/detect.h src/editor/indentconf.c \
-                   src/editor/indentconf.h src/editor/blocks.c src/editor/blocks.h | build
-	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_detect.c src/editor/detect.c \
-	  src/editor/indentconf.c src/editor/blocks.c \
+build/test-detect: tests/test_detect.c tests/util.h src/editor/text/detect.c src/editor/text/detect.h src/editor/text/indentconf.c \
+                   src/editor/text/indentconf.h src/editor/text/blocks.c src/editor/text/blocks.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_detect.c src/editor/text/detect.c \
+	  src/editor/text/indentconf.c src/editor/text/blocks.c \
 	  $(shell pkg-config --libs glib-2.0)
 
 # The editor page's files (with the language server client) are included by the tests through
 # tests/editor_page.h, to reach their static functions. test-lsp runs itself with --fake-server as
 # the language server.
-PAGE_SRC := $(filter-out src/editor/tabs.c src/editor/editor.c,$(wildcard src/editor/*.c)) \
-            $(wildcard src/lsp/*.c) src/git/linediff.c src/window/palette.c src/project/langenv.c tests/editor_page.h
+PAGE_SRC := $(filter-out src/editor/tabs.c src/editor/editor.c $(wildcard src/editor/preview/*.c),$(wildcard src/editor/*.c src/editor/*/*.c)) \
+            $(wildcard src/lsp/*.c src/lsp/*/*.c) src/git/linediff.c src/window/palette.c src/project/langenv.c tests/editor_page.h
 build/test-editing: tests/test_editing.c tests/util.h tests/broadway.h $(PAGE_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_editing.c $(shell pkg-config --libs $(PKGS))
 
@@ -162,7 +162,7 @@ test-asan: | build
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags gio-2.0) -o build/asan/test-searchmatch \
 	  tests/test_searchmatch.c src/search/searchmatch.c $(shell pkg-config --libs gio-2.0)
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-detect \
-	  tests/test_detect.c src/editor/detect.c src/editor/indentconf.c src/editor/blocks.c \
+	  tests/test_detect.c src/editor/text/detect.c src/editor/text/indentconf.c src/editor/text/blocks.c \
 	  $(shell pkg-config --libs glib-2.0)
 	$(ASAN_ENV) build/asan/test-searchmatch
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-linediff \

@@ -22,7 +22,7 @@ void disassembly_ended(App *t);
 /* Whether the current tab is the view (the steps go by instruction). */
 gboolean disassembly_shown(App *t);
 
-/* Whether tab is the view; the breakpoints' column (editor/breakpoints.c) asks. */
+/* Whether tab is the view; the breakpoints' column (editor/gutter/breakpoints.c) asks. */
 gboolean disassembly_is(App *t, Tab *tab);
 
 /* Whether the instruction on line (0-based) of the view has a breakpoint, and putting one there or

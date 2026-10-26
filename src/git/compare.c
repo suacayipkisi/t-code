@@ -8,7 +8,7 @@
  */
 #include "git/compare.h"
 
-#include "editor/diffgutter.h"
+#include "editor/gutter/diffgutter.h"
 #include "editor/editor.h"
 #include "editor/tabs.h"
 #include "popups/picker.h"

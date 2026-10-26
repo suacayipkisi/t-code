@@ -7,7 +7,7 @@
 #include "debug/dap.h"
 #include "debug/debugger.h"
 #include "debug/debugview.h"
-#include "editor/editing.h"
+#include "editor/editing/editing.h"
 #include "lsp/json.h"
 
 #define MAX_WIDTH_CHARS 90

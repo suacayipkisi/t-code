@@ -2,7 +2,7 @@
  * Language servers are created lazily per language and project: clangd for C/C++, plus pylsp,
  * gopls, rust-analyzer, typescript-language-server (JavaScript too), the JSON language server,
  * yaml-language-server, marksman and neocmakelsp when installed. Open editors are kept in sync with their server
- * change by change; what it says comes back as diagnostics (lsp/diagnostics.c). Other modules ask
+ * change by change; what it says comes back as diagnostics (lsp/inline/diagnostics.c). Other modules ask
  * it things (hover, completion, definition) with lsp_request().
  */
 #pragma once

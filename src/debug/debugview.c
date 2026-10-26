@@ -12,7 +12,7 @@
 #include "debug/dap.h"
 #include "debug/debugger.h"
 #include "debug/disassembly.h"
-#include "editor/breakpoints.h"
+#include "editor/gutter/breakpoints.h"
 #include "editor/editor.h"
 #include "lsp/json.h"
 #include "popups/contextmenu.h"

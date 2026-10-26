@@ -11,7 +11,7 @@
 #include "editor/preview/preview.h"
 #include "editor/tabs.h"
 #include "files/files.h"
-#include "lsp/semantic.h"
+#include "lsp/inline/semantic.h"
 #include "popups/picker.h"
 #include "project/session.h"
 #include "project/userfiles.h"

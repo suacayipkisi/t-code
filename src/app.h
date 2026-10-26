@@ -54,7 +54,7 @@ typedef struct Tab {
   } cursor;
   struct {
     int errors, warnings;
-  } problems; /* clangd's (lsp/diagnostics.c) */
+  } problems; /* clangd's (lsp/inline/diagnostics.c) */
   struct {
     char *title;          /* shown instead of the file name (an old version) */
     char *with;           /* old versions only: the working file they are compared with */
@@ -101,7 +101,7 @@ struct App {
     int active;                  /* the group new tabs go to */
     GtkPaned *split;             /* groups[0] | groups[1] */
     GtkToggleButton *split_button;
-    gboolean inlay_peek; /* Ctrl+Alt held: inlay hints the other way round from the setting (lsp/inlay.c) */
+    gboolean inlay_peek; /* Ctrl+Alt held: inlay hints the other way round from the setting (lsp/inline/inlay.c) */
     guint peek_id;       /* starts the peek once Ctrl+Alt is held a moment */
   } editors;
 
@@ -140,7 +140,7 @@ struct App {
   /* paths */
   struct {
     char *styles;   /* the editor's style scheme (Dark Classic) */
-    char *snippets; /* t-code's own snippets (editor/snippets.c) */
+    char *snippets; /* t-code's own snippets (editor/editing/snippets.c) */
     char *icons;    /* desktop/ in the build tree, holding the app icon */
     char *temp;     /* old file versions for comparisons */
     char *socket;   /* $TCODE_SOCKET (ipc/socket.c) */
@@ -155,7 +155,7 @@ struct App {
 
   /* debugging */
   struct {
-    GHashTable *breakpoints; /* path -> GArray of Breakpoint, by line (editor/breakpoints.h) */
+    GHashTable *breakpoints; /* path -> GArray of Breakpoint, by line (editor/gutter/breakpoints.h) */
     char *stop_path;         /* where the program is stopped (its innermost frame with a file), or NULL */
     int stop_line;
     char *disassembly;    /* the Disassembly View's file (debug/disassembly.c), or NULL */
@@ -179,7 +179,7 @@ struct App {
     gboolean detect_indent;  /* a file's own indentation overrides the two above */
     gboolean guides;         /* indent and bracket pair guides in editors */
     gboolean word_wrap;      /* long lines continue on the next row instead of running off */
-    gboolean inlay_hints;    /* parameter names and deduced types inside the lines (lsp/inlay.c) */
+    gboolean inlay_hints;    /* parameter names and deduced types inside the lines (lsp/inline/inlay.c) */
     gboolean breadcrumbs;    /* the file's path and the symbols around the cursor over editors */
     int ruler;               /* a vertical line after this column in editors, 0 for none */
     gboolean clang_tidy;     /* clangd also runs the project's .clang-tidy checks */

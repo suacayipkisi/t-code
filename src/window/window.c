@@ -6,7 +6,7 @@
 
 #include "editor/editorview.h"
 #include "editor/preview/preview.h"
-#include "editor/snippets.h"
+#include "editor/editing/snippets.h"
 #include "editor/tabs.h"
 #include "files/files.h"
 #include "ipc/socket.h"
@@ -14,7 +14,7 @@
 #include "project/project.h"
 #include "project/session.h"
 #include "project/userfiles.h"
-#include "lsp/inlay.h"
+#include "lsp/inline/inlay.h"
 #include "update/update.h"
 #include "window/commands.h"
 #include "window/docks/docks.h"

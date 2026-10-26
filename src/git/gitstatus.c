@@ -4,7 +4,7 @@
  */
 #include "git/gitstatus.h"
 
-#include "editor/diffgutter.h"
+#include "editor/gutter/diffgutter.h"
 #include "files/files.h"
 #include "git/scm/scm.h"
 #include "window/statusbar.h"

@@ -1,6 +1,6 @@
 /*
  * Debugging with gdb: F5 builds the project in the shell and starts the program under
- * gdb, which stops it at the breakpoints (editor/breakpoints.c) or where it crashes; the editor
+ * gdb, which stops it at the breakpoints (editor/gutter/breakpoints.c) or where it crashes; the editor
  * then shows that line, and F10 / F11 / Shift+F11 go on one step at a time, F5 to the next stop.
  * The Debug panel holds the buttons for all that over a terminal the program reads and writes.
  */
@@ -47,7 +47,7 @@ void debug_launch(App *t, const char *path);
 /* The build for debugging failed (the control socket's "debug-failed <dir>"). */
 void debug_build_failed(App *t);
 
-/* The breakpoints in path changed (editor/breakpoints.c): gdb hears of them. */
+/* The breakpoints in path changed (editor/gutter/breakpoints.c): gdb hears of them. */
 void debug_breakpoints_changed(App *t, const char *path);
 
 /* Ends debugging at once, without asking gdb (closing t-code, another project). */

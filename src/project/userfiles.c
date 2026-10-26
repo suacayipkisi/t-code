@@ -7,7 +7,7 @@
 #include "dialogs/settings.h"
 #include "editor/editor.h"
 #include "editor/editorview.h"
-#include "editor/snippets.h"
+#include "editor/editing/snippets.h"
 #include "editor/tabs.h"
 #include "project/session.h"
 #include "window/theme.h"

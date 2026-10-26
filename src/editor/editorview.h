@@ -6,7 +6,7 @@
 #pragma once
 
 #include "app.h"
-#include "editor/indentconf.h"
+#include "editor/text/indentconf.h"
 
 typedef void (*EditorSavedFunc)(gpointer data, gboolean ok);
 
@@ -17,8 +17,8 @@ typedef struct {
 } SaveWaiter;
 
 /* The state of one editor's page; tab->view. */
-typedef struct FindBar FindBar;       /* editor/findbar.c */
-typedef struct DiffGutter DiffGutter; /* editor/diffgutter.c */
+typedef struct FindBar FindBar;       /* editor/editing/findbar.c */
+typedef struct DiffGutter DiffGutter; /* editor/gutter/diffgutter.c */
 
 struct EditorView {
   Tab *tab;
@@ -27,19 +27,19 @@ struct EditorView {
   GtkWidget *map;         /* the minimap */
   GtkWidget *overview;    /* the problems strip: the whole file's errors and warnings, and the
                            * selected name's occurrences */
-  GPtrArray *diagnostics; /* lsp/diagnostics.c */
+  GPtrArray *diagnostics; /* lsp/inline/diagnostics.c */
   FindBar *find;          /* made on the first Ctrl+F */
   DiffGutter *diff;
-  struct SignatureHelp *signature; /* lsp/signature.c */
-  struct Semantic *semantic;       /* lsp/semantic.c */
-  struct Occurrences *occurrences; /* editor/occurrences.c */
-  struct Folding *folding;         /* editor/folding.c */
-  struct Sticky *sticky;           /* editor/sticky.c */
-  struct Breakpoints *breakpoints; /* editor/breakpoints.c */
-  struct MultiCursor *multi;       /* editor/multicursor.c */
-  struct Inlay *inlay;             /* lsp/inlay.c */
-  struct Symbols *symbols;         /* lsp/symbols.c */
-  GtkWidget *breadcrumbs;          /* editor/breadcrumbs.c: over the text */
+  struct SignatureHelp *signature; /* lsp/inline/signature.c */
+  struct Semantic *semantic;       /* lsp/inline/semantic.c */
+  struct Occurrences *occurrences; /* editor/decor/occurrences.c */
+  struct Folding *folding;         /* editor/gutter/folding.c */
+  struct Sticky *sticky;           /* editor/decor/sticky.c */
+  struct Breakpoints *breakpoints; /* editor/gutter/breakpoints.c */
+  struct MultiCursor *multi;       /* editor/editing/multicursor.c */
+  struct Inlay *inlay;             /* lsp/inline/inlay.c */
+  struct Symbols *symbols;         /* lsp/symbols/symbols.c */
+  GtkWidget *breadcrumbs;          /* editor/decor/breadcrumbs.c: over the text */
   char *closers;                   /* closing brackets and quotes typed for the user (editing.c), from the
                             * cursor to closers_end: typing one steps over it, Backspace takes the pair */
   GtkTextMark *closers_end;

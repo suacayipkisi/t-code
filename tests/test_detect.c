@@ -3,9 +3,9 @@
  * src/editor/indentconf.c (what .editorconfig and .clang-format say about it) and
  * src/editor/blocks.c (the { } blocks folding and sticky scroll use).
  */
-#include "editor/blocks.h"
-#include "editor/detect.h"
-#include "editor/indentconf.h"
+#include "editor/text/blocks.h"
+#include "editor/text/detect.h"
+#include "editor/text/indentconf.h"
 
 /* Runs detect_indent on text starting from tabs = FALSE, width = 4 (the settings). */
 static gboolean indent(const char *text, gboolean *tabs, int *width)

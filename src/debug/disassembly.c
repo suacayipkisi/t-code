@@ -9,7 +9,7 @@
 #include "debug/dap.h"
 #include "debug/debugger.h"
 #include "debug/debugview.h"
-#include "editor/breakpoints.h"
+#include "editor/gutter/breakpoints.h"
 #include "editor/editor.h"
 #include "editor/tabs.h"
 #include "lsp/json.h"

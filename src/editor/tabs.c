@@ -4,7 +4,7 @@
  */
 #include "editor/tabs.h"
 
-#include "editor/diffgutter.h"
+#include "editor/gutter/diffgutter.h"
 #include "editor/editor.h"
 #include "editor/editorview.h"
 #include "editor/preview/preview.h"
@@ -15,7 +15,7 @@
 #include "popups/contextmenu.h"
 #include "window/statusbar.h"
 #include "lsp/problems.h"
-#include "lsp/outline.h"
+#include "lsp/symbols/outline.h"
 
 #ifdef __GLIBC__
 #include <malloc.h>

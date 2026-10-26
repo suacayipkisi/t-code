@@ -9,12 +9,12 @@
 #include "editor/tabs.h"
 #include "lsp/channel.h"
 #include "lsp/compiledb.h"
-#include "lsp/diagnostics.h"
-#include "lsp/inlay.h"
-#include "lsp/navigate.h"
-#include "lsp/semantic.h"
+#include "lsp/inline/diagnostics.h"
+#include "lsp/inline/inlay.h"
+#include "lsp/symbols/navigate.h"
+#include "lsp/inline/semantic.h"
 #include "lsp/servers.h"
-#include "lsp/symbols.h"
+#include "lsp/symbols/symbols.h"
 #include "window/statusbar.h"
 
 #include <string.h>

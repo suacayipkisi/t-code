@@ -15,7 +15,7 @@
 
 #include "editor_page.h"
 #include "util.h"
-#include "lsp/hierarchy.c" /* its panel, against the fake server */
+#include "lsp/symbols/hierarchy.c" /* its panel, against the fake server */
 #include "fake_server.h"
 
 /* Editors ------------------------------------------------------------------------------------ */
