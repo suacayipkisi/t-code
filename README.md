@@ -77,8 +77,8 @@ sudo snap install --dangerous ./t-code_0.4.0_amd64.snap  # Snap (strict confinem
 ```
 
 The package manager pulls in clangd, git and the Cascadia Code font (Void has no Cascadia Code:
-the system's monospace font is used). The **AppImage** bundles t-code with its libraries and takes
-`clangd` and `git` from the system. An AUR recipe is in `packaging/aur/` (`makepkg -si`). The
+the system's monospace font is used). Releases no longer include an AppImage (`packaging/appimage.sh`
+still builds one by hand). An AUR recipe is in `packaging/aur/` (`makepkg -si`). The
 sandboxes' limits: [Flatpak](packaging/flatpak/README.md), [Snap](packaging/snap/README.md).
 Building the packages yourself: [docs/packaging.md](docs/packaging.md).
 

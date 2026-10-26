@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds packages under packaging/packages/<distro>/ and collects release artifacts.
-# Usage: packaging/build.sh [fedora|arch|aur|debian|void|void-musl|appimage|flatpak|snap|all]...
+# Usage: packaging/build.sh [fedora|arch|aur|debian|void|void-musl|flatpak|snap|all]...
 # (default: all). packaging/test.sh installs native packages in fresh containers and smoke-tests
 # sandboxed formats through their format-specific launchers.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -63,14 +63,6 @@ build_debian() {
   rm -f "$out/t-code-$VERSION.tar.gz"
 }
 
-build_appimage() {
-  local out="$OUT/appimage"
-  rm -rf "$out" && make_tarball "$out"
-  info "Building the AppImage in ${IMAGE[appimage]}"
-  run_in_container appimage "$out" bash /src/packaging/appimage/build-in-container.sh
-  rm -f "$out/t-code-$VERSION.tar.gz"
-}
-
 # Installable release packages, plus Snapcraft provenance; source/debug packages stay out.
 collect_release() {
   local release="$OUT/release" files=()
@@ -80,7 +72,6 @@ collect_release() {
            "$OUT/debian/t-code_$VERSION-"[0-9]*_amd64.deb \
            "$OUT/void/t-code-${VERSION}_"[0-9]*.x86_64.xbps \
            "$OUT/void-musl/t-code-${VERSION}_"[0-9]*.x86_64-musl.xbps \
-           "$OUT/appimage/t-code-$VERSION-x86_64.AppImage" \
            "$OUT/flatpak/t-code-$VERSION-"*.flatpak \
            "$OUT/snap/t-code_${VERSION}_amd64.snap"; do
     [[ -f "$f" ]] && files+=("$f")
@@ -112,17 +103,16 @@ for distro in "${targets[@]}"; do
   case "$distro" in
     fedora | arch | aur | debian) "build_$distro" ;;
     void | void-musl) build_void "$distro" ;;
-    appimage) build_appimage ;;
     flatpak) build_flatpak ;;
     snap) build_snap ;;
-    *) die "Unknown target '$distro' (fedora, arch, aur, debian, void, void-musl, appimage, flatpak, snap or all)" ;;
+    *) die "Unknown target '$distro' (fedora, arch, aur, debian, void, void-musl, flatpak, snap or all)" ;;
   esac
 done
 collect_release
 info "Packages (t-code $VERSION):"
 find "$OUT" -path "$OUT/release" -prune -o -type f \
   \( -name '*.rpm' -o -name '*.pkg.tar.*' -o -name '*.deb' -o -name '*.xbps' \
-     -o -name '*.AppImage' -o -name '*.flatpak' -o -name '*.snap' \) \
+     -o -name '*.flatpak' -o -name '*.snap' \) \
   -print | sort | sed "s|^$ROOT/|  |"
 info "To publish (packaging/packages/release/):"
 ls "$OUT/release" | sed 's|^|  |'

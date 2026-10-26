@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installs native packages in fresh distro containers and smoke-tests sandboxed formats through
 # their format-specific launchers.
-# Usage: packaging/test.sh [fedora|arch|aur|debian|void|void-musl|appimage|flatpak|snap|all]...
+# Usage: packaging/test.sh [fedora|arch|aur|debian|void|void-musl|flatpak|snap|all]...
 # (default: all)
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -18,11 +18,6 @@ declare -A INSTALL=(
   ["debian"]='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
             $(ls /out/t-code_$VERSION-[0-9]*_amd64.deb) xvfb dbus python3
             procps desktop-file-utils'
-  # The AppImage takes the display client and font libraries from the host (every desktop has them).
-  ["appimage"]='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
-              xvfb dbus python3 procps desktop-file-utils clangd git file binutils libglib2.0-bin
-              libwayland-client0 libwayland-egl1 libwayland-cursor0 libx11-6 libx11-xcb1 libxcb1
-              libfontconfig1 libfreetype6 libharfbuzz0b fonts-dejavu-core'
   # A local repository: xbps installs from repositories only, not from a package file.
   ["void"]='xbps-install -Syu xbps && xbps-install -Syu && mkdir -p /tmp/repo &&
           cp /out/t-code-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&
@@ -41,19 +36,11 @@ test_distro() {
   local distro=$1 out="$OUT/$1"
   compgen -G "$out/*t-code*" >/dev/null || die "No $distro package in $out, run packaging/build.sh $distro"
   info "Testing the $distro package in a fresh ${IMAGE[$distro]}"
-  if [[ "$distro" == "appimage" ]]; then
-    run_in_container "$distro" "$out" bash -c "
-      set -euo pipefail
-      { ${INSTALL[appimage]//$'\n'/ }; } >/tmp/install.log 2>&1 || { tail -40 /tmp/install.log; exit 1; }
-      useradd -m tester
-      runuser -u tester -- env VERSION=$VERSION bash /src/packaging/appimage/smoke-test.sh /out/t-code-$VERSION-x86_64.AppImage"
-  else
-    run_in_container "$distro" "$out" bash -c "
-      set -euo pipefail
-      { ${INSTALL[$distro]//$'\n'/ }; } >/tmp/install.log 2>&1 || { tail -40 /tmp/install.log; exit 1; }
-      useradd -m tester
-      runuser -u tester -- env VERSION=$VERSION NO_FONT_PACKAGE=${NO_FONT[$distro]:-} bash /src/packaging/smoke-test.sh"
-  fi
+  run_in_container "$distro" "$out" bash -c "
+    set -euo pipefail
+    { ${INSTALL[$distro]//$'\n'/ }; } >/tmp/install.log 2>&1 || { tail -40 /tmp/install.log; exit 1; }
+    useradd -m tester
+    runuser -u tester -- env VERSION=$VERSION NO_FONT_PACKAGE=${NO_FONT[$distro]:-} bash /src/packaging/smoke-test.sh"
 }
 
 test_flatpak() {
@@ -78,10 +65,9 @@ failed=()
 for distro in "${targets[@]}"; do
   case "$distro" in
     fedora | arch | aur | debian | void | void-musl) test_distro "$distro" || failed+=("$distro") ;;
-    appimage) test_distro appimage || failed+=("appimage") ;;
     flatpak) test_flatpak || failed+=("flatpak") ;;
     snap) test_snap || failed+=("snap") ;;
-    *) die "Unknown target '$distro' (fedora, arch, aur, debian, void, void-musl, appimage, flatpak, snap or all)" ;;
+    *) die "Unknown target '$distro' (fedora, arch, aur, debian, void, void-musl, flatpak, snap or all)" ;;
   esac
 done
 ((${#failed[@]} == 0)) || die "Failed: ${failed[*]}"

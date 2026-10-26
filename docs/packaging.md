@@ -18,8 +18,9 @@ packaging/test.sh aur flatpak      # choose package tests
 ```
 
 Artifacts land in `packaging/packages/<format>/`; the release directory contains installable RPM,
-Arch, DEB, XBPS, AppImage, Flatpak and Snap files, Snapcraft build/dependency provenance, and a
-combined `SHA256SUMS`. The AUR build artifact is validated but is not attached as a release package;
+Arch, DEB, XBPS, Flatpak and Snap files, Snapcraft build/dependency provenance, and a
+combined `SHA256SUMS`. The AppImage is not part of the release any more; `packaging/appimage.sh` builds
+one by hand. The AUR build artifact is validated but is not attached as a release package;
 publish the recipe separately to AUR after account/repository setup.
 On Fedora, the RPM is built directly with `rpmbuild`; install its build dependencies once with
 `sudo dnf install rpm-build dnf-plugins-core && sudo dnf builddep packaging/fedora/t-code.spec`.

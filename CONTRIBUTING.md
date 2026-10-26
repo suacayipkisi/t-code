@@ -108,7 +108,7 @@ clang-format -i $(git ls-files 'src/*.c' 'src/*.h')
 
 ## 5. Packaging Guidelines
 
-T-Code packages are distributed in multiple formats (Native packages for Fedora/Arch/Debian/Void, AppImage, Flatpak, Snap, AUR).
+T-Code packages are distributed in multiple formats (Native packages for Fedora/Arch/Debian/Void, Flatpak, Snap, AUR).
 * **Subprocess Safety:** T-Code spawns developer tools (terminal shells, `clangd`, `gcc`, `make`, `gdb`, `git`). Packaging scripts must **never** export a blanket `LD_LIBRARY_PATH` that could poison or break system compilers in the embedded terminal. RPATH (`$ORIGIN`) isolation must be preserved.
 * Test packaging changes using `packaging/build.sh <format>` and `packaging/test.sh <format>`.
 
@@ -163,7 +163,8 @@ tests/               make test: editing, the language server client (with a fake
 tools/               measuring memory and CPU: the running process tree, a headless t-code, clangd
 desktop/             app menu entry template and the app icon
 packaging/           install.sh, uninstall.sh, build.sh, test.sh: Fedora, Arch, AUR, Debian, Void
-                     Linux, Flatpak, Snap and AppImage packages, built into packaging/packages/
+                     Linux, Flatpak and Snap packages, built into packaging/packages/ (an AppImage
+                     by hand with appimage.sh)
 .clang-format        the code's style (2 spaces, 120 columns); clangd formats with it
 LICENSE
 Makefile             VERSION, make install; also writes build/compile_commands.json, so clangd
