@@ -13,7 +13,7 @@
 #include "editor/editorview.h"
 #include "editor/tabs.h"
 #include "git/gitstatus.h"
-#include "git/scm.h"
+#include "git/scm/scm.h"
 #include "lsp/client.h"
 #include "popups/picker.h"
 #include "project/session.h"

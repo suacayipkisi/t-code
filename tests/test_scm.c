@@ -1,4 +1,4 @@
-/* Tests for the Source Control panel (src/git/scm.c) and the git status that feeds it
+/* Tests for the Source Control panel (src/git/scm/) and the git status that feeds it
  * (src/git/gitstatus.c, included to reach poll_branch) when projects switch: nothing of the last project may stay in
  * a folder without git, in a repository without commits, or when git answers late. Uses real
  * repositories in a temporary folder; needs a display. */
@@ -14,7 +14,7 @@
 
 static int head_moves; /* diff_gutter_head_moved() calls */
 
-/* What scm.c and gitstatus.c call elsewhere in t-code. */
+/* What git/scm/ and gitstatus.c call elsewhere in t-code. */
 /* clang-format off */
 gboolean any_unsaved(App *t G_GNUC_UNUSED) { return FALSE; }
 void save_all(App *t, SavedFunc then, gpointer data) { then(t, data); }

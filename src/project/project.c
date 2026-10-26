@@ -13,7 +13,7 @@
 #include "editor/tabs.h"
 #include "files/files.h"
 #include "git/gitstatus.h"
-#include "git/scm.h"
+#include "git/scm/scm.h"
 #include "lsp/client.h"
 #include "project/session.h"
 #include "search/search.h"

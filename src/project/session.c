@@ -17,7 +17,7 @@
 #include "editor/preview.h"
 #include "editor/tabs.h"
 #include "files/opentabs.h"
-#include "git/scm.h"
+#include "git/scm/scm.h"
 #include "window/palette.h"
 #include "window/secondwindow.h"
 #include "window/terminal.h"

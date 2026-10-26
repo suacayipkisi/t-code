@@ -1,8 +1,8 @@
 VERSION := 0.3.2
 PKGS    := gtk4 gtksourceview-5 json-glib-1.0 vte-2.91-gtk4 gio-unix-2.0 md4c
 # t-code: src/main.c and the feature folders (src/window, src/editor, ...).
-APP_SRC := $(wildcard src/*.c src/*/*.c)
-APP_HDR := $(wildcard src/*.h src/*/*.h)
+APP_SRC := $(wildcard src/*.c src/*/*.c src/*/*/*.c)
+APP_HDR := $(wildcard src/*.h src/*/*.h src/*/*/*.h)
 TEST_SRC := $(wildcard tests/*.c)
 CFLAGS  ?= -O2 -g
 CFLAGS  += -Wall -Wextra -std=c23
@@ -89,8 +89,9 @@ build/test-debug: tests/test_debug.c tests/util.h $(DAP_SRC) src/debug/dap.h src
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o $@ tests/test_debug.c $(DAP_SRC) \
 	  $(shell pkg-config --libs json-glib-1.0 gio-2.0)
 
-build/test-scm: tests/test_scm.c tests/util.h src/git/scm.c src/git/gitstatus.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | build
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_scm.c src/git/scm.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c \
+SCM_SRC := $(wildcard src/git/scm/*.c)
+build/test-scm: tests/test_scm.c tests/util.h $(SCM_SRC) src/git/gitstatus.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | build
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_scm.c $(SCM_SRC) src/git/patch.c src/popups/contextmenu.c src/window/palette.c \
 	  $(shell pkg-config --libs $(PKGS))
 
 build/test-gitpatch: tests/test_gitpatch.c tests/util.h src/git/patch.c src/git/patch.h | build

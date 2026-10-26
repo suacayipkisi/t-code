@@ -19,7 +19,7 @@
 #include "files/fileops.h"
 #include "files/opentabs.h"
 #include "git/compare.h"
-#include "git/scm.h"
+#include "git/scm/scm.h"
 #include "ipc/socket.h"
 #include "lsp/navigate.h"
 #include "lsp/outline.h"

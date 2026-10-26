@@ -20,7 +20,7 @@
 #include "editor/tabs.h"
 #include "lsp/client.h"
 #include "lsp/completion.h"
-#include "git/scm.h"
+#include "git/scm/scm.h"
 #include "lsp/hierarchy.h"
 #include "lsp/navigate.h"
 #include "lsp/signature.h"

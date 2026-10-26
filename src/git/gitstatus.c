@@ -6,7 +6,7 @@
 
 #include "editor/diffgutter.h"
 #include "files/files.h"
-#include "git/scm.h"
+#include "git/scm/scm.h"
 #include "window/statusbar.h"
 
 #include <string.h>

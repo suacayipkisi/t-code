@@ -13,7 +13,7 @@
 #include "editor/snippets.h"
 #include "editor/tabs.h"
 #include "files/files.h"
-#include "git/scm.h"
+#include "git/scm/scm.h"
 #include "ipc/socket.h"
 #include "popups/picker.h"
 #include "project/project.h"
