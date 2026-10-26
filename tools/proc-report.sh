@@ -49,7 +49,7 @@ done
   END { printf "%-18s %22.1f %17.1f   (CPU: %% of one core over %ss)\n", "total", pss / 1024, cpu * 100 / hz / s, s }'
 
 echo
-for p in $(pgrep -P "$root" -f '^clangd ' || true); do
+for p in $(pgrep -P "$root" -f '^(/[^ ]*/)?clangd ' || true); do
   if tr '\0' '\n' < "/proc/$p/environ" | grep -q 'arena_max='; then
     echo "clangd $p: malloc arenas limited ($(tr '\0' '\n' < "/proc/$p/environ" | grep -o 'arena_max=[0-9]*'))"
   else

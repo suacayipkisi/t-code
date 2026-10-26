@@ -47,15 +47,15 @@ sleep 2
 (cd "$project" && exec dbus-run-session -- "$TCODE_BIN" "$project"/{a,b,c,d}.c "$project/main.c") > /tmp/t-code.log 2>&1 &
 app=$!
 # clangd starts when the shown C file has loaded; give it time. (clangd names its main thread
-# "clangd.main", so it is found by its command line.)
-for _ in $(seq 30); do pgrep -u "$USER" -f '^clangd ' >/dev/null && break; sleep 1; done
+# "clangd.main", so it is found by its command line: "clangd ..." or, found on PATH, "/usr/bin/clangd ...".)
+for _ in $(seq 30); do pgrep -u "$USER" -f '^(/[^ ]*/)?clangd ' >/dev/null && break; sleep 1; done
 
 tcode=$(pgrep -u "$USER" -x "${TCODE_PROCESS_NAME:-t-code}" | head -1)
 check "t-code is running" test -n "$tcode"
-check "clangd started" pgrep -u "$USER" -f '^clangd '
-check "one clangd for all five editors" test "$(pgrep -u "$USER" -fc '^clangd ')" -eq 1
+check "clangd started" pgrep -u "$USER" -f '^(/[^ ]*/)?clangd '
+check "one clangd for all five editors" test "$(pgrep -u "$USER" -fc '^(/[^ ]*/)?clangd ')" -eq 1
 check "clangd runs with 2 malloc arenas" \
-  sh -c "tr '\\0' '\\n' < /proc/\$(pgrep -u $USER -f '^clangd ' | head -1)/environ | grep -q arena_max=2"
+  sh -c "tr '\\0' '\\n' < /proc/\$(pgrep -u $USER -f '^(/[^ ]*/)?clangd ' | head -1)/environ | grep -q arena_max=2"
 check "control socket created" sh -c "ls $XDG_RUNTIME_DIR/t-code-*.sock"
 # The Markdown preview: rendered natively in-process (no WebKit process).
 printf '# Notes\n\nhello\n' > "$project/README.md"

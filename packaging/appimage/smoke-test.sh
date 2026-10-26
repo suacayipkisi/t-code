@@ -104,14 +104,14 @@ git -C "$project" init -q
 app_pid=$!
 
 # Wait for clangd to start
-for _ in $(seq 30); do pgrep -u "$USER" -f '^clangd ' >/dev/null && break; sleep 1; done
+for _ in $(seq 30); do pgrep -u "$USER" -f '^(/[^ ]*/)?clangd ' >/dev/null && break; sleep 1; done
 
 tcode_pid=$(pgrep -u "$USER" -x t-code | head -1)
 check "t-code AppImage process is running" test -n "$tcode_pid"
-check "clangd started by AppImage" pgrep -u "$USER" -f '^clangd '
-check "one clangd for all five editors" test "$(pgrep -u "$USER" -fc '^clangd ')" -eq 1
+check "clangd started by AppImage" pgrep -u "$USER" -f '^(/[^ ]*/)?clangd '
+check "one clangd for all five editors" test "$(pgrep -u "$USER" -fc '^(/[^ ]*/)?clangd ')" -eq 1
 check "clangd runs with 2 malloc arenas" \
-  sh -c "tr '\\0' '\\n' < /proc/\$(pgrep -u $USER -f '^clangd ' | head -1)/environ | grep -q arena_max=2"
+  sh -c "tr '\\0' '\\n' < /proc/\$(pgrep -u $USER -f '^(/[^ ]*/)?clangd ' | head -1)/environ | grep -q arena_max=2"
 check "control socket created" sh -c "ls $XDG_RUNTIME_DIR/t-code-*.sock"
 
 # Markdown preview test
