@@ -1,6 +1,6 @@
 pkgbase = t-code
 	pkgdesc = Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell
-	pkgver = 0.3.2
+	pkgver = 0.4.0
 	pkgrel = 1
 	url = https://github.com/suacayipkisi/t-code
 	arch = x86_64
@@ -18,7 +18,7 @@ pkgbase = t-code
 	depends = hicolor-icon-theme
 	optdepends = ripgrep: faster Search panel (falls back to grep)
 	optdepends = gdb: the debugger (F5)
-	source = t-code-0.3.2.tar.gz::https://github.com/suacayipkisi/t-code/archive/refs/tags/v0.3.2.tar.gz
+	source = t-code-0.4.0.tar.gz::https://github.com/suacayipkisi/t-code/archive/refs/tags/v0.4.0.tar.gz
 	sha256sums = bdcff6ddc16314df3ddddd3064f09415907d87106d7d8a35a3d63a5f3c654fde
 
 pkgname = t-code

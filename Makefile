@@ -1,4 +1,4 @@
-VERSION := 0.3.2
+VERSION := 0.4.0
 PKGS    := gtk4 gtksourceview-5 json-glib-1.0 vte-2.91-gtk4 gio-unix-2.0 md4c
 # t-code: src/main.c and the feature folders (src/window, src/editor, ...).
 APP_SRC := $(wildcard src/*.c src/*/*.c src/*/*/*.c)

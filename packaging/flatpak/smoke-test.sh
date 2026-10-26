@@ -20,7 +20,7 @@ if [[ "${1:-}" == --session ]]; then
   exit
 fi
 if (($# != 1)); then
-  echo "Usage: bash packaging/flatpak/smoke-test.sh /absolute/path/t-code-0.3.2-ARCH.flatpak" >&2
+  echo "Usage: bash packaging/flatpak/smoke-test.sh /absolute/path/t-code-0.4.0-ARCH.flatpak" >&2
   exit 2
 fi
 if ((EUID == 0)); then

@@ -1,5 +1,5 @@
 Name:           t-code
-Version:        0.3.2
+Version:        0.4.0
 Release:        1%{?dist}
 Summary:        Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell
 License:        MIT
@@ -57,6 +57,21 @@ build/test-linediff
 %{_datadir}/icons/hicolor/scalable/apps/io.github.tcode.svg
 
 %changelog
+* Mon Oct 26 2026 suacayipkisi <konuki8523@gmail.com> - 0.4.0-1
+- Multiple cursors (add next occurrence, column selection, Alt+Click)
+- Replace across the project, with a preview
+- Snippets, built in and the user's own
+- Inlay hints (hold Ctrl+Alt to turn them the other way)
+- Outline panel, breadcrumbs, call and type hierarchy
+- Git: switch and create branches, pull and fetch, stash
+- Git: line blame, merge conflict accept links, hunk staging in the picker
+- Git: comparisons show only the changes; commit message kept and recalled
+- Language servers: JavaScript / TypeScript, JSON, YAML, Markdown, CMake
+- Language servers: quick fixes in the hover, progress in the status bar, stop when idle
+- Menu bar in the title bar, ruler column, Markdown preview scale
+- Python interpreter and Cargo features / target picking
+- Fixes: socket clients, recovery journal, Problems panel, AppImage libraries
+
 * Sat Oct 24 2026 suacayipkisi <konuki8523@gmail.com> - 0.3.2-1
 - Fix release URL launcher from update dialog
 - Fix compile_commands.json string quote escaping for clangd

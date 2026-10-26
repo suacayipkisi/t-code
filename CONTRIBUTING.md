@@ -86,13 +86,15 @@ clang-format -i $(git ls-files 'src/*.c' 'src/*.h')
 * **English only** in code: comments, identifiers, log messages, commit messages.
 * **Naming:** types and enums `PascalCase`, enum constants `UPPER_SNAKE_CASE`, functions, variables
   and struct fields `snake_case`; GObject types are `Tcode<Name>`.
-* **One module = one `.c` with a `.h` next to it** in its feature's folder (`src/editor/`,
-  `src/lsp/`, ...). The `.h` documents what other modules may call; everything else is `static`.
-  The `.c` includes its own header first.
-* **GLib-only modules stay GLib-only** (`editor/detect.c`, `editor/indentconf.c`,
+* **Modules:** each is `src/<area>/<name>.c` (a big one a folder, `src/<area>/<name>/`) with a
+  header documenting what other modules may call; one header may serve several `.c` files, and a
+  folder's internal header (`state.h`, `docks.h`, `panel.h`, `runner.h`) is included only by its
+  own files. Everything else is `static`. A `.c` includes its own header first, others by their
+  path under `src/`.
+* **GLib-only modules stay GLib-only** (`editor/text/{detect,indentconf,blocks}.c`,
   `git/linediff.c`, `git/patch.c`, `search/searchmatch.c`, `lsp/compiledb.c`, `lsp/json.c`,
-  `debug/dap.c`, `files/{fileops,folder,gitmarks,icons}.c`): they are tested without a display
-  and under ASan.
+  `debug/dap.c`, `project/langenv.c`, `files/{fileops,folder,gitmarks,icons}.c`): they are tested
+  without a display and under ASan.
 * **Low memory is the point of t-code:** long-lived code frees everything per tab and per
   document, and async answers that can arrive after a tab is gone must not touch it (cancellables,
   tokens, or looking the tab up again). Measure with `tools/` instead of guessing.
@@ -117,51 +119,52 @@ Thank you for helping make T-Code better!
 ## 6. Source Layout
 
 ```
-src/                 t-code, the window (src/app.h: the shared types and a map of the folders;
-                     every .c file has a .h next to it with what it offers the others)
-  main.c             start and quit: the command line, the application, signals
-  window/            the window: layout and panes (window.c), where its data is (paths.c),
-                     theme, terminals and Ctrl+click on compiler messages (terminal.c), the status
-                     bar, every command: shortcuts, palette and Keybinds list (commands.c)
-  editor/            editor tabs and the two groups (tabs.c), opening, saving, autosave and closing
-                     (editor.c), the page with the minimap and its look (editorview.c), editing
-                     commands and typing help (editing.c), the find bar (findbar.c), indent guides
-                     (guides.c), the selection highlight (occurrences.c), the git diff gutter
-                     (diffgutter.c), a file's indentation and language (detect.c), what
-                     .editorconfig and .clang-format say about it (indentconf.c); markdown preview
-                     (preview.c), crash recovery (recovery.c)
-  lsp/               the language servers: the client and each server's lifetime (client.c, over
-                     channel.c), diagnostics and the Problems panel (diagnostics.c, problems.c), hover,
-                     completion, parameter hints (signature.c), definition / references / rename / format
-                     (navigate.c, edits.c), colors by meaning (semantic.c), finding the compile database (compiledb.c)
-  plugins/           plugins: finding their manifests, palette commands and shortcuts, running them (plugins.c)
-  search/            the Search tab, Ctrl+Shift+F (ripgrep); searchmatch.c is its GLib-only part
-  git/               the Source Control tab (scm.c), per-hunk patches (patch.c), git status in the
-                     background (gitstatus.c), comparing with HEAD or history (compare.c), line
-                     differences for the gutter (linediff.c)
-  popups/            the popup list (picker.c) used by Ctrl+P (quickopen.c), the palette, history,
-                     references and rename
+src/                 t-code (src/app.h: struct App and struct Tab, the shared state)
+  main.c             only main()
+  application/       the GTK application and signals (application.c), the command line (cli.c)
+  window/            building and closing the window (window.c), the menu bar and title bar
+                     (titlebar.c), the docks (docks/), terminals, the status bar, every command:
+                     shortcuts, palette and Keybinds list (commands.c), theme, palette colors
+  editor/            tabs and the two groups (tabs.c, tabmenu.c), opening, saving, autosave
+                     (editor.c), the page with the minimap (editorview.c), crash recovery;
+                     gutter/ (diff gutter, breakpoints, folding), decor/ (indent guides, sticky
+                     scroll, breadcrumbs, occurrences, line blame, merge conflicts), editing/
+                     (editing commands, multiple cursors, snippets, the find bar), text/ (GLib-only:
+                     a file's indentation and language, .editorconfig / .clang-format, blocks),
+                     preview/ (the Markdown preview)
+  lsp/               the language servers: the client (client/), which file gets which server
+                     (servers.c), the channel, the Problems panel, the install helper; inline/
+                     (diagnostics, hover, completion, signature, inlay hints, semantic colors),
+                     symbols/ (symbols, Outline, call / type hierarchy, navigation, edits)
+  debug/             the DAP client (dap.c), the session and Debug panel (debugger.c), the Run and
+                     Debug panel (view/), debug hover, disassembly
+  git/               the Source Control panel (scm/: status, staging, commit, branches, stash,
+                     Commits), git status in the background (gitstatus.c), comparisons and history
+                     (compare.c), line differences (linediff.c), per-hunk patches (patch.c)
+  files/             the Files panel (files.c, rows.c, actions.c), Open Tabs; GLib/GIO-only
+                     folder.c, fileops.c, gitmarks.c, icons.c
+  search/            the Search panel, project-wide replace; searchmatch.c is its GLib-only part
+  popups/            the picker, quick open, context menus
   dialogs/           the Settings, Keyboard Shortcuts and About windows
-  project/           switching folders (project.c), remembering the window and tabs (session.c),
-                     build, run, test and project tasks (run.c)
-  files/             the Files panel (files.c): a folder's entries read and watched (folder.c), file
-                     operations (fileops.c), git colors (gitmarks.c), file icons (icons.c)
-  update/            the new-release check: GitHub's latest release against this one (update.c)
+  project/           switching folders, the session, user files, build / run / tasks (run/), Python
+                     and Rust toolchains, langenv.c (GLib-only)
+  plugins/           plugins: manifests, palette commands and shortcuts, running them
+  update/            the new-release check
   ipc/               requests from scripts and tools over $TCODE_SOCKET (socket.c)
 styles/              the editor's colors: Dark Classic as a GtkSourceView style scheme
+snippets/            the built-in snippets
 plugins/             word-count, an example plugin (found when t-code runs from the source tree)
-docs/                plugins.md (manifest and socket protocol), tasks.md, memory.md, screenshots
-tests/               make test: editing and the find bar, the language server client (with a fake
-                     server), detect.c and indentconf.c, linediff.c, searchmatch.c, the Files panel
-                     and its GIO half, the Search panel, Source Control and hunk patches, tabs in a
-                     whole window, About, plugins, the update check and crash recovery; make
-                     test-asan: the ones without a display, plus plugins, update and recovery, under ASan
+docs/                features.md, plugins.md (manifest and socket protocol), tasks.md, memory.md,
+                     performance.md, packaging.md, screenshots
+tests/               make test: editing, the language server client (with a fake server), the
+                     debugger, search, the Files panel, Source Control, a whole window, plugins,
+                     the update check, crash recovery and the GLib-only modules; make test-asan:
+                     the ones without a display under ASan
 tools/               measuring memory and CPU: the running process tree, a headless t-code, clangd
 desktop/             app menu entry template and the app icon
-packaging/           install.sh, uninstall.sh, build.sh, test.sh: Fedora (fedora/t-code.spec), Arch
-                     (arch/PKGBUILD), AUR, Debian (debian/debian/), Void Linux (void/), Flatpak,
-                     Snap and AppImage packages, built into packaging/packages/ (not in git)
-.clang-format        the code's style (2 spaces); clangd formats with it
+packaging/           install.sh, uninstall.sh, build.sh, test.sh: Fedora, Arch, AUR, Debian, Void
+                     Linux, Flatpak, Snap and AppImage packages, built into packaging/packages/
+.clang-format        the code's style (2 spaces, 120 columns); clangd formats with it
 LICENSE
 Makefile             VERSION, make install; also writes build/compile_commands.json, so clangd
                      understands this code

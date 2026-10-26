@@ -2,7 +2,7 @@
 
 A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) and other color themes.
 
-### Jump => [Latest Release v0.3.2](https://github.com/suacayipkisi/t-code/releases/tag/v0.3.2) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md)
+### Jump => [Latest Release v0.4.0](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.0) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md)
 
 ![t-code 0.3 in the Dark Classic color theme with the rounded look](docs/dark_classic-rounded.png)
 
@@ -10,10 +10,12 @@ A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) 
 
 <sub>t-code 0.3: Dark Classic, rounded (top) and Dark Classic, square (bottom).</sub>
 
-**New in 0.3.2:** fixes for the update release URL launcher and clangd compile command flag escaping.
-**0.3.1** added language servers for Python, Go and Rust, plugins, the Problems panel, project
-tasks, crash recovery and Flatpak / Snap / AUR / AppImage packages; **0.3** the debugger, quick
-fixes, folding, sticky scroll and color themes. **Next (0.4):** terminals as tabs in the shell panel.
+**New in 0.4.0:** multiple cursors, replace across the project, snippets, inlay hints, Outline and call / type
+hierarchy, and in git: branches, pull / fetch, stash, line blame and merge conflict buttons; more
+language servers (JavaScript / TypeScript, JSON, YAML, Markdown, CMake). **0.3.1** added language
+servers for Python, Go and Rust, plugins, the Problems panel, project tasks, crash recovery and Flatpak / Snap / AUR / AppImage packages; **0.3** the debugger, quick
+fixes, folding, sticky scroll and color themes. **Next (0.5):** a test panel and terminals as tabs in
+the shell panel.
 
 ## What it has
 
@@ -21,16 +23,18 @@ One window, one process (besides its language servers, your shell and plugins): 
 Source Control, Search and Run and Debug on the left, editor tabs in the middle, your shell and
 the Problems panel at the bottom. Every panel can be dragged to another dock.
 
-- **Editing** without modes, plus completion, parameter hints, go to definition, references,
-  rename, format, quick fixes (also as buttons on a problem), folding, sticky scroll, colors by
-  meaning, find and replace, a minimap and the git diff gutter.
+- **Editing** without modes, plus multiple cursors, snippets, completion, parameter hints, inlay
+  hints, go to definition, references, rename, format, quick fixes (also as buttons on a problem),
+  folding, sticky scroll, breadcrumbs, colors by meaning, find and replace, a minimap and the git
+  diff gutter; the Outline panel and call / type hierarchy.
 - **Debugging** with gdb (`F5`): breakpoints (with conditions), stepping, variables, watch, call
   stack, values under the pointer, disassembly.
 - **Build, Run and Test** in the shell: CMake, Meson, Make or a single C/C++ file; Cargo, Go, Node,
   Maven, Gradle, Python and scripts; or your own [project tasks](docs/tasks.md).
-- **Git**: Source Control panel (commit, push, stage hunks), compare with HEAD or a commit from the
-  file's history, git colors in the Files panel.
-- **Search** across files (ripgrep), a split editor, a second window, a native Markdown preview,
+- **Git**: Source Control panel (commit, push, pull, stage hunks), branches, stash, line blame,
+  merge conflict buttons, compare with HEAD or a commit from the file's history, git colors in the
+  Files panel.
+- **Search and replace** across files (ripgrep), a split editor, a second window, a native Markdown preview,
   crash recovery, autosave, [plugins](docs/plugins.md), color themes and Settings.
 
 Everything in detail, with the full key table: **[docs/features.md](docs/features.md)**.
@@ -61,15 +65,15 @@ files. More in [docs/features.md](docs/features.md#the-editor).
 
 `t-code --version` prints the installed version.
 
-### Packages ([latest release](https://github.com/suacayipkisi/t-code/releases/tag/v0.3.2), x86_64)
+### Packages ([latest release](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.0), x86_64)
 
 ```sh
-sudo dnf install ./t-code-0.3.2-1.fc44.x86_64.rpm        # Fedora 44
-sudo pacman -U t-code-0.3.2-1-x86_64.pkg.tar.zst         # Arch Linux
-sudo apt install ./t-code_0.3.2-1_amd64.deb              # Debian 13
-xbps-rindex -a t-code-0.3.2_1.x86_64.xbps && sudo xbps-install --repository="$PWD" t-code   # Void (or x86_64-musl)
-flatpak install --user ./t-code-0.3.2-x86_64.flatpak     # Flatpak
-sudo snap install --dangerous ./t-code_0.3.2_amd64.snap  # Snap (strict confinement)
+sudo dnf install ./t-code-0.4.0-1.fc44.x86_64.rpm        # Fedora 44
+sudo pacman -U t-code-0.4.0-1-x86_64.pkg.tar.zst         # Arch Linux
+sudo apt install ./t-code_0.4.0-1_amd64.deb              # Debian 13
+xbps-rindex -a t-code-0.4.0_1.x86_64.xbps && sudo xbps-install --repository="$PWD" t-code   # Void (or x86_64-musl)
+flatpak install --user ./t-code-0.4.0-x86_64.flatpak     # Flatpak
+sudo snap install --dangerous ./t-code_0.4.0_amd64.snap  # Snap (strict confinement)
 ```
 
 The package manager pulls in clangd, git and the Cascadia Code font (Void has no Cascadia Code:

@@ -12,7 +12,7 @@ split between the processes, so the rows add up):
 
 * **t-code's own window**: about 57–83 MB in Fedora's runs (70 MB for 0.3)
 * **clangd**: usually the biggest when C / C++ files are open, 345–367 MB in Fedora's runs *with
-  25 of this repository's files open*, and nothing at all when none is open (`lsp/client.c` stops
+  25 of this repository's files open*, and nothing at all when none is open (`lsp/client/` stops
   it 30 seconds after its last file closes). Since 0.3.1, `pylsp`, `gopls` and `rust-analyzer` show
   up as their own rows the same way, and so do `typescript-language-server` (with the `tsserver`
   it runs under node), the JSON and YAML servers (node) and `marksman`. The JSON server is given no
