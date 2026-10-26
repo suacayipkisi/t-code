@@ -25,7 +25,7 @@
 #include "lsp/outline.h"
 #include "lsp/symbols.h"
 #include "popups/contextmenu.h"
-#include "project/run.h"
+#include "project/run/run.h"
 #include "project/session.h"
 #include "project/toolchain.h"
 #include "project/userfiles.h"

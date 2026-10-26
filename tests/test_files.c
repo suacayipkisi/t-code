@@ -1,11 +1,13 @@
 /*
- * Tests for the Files panel (src/files/files.c, included for its static functions) on a temporary
+ * Tests for the Files panel (src/files/files.c, rows.c and actions.c, included for their static functions) on a temporary
  * project: the tree's order, opening files (temporary tabs), folders read only once open and freed when closed, watched folders
  * (but not build output) updating by themselves, open folders kept
  * when the tree is read again, new files revealed and opened, moving into a folder, dotfiles and git
  * colors. Needs a display; skipped without one.
  */
+#include "files/actions.c"
 #include "files/files.c"
+#include "files/rows.c"
 #include "util.h"
 
 #include <glib/gstdio.h>
@@ -136,7 +138,7 @@ static void set_open(const char *name, gboolean open)
 
   g_assert_nonnull(row);
   gtk_tree_list_row_set_expanded(row, open);
-  load(row); /* what a shown row's notify::expanded does */
+  files_load(row); /* what a shown row's notify::expanded does */
   g_object_unref(row);
 }
 
@@ -233,12 +235,12 @@ static void test_read_again(void)
   assert_rows("build/ | src/ |  lib/ |  util.c | .clang-format | main.c | Makefile | README.md");
   set_open("lib", TRUE);
   assert_rows("build/ | src/ |  lib/ |   deep.c |  util.c | .clang-format | main.c | Makefile | README.md");
-  reveal(deep = g_build_filename(app.project.root, "src/lib/deep.c", NULL));
+  files_show_path(deep = g_build_filename(app.project.root, "src/lib/deep.c", NULL));
   g_free(deep);
   wanted_selection = "deep.c";
   g_assert_true(wait_for(selection_is));
 
-  build_tree(TRUE);
+  files_build_tree(TRUE);
   assert_rows("build/ | src/ |  lib/ |   deep.c |  util.c | .clang-format | main.c | Makefile | README.md");
   g_assert_true(wait_for(selection_is));
   forget_project();
@@ -275,8 +277,8 @@ static void test_cut_paste(void)
   main_c = g_build_filename(app.project.root, "main.c", NULL);
   src = g_build_filename(app.project.root, "src", NULL);
 
-  clip(main_c, TRUE);
-  paste(src);
+  files_clip(main_c, TRUE);
+  files_paste(src);
   g_assert_null(files.clip); /* a cut file is pasted once */
   wanted_selection = "main.c";
   g_assert_true(wait_for(selection_is));
@@ -284,8 +286,8 @@ static void test_cut_paste(void)
 
   g_free(main_c);
   main_c = g_build_filename(app.project.root, "src/main.c", NULL);
-  clip(main_c, FALSE);
-  paste(main_c); /* onto a file: into its folder */
+  files_clip(main_c, FALSE);
+  files_paste(main_c); /* onto a file: into its folder */
   wanted_selection = "main copy.c";
   g_assert_true(wait_for(selection_is));
   g_free(main_c);
@@ -302,19 +304,19 @@ static void test_open(void)
   project();
   assert_rows("build/ | src/ | .clang-format | main.c | Makefile | README.md");
   row = row_named("main.c");
-  activate_row(row, FALSE);
+  files_activate_row(row, FALSE);
   g_assert_true(g_str_has_prefix(opened, "temporary ") && g_str_has_suffix(opened, "/main.c"));
-  activate_row(row, TRUE);
+  files_activate_row(row, TRUE);
   g_assert_true(g_str_has_prefix(opened, "open ") && g_str_has_suffix(opened, "/main.c"));
   g_object_unref(row);
   row = row_named("README.md");
-  activate_row(row, FALSE);
+  files_activate_row(row, FALSE);
   g_assert_true(g_str_has_prefix(opened, "open ") && g_str_has_suffix(opened, "/README.md"));
   g_object_unref(row);
 
   g_clear_pointer(&opened, g_free);
   row = row_named("src");
-  activate_row(row, FALSE);
+  files_activate_row(row, FALSE);
   g_assert_true(gtk_tree_list_row_get_expanded(row));
   g_assert_null(opened);
   g_object_unref(row);
@@ -343,7 +345,7 @@ static void test_rows_not_activatable(void)
 {
   GtkListItem *item = g_object_new(GTK_TYPE_LIST_ITEM, NULL);
 
-  setup_row(NULL, item, NULL);
+  files_setup_row(NULL, item, NULL);
   g_assert_false(gtk_list_item_get_activatable(item));
   g_object_unref(item);
 }

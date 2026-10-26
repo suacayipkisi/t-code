@@ -17,7 +17,7 @@
 #include "lsp/client.h"
 #include "popups/picker.h"
 #include "project/session.h"
-#include "project/run.h"
+#include "project/run/run.h"
 #include "window/palette.h"
 
 #include <stdlib.h>

@@ -28,7 +28,7 @@
 #include "popups/picker.h"
 #include "popups/quickopen.h"
 #include "project/project.h"
-#include "project/run.h"
+#include "project/run/run.h"
 #include "project/toolchain.h"
 #include "project/userfiles.h"
 #include "update/update.h"

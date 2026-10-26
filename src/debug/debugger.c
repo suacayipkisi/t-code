@@ -22,7 +22,7 @@
 #include "editor/editor.h"
 #include "lsp/json.h"
 #include "popups/picker.h"
-#include "project/run.h"
+#include "project/run/run.h"
 #include "project/session.h"
 #include "window/terminal.h"
 #include "window/window.h"

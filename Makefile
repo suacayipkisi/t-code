@@ -103,7 +103,7 @@ build/test-fileops: tests/test_fileops.c tests/util.h $(FILES_GIO) $(FILES_GIO:.
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags gio-2.0) -o $@ tests/test_fileops.c $(FILES_GIO) \
 	  $(shell pkg-config --libs gio-2.0)
 
-# The Files panel; tests/test_files.c includes src/files/files.c for its static functions.
+# The Files panel; tests/test_files.c includes src/files/files.c, rows.c and actions.c for their static functions.
 build/test-files: tests/test_files.c tests/util.h $(wildcard src/files/*.c) src/window/palette.c $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_files.c $(FILES_GIO) src/window/palette.c \
 	  $(shell pkg-config --libs $(PKGS))
