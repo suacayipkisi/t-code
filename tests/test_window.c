@@ -423,6 +423,29 @@ static gboolean has_tab(gconstpointer path)
   return find_tab(&app, TAB_EDITOR, path) != NULL;
 }
 
+/* A request read while the window closes is dropped: its groups and panels may be gone. */
+static void test_socket_while_closing(void)
+{
+  char *path = file("late.txt"), *request = g_strdup_printf("open %s\n", path);
+  GSocketClient *client = g_socket_client_new();
+  GSocketAddress *address = g_unix_socket_address_new(app.paths.socket);
+  GSocketConnection *conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
+
+  g_assert_nonnull(conn);
+  app.closing = TRUE;
+  g_assert_true(g_output_stream_write_all(g_io_stream_get_output_stream(G_IO_STREAM(conn)), request, strlen(request),
+                                          NULL, NULL, NULL));
+  run_for(200);
+  app.closing = FALSE;
+  g_assert_false(has_tab(path));
+  g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
+  g_object_unref(conn);
+  g_object_unref(address);
+  g_object_unref(client);
+  g_free(request);
+  g_free(path);
+}
+
 /* Requests on the control socket may end with NUL bytes instead of line breaks: a path may hold a
  * line break. */
 static void test_socket_requests(void)
@@ -2458,6 +2481,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/save-conflict", test_save_conflict);
   g_test_add_func("/window/recovery-journal", test_recovery_journal);
   g_test_add_func("/window/socket-requests", test_socket_requests);
+  g_test_add_func("/window/socket-while-closing", test_socket_while_closing);
   g_test_add_func("/window/socket-events", test_socket_events);
   g_test_add_func("/window/socket-stalled-subscriber", test_socket_stalled_subscriber);
   g_test_add_func("/window/update-check-now", test_update_check_now);

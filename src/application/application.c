@@ -95,6 +95,15 @@ static void on_open(GApplication *app, GFile **files, int n, const char *hint G_
     session_restore_tabs(t);
 }
 
+/* After cli.c's handle-local-options, which ends the emission for --version and --send: t-code
+ * really starts, so the log file gets this run's line (before GTK opens the display, whose failure
+ * is worth logging too). */
+static int start_log(void)
+{
+  log_start(NULL);
+  return -1; /* go on */
+}
+
 /* "shutdown": the window is gone. The sockets' files and the old file versions are removed, and the
  * language servers stop. */
 static void on_shutdown(GApplication *app G_GNUC_UNUSED, App *t)
@@ -168,8 +177,8 @@ int application_run(int argc, char **argv)
   GtkApplication *app = gtk_application_new("io.github.tcode", G_APPLICATION_HANDLES_OPEN | G_APPLICATION_NON_UNIQUE);
   int status;
 
-  log_start(NULL);
   cli_add_options(G_APPLICATION(app));
+  g_signal_connect(app, "handle-local-options", G_CALLBACK(start_log), NULL);
   g_action_map_add_action_entries(G_ACTION_MAP(app), actions, G_N_ELEMENTS(actions), NULL);
   session_load_settings(&t);
   g_signal_connect(app, "activate", G_CALLBACK(on_activate), &t);

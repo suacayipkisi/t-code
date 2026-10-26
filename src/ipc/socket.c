@@ -244,7 +244,9 @@ static void on_request(GObject *source, GAsyncResult *result, gpointer data)
   }
   g_clear_error(&error);
 
-  if (g_utf8_validate(request, length, NULL)) {
+  /* While the window closes its groups and panels go: a request read then (a script's, a build's
+   * t-code --send) is dropped. */
+  if (!c->app->closing && g_utf8_validate(request, length, NULL)) {
     char *space = strchr(request, ' ');
     if (space) {
       *space = '\0';

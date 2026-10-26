@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """How much memory clangd takes for this project with given flags or environment.
 
-Starts its own clangd (not t-code's), opens files of the project like t-code does (src/lsp/client.c),
+Starts its own clangd (not t-code's), opens files of the project like t-code does (src/lsp/client/),
 waits until clangd is idle (background index done), optionally edits every file a few rounds,
 then prints its resident memory next to what clangd says it uses itself ($/memoryUsage). A big
-gap between the two is allocator overhead, not clangd's data (see set_malloc_arenas in src/lsp/client.c).
+gap between the two is allocator overhead, not clangd's data (see set_malloc_arenas in src/lsp/client/server.c).
 
-  tools/clangd-mem.py                               # 25 files, t-code's flags (SERVER_ARGV in src/lsp/client.c)
+  tools/clangd-mem.py                               # 25 files, t-code's flags (clangd_argv in src/lsp/servers.c)
   tools/clangd-mem.py --files 5 --churn 3
   tools/clangd-mem.py --keep 3                      # then close all but the last 3 (didClose), as hidden tabs
   tools/clangd-mem.py --env GLIBC_TUNABLES=glibc.malloc.arena_max=2
@@ -25,9 +25,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def default_flags():
-    """The flags t-code starts clangd with: clangd_argv in src/lsp/client.c (MALLOC_TRIM is
+    """The flags t-code starts clangd with: clangd_argv in src/lsp/servers.c (MALLOC_TRIM is
     --malloc-trim on glibc, and clang-tidy is off by default)."""
-    with open(os.path.join(ROOT, "src", "lsp", "client.c")) as f:
+    with open(os.path.join(ROOT, "src", "lsp", "servers.c")) as f:
         argv = re.search(r"clangd_argv\[\] = \{(.*?)\};", f.read(), re.S).group(1)
     return re.findall(r'"([^"]*)"', argv)[1:] + ["--malloc-trim", "--clang-tidy=false"]
 

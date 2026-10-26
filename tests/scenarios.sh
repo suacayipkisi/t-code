@@ -195,6 +195,9 @@ keys Return
 check "Git: Pop Stash brings it back" eventually file_has "$project/main.c" "// stash me"
 check "  ... and the stash is gone" eventually test -z "$(git -C "$project" stash list)"
 
+# t-code --send (what a debug build ends with) is no run of its own in the log.
+TCODE_SOCKET="$XDG_RUNTIME_DIR/t-code-$tcode.sock" "$root/build/t-code" --send "say from the shell"
+
 # The title bar's close button (top right) closes the window and t-code quits.
 eval "$(xdotool getwindowgeometry --shell "$window")"
 xdotool mousemove --window "$window" $((WIDTH - 22)) 20 click 1
@@ -216,5 +219,6 @@ else
   not_ok "t-code logged no warning" "$(head -20 <<< "$problems")"
 fi
 check "the log says t-code quit cleanly" grep -q '^=== quit' "$log"
+check "  ... and holds one run: t-code --send wrote none" test "$(grep -c '^=== 20' "$log")" -eq 1
 echo "1..$n"
 ((failed == 0))
