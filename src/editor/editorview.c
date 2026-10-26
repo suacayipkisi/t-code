@@ -72,13 +72,9 @@ static GtkCssProvider *font_provider; /* the editor font; editor_view_set_font()
 /* The first editor: the CSS all editors share, and where the style scheme is. */
 static void init_look(App *t)
 {
-  GtkCssProvider *provider = gtk_css_provider_new();
   GtkSourceStyleSchemeManager *schemes = gtk_source_style_scheme_manager_get_default();
 
-  gtk_css_provider_load_from_string(provider, css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(css);
   font_provider = gtk_css_provider_new();
   gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(font_provider),
                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -630,14 +626,10 @@ void editor_view_free(EditorView *v)
     g_file_monitor_cancel(v->monitor);
     g_object_unref(v->monitor);
   }
-  if (v->autosave_id)
-    g_source_remove(v->autosave_id);
-  if (v->reload_id)
-    g_source_remove(v->reload_id);
-  if (v->scroll_id)
-    g_source_remove(v->scroll_id);
-  if (v->recovery_id)
-    g_source_remove(v->recovery_id);
+  g_clear_handle_id(&v->autosave_id, g_source_remove);
+  g_clear_handle_id(&v->reload_id, g_source_remove);
+  g_clear_handle_id(&v->scroll_id, g_source_remove);
+  g_clear_handle_id(&v->recovery_id, g_source_remove);
   g_signal_handlers_disconnect_by_data(v->tab->buffer, v->tab);
   g_object_unref(v->tab->buffer); /* the page went first: the tab still holds it */
   g_object_unref(v->cancel);

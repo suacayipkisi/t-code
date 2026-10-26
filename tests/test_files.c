@@ -6,6 +6,7 @@
  * colors. Needs a display; skipped without one.
  */
 #include "files/files.c"
+#include "util.h"
 
 #include <glib/gstdio.h>
 
@@ -60,12 +61,7 @@ static GtkWidget *window;
 
 static void write_file(const char *name)
 {
-  char *path = g_build_filename(app.project.root, name, NULL), *dir = g_path_get_dirname(path);
-
-  g_mkdir_with_parents(dir, 0755);
-  g_assert_true(g_file_set_contents(path, "", -1, NULL));
-  g_free(dir);
-  g_free(path);
+  g_free(write_at(app.project.root, name, "", -1, 0));
 }
 
 /* Runs the main loop until done() says so (5 seconds at most). */

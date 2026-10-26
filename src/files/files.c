@@ -1042,7 +1042,6 @@ GtkWidget *files_panel(App *t)
   GtkEventController *keys = gtk_event_controller_key_new();
   GtkGesture *space = gtk_gesture_click_new();
   GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_FILE, GDK_ACTION_COPY | GDK_ACTION_MOVE);
-  GtkCssProvider *provider = gtk_css_provider_new();
 
   files.app = t;
   files.show_hidden = TRUE;
@@ -1054,10 +1053,7 @@ GtkWidget *files_panel(App *t)
   files.selection = gtk_single_selection_new(NULL);
   gtk_single_selection_set_autoselect(files.selection, FALSE);
 
-  gtk_css_provider_load_from_string(provider, css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(css);
 
   files.panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_widget_add_css_class(files.panel, "tcode-files");

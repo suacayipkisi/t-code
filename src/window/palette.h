@@ -78,6 +78,11 @@ typedef enum {
  * dark. Before any window; window/theme.c's color_theme_apply() switches while t-code runs. */
 void palette_init(App *t, const char *id);
 
+/* Adds a panel's CSS (which uses the palette's var(--tc-...) colors) for the whole display, at
+ * application priority; the same string again does nothing, so a widget made many times may call
+ * it each time. */
+void palette_add_css(const char *css);
+
 /* The current theme's color, as a GdkRGBA and as "#rrggbb". */
 const GdkRGBA *palette_rgba(PalColor color);
 const char *palette_hex(PalColor color);

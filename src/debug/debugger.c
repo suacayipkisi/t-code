@@ -147,8 +147,7 @@ static void finish(Debugger *s)
   gboolean again = s->restart;
 
   t->debug.session = NULL;
-  if (s->end_id)
-    g_source_remove(s->end_id);
+  g_clear_handle_id(&s->end_id, g_source_remove);
   dap_free(s->dap);
   g_hash_table_destroy(s->sent);
   g_free(s->reason);

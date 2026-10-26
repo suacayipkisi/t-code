@@ -18,6 +18,7 @@
 #include "popups/picker.h"
 #include "project/session.h"
 #include "project/run.h"
+#include "window/palette.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -307,12 +308,8 @@ GtkWidget *status_bar(App *t)
 {
   GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  GtkCssProvider *provider = gtk_css_provider_new();
 
-  gtk_css_provider_load_from_string(provider, css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(css);
   gtk_widget_add_css_class(bar, "tcode-status");
 
   t->status.branch = status_label(bar, FALSE);

@@ -5,6 +5,7 @@
 
 #include "editor/editorview.h"
 #include "lsp/symbols.h"
+#include "window/palette.h"
 
 #include <string.h>
 
@@ -120,17 +121,9 @@ char *breadcrumbs_text(Tab *tab)
 
 void breadcrumbs_attach(Tab *tab)
 {
-  static gboolean styled;
   GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 
-  if (!styled) {
-    GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(provider, breadcrumbs_css);
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
-    styled = TRUE;
-  }
+  palette_add_css(breadcrumbs_css);
   gtk_widget_add_css_class(bar, "tcode-breadcrumbs");
   gtk_box_prepend(GTK_BOX(tab->view->column), bar);
   tab->view->breadcrumbs = bar;

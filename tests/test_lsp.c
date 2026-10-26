@@ -15,6 +15,7 @@
 #define SERVER_ARGV "/proc/self/exe", "--fake-server",
 
 #include "editor_page.h"
+#include "util.h"
 #include "lsp/hierarchy.c" /* its panel, against the fake server */
 
 /* The fake server -------------------------------------------------------------------------- */
@@ -504,14 +505,6 @@ static gboolean server_agrees(Tab *tab)
       g_main_context_iteration(NULL, TRUE);
   }
   return same;
-}
-
-static void run_for(int ms)
-{
-  gint64 until = g_get_monotonic_time() + ms * 1000;
-
-  while (g_get_monotonic_time() < until)
-    g_main_context_iteration(NULL, FALSE);
 }
 
 static GtkTextIter iter_at(Tab *tab, int line, int offset)

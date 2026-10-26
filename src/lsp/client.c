@@ -438,10 +438,7 @@ static void flush(Doc *doc)
 {
   char *document, *params;
 
-  if (doc->flush_id) {
-    g_source_remove(doc->flush_id);
-    doc->flush_id = 0;
-  }
+  g_clear_handle_id(&doc->flush_id, g_source_remove);
   if (doc->changes->len == 0)
     return;
   document = lsp_document_params(doc->tab);
@@ -635,8 +632,7 @@ static void send_document(Doc *doc)
 
 static void doc_free(Doc *doc)
 {
-  if (doc->flush_id)
-    g_source_remove(doc->flush_id);
+  g_clear_handle_id(&doc->flush_id, g_source_remove);
   g_clear_handle_id(&doc->pull_id, g_source_remove);
   g_signal_handlers_disconnect_by_data(doc->tab->buffer, doc);
   g_string_free(doc->changes, TRUE);
@@ -876,8 +872,7 @@ static void on_folder_changed(GFileMonitor *monitor G_GNUC_UNUSED, GFile *file, 
   g_string_append_printf(l->written, "%s{\"uri\":%s,\"type\":%d}", l->written->len ? "," : "", quoted, type);
   g_free(quoted);
   g_free(uri);
-  if (l->written_id)
-    g_source_remove(l->written_id);
+  g_clear_handle_id(&l->written_id, g_source_remove);
   l->written_id = g_timeout_add(DATABASE_MS, database_written, l);
 }
 
@@ -1301,10 +1296,7 @@ void lsp_open(Tab *tab)
     g_signal_connect(tab->buffer, "delete-range", G_CALLBACK(on_delete), doc);
   }
   doc->use = ++l->use;
-  if (l->idle_id) {
-    g_source_remove(l->idle_id);
-    l->idle_id = 0;
-  }
+  g_clear_handle_id(&l->idle_id, g_source_remove);
   if (!l->ch)
     server_start(l); /* the file goes once it has answered initialize */
   else if (l->ready)
@@ -1376,10 +1368,8 @@ void lsp_stop(App *t)
 
     l->stopping = TRUE;
     server_stop(l);
-    if (l->idle_id)
-      g_source_remove(l->idle_id);
-    if (l->restart_id)
-      g_source_remove(l->restart_id);
+    g_clear_handle_id(&l->idle_id, g_source_remove);
+    g_clear_handle_id(&l->restart_id, g_source_remove);
     g_hash_table_destroy(l->docs);
     g_hash_table_destroy(l->pending);
     g_hash_table_destroy(l->progress);
@@ -1398,10 +1388,8 @@ static void restart_one(Lsp *l)
   GHashTableIter iter;
   gpointer doc;
 
-  if (l->idle_id)
-    g_source_remove(l->idle_id);
-  if (l->restart_id)
-    g_source_remove(l->restart_id);
+  g_clear_handle_id(&l->idle_id, g_source_remove);
+  g_clear_handle_id(&l->restart_id, g_source_remove);
   l->idle_id = l->restart_id = 0;
   server_stop(l);
   l->crashes = 0;

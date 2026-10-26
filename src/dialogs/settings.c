@@ -399,8 +399,6 @@ static void on_page(GtkStack *stack, GParamSpec *spec G_GNUC_UNUSED, gpointer da
 
 void show_settings(App *t)
 {
-  static gboolean styled;
-  GtkCssProvider *provider;
   GtkWidget *grid, *stack, *sidebar, *panes;
   GtkEventController *keys;
   int row;
@@ -409,14 +407,7 @@ void show_settings(App *t)
     gtk_window_present(GTK_WINDOW(window));
     return;
   }
-  if (!styled) {
-    provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(provider, css);
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
-    styled = TRUE;
-  }
+  palette_add_css(css);
 
   window = gtk_window_new();
   gtk_window_set_title(GTK_WINDOW(window), "Settings");

@@ -37,6 +37,7 @@
 #include "window/theme.h"
 #include "window/window.h"
 #include "broadway.h"
+#include "util.h"
 
 #include <gio/gunixsocketaddress.h>
 #include <glib/gstdio.h>
@@ -51,24 +52,6 @@ static char *file(const char *name)
   if (!g_file_test(path, G_FILE_TEST_EXISTS))
     g_assert_true(g_file_set_contents(path, "one\ntwo\n", -1, NULL));
   return path;
-}
-
-/* Lets the main loop run for ms milliseconds (files load, idles run). */
-static void run(int ms)
-{
-  gint64 end = g_get_monotonic_time() + ms * 1000;
-
-  while (g_get_monotonic_time() < end)
-    g_main_context_iteration(NULL, FALSE);
-}
-
-/* Runs the main loop until done() says so (git answers, a file loads), for at most 5 seconds. */
-static void run_until(gboolean (*done)(gconstpointer), gconstpointer data)
-{
-  gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
-
-  while (!done(data) && g_get_monotonic_time() < end)
-    g_main_context_iteration(NULL, FALSE);
 }
 
 typedef struct {
@@ -161,7 +144,7 @@ static void close_everything(void)
 {
   close_all_tabs(&app);
   set_split(&app, FALSE);
-  run(50);
+  run_for(50);
 }
 
 static void open_temporary(const char *name)
@@ -170,7 +153,7 @@ static void open_temporary(const char *name)
 
   open_file_temporary(&app, path);
   g_free(path);
-  run(20);
+  run_for(20);
 }
 
 static void open_kept(const char *name)
@@ -179,7 +162,7 @@ static void open_kept(const char *name)
 
   open_file(&app, path);
   g_free(path);
-  run(20);
+  run_for(20);
 }
 
 /* A click replaces the last click's tab, in its place; opening a file for good, or editing it, keeps
@@ -286,7 +269,7 @@ static void test_comparison_one_tab(void)
   g_assert_false(gtk_widget_get_visible(GTK_WIDGET(app.editors.groups[1]))); /* no second group */
 
   stop_comparing(&app); /* the file stays */
-  run(50);
+  run_for(50);
   assert_tabs("tracked.txt");
   g_assert_null(tab_nth(&app, 0)->compare.old_side);
   g_assert_cmpstr(gtk_label_get_text(tab_nth(&app, 0)->label), ==, "tracked.txt");
@@ -297,10 +280,10 @@ static void test_comparison_one_tab(void)
   compare_with_head(&app, path);
   run_until(compared, path);
   compare_with_head(&app, path); /* again: still one comparison */
-  run(300);
+  run_for(300);
   assert_tabs("tracked.txt");
   quit_editor(tab_nth(&app, 0)); /* closes both */
-  run(50);
+  run_for(50);
   assert_tabs("");
   g_free(path);
 }
@@ -479,7 +462,7 @@ static void test_socket_requests(void)
                                           NULL, NULL, NULL));
   g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
   g_object_unref(conn);
-  run(50);
+  run_for(50);
   g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Testing status notification");
 
   /* Test get-file */
@@ -511,7 +494,7 @@ static void test_socket_requests(void)
   g_free(replace);
   g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
   g_object_unref(conn);
-  run(50);
+  run_for(50);
 
   /* Test get-text returns the entire buffer followed by a NUL terminator. */
   conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
@@ -527,7 +510,7 @@ static void test_socket_requests(void)
                                           NULL, NULL));
   g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
   g_object_unref(conn);
-  run(50);
+  run_for(50);
 
   conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
   g_assert_true(
@@ -544,7 +527,7 @@ static void test_socket_requests(void)
                                           NULL, NULL));
   g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
   g_object_unref(conn);
-  run(50);
+  run_for(50);
 
   /* Test insert */
   conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
@@ -552,7 +535,7 @@ static void test_socket_requests(void)
       g_output_stream_write_all(g_io_stream_get_output_stream(G_IO_STREAM(conn)), "insert !\n", 9, NULL, NULL, NULL));
   g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
   g_object_unref(conn);
-  run(50);
+  run_for(50);
 
   /* Test save */
   conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
@@ -560,7 +543,7 @@ static void test_socket_requests(void)
       g_output_stream_write_all(g_io_stream_get_output_stream(G_IO_STREAM(conn)), "save\n", 5, NULL, NULL, NULL));
   g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
   g_object_unref(conn);
-  run(50);
+  run_for(50);
 
   g_free(lined);
   g_object_unref(address);
@@ -653,12 +636,12 @@ static void test_socket_stalled_subscriber(void)
   for (; sent < 8000 && app.socket_events->len > 0; sent++) {
     socket_did_save(&app, path);
     if (sent % 100 == 0)
-      run(1); /* the writes in flight go on */
+      run_for(1); /* the writes in flight go on */
   }
   g_assert_cmpuint(app.socket_events->len, ==, 0); /* dropped */
   g_assert_cmpint(sent, <, 8000);
 
-  run(100); /* its connection is closed */
+  run_for(100); /* its connection is closed */
   input = g_io_stream_get_input_stream(G_IO_STREAM(conn));
   while ((got = g_input_stream_read(input, buffer, sizeof buffer, NULL, NULL)) > 0)
     received += got;
@@ -685,7 +668,7 @@ static void test_second_window(void)
 
   open_kept("w1.txt");
   open_in_new_window(&app, a); /* already open: its tab moves */
-  run(50);
+  run_for(50);
   g_assert_nonnull(app.editors.second);
   g_assert_cmpint(tab_count(&app), ==, 1);
   tab = find_tab(&app, TAB_EDITOR, a);
@@ -708,7 +691,7 @@ static void test_second_window(void)
 
   close_everything();
   session_restore_tabs(&app); /* as saved: both in the second window */
-  run(100);
+  run_for(100);
   g_assert_nonnull(app.editors.second);
   g_assert_cmpint(tab_group(find_tab(&app, TAB_EDITOR, a)), ==, WINDOW_GROUP);
   g_assert_cmpint(tab_group(find_tab(&app, TAB_EDITOR, b)), ==, WINDOW_GROUP);
@@ -787,7 +770,7 @@ static void test_tab_strip(void)
   open_kept("s3.txt");
   assert_strip(0, "s1.txt s2.txt s3.txt!");
   select_tab(tab_nth(&app, 0));
-  run(20);
+  run_for(20);
   assert_strip(0, "s1.txt! s2.txt s3.txt");
 
   /* s3 dropped before s1 in the same strip */
@@ -813,13 +796,13 @@ static void test_tab_strip(void)
   gboolean dropped = FALSE;
   g_signal_emit_by_name(target, "drop", &value, (double)at.x, 0.0, &dropped);
   g_assert_true(dropped);
-  run(20);
+  run_for(20);
   assert_strip(0, "s3.txt! s1.txt s2.txt");
   assert_tabs("s3.txt s1.txt s2.txt");
 
   set_split(&app, TRUE);
   move_tab(tab_nth(&app, 1), 1); /* s1 to the right */
-  run(20);
+  run_for(20);
   assert_strip(0, "s3.txt! s2.txt");
   assert_strip(1, "s1.txt!");
   g_value_unset(&value);
@@ -880,7 +863,7 @@ static void choose_menu_item(GtkWidget *widget, const char *label)
   gtk_popover_popdown(GTK_POPOVER(shown_menu(widget)));
   run_until(menu_gone, widget);
   g_assert_true(menu_gone(widget));
-  run(20);
+  run_for(20);
 }
 
 static void count_run(gpointer data)
@@ -906,7 +889,7 @@ static void test_context_menus(void)
   open_kept("m1.txt");
   open_kept("m2.txt");
   open_kept("m3.txt");
-  run(20);
+  run_for(20);
   GtkWidget *widget = tab_nth(&app, 0)->item;
 
   menu_freed = 0;
@@ -927,7 +910,7 @@ static void test_context_menus(void)
   assert_tabs("m1.txt");
 
   open_kept("m2.txt");
-  run(20);
+  run_for(20);
   widget = tab_nth(&app, 1)->item;
   tab_menu(tab_nth(&app, 1), widget, 1, 1);
   choose_menu_item(widget, "Move to Other Group");
@@ -938,13 +921,13 @@ static void test_context_menus(void)
   /* "Open Preview" on a Markdown file's tab only */
   open_kept("m1.txt");
   open_kept("notes.md");
-  run(20);
+  run_for(20);
   widget = tab_nth(&app, 0)->item;
   tab_menu(tab_nth(&app, 0), widget, 1, 1);
   char *none = menu_action(widget, "Open Preview");
   g_assert_null(none);
   gtk_popover_popdown(GTK_POPOVER(shown_menu(widget)));
-  run(20);
+  run_for(20);
   widget = tab_nth(&app, 1)->item;
   tab_menu(tab_nth(&app, 1), widget, 1, 1);
   choose_menu_item(widget, "Open Preview");
@@ -1000,18 +983,18 @@ static void test_open_tabs(void)
 
   open_kept("o1.txt");
   open_kept("o2.txt");
-  run(50);
+  run_for(50);
   g_assert_cmpint(list_rows(list), ==, 2);
   g_assert_true(gtk_list_box_get_selected_row(list) == gtk_list_box_get_row_at_index(list, 1)); /* o2 */
 
   row = gtk_list_box_get_row_at_index(list, 0);
   g_signal_emit_by_name(list, "row-activated", row);
-  run(50);
+  run_for(50);
   g_assert_true(current_tab(&app) == tab_nth(&app, 0)); /* o1 */
 
   set_split(&app, TRUE);
   move_tab(tab_nth(&app, 1), 1);
-  run(50);
+  run_for(50);
   g_assert_cmpint(list_rows(list), ==, 4); /* GROUP 1, o1, GROUP 2, o2 */
 
   open_tabs_show(FALSE);
@@ -1023,7 +1006,7 @@ static void test_open_tabs(void)
   open_tabs_show(TRUE);
   session_save(&app);
   close_everything();
-  run(50);
+  run_for(50);
   g_assert_cmpint(list_rows(list), ==, 0);
 }
 
@@ -1068,20 +1051,20 @@ static void test_theme_preview(void)
   entry = focused_entry();
   g_assert_nonnull(entry);
   g_signal_emit_by_name(picker_keys(entry), "key-pressed", GDK_KEY_Down, 0, 0, &handled);
-  run(50);
+  run_for(50);
   g_assert_true(handled);
   g_assert_cmpstr(palette_id(), !=, saved);             /* the second theme, shown */
   g_assert_cmpstr(app.settings.color_theme, ==, saved); /* not saved */
   g_signal_emit_by_name(entry, "stop-search");          /* Escape */
-  run(50);
+  run_for(50);
   g_assert_cmpstr(palette_id(), ==, saved);
 
   color_theme_pick(&app);
-  run(50);
+  run_for(50);
   entry = focused_entry();
   g_signal_emit_by_name(picker_keys(entry), "key-pressed", GDK_KEY_Down, 0, 0, &handled);
   g_signal_emit_by_name(entry, "activate"); /* Enter */
-  run(50);
+  run_for(50);
   g_assert_cmpstr(app.settings.color_theme, ==, palette_id());
   g_assert_cmpstr(palette_id(), !=, saved);
 
@@ -1103,14 +1086,14 @@ static char *shell_output(const char *command)
 static char *command_for(const char *path, gboolean and_run)
 {
   open_file(&app, path);
-  run(200);
+  run_for(200);
   return project_command(&app, and_run);
 }
 
 static char *test_command_for(const char *path)
 {
   open_file(&app, path);
-  run(200);
+  run_for(200);
   return project_test_command(&app);
 }
 
@@ -1165,7 +1148,7 @@ static void test_run_scripts(void)
   g_free(command);
 
   close_all_tabs(&app);
-  run(100);
+  run_for(100);
   for (const char *const *f = (const char *const[]){ makefile, py, bad, tool, c, NULL }; *f; f++)
     g_unlink(*f);
   g_rmdir(dir);
@@ -1180,13 +1163,7 @@ static void test_run_scripts(void)
 /* Writes text to root/name, making its folders (mode: its permissions). */
 static char *put(const char *root, const char *name, const char *text, int mode)
 {
-  char *path = g_build_filename(root, name, NULL), *dir = g_path_get_dirname(path);
-
-  g_mkdir_with_parents(dir, 0755);
-  g_assert_true(g_file_set_contents(path, text, -1, NULL));
-  g_chmod(path, mode);
-  g_free(dir);
-  return path;
+  return write_at(root, name, text, -1, mode);
 }
 
 /* Configured and conventional project test commands run in the integrated shell's working tree. */
@@ -1327,7 +1304,7 @@ static void test_run_tests(void)
   g_free(path);
 
   close_all_tabs(&app);
-  run(100);
+  run_for(100);
   char *argv[] = { "rm", "-rf", root, NULL };
   g_assert_true(g_spawn_sync(NULL, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL));
   g_free(python_root);
@@ -1456,7 +1433,7 @@ static void test_run_projects(void)
   g_free(path);
 
   close_all_tabs(&app);
-  run(100);
+  run_for(100);
   char *argv[] = { "rm", "-rf", root, NULL };
   g_assert_true(g_spawn_sync(NULL, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL));
   g_free(other);
@@ -1501,7 +1478,7 @@ static void test_preview_look(void)
                           "```c\nint a_very_long_line_of_code_that_is_much_wider_than_the_view = 1; // and more\n```\n",
                           -1, NULL));
   open_preview(&app, path);
-  run(300);
+  run_for(300);
   Tab *tab = current_tab(&app);
   g_assert_true(tab->kind == TAB_PREVIEW);
   GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
@@ -1541,7 +1518,7 @@ static void test_preview_look(void)
   gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
   GtkTextIter back;
   do {
-    run(20);
+    run_for(20);
     gtk_text_view_get_iter_location(view, &iter, &where);
     gtk_text_view_get_iter_at_location(view, &back, where.x + 1, where.y + where.height / 2);
   } while ((where.height <= 0 || !has_tag(&back, "link")) && g_get_monotonic_time() < end);
@@ -1631,7 +1608,7 @@ static void test_opens_at_left_edge(void)
   g_assert_true(g_file_set_contents(path, text->str, -1, NULL));
   app.settings.word_wrap = FALSE;
   open_file(&app, path);
-  run(300);
+  run_for(300);
   sideways = gtk_scrollable_get_hadjustment(GTK_SCROLLABLE(tab_nth(&app, 0)->source));
   g_assert_cmpfloat(gtk_adjustment_get_value(sideways), ==, 0);
   close_everything();
@@ -1712,13 +1689,13 @@ static void test_settings_edited(void)
   char *square = g_strjoinv("theme=square", parts);
   g_assert_true(g_file_set_contents(path, square, -1, NULL));
   for (int i = 0; i < 100 && !app.settings.square; i++)
-    run(20);
+    run_for(20);
   g_assert_true(app.settings.square);
   g_assert_true(app.settings.minimap == FALSE); /* the rest stays */
 
   app.settings.square = FALSE;
   session_save_settings(&app);
-  run(400);
+  run_for(400);
   g_assert_false(app.settings.square);
   g_strfreev(parts);
   g_free(square);
@@ -1735,7 +1712,7 @@ static void test_open_user_files(void)
   open_settings_file(&app);
   open_user_theme(&app);
   open_editor_colors(&app);
-  run(100);
+  run_for(100);
   assert_tabs("settings.ini theme.css dark-classic.xml");
   g_assert_true(g_file_get_contents(theme, &text, NULL, NULL));
   g_assert_nonnull(strstr(text, "Saving this file applies it at once"));
@@ -1774,13 +1751,13 @@ static void test_comparison_first_change(void)
 
   compare_with_head(&app, path);
   run_until(compared, path);
-  run(500); /* both sides load, their differences are worked out */
+  run_for(500); /* both sides load, their differences are worked out */
   tab = tab_nth(&app, 0);
   gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &cursor,
                                    gtk_text_buffer_get_insert(GTK_TEXT_BUFFER(tab->buffer)));
   g_assert_cmpint(gtk_text_iter_get_line(&cursor), ==, 59);
   quit_editor(tab);
-  run(50);
+  run_for(50);
   g_string_free(text, TRUE);
   g_free(path);
 }
@@ -1798,7 +1775,7 @@ static GAction *panel_action(const char *page)
 static void click_panel(const char *page)
 {
   g_action_activate(panel_action(page), NULL);
-  run(50);
+  run_for(50);
 }
 
 static gboolean button_on(const char *page)
@@ -1819,7 +1796,7 @@ static void test_panel_buttons(void)
   int h = gtk_widget_get_height(GTK_WIDGET(app.layout.vpaned));
 
   reset_panel_layout(&app);
-  run(50);
+  run_for(50);
   for (int i = 0; i < PANELS; i++)
     g_assert_nonnull(panel_action(panel_names[i]));
   g_assert_true(button_on("files"));
@@ -1839,7 +1816,7 @@ static void test_panel_buttons(void)
 
   g_assert_cmpint(h, >, 200);
   gtk_paned_set_position(app.layout.vpaned, h - 10); /* the bottom squeezed to nothing */
-  run(50);
+  run_for(50);
   g_assert_false(panel_shown(&app, "shell"));
   g_assert_false(button_on("shell"));
   click_panel("shell");
@@ -1855,7 +1832,7 @@ static void test_panel_buttons(void)
   g_assert_false(panel_shown(&app, "files"));
   click_panel("shell");
   reset_panel_layout(&app);
-  run(50);
+  run_for(50);
   for (int i = 0; i < PANELS; i++)
     g_assert_cmpint(panel_dock(&app, panel_names[i]), ==, panel_default_docks[i]);
   g_assert_true(panel_shown(&app, "files"));
@@ -1914,7 +1891,7 @@ static void test_no_lsp(void)
 
   g_setenv("PATH", "/nonexistent", TRUE);
   open_file(&app, path);
-  run(20);
+  run_for(20);
   update_status(&app);
   g_assert_true(gtk_widget_get_visible(app.status.no_lsp));
   g_assert_nonnull(strstr(gtk_widget_get_tooltip_text(app.status.no_lsp), "yaml-language-server"));
@@ -1986,7 +1963,7 @@ static void test_outline(void)
 
   g_assert_true(g_file_set_contents(path, "struct Shape {\n  int w;\n  int h;\n};\nint main(void) {}\n", -1, NULL));
   open_file(&app, path);
-  run(50);
+  run_for(50);
   tab = current_tab(&app);
   g_assert_nonnull(tab);
   g_ptr_array_add(shape->children, outline_sym("w", 8, 1, 1));
@@ -2025,7 +2002,7 @@ static void test_status_say(void)
   status_say(&app, "Word Count: 12 words");
   update_status(&app);
   g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Word Count: 12 words");
-  run(500);
+  run_for(500);
   update_status(&app);
   g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Word Count: 12 words");
   status_say(&app, "Plugins reloaded"); /* a newer one starts its own time */
@@ -2065,7 +2042,7 @@ static void test_update_check_now(void)
   run_until(shows, "t-code 99.0 is out");
   g_assert_true(shows("t-code 99.0 is out"));
   gtk_window_destroy(window_saying("t-code 99.0 is out"));
-  run(50);
+  run_for(50);
 
   g_setenv("PATH", saved_path, TRUE);
   g_free(latest);
@@ -2118,7 +2095,7 @@ static void test_settings_pages(void)
   int switches = 0;
 
   show_settings(&app);
-  run(50);
+  run_for(50);
   settings = settings_window();
   g_assert_nonnull(settings);
   g_assert_true(gtk_window_get_resizable(settings));
@@ -2136,9 +2113,9 @@ static void test_settings_pages(void)
 
   gtk_stack_set_visible_child_name(stack, "appearance");
   gtk_window_destroy(settings);
-  run(50);
+  run_for(50);
   show_settings(&app);
-  run(50);
+  run_for(50);
   settings = settings_window();
   g_assert_cmpstr(gtk_stack_get_visible_child_name(settings_stack(settings)), ==, "appearance");
   GtkSelectionModel *rows = gtk_stack_get_pages(settings_stack(settings)); /* what the list on the left shows */
@@ -2147,7 +2124,7 @@ static void test_settings_pages(void)
   g_object_unref(rows);
   gtk_stack_set_visible_child_name(settings_stack(settings), "general"); /* as it was, for the other tests */
   gtk_window_destroy(settings);
-  run(50);
+  run_for(50);
 }
 
 static void on_activate(GApplication *gapp, gpointer data G_GNUC_UNUSED)
@@ -2156,7 +2133,7 @@ static void on_activate(GApplication *gapp, gpointer data G_GNUC_UNUSED)
 
   build_window(&app, GTK_APPLICATION(gapp));
   app.settings.check_updates = FALSE; /* the tests must not ask GitHub for new releases */
-  run(100);
+  run_for(100);
   *status = g_test_run();
   app.closing = TRUE;
   gtk_window_destroy(app.window);

@@ -1,5 +1,6 @@
 /* Tests for the plugins (src/plugins/plugins.c, included for its static functions). */
 #include "plugins/plugins.c"
+#include "util.h"
 
 #include <glib/gstdio.h>
 
@@ -35,14 +36,7 @@ int fuzzy_score(const char *query, const char *text)
 
 static void write_file(const char *rel_path, const char *content, int mode)
 {
-  char *full = g_build_filename(tmp_dir, rel_path, NULL);
-  char *dir = g_path_get_dirname(full);
-  g_mkdir_with_parents(dir, 0755);
-  g_free(dir);
-  g_file_set_contents(full, content, -1, NULL);
-  if (mode != 0)
-    g_chmod(full, mode);
-  g_free(full);
+  g_free(write_at(tmp_dir, rel_path, content, -1, mode));
 }
 
 /* tmp_dir/valid/test-plug: two commands, the first with a shortcut. */

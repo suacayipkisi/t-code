@@ -618,10 +618,8 @@ void folding_free(Folding *f)
   g_object_unref(f->renderer);
   TCODE_LINE_NUMBERS(f->numbers)->folding = NULL;
   g_object_unref(f->numbers);
-  if (f->check_id)
-    g_source_remove(f->check_id);
-  if (f->blocks_id)
-    g_source_remove(f->blocks_id);
+  g_clear_handle_id(&f->check_id, g_source_remove);
+  g_clear_handle_id(&f->blocks_id, g_source_remove);
   g_array_free(f->folds, TRUE); /* the marks go with the buffer */
   if (f->blocks)
     g_array_free(f->blocks, TRUE);

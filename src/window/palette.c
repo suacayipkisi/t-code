@@ -472,6 +472,22 @@ static void set_color_scheme(void)
   watching = TRUE;
 }
 
+void palette_add_css(const char *css)
+{
+  static GHashTable *added; /* the strings given so far */
+  GtkCssProvider *provider;
+
+  if (!added)
+    added = g_hash_table_new(NULL, NULL);
+  if (!g_hash_table_add(added, (gpointer)css))
+    return;
+  provider = gtk_css_provider_new();
+  gtk_css_provider_load_from_string(provider, css);
+  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
+                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  g_object_unref(provider);
+}
+
 void palette_init(App *t G_GNUC_UNUSED, const char *id)
 {
   current_theme = pal_find(id);

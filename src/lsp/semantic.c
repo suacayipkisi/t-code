@@ -429,8 +429,7 @@ void semantic_update(Tab *tab)
     g_signal_connect(gtk_text_buffer_get_tag_table(GTK_TEXT_BUFFER(tab->buffer)), "tag-added", G_CALLBACK(on_tag_added),
                      NULL);
   }
-  if (s->update_id)
-    g_source_remove(s->update_id);
+  g_clear_handle_id(&s->update_id, g_source_remove);
   s->update_id = g_timeout_add(UPDATE_MS, update_now, s);
 }
 

@@ -1919,7 +1919,6 @@ static GtkWidget *section(GtkLabel **title, const char *text, GtkListBox **list,
 
 GtkWidget *scm_panel(App *t)
 {
-  GtkCssProvider *provider = gtk_css_provider_new();
   GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
   GtkWidget *scroll = gtk_scrolled_window_new();
@@ -1934,10 +1933,7 @@ GtkWidget *scm_panel(App *t)
   GtkWidget *commits_buttons[] = { refresh };
   GtkTextBuffer *buffer;
 
-  gtk_css_provider_load_from_string(provider, css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(css);
 
   scm.app = t;
   g_queue_init(&scm.waiting);

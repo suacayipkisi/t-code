@@ -7,6 +7,7 @@
 #include "files/folder.h"
 #include "files/gitmarks.h"
 #include "files/icons.h"
+#include "util.h"
 
 #include <string.h>
 
@@ -245,15 +246,6 @@ static void assert_names(const char *want)
   g_free(now);
 }
 
-/* Lets the main loop run for ms milliseconds. */
-static void run(int ms)
-{
-  gint64 end = g_get_monotonic_time() + ms * 1000;
-
-  while (g_get_monotonic_time() < end)
-    g_main_context_iteration(NULL, FALSE);
-}
-
 /* Read only once loaded; each entry knows its file. */
 static void test_folder_load(void)
 {
@@ -265,7 +257,7 @@ static void test_folder_load(void)
   g_assert_true(files_create(tmp, "src/", FALSE, &path, NULL));
   g_free(path);
   list = folder_new(tmp, TRUE);
-  run(50);
+  run_for(50);
   g_assert_cmpuint(g_list_model_get_n_items(list), ==, 0);
   g_assert_false(folder_loaded(list));
   g_assert_false(folder_watched(list));
@@ -326,7 +318,7 @@ static void test_folder_unwatched(void)
   assert_names("early.c"); /* read */
   g_assert_false(folder_watched(list));
   write_file("late.c", "");
-  run(FOLDER_DELAY_MS + 200);
+  run_for(FOLDER_DELAY_MS + 200);
   assert_names("early.c");
   g_object_unref(list);
   teardown();
@@ -339,15 +331,15 @@ static void test_folder_freed_early(void)
   list = folder_new(tmp, TRUE);
   folder_load(list);
   g_object_unref(list);
-  run(100);
+  run_for(100);
   write_file("a.c", "");
   list = folder_new(tmp, TRUE);
   folder_load(list);
   assert_names("a.c");
   write_file("x.c", "");
-  run(FOLDER_DELAY_MS / 5); /* the change waits for its delay */
+  run_for(FOLDER_DELAY_MS / 5); /* the change waits for its delay */
   g_object_unref(list);
-  run(FOLDER_DELAY_MS + 100);
+  run_for(FOLDER_DELAY_MS + 100);
   teardown();
 }
 

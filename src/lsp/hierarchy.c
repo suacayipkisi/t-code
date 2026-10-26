@@ -9,6 +9,7 @@
 #include "lsp/json.h"
 #include "lsp/symbols.h"
 #include "window/window.h"
+#include "window/palette.h"
 
 /* A symbol in the tree ------------------------------------------------------------------------ */
 
@@ -334,15 +335,11 @@ static const char *const hierarchy_css = ".tcode-hierarchy { background: var(--t
 
 GtkWidget *hierarchy_panel(App *t)
 {
-  GtkCssProvider *provider = gtk_css_provider_new();
   GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0), *scroll = gtk_scrolled_window_new();
   GtkWidget *directions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
 
-  gtk_css_provider_load_from_string(provider, hierarchy_css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(hierarchy_css);
   hier.app = t;
   hier.going_up = TRUE;
   gtk_widget_add_css_class(panel, "tcode-hierarchy");

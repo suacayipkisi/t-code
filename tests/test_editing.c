@@ -7,6 +7,7 @@
 
 #include "editor_page.h"
 #include "broadway.h"
+#include "util.h"
 
 #include <glib/gstdio.h>
 #include <math.h>
@@ -552,15 +553,6 @@ static void test_double_click(void)
   g_assert_cmpstr(word, ==, "");
   g_free(word);
   free_tab(tab);
-}
-
-/* Runs the main loop for ms. */
-static void run_for(int ms)
-{
-  gint64 until = g_get_monotonic_time() + ms * 1000;
-
-  while (g_get_monotonic_time() < until)
-    g_main_context_iteration(NULL, FALSE);
 }
 
 /* A selected name's whole-word occurrences are highlighted and their lines marked; not a part of a

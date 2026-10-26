@@ -1,6 +1,7 @@
 /* Tests for src/search/searchmatch.c: command lines, match finding, parsing and snippets, and real
  * ripgrep / grep runs on a temporary folder. */
 #include "search/searchmatch.h"
+#include "util.h"
 
 #include <gio/gio.h>
 #include <glib/gstdio.h>
@@ -295,13 +296,7 @@ static char *tmp;
 
 static void write_file(const char *rel, const char *contents, gssize len)
 {
-  char *path = g_build_filename(tmp, rel, NULL);
-  char *dir = g_path_get_dirname(path);
-
-  g_mkdir_with_parents(dir, 0755);
-  g_assert_true(g_file_set_contents(path, contents, len, NULL));
-  g_free(dir);
-  g_free(path);
+  g_free(write_at(tmp, rel, contents, len, 0));
 }
 
 /* Runs the query in tmp; returns "path:hits" for each file, sorted, like "a.c:1 sub/b.h:3". */

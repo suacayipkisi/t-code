@@ -30,10 +30,7 @@ static void menu_free(Menu *menu, gboolean run_chosen)
     return;
   if (menu == active_menu)
     active_menu = NULL;
-  if (menu->finish_id) {
-    g_source_remove(menu->finish_id);
-    menu->finish_id = 0;
-  }
+  g_clear_handle_id(&menu->finish_id, g_source_remove);
   gtk_widget_insert_action_group(menu->widget, "ctx", NULL);
   if (menu->popover) {
     g_signal_handlers_disconnect_by_func(menu->popover, on_closed, menu);

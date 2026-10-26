@@ -2,6 +2,7 @@
  * grouped by file, folding, opening a result, the result limit and switching projects. Needs a
  * display; skipped without one. */
 #include "search/search.h"
+#include "util.h"
 
 #include <glib/gstdio.h>
 #include <string.h>
@@ -338,13 +339,7 @@ static void test_replace_all(void)
 
 static void write_file(const char *dir, const char *rel, const char *contents)
 {
-  char *path = g_build_filename(dir, rel, NULL);
-  char *parent = g_path_get_dirname(path);
-
-  g_mkdir_with_parents(parent, 0755);
-  g_assert_true(g_file_set_contents(path, contents, -1, NULL));
-  g_free(parent);
-  g_free(path);
+  g_free(write_at(dir, rel, contents, -1, 0));
 }
 
 int main(int argc, char **argv)

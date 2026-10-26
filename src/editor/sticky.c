@@ -344,7 +344,6 @@ void sticky_free(Sticky *s)
   /* The page went first: the area lives on with our reference, and must not reach us. */
   TCODE_STICKY(s->area)->sticky = NULL;
   g_object_unref(s->area);
-  if (s->update_id)
-    g_source_remove(s->update_id);
+  g_clear_handle_id(&s->update_id, g_source_remove);
   g_free(s);
 }

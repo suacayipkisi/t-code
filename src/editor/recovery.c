@@ -89,8 +89,7 @@ void recovery_schedule_snapshot(Tab *tab)
 {
   if (!tab || !tab->view || !tab->modified)
     return;
-  if (tab->view->recovery_id)
-    g_source_remove(tab->view->recovery_id);
+  g_clear_handle_id(&tab->view->recovery_id, g_source_remove);
   tab->view->recovery_id = g_timeout_add(RECOVERY_DEBOUNCE_MS, on_snapshot_timer, tab);
 }
 
@@ -98,10 +97,7 @@ void recovery_forget(Tab *tab)
 {
   if (!tab || tab->kind != TAB_EDITOR || !tab->view)
     return;
-  if (tab->view->recovery_id) {
-    g_source_remove(tab->view->recovery_id);
-    tab->view->recovery_id = 0;
-  }
+  g_clear_handle_id(&tab->view->recovery_id, g_source_remove);
   if (tab->view->journaled) {
     recovery_discard_snapshot(tab->path);
     tab->view->journaled = FALSE;

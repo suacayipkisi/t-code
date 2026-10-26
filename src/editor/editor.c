@@ -171,8 +171,7 @@ static void on_changed(GtkTextBuffer *buffer G_GNUC_UNUSED, Tab *tab)
     recovery_schedule_snapshot(tab);
   if (!tab->app->settings.autosave || v->readonly || editor_in_conflict(tab)) /* the user decides first */
     return;
-  if (v->autosave_id)
-    g_source_remove(v->autosave_id);
+  g_clear_handle_id(&v->autosave_id, g_source_remove);
   v->autosave_id = g_timeout_add(AUTOSAVE_MS, autosave_now, tab);
 }
 

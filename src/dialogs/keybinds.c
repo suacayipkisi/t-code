@@ -5,6 +5,7 @@
 #include "dialogs/keybinds.h"
 
 #include "window/commands.h"
+#include "window/palette.h"
 
 static const KeyHelp tab_keys[] = {
   { "Switch to a tab", "Click" },
@@ -82,7 +83,6 @@ static gboolean on_key(GtkEventControllerKey *controller, guint key, guint code 
 void show_keybinds(App *t)
 {
   static GtkWidget *window;
-  GtkCssProvider *provider;
   GtkWidget *scroll, *grid;
   GtkEventController *keys;
   int n, row = 0;
@@ -92,11 +92,7 @@ void show_keybinds(App *t)
     gtk_window_present(GTK_WINDOW(window));
     return;
   }
-  provider = gtk_css_provider_new();
-  gtk_css_provider_load_from_string(provider, css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(css);
 
   window = gtk_window_new();
   gtk_window_set_title(GTK_WINDOW(window), "Keyboard Shortcuts");

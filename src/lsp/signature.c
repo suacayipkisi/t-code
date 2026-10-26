@@ -308,18 +308,10 @@ static void on_focus_out(GtkEventControllerFocus *focus G_GNUC_UNUSED, Signature
 
 void signature_attach(Tab *tab)
 {
-  static gboolean styled;
   SignatureHelp *h = g_new0(SignatureHelp, 1);
   GtkEventController *keys = gtk_event_controller_key_new(), *focus = gtk_event_controller_focus_new();
 
-  if (!styled) {
-    GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(provider, signature_css);
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
-    styled = TRUE;
-  }
+  palette_add_css(signature_css);
   h->tab = tab;
   h->label = GTK_LABEL(gtk_label_new(NULL));
   gtk_label_set_wrap(h->label, TRUE);
@@ -365,10 +357,8 @@ void signature_free(SignatureHelp *h)
     g_signal_handlers_disconnect_by_data(h->senders[i], h);
     g_object_unref(h->senders[i]);
   }
-  if (h->again_id)
-    g_source_remove(h->again_id);
-  if (h->trigger_id)
-    g_source_remove(h->trigger_id);
+  g_clear_handle_id(&h->again_id, g_source_remove);
+  g_clear_handle_id(&h->trigger_id, g_source_remove);
   if (h->asking)
     h->asking->help = NULL; /* its answer is dropped */
   if (h->cancel) {

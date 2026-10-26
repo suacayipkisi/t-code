@@ -31,6 +31,7 @@
 #include "window/terminal.h"
 #include "window/theme.h"
 #include "plugins/plugins.h"
+#include "window/palette.h"
 
 #include <string.h>
 
@@ -1105,14 +1106,10 @@ static void create_docks(App *t)
       ".tcode-sidebar stackswitcher button:hover, .tcode-dock-close:hover {"
       "  color: var(--tc-fg-bright); background: color-mix(in srgb, var(--tc-fg) 5%, transparent); }"
       ".tcode-scm-badge { font-size: 0.78em; font-weight: bold; }";
-  GtkCssProvider *provider = gtk_css_provider_new();
   GtkDropTarget *ed_drop = gtk_drop_target_new(G_TYPE_INVALID, GDK_ACTION_MOVE | GDK_ACTION_COPY);
   GType dropped[] = { G_TYPE_INT, G_TYPE_FILE }; /* a panel's icon, a file from the Files panel */
 
-  gtk_css_provider_load_from_string(provider, css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(css);
 
   for (int d = 0; d < DOCKS; d++)
     new_dock(t, d);

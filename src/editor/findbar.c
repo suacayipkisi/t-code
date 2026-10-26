@@ -3,6 +3,7 @@
  * searched, a GtkSourceSearchContext finds, counts and highlights it in the buffer.
  */
 #include "editor/findbar.h"
+#include "window/palette.h"
 
 #include <string.h>
 
@@ -248,19 +249,11 @@ static void option(FindBar *f, GtkWidget *box, const char *label, const char *ti
 
 static FindBar *findbar_new(Tab *tab)
 {
-  static gboolean styled;
   FindBar *f = g_new0(FindBar, 1);
   GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2), *spacer, *button;
   GtkEventController *keys;
 
-  if (!styled) {
-    GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(provider, find_css);
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
-    styled = TRUE;
-  }
+  palette_add_css(find_css);
   f->tab = tab;
   f->settings = gtk_source_search_settings_new();
   gtk_source_search_settings_set_wrap_around(f->settings, TRUE);
@@ -371,8 +364,7 @@ void findbar_free(FindBar *f)
     return;
   g_signal_handlers_disconnect_by_data(f->tab->buffer, f);
   g_signal_handlers_disconnect_by_data(f->context, f);
-  if (f->count_id)
-    g_source_remove(f->count_id);
+  g_clear_handle_id(&f->count_id, g_source_remove);
   g_object_unref(f->context);
   g_object_unref(f->settings);
   g_free(f);

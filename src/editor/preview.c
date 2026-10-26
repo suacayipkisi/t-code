@@ -1418,8 +1418,7 @@ static void on_file_changed(GFileMonitor *monitor G_GNUC_UNUSED, GFile *file G_G
 {
   if (event == G_FILE_MONITOR_EVENT_DELETED || event == G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED)
     return;
-  if (p->reload_id)
-    g_source_remove(p->reload_id);
+  g_clear_handle_id(&p->reload_id, g_source_remove);
   p->reload_id = g_timeout_add(150, reload_now, p);
 }
 
@@ -1528,8 +1527,7 @@ static void on_leave(GtkEventControllerMotion *motion G_GNUC_UNUSED, Preview *p)
 
 void preview_free(Preview *p)
 {
-  if (p->reload_id)
-    g_source_remove(p->reload_id);
+  g_clear_handle_id(&p->reload_id, g_source_remove);
   if (p->monitor) {
     g_file_monitor_cancel(p->monitor);
     g_object_unref(p->monitor);
@@ -1563,21 +1561,13 @@ void preview_set_zoom(Tab *tab, double scale)
 
 void open_preview(App *t, const char *path)
 {
-  static gboolean styled;
   Tab *open = find_tab(t, TAB_PREVIEW, path);
 
   if (open) {
     select_tab(open);
     return;
   }
-  if (!styled) {
-    GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(provider, css);
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
-    styled = TRUE;
-  }
+  palette_add_css(css);
 
   Preview *p = g_new0(Preview, 1);
   GtkWidget *scrolled = gtk_scrolled_window_new();

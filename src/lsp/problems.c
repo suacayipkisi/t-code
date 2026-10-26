@@ -8,6 +8,7 @@
 #include "files/files.h"
 #include "lsp/diagnostics.h"
 #include "window/window.h"
+#include "window/palette.h"
 
 static const char *const problems_css =
     ".tcode-problems { background: var(--tc-panel); }"
@@ -185,11 +186,7 @@ GtkWidget *problems_panel(App *t)
 {
   pv.app = t;
 
-  GtkCssProvider *provider = gtk_css_provider_new();
-  gtk_css_provider_load_from_string(provider, problems_css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(problems_css);
 
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_widget_add_css_class(box, "tcode-problems");

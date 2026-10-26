@@ -7,6 +7,7 @@
 #include "editor/tabs.h"
 #include "lsp/client.h"
 #include "lsp/symbols.h"
+#include "window/palette.h"
 
 #define INDENT_PX 14 /* per level */
 
@@ -170,13 +171,9 @@ char *outline_text(App *t G_GNUC_UNUSED)
 
 GtkWidget *outline_panel(App *t)
 {
-  GtkCssProvider *provider = gtk_css_provider_new();
   GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0), *scroll = gtk_scrolled_window_new();
 
-  gtk_css_provider_load_from_string(provider, outline_css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(outline_css);
   outline_app = t;
   gtk_widget_add_css_class(panel, "tcode-outline");
   outline.note = GTK_LABEL(gtk_label_new(NULL));

@@ -17,8 +17,8 @@ static char *git(const char *root, const char *const *args)
   for (int i = 0; args[i]; i++)
     g_ptr_array_add(argv, (gpointer)args[i]);
   g_ptr_array_add(argv, NULL);
-  g_assert_true(g_spawn_sync(NULL, (char **)argv->pdata, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, &out, &err, &status,
-                             &error));
+  g_assert_true(
+      g_spawn_sync(NULL, (char **)argv->pdata, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, &out, &err, &status, &error));
   g_assert_no_error(error);
   g_assert_true(g_spawn_check_wait_status(status, &error));
   g_assert_no_error(error);
@@ -58,8 +58,7 @@ static void test_partial_stage_and_unstage(void)
                                     "line 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\n"
                                     "line 17\nline 18 changed\nline 19\nline 20\n",
                                     -1, NULL));
-  output = git(root, (const char *[]){ "diff", "--no-color", "--no-ext-diff", "--unified=3", "--", "file.txt",
-                                        NULL });
+  output = git(root, (const char *[]){ "diff", "--no-color", "--no-ext-diff", "--unified=3", "--", "file.txt", NULL });
   patches = git_patch_hunks(output);
   g_assert_cmpuint(patches->len, ==, 2);
   g_assert_true(g_file_set_contents(patch_path, g_ptr_array_index(patches, 0), -1, NULL));
@@ -79,7 +78,7 @@ static void test_partial_stage_and_unstage(void)
   g_free(git(root, (const char *[]){ "reset", "-q", NULL }));
   g_free(git(root, (const char *[]){ "add", "file.txt", NULL }));
   output = git(root, (const char *[]){ "diff", "--cached", "--no-color", "--no-ext-diff", "--unified=3", "--",
-                                        "file.txt", NULL });
+                                       "file.txt", NULL });
   patches = git_patch_hunks(output);
   g_assert_cmpuint(patches->len, ==, 2);
   g_assert_true(g_file_set_contents(patch_path, g_ptr_array_index(patches, 1), -1, NULL));

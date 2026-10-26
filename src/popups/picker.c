@@ -6,6 +6,7 @@
 #include "popups/picker.h"
 
 #include "editor/tabs.h"
+#include "window/palette.h"
 
 #include <string.h>
 
@@ -240,7 +241,6 @@ void picker_set_preview(App *t, PickerChoose preview, PickerCancel cancel)
 void picker_init(App *t, GtkOverlay *overlay)
 {
   Picker *p = g_new0(Picker, 1);
-  GtkCssProvider *provider = gtk_css_provider_new();
   GtkWidget *scroll = gtk_scrolled_window_new();
   GtkEventController *keys = gtk_event_controller_key_new();
   GtkEventController *focus = gtk_event_controller_focus_new();
@@ -252,10 +252,7 @@ void picker_init(App *t, GtkOverlay *overlay)
   p->message = GTK_LABEL(gtk_label_new(NULL));
   t->picker = p;
 
-  gtk_css_provider_load_from_string(provider, css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(css);
 
   gtk_widget_add_css_class(p->box, "tcode-picker");
   gtk_widget_set_size_request(p->box, 640, -1);

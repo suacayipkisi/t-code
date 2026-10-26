@@ -9,6 +9,7 @@
 #include "lsp/client.h"
 #include "lsp/diagnostics.h"
 #include "lsp/navigate.h"
+#include "window/palette.h"
 
 #define MAX_WIDTH_CHARS 90
 #define MAX_FIXES 3
@@ -292,18 +293,10 @@ static void tcode_hover_init(TcodeHover *self G_GNUC_UNUSED)
 
 void hover_attach(Tab *tab)
 {
-  static gboolean styled;
   TcodeHover *provider = g_object_new(TCODE_TYPE_HOVER, NULL);
   GtkSourceHover *hover = gtk_source_view_get_hover(tab->source);
 
-  if (!styled) {
-    GtkCssProvider *style = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(style, hover_css);
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(style),
-                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(style);
-    styled = TRUE;
-  }
+  palette_add_css(hover_css);
   provider->tab = tab;
   gtk_source_hover_add_provider(hover, GTK_SOURCE_HOVER_PROVIDER(provider));
   g_object_unref(provider); /* the hover holds it */

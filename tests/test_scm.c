@@ -8,6 +8,7 @@
 #include "editor/tabs.h"
 #include "git/compare.h"
 #include "popups/picker.h"
+#include "util.h"
 
 #include <glib/gstdio.h>
 
@@ -123,12 +124,6 @@ static char *make_dir(const char *name, const char *file)
   return dir;
 }
 
-static void runs_for(int ms)
-{
-  for (gint64 until = g_get_monotonic_time() + ms * 1000; g_get_monotonic_time() < until;)
-    g_main_context_iteration(NULL, FALSE);
-}
-
 /* The panel's lists, in order: Staged Changes, Changes, Commits. */
 static GtkListBox *list(int index)
 {
@@ -208,11 +203,11 @@ static void test_no_git(void)
   open_project_at(no_git);
   assert_empty(); /* at once, before git answers */
   g_assert_null(app.project.git_top);
-  runs_for(800);
+  run_for(800);
   assert_empty();
   /* git status runs again every 10 seconds: still nothing. */
   poll_branch(&app);
-  runs_for(300);
+  run_for(300);
   assert_empty();
 }
 
@@ -222,7 +217,7 @@ static void test_no_commits(void)
   open_project_at(no_commits);
   g_assert_cmpint(rows(2), ==, 0);
   wait_for(1, 1); /* c.txt, untracked */
-  runs_for(500);
+  run_for(500);
   g_assert_cmpint(rows(2), ==, 0);
   g_assert_cmpstr(tab_title(), ==, "SOURCE CONTROL  1");
 }
@@ -240,7 +235,7 @@ static void test_late_log(void)
     g_main_context_iteration(NULL, FALSE); /* status answered: git log runs now */
   g_assert_cmpint(rows(2), ==, commits - 1);
   open_project_at(no_git);
-  runs_for(800);
+  run_for(800);
   assert_empty();
 }
 
@@ -254,7 +249,7 @@ static void test_late_status(void)
   for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC; branch_busy && g_get_monotonic_time() < until;)
     g_main_context_iteration(NULL, FALSE);
   assert_empty(); /* the old status came, before the new one */
-  runs_for(800);
+  run_for(800);
   assert_empty();
   g_assert_false(branch_busy);
 }
@@ -266,7 +261,7 @@ static gboolean head_moved_after(int before)
        head_moves == before && g_get_monotonic_time() < until;) {
     if (!branch_busy)
       poll_branch(&app);
-    runs_for(50);
+    run_for(50);
   }
   return head_moves > before;
 }
@@ -277,7 +272,7 @@ static void test_head_moves(void)
   int before;
 
   open_with_commits();
-  runs_for(400);
+  run_for(400);
   before = head_moves;
   git(with_commits, (const char *[]){ "add", "b.txt", NULL });
   g_assert_false(head_moved_after(before));
@@ -298,7 +293,7 @@ static void test_commits_folded(void)
                                       "-m", "folded", NULL });
   commits++;
   poll_branch(&app);
-  runs_for(800);
+  run_for(800);
   g_assert_cmpint(rows(2), ==, commits - 1); /* the old list, not read again */
   scm_show_commits(TRUE);
   wait_for(2, commits);
@@ -465,7 +460,7 @@ static char *wait_cached(const char *dir, gboolean empty)
 
   for (gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
        (*out == '\0') != empty && g_get_monotonic_time() < end;) {
-    runs_for(50);
+    run_for(50);
     g_free(out);
     out = git_out(dir, args);
   }
@@ -536,7 +531,7 @@ static char *wait_rev(const char *dir, const char *what, const char *want)
 
   for (gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
        strcmp(out, want) != 0 && g_get_monotonic_time() < end;) {
-    runs_for(50);
+    run_for(50);
     g_free(out);
     out = g_strstrip(git_out(dir, name ? args : full));
   }

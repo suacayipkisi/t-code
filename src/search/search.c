@@ -819,15 +819,11 @@ static GtkWidget *tool_button(const char *text, const char *tooltip, GCallback c
 
 GtkWidget *search_panel(App *t)
 {
-  GtkCssProvider *provider = gtk_css_provider_new();
   GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *query, *details, *head, *scroll = gtk_scrolled_window_new();
   GtkEventController *keys = gtk_event_controller_key_new();
 
-  gtk_css_provider_load_from_string(provider, css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(css);
 
   search.app = t;
   gtk_widget_add_css_class(panel, "tcode-search");

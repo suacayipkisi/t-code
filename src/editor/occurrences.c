@@ -189,8 +189,7 @@ static void on_occurrence_mark_set(GtkTextBuffer *buffer, const GtkTextIter *ite
 {
   if (mark != gtk_text_buffer_get_insert(buffer) && mark != gtk_text_buffer_get_selection_bound(buffer))
     return;
-  if (o->update_id)
-    g_source_remove(o->update_id);
+  g_clear_handle_id(&o->update_id, g_source_remove);
   o->update_id = g_timeout_add(OCCURRENCES_MS, find_occurrences, o);
 }
 
@@ -239,8 +238,7 @@ void occurrences_free(Occurrences *o)
 {
   if (!o)
     return;
-  if (o->update_id)
-    g_source_remove(o->update_id);
+  g_clear_handle_id(&o->update_id, g_source_remove);
   stop_asking(o);
   g_signal_handlers_disconnect_by_data(o->buffer, o);
   g_array_free(o->lines, TRUE);

@@ -9,6 +9,7 @@
 #include "editor/tabs.h"
 #include "files/icons.h"
 #include "popups/contextmenu.h"
+#include "window/palette.h"
 
 #include <string.h>
 
@@ -231,14 +232,10 @@ static void on_heading_click(GtkGestureClick *click, int n G_GNUC_UNUSED, double
 
 GtkWidget *open_tabs_new(App *t)
 {
-  GtkCssProvider *provider = gtk_css_provider_new();
   GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0), *title = gtk_label_new("OPEN TABS");
   GtkGesture *click = gtk_gesture_click_new();
 
-  gtk_css_provider_load_from_string(provider, css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(css);
 
   open_tabs.app = t;
   open_tabs.section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);

@@ -3,6 +3,7 @@
  * features, and rust-analyzer's options and cargo's flags for the picked ones.
  */
 #include "project/langenv.h"
+#include "util.h"
 
 #include <glib/gstdio.h>
 
@@ -11,14 +12,7 @@ static char *root;
 /* Writes text to root/name, making its folders; executable when exec. */
 static void put(const char *name, const char *text, gboolean exec)
 {
-  char *path = g_build_filename(root, name, NULL), *dir = g_path_get_dirname(path);
-
-  g_mkdir_with_parents(dir, 0755);
-  g_assert_true(g_file_set_contents(path, text, -1, NULL));
-  if (exec)
-    g_chmod(path, 0755);
-  g_free(dir);
-  g_free(path);
+  g_free(write_at(root, name, text, -1, exec ? 0755 : 0));
 }
 
 static void make_venv(const char *dir)

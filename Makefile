@@ -44,29 +44,29 @@ build/compile_commands.json: Makefile $(APP_SRC) $(TEST_SRC) | build
 # Tests: searchmatch.c, editor/detect.c, git/linediff.c and files/{fileops,folder,gitmarks}.c alone (GLib); the Search
 # panel, editing, Source Control, the Files panel and About in a window (they need a display for some or all of
 # their tests).
-build/test-searchmatch: tests/test_searchmatch.c src/search/searchmatch.c src/search/searchmatch.h | build
+build/test-searchmatch: tests/test_searchmatch.c tests/util.h src/search/searchmatch.c src/search/searchmatch.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags gio-2.0) -o $@ tests/test_searchmatch.c src/search/searchmatch.c \
 	  $(shell pkg-config --libs gio-2.0)
 
-build/test-search-panel: tests/test_search_panel.c src/search/search.c src/search/searchmatch.c src/window/palette.c \
+build/test-search-panel: tests/test_search_panel.c tests/util.h src/search/search.c src/search/searchmatch.c src/window/palette.c \
                          src/popups/contextmenu.c $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_search_panel.c src/search/search.c src/search/searchmatch.c \
 	  src/window/palette.c src/popups/contextmenu.c \
 	  $(shell pkg-config --libs $(PKGS))
 
-build/test-linediff: tests/test_linediff.c src/git/linediff.c src/git/linediff.h | build
+build/test-linediff: tests/test_linediff.c tests/util.h src/git/linediff.c src/git/linediff.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_linediff.c src/git/linediff.c \
 	  $(shell pkg-config --libs glib-2.0)
 
-build/test-lspinstall: tests/test_lspinstall.c src/lsp/install.c src/lsp/install.h | build
+build/test-lspinstall: tests/test_lspinstall.c tests/util.h src/lsp/install.c src/lsp/install.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_lspinstall.c src/lsp/install.c \
 	  $(shell pkg-config --libs glib-2.0)
 
-build/test-langenv: tests/test_langenv.c src/project/langenv.c src/project/langenv.h | build
+build/test-langenv: tests/test_langenv.c tests/util.h src/project/langenv.c src/project/langenv.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0) -o $@ tests/test_langenv.c src/project/langenv.c \
 	  $(shell pkg-config --libs json-glib-1.0)
 
-build/test-detect: tests/test_detect.c src/editor/detect.c src/editor/detect.h src/editor/indentconf.c \
+build/test-detect: tests/test_detect.c tests/util.h src/editor/detect.c src/editor/detect.h src/editor/indentconf.c \
                    src/editor/indentconf.h src/editor/blocks.c src/editor/blocks.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_detect.c src/editor/detect.c \
 	  src/editor/indentconf.c src/editor/blocks.c \
@@ -77,52 +77,52 @@ build/test-detect: tests/test_detect.c src/editor/detect.c src/editor/detect.h s
 # the language server.
 PAGE_SRC := $(filter-out src/editor/tabs.c src/editor/editor.c src/editor/preview.c,$(wildcard src/editor/*.c)) \
             $(wildcard src/lsp/*.c) src/git/linediff.c src/window/palette.c src/project/langenv.c tests/editor_page.h
-build/test-editing: tests/test_editing.c tests/broadway.h $(PAGE_SRC) $(APP_HDR) | build
+build/test-editing: tests/test_editing.c tests/util.h tests/broadway.h $(PAGE_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_editing.c $(shell pkg-config --libs $(PKGS))
 
-build/test-lsp: tests/test_lsp.c $(PAGE_SRC) $(APP_HDR) | build
+build/test-lsp: tests/test_lsp.c tests/util.h $(PAGE_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_lsp.c $(shell pkg-config --libs $(PKGS))
 
 # The debugger's protocol client against gdb (skipped without one).
 DAP_SRC := src/debug/dap.c src/lsp/channel.c src/lsp/json.c
-build/test-debug: tests/test_debug.c $(DAP_SRC) src/debug/dap.h src/lsp/channel.h src/lsp/json.h | build
+build/test-debug: tests/test_debug.c tests/util.h $(DAP_SRC) src/debug/dap.h src/lsp/channel.h src/lsp/json.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o $@ tests/test_debug.c $(DAP_SRC) \
 	  $(shell pkg-config --libs json-glib-1.0 gio-2.0)
 
-build/test-scm: tests/test_scm.c src/git/scm.c src/git/gitstatus.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | build
+build/test-scm: tests/test_scm.c tests/util.h src/git/scm.c src/git/gitstatus.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_scm.c src/git/scm.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c \
 	  $(shell pkg-config --libs $(PKGS))
 
-build/test-gitpatch: tests/test_gitpatch.c src/git/patch.c src/git/patch.h | build
+build/test-gitpatch: tests/test_gitpatch.c tests/util.h src/git/patch.c src/git/patch.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_gitpatch.c src/git/patch.c \
 	  $(shell pkg-config --libs glib-2.0)
 
 FILES_GIO := src/files/fileops.c src/files/folder.c src/files/gitmarks.c src/files/icons.c
-build/test-fileops: tests/test_fileops.c $(FILES_GIO) $(FILES_GIO:.c=.h) | build
+build/test-fileops: tests/test_fileops.c tests/util.h $(FILES_GIO) $(FILES_GIO:.c=.h) | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags gio-2.0) -o $@ tests/test_fileops.c $(FILES_GIO) \
 	  $(shell pkg-config --libs gio-2.0)
 
 # The Files panel; tests/test_files.c includes src/files/files.c for its static functions.
-build/test-files: tests/test_files.c $(wildcard src/files/*.c) src/window/palette.c $(APP_HDR) | build
+build/test-files: tests/test_files.c tests/util.h $(wildcard src/files/*.c) src/window/palette.c $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_files.c $(FILES_GIO) src/window/palette.c \
 	  $(shell pkg-config --libs $(PKGS))
 
 # A whole window (every module but main.c): how tabs open and close.
-build/test-window: tests/test_window.c tests/broadway.h $(APP_SRC) $(APP_HDR) build/license.h | build
+build/test-window: tests/test_window.c tests/util.h tests/broadway.h $(APP_SRC) $(APP_HDR) build/license.h | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_window.c \
 	  $(filter-out src/main.c,$(APP_SRC)) $(shell pkg-config --libs $(PKGS))
 
-build/test-about: tests/test_about.c src/dialogs/about.c $(APP_HDR) build/license.h | build
+build/test-about: tests/test_about.c tests/util.h src/dialogs/about.c $(APP_HDR) build/license.h | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_about.c \
 	  $(shell pkg-config --libs $(PKGS))
-build/test-plugins: tests/test_plugins.c src/plugins/plugins.c src/plugins/plugins.h $(APP_HDR) | build
+build/test-plugins: tests/test_plugins.c tests/util.h src/plugins/plugins.c src/plugins/plugins.h $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_plugins.c $(shell pkg-config --libs $(PKGS))
 
-build/test-update: tests/test_update.c src/update/update.c src/update/update.h $(APP_HDR) | build
+build/test-update: tests/test_update.c tests/util.h src/update/update.c src/update/update.h $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_update.c src/update/update.c \
 	  $(shell pkg-config --libs $(PKGS))
 
-build/test-recovery: tests/test_recovery.c src/editor/recovery.c src/editor/recovery.h $(APP_HDR) | build
+build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c src/editor/recovery.h $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_recovery.c src/editor/recovery.c \
 	  $(shell pkg-config --libs $(PKGS))
 

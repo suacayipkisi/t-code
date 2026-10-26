@@ -812,10 +812,8 @@ void diff_gutter_free(DiffGutter *g)
   /* The page went first: the renderer lives on with our reference, and must not draw for us. */
   TCODE_DIFF_RENDERER(g->renderer)->gutter = NULL;
   g_object_unref(g->renderer);
-  if (g->update_id)
-    g_source_remove(g->update_id);
-  if (g->relayout_id)
-    g_source_remove(g->relayout_id);
+  g_clear_handle_id(&g->update_id, g_source_remove);
+  g_clear_handle_id(&g->relayout_id, g_source_remove);
   if (g->loading)
     g->loading->gutter = NULL;
   if (g->marks)

@@ -16,6 +16,7 @@
 #include "editor/editor.h"
 #include "lsp/json.h"
 #include "popups/contextmenu.h"
+#include "window/palette.h"
 
 #include <string.h>
 
@@ -1001,17 +1002,13 @@ static void on_view_destroyed(GtkWidget *widget G_GNUC_UNUSED, gpointer data G_G
 
 GtkWidget *debug_view(App *t)
 {
-  GtkCssProvider *provider = gtk_css_provider_new();
   GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_VERTICAL);
   GtkWidget *top = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0), *rest = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *rest_scroll = gtk_scrolled_window_new();
   GtkEventController *keys = gtk_event_controller_key_new();
 
-  gtk_css_provider_load_from_string(provider, css);
-  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
-                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_unref(provider);
+  palette_add_css(css);
   view.app = t;
   view.root = g_list_store_new(TCODE_TYPE_VAR);
   view.watch = g_list_store_new(TCODE_TYPE_VAR);
