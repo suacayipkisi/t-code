@@ -20,6 +20,6 @@ pkgbase = t-code-ide
 	optdepends = gdb: the debugger (F5)
 	conflicts = t-code
 	source = t-code-0.4.1.tar.gz::https://github.com/suacayipkisi/t-code/archive/refs/tags/v0.4.1.tar.gz
-	sha256sums = f115db2f0d270e2ef0d856b4a394b3db1bf1e4d08d73c9d9a5196d610e794af1
+	sha256sums = 1d0939e6f753306ca9473552f2a43d73d3c1cbc9c72f4d36b99786366bd377d8
 
 pkgname = t-code-ide
