@@ -8,7 +8,7 @@
 set -uo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-for tool in Xvfb xdotool git dbus-run-session python3; do
+for tool in Xvfb xdotool git dbus-run-session python3 pgrep; do
   command -v "$tool" >/dev/null || { echo "1..0 # SKIP $tool is not installed"; exit 0; }
 done
 [[ -x "$root/build/t-code" ]] || make -C "$root" >/dev/null

@@ -21,7 +21,7 @@ jobs:
         run: |
           dnf -y install make gcc git clangd gdb \
             gtk4-devel gtksourceview5-devel json-glib-devel vte291-gtk4-devel md4c-devel \
-            xorg-x11-server-Xvfb dbus-x11 glibc-langpack-en xdotool python3
+            xorg-x11-server-Xvfb dbus-x11 glibc-langpack-en xdotool python3 procps-ng
       - name: Build
         run: make -j"$(nproc)" all
       # Gtk tests need a session bus and headless display; cairo disables the container Vulkan renderer.
