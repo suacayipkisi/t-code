@@ -19,6 +19,19 @@ static const char *const breadcrumbs_css =
     ".tcode-breadcrumbs button:hover { background: color-mix(in srgb, var(--tc-fg) 12%, transparent); }"
     ".tcode-breadcrumbs .kind { color: var(--tc-accent); margin-right: 3px; }";
 
+/* The bar's scrolled window: it asks for no width of its own, so a long path and symbol never widen
+ * the editor (which then rewraps its lines and jumps); what does not fit is cut off at the start. */
+static GtkWidget *bar_frame(GtkWidget *bar)
+{
+  return gtk_widget_get_ancestor(bar, GTK_TYPE_SCROLLED_WINDOW);
+}
+
+/* The bar got wider or narrower: its end (the file and the symbols) stays in view. */
+static void keep_end(GtkAdjustment *adjustment)
+{
+  gtk_adjustment_set_value(adjustment, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment));
+}
+
 /* A symbol crumb was clicked: the cursor goes to its name. */
 static void crumb_clicked(GtkButton *button, Tab *tab)
 {
@@ -69,6 +82,7 @@ void breadcrumbs_update(Tab *tab)
   if (!bar)
     return;
   gtk_widget_set_visible(bar, tab->app->settings.breadcrumbs && tab->path && !tab->view->readonly);
+  gtk_widget_set_visible(bar_frame(bar), gtk_widget_get_visible(bar));
   if (!gtk_widget_get_visible(bar))
     return;
   while ((child = gtk_widget_get_first_child(bar)))
@@ -121,11 +135,17 @@ char *breadcrumbs_text(Tab *tab)
 
 void breadcrumbs_attach(Tab *tab)
 {
-  GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0), *frame = gtk_scrolled_window_new();
 
   palette_add_css(breadcrumbs_css);
   gtk_widget_add_css_class(bar, "tcode-breadcrumbs");
-  gtk_box_prepend(GTK_BOX(tab->view->column), bar);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(frame), GTK_POLICY_EXTERNAL, GTK_POLICY_NEVER);
+  gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(frame), TRUE);
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(frame), bar);
+  g_signal_connect(gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(frame)), "changed", G_CALLBACK(keep_end),
+                   NULL);
+  gtk_box_prepend(GTK_BOX(tab->view->column), frame);
   tab->view->breadcrumbs = bar;
   gtk_widget_set_visible(bar, FALSE); /* filled once the file is there */
+  gtk_widget_set_visible(frame, FALSE);
 }

@@ -1036,6 +1036,27 @@ static void test_line_blame(void)
   g_free(dir);
 }
 
+/* A long path in the breadcrumbs (a narrow, upright window) asks for no width: the editor would be
+ * pushed aside and rewrap its lines, jumping while a selection is dragged. */
+static void test_breadcrumbs_no_width(void)
+{
+  Tab *tab = new_tab("int a;\n");
+  int bare, crumbs;
+
+  app.settings.breadcrumbs = FALSE;
+  breadcrumbs_update(tab);
+  gtk_widget_measure(tab->view->column, GTK_ORIENTATION_HORIZONTAL, -1, &bare, NULL, NULL, NULL);
+  app.settings.breadcrumbs = TRUE;
+  g_set_str(&tab->path, "/a-very-long-folder-name/another-very-long-folder-name/yet-another-folder/and-one-more-"
+                        "folder/with-a-long-file-name.c");
+  breadcrumbs_update(tab);
+  g_assert_true(gtk_widget_get_visible(tab->view->breadcrumbs));
+  gtk_widget_measure(tab->view->column, GTK_ORIENTATION_HORIZONTAL, -1, &crumbs, NULL, NULL, NULL);
+  g_assert_cmpint(crumbs, <=, bare);
+  app.settings.breadcrumbs = FALSE;
+  free_tab(tab);
+}
+
 /* Merge conflicts --------------------------------------------------------------------------- */
 
 #define CONFLICT_TEXT                                                                                                  \
@@ -1725,6 +1746,7 @@ int main(int argc, char **argv)
   g_test_add_func("/editing/line-blame", test_line_blame);
   g_test_add_func("/editing/multi-undo-word", test_multi_undo_word);
   g_test_add_func("/editing/conflicts", test_conflicts);
+  g_test_add_func("/editing/breadcrumbs-no-width", test_breadcrumbs_no_width);
   g_test_add_func("/editing/conflicts-none", test_conflicts_none);
   g_test_add_func("/multicursor/add-next", test_multi_add_next);
   g_test_add_func("/multicursor/select-all", test_multi_select_all);
