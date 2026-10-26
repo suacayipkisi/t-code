@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- t-code's C++ snippets: type the trigger, then Tab (or pick it from the completion list). -->
+<snippets _group="C++">
+  <snippet _name="class" trigger="class" _description="class">
+    <text languages="cpp;cpphdr"><![CDATA[class ${1:Name} {
+public:
+	$1();
+	~$1();
+
+private:
+	$0
+};]]></text>
+  </snippet>
+  <snippet _name="forr" trigger="forr" _description="range-based for loop">
+    <text languages="cpp;cpphdr"><![CDATA[for (${1:auto} &${2:item} : ${3:items}) {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="cout" trigger="cout" _description="std::cout">
+    <text languages="cpp;cpphdr"><![CDATA[std::cout << ${1:value} << '\n';]]></text>
+  </snippet>
+  <snippet _name="ns" trigger="ns" _description="namespace">
+    <text languages="cpp;cpphdr"><![CDATA[namespace ${1:name} {
+
+$0
+
+} // namespace $1]]></text>
+  </snippet>
+  <snippet _name="try" trigger="try" _description="try / catch">
+    <text languages="cpp;cpphdr"><![CDATA[try {
+	$1
+} catch (const ${2:std::exception} &${3:e}) {
+	$0
+}]]></text>
+  </snippet>
+</snippets>

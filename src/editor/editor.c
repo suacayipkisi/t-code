@@ -5,11 +5,13 @@
  */
 #include "editor/editor.h"
 
+#include "editor/breadcrumbs.h"
 #include "editor/breakpoints.h"
 #include "editor/detect.h"
 #include "editor/diffgutter.h"
 #include "editor/editorview.h"
 #include "editor/folding.h"
+#include "editor/multicursor.h"
 #include "editor/preview.h"
 #include "editor/tabs.h"
 #include "editor/recovery.h"
@@ -429,6 +431,7 @@ static void on_loaded(GObject *source, GAsyncResult *result, gpointer data)
     watch_file(tab);
     diff_gutter_loaded(tab);
     breakpoints_loaded(tab);
+    breadcrumbs_update(tab);
     if (!lsp_wants(tab) || is_markdown(tab->path)) /* prose: its words, beside the server's links */
       completion_use_words(tab);
     if (lsp_wants(tab)) {
@@ -470,6 +473,7 @@ static void load(Tab *tab, int line, int column)
   v->goto_column = column;
   v->loading = TRUE;
   folding_reset(tab); /* the folded lines may not be there any more */
+  multicursor_clear(tab);
   /* The loader replaces the whole text: the old problems' marks would end up around all of it. The
    * server sends the new ones once it has the file again. */
   diagnostics_clear(tab);

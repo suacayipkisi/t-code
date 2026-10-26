@@ -22,6 +22,8 @@
 #include "git/scm.h"
 #include "ipc/socket.h"
 #include "lsp/navigate.h"
+#include "lsp/outline.h"
+#include "lsp/symbols.h"
 #include "popups/contextmenu.h"
 #include "project/run.h"
 #include "project/session.h"
@@ -1921,6 +1923,87 @@ static void test_no_lsp(void)
   g_free(saved_path);
 }
 
+/* The first widget under root of type (any for G_TYPE_NONE) with the CSS class (any for NULL). */
+static GtkWidget *descendant(GtkWidget *root, GType type, const char *css_class)
+{
+  for (GtkWidget *child = root ? gtk_widget_get_first_child(root) : NULL; child;
+       child = gtk_widget_get_next_sibling(child)) {
+    if ((type == G_TYPE_NONE || G_TYPE_CHECK_INSTANCE_TYPE(child, type)) &&
+        (!css_class || gtk_widget_has_css_class(child, css_class)))
+      return child;
+    GtkWidget *found = descendant(child, type, css_class);
+    if (found)
+      return found;
+  }
+  return NULL;
+}
+
+static Sym *outline_sym(const char *name, int kind, int line, int end_line)
+{
+  Sym *sym = g_new0(Sym, 1);
+
+  sym->name = g_strdup(name);
+  sym->kind = kind;
+  sym->line = sym->name_line = line;
+  sym->end_line = end_line;
+  sym->end_column = 50;
+  sym->name_column = 2;
+  sym->children = g_ptr_array_new();
+  return sym;
+}
+
+static void outline_sym_free(Sym *sym)
+{
+  g_ptr_array_set_free_func(sym->children, (GDestroyNotify)outline_sym_free);
+  g_ptr_array_unref(sym->children);
+  g_free(sym->name);
+  g_free(sym);
+}
+
+/* The Outline panel lists the current editor's symbols indented, selects the one around the cursor
+ * and goes to one when clicked; with no editor it says so. */
+static void test_outline(void)
+{
+  char *path = file("outline.c"), *text;
+  Tab *tab;
+  GPtrArray *roots = g_ptr_array_new_with_free_func((GDestroyNotify)outline_sym_free);
+  Sym *shape = outline_sym("Shape", 23, 0, 3);
+  GtkTextIter iter;
+
+  g_assert_true(g_file_set_contents(path, "struct Shape {\n  int w;\n  int h;\n};\nint main(void) {}\n", -1, NULL));
+  open_file(&app, path);
+  run(50);
+  tab = current_tab(&app);
+  g_assert_nonnull(tab);
+  g_ptr_array_add(shape->children, outline_sym("w", 8, 1, 1));
+  g_ptr_array_add(shape->children, outline_sym("h", 8, 2, 2));
+  g_ptr_array_add(roots, shape);
+  g_ptr_array_add(roots, outline_sym("main", 12, 4, 4));
+  gtk_text_buffer_get_iter_at_line_offset(GTK_TEXT_BUFFER(tab->buffer), &iter, 2, 4);
+  gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(tab->buffer), &iter);
+
+  /* outline_fill is what the symbols' answer does; symbols_at reads the editor's own, so the
+   * selection follows them: none here. */
+  outline_fill(&app, tab, roots);
+  text = outline_text(&app);
+  g_assert_cmpstr(text, ==, "S Shape\n  · w\n  · h\nƒ main\n");
+  g_free(text);
+  GtkListBox *list = GTK_LIST_BOX(
+      descendant(descendant(GTK_WIDGET(app.window), G_TYPE_NONE, "tcode-outline"), GTK_TYPE_LIST_BOX, NULL));
+  g_signal_emit_by_name(list, "row-activated", gtk_list_box_get_row_at_index(list, 3)); /* main */
+  gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &iter,
+                                   gtk_text_buffer_get_insert(GTK_TEXT_BUFFER(tab->buffer)));
+  g_assert_cmpint(gtk_text_iter_get_line(&iter), ==, 4);
+  g_assert_cmpint(gtk_text_iter_get_line_offset(&iter), ==, 2);
+  g_ptr_array_unref(roots);
+  outline_fill(&app, NULL, NULL);
+  text = outline_text(&app);
+  g_assert_cmpstr(text, ==, "(Open a file to see its symbols.)\n");
+  g_free(text);
+  close_all_tabs(&app);
+  g_free(path);
+}
+
 /* A plugin's "say" stays in the status bar for a few seconds: status updates (diagnostics, tab
  * changes, many a second while typing) used to replace it at once. Then the Build target is back. */
 static void test_status_say(void)
@@ -2034,7 +2117,7 @@ static void test_settings_pages(void)
     g_assert_true(GTK_IS_SCROLLED_WINDOW(page));
     switches += count_of(page, GTK_TYPE_SWITCH);
   }
-  g_assert_cmpint(switches, ==, 12); /* none lost on the way */
+  g_assert_cmpint(switches, ==, 14); /* none lost on the way (inlay hints and breadcrumbs the last) */
   g_assert_cmpstr(gtk_stack_get_visible_child_name(stack), ==, "general");
 
   gtk_stack_set_visible_child_name(stack, "appearance");
@@ -2403,6 +2486,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/update-check-now", test_update_check_now);
   g_test_add_func("/window/status-say", test_status_say);
   g_test_add_func("/window/no-lsp", test_no_lsp);
+  g_test_add_func("/window/outline", test_outline);
   g_test_add_func("/window/second-window", test_second_window);
   g_test_add_func("/window/tab-strip", test_tab_strip);
   g_test_add_func("/window/open-tabs", test_open_tabs);

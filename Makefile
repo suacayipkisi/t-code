@@ -197,6 +197,8 @@ test-asan: | build
 install: build/t-code
 	install -Dm755 build/t-code $(DESTDIR)$(BINDIR)/t-code
 	install -Dm644 styles/dark-classic.xml $(DESTDIR)$(DATADIR)/t-code/styles/dark-classic.xml
+	install -d $(DESTDIR)$(DATADIR)/t-code/snippets
+	install -m644 snippets/*.snippets $(DESTDIR)$(DATADIR)/t-code/snippets/
 	install -Dm644 desktop/io.github.tcode.svg \
 	  $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.tcode.svg
 	install -d $(DESTDIR)$(DATADIR)/applications

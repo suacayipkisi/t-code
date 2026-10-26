@@ -10,6 +10,7 @@
 #include "editor/editor.h"
 #include "editor/editorview.h"
 #include "editor/preview.h"
+#include "editor/snippets.h"
 #include "editor/tabs.h"
 #include "files/files.h"
 #include "git/scm.h"
@@ -18,6 +19,8 @@
 #include "project/project.h"
 #include "project/session.h"
 #include "project/userfiles.h"
+#include "lsp/hierarchy.h"
+#include "lsp/outline.h"
 #include "lsp/problems.h"
 #include "search/search.h"
 #include "update/update.h"
@@ -32,8 +35,9 @@
 
 /* Panes -------------------------------------------------------------------------------------- */
 
-const char *const panel_names[PANELS] = { "files", "scm", "search", "shell", "debug", "run", "problems" };
-const int panel_default_docks[PANELS] = { 0, 0, 0, 4, 4, 0, 4 };
+const char *const panel_names[PANELS] = { "files", "scm",      "search",  "shell",    "debug",
+                                          "run",   "problems", "outline", "hierarchy" };
+const int panel_default_docks[PANELS] = { 0, 0, 0, 4, 4, 0, 4, 0, 0 };
 
 static void queue_panel_checks(App *t);
 
@@ -51,6 +55,10 @@ static const char *panel_icon(const char *page)
     return "media-playback-start-symbolic";
   if (strcmp(page, "problems") == 0)
     return "dialog-warning-symbolic";
+  if (strcmp(page, "outline") == 0)
+    return "view-list-symbolic";
+  if (strcmp(page, "hierarchy") == 0)
+    return "format-indent-more-symbolic";
   return "utilities-terminal-symbolic";
 }
 
@@ -1120,6 +1128,8 @@ static void create_docks(App *t)
   add_dock_panel(t, 0, clip_box(debug_view(t), TRUE), "run", "Run and Debug (Ctrl+Shift+D)");
   t->problems = problems_panel(t);
   add_dock_panel(t, 4, clip_box(t->problems, TRUE), "problems", "Problems (Ctrl+Shift+M)");
+  add_dock_panel(t, 0, clip_box(outline_panel(t), TRUE), "outline", "Outline");
+  add_dock_panel(t, 0, clip_box(hierarchy_panel(t), TRUE), "hierarchy", "Hierarchy (Shift+Alt+H)");
   t->layout.left = build_side_chain(t, 0, GTK_ORIENTATION_VERTICAL, 320);
   t->layout.bottom = build_side_chain(t, 1, GTK_ORIENTATION_HORIZONTAL, 480);
   t->layout.right = build_side_chain(t, 2, GTK_ORIENTATION_VERTICAL, 320);
@@ -1219,10 +1229,11 @@ static void add_submenu(GMenu *bar, const char *label, GMenu *menu)
 /* Files, T-Code, Settings, Panels (checked while they show), About and Help. */
 static GMenu *menu_bar_model(App *t)
 {
-  static const char *const labels[PANELS] = { "Files", "Source Control", "Search",  "Terminal",
-                                              "Debug", "Run and Debug",  "Problems" };
+  static const char *const labels[PANELS] = { "Files",         "Source Control", "Search",  "Terminal", "Debug",
+                                              "Run and Debug", "Problems",       "Outline", "Hierarchy" };
   static const char *const accels[PANELS] = { "<Alt>1", "<Control><Shift>g", "<Control><Shift>f", "<Control>j",
-                                              NULL,     "<Control><Shift>d", "<Control><Shift>m" };
+                                              NULL,     "<Control><Shift>d", "<Control><Shift>m", NULL,
+                                              NULL };
   GMenu *bar = g_menu_new(), *menu = g_menu_new(), *section = g_menu_new();
 
   add_command(menu, "Open Folder…", "Open Folder…", "<Control><Shift>o");
@@ -1316,6 +1327,7 @@ void build_window(App *t, GtkApplication *app)
   watch_user_files(t); /* settings.ini, theme.css and the editor colors, edited by hand */
   gtk_source_init();
   find_files(t);
+  snippets_init(t);
   start_socket(t);
   plugins_init(t);
   gtk_icon_theme_add_search_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), t->paths.icons);

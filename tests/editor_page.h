@@ -19,6 +19,9 @@
 #include "editor/indentconf.c"
 #include "editor/guides.c"
 #include "editor/occurrences.c"
+#include "editor/multicursor.c"
+#include "editor/snippets.c"
+#include "editor/breadcrumbs.c"
 #include "lsp/channel.c"
 #include "lsp/json.c"
 #include "lsp/client.c"
@@ -29,6 +32,8 @@
 
 #include "lsp/edits.c"
 #include "lsp/hover.c"
+#include "lsp/inlay.c"
+#include "lsp/symbols.c"
 #include "lsp/navigate.c"
 #include "lsp/semantic.c"
 #include "lsp/signature.c"
@@ -75,6 +80,8 @@ void disassembly_toggle_breakpoint(App *t G_GNUC_UNUSED, int line G_GNUC_UNUSED)
 void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page G_GNUC_UNUSED) {}
 void status_say(App *t G_GNUC_UNUSED, const char *message G_GNUC_UNUSED) {}
 void status_progress_changed(App *t G_GNUC_UNUSED) {}
+void outline_symbols_changed(Tab *tab G_GNUC_UNUSED) {}
+void outline_cursor_moved(Tab *tab G_GNUC_UNUSED) {}
 void files_problems_changed(App *t G_GNUC_UNUSED) {}
 /* clang-format on */
 

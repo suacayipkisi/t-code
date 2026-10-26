@@ -10,6 +10,8 @@
 #include "editor/diffgutter.h"
 #include "editor/editorview.h"
 #include "editor/folding.h"
+#include "editor/multicursor.h"
+#include "lsp/inlay.h"
 #include "lsp/diagnostics.h"
 #include "window/palette.h"
 
@@ -397,6 +399,10 @@ static void snapshot_layer(GtkTextView *view, GtkTextViewLayer layer, GtkSnapsho
     diagnostics_draw(self->tab, view, snapshot);
     folding_draw(self->tab, view, snapshot);
     breakpoints_draw(self->tab, view, snapshot);
+    multicursor_draw(self->tab, view, snapshot, FALSE);
+  } else if (layer == GTK_TEXT_VIEW_LAYER_ABOVE_TEXT && self->tab && self->tab->view && !self->tab->view->loading) {
+    inlay_draw(self->tab, view, snapshot);
+    multicursor_draw(self->tab, view, snapshot, TRUE);
   }
 }
 

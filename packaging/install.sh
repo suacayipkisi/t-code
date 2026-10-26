@@ -2,6 +2,7 @@
 # Builds t-code and installs it under ~/.local:
 #   ~/.local/bin/t-code
 #   ~/.local/share/t-code/styles/dark-classic.xml       the editor's colors
+#   ~/.local/share/t-code/snippets/*.snippets           the built-in snippets
 #   ~/.local/share/applications/io.github.tcode.desktop app menu entry
 #   ~/.local/share/icons/hicolor/scalable/apps/io.github.tcode.svg
 # Run it again after pulling changes to update the installed copy.
@@ -52,6 +53,9 @@ install -Dm644 "$ROOT/styles/dark-classic.xml" "$SHARE/styles/dark-classic.xml"
 rm -f "$SHARE/styles/dark-modern.xml" # its name before 0.3
 rm -rf "${SHARE:?}/micro"
 info "Installed the editor's colors in $SHARE/styles"
+install -d "$SHARE/snippets"
+install -m644 "$ROOT"/snippets/*.snippets "$SHARE/snippets/"
+info "Installed the snippets in $SHARE/snippets"
 
 # 5. App menu entry and icon
 install -Dm644 "$ROOT/desktop/io.github.tcode.svg" "$ICON"

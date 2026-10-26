@@ -388,6 +388,59 @@ static void test_real(gconstpointer data)
     check(&folder, ripgrep, "sub/b.h:3");
 }
 
+/* Replacing: a literal replacement as it is, a regular expression's with its groups; whole words
+ * and case as the search finds them; matches across lines are left. */
+static char *replaced(const SearchQuery *q, const char *text, const char *replacement)
+{
+  GRegex *regex = search_regex(q, NULL);
+  GArray *edits = search_edits(regex, text, replacement, q->regex, NULL);
+  char *out = edits ? search_apply_edits(text, edits) : NULL;
+
+  search_edits_free(edits);
+  g_regex_unref(regex);
+  return out;
+}
+
+static void test_replace(void)
+{
+  SearchQuery literal = { .text = "a.b", .match_case = TRUE }, word = { .text = "foo", .whole_word = TRUE };
+  SearchQuery groups = { .text = "(\\w+)=(?<value>\\d+)", .regex = TRUE, .match_case = TRUE };
+  SearchQuery lines = { .text = "x\\s+y", .regex = TRUE }, start = { .text = "^#", .regex = TRUE };
+  char *out;
+
+  out = replaced(&literal, "a.b axb a.b", "$1\\n");
+  g_assert_cmpstr(out, ==, "$1\\n axb $1\\n"); /* nothing special in a literal replacement */
+  g_free(out);
+  out = replaced(&word, "foo food FOO", "bar");
+  g_assert_cmpstr(out, ==, "bar food bar");
+  g_free(out);
+  out = replaced(&groups, "a=1, bb=22", "${value}:$1 $$");
+  g_assert_cmpstr(out, ==, "1:a $, 22:bb $");
+  g_free(out);
+  out = replaced(&lines, "x  y\nx\ny", "-");
+  g_assert_cmpstr(out, ==, "-\nx\ny"); /* the search reads lines: no match across one */
+  g_free(out);
+  out = replaced(&start, "#a\n#b\n c#\n", "//");
+  g_assert_cmpstr(out, ==, "//a\n//b\n c#\n"); /* ^ at each line */
+  g_free(out);
+  out = replaced(&groups, "a=1", "[$9]");
+  g_assert_cmpstr(out, ==, "[]"); /* a group it does not have: nothing */
+  g_free(out);
+}
+
+static void test_files_argv(void)
+{
+  SearchQuery q = { .text = "x" };
+  char **rg = search_files_argv(&q, TRUE), **grep = search_files_argv(&q, FALSE);
+
+  g_assert_cmpstr(rg[0], ==, "rg");
+  g_assert_true(g_strv_contains((const char *const *)rg, "--files-with-matches"));
+  g_assert_cmpstr(rg[g_strv_length(rg) - 1], ==, ".");
+  g_assert_cmpstr(grep[1], ==, "-l");
+  g_strfreev(grep);
+  g_strfreev(rg);
+}
+
 int main(int argc, char **argv)
 {
   int status;
@@ -409,6 +462,8 @@ int main(int argc, char **argv)
   g_test_add_func("/search/parse/bad", test_parse_line_bad);
   g_test_add_func("/search/snippet/short", test_snippet);
   g_test_add_func("/search/snippet/long", test_snippet_long);
+  g_test_add_func("/search/replace", test_replace);
+  g_test_add_func("/search/files-argv", test_files_argv);
   g_test_add_data_func("/search/real/ripgrep", GINT_TO_POINTER(TRUE), test_real);
   g_test_add_data_func("/search/real/grep", GINT_TO_POINTER(FALSE), test_real);
   status = g_test_run();

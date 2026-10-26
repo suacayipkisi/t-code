@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- t-code's C and C++ snippets: type the trigger, then Tab (or pick it from the completion list). -->
+<snippets _group="C and C++">
+  <snippet _name="main" trigger="main" _description="main function">
+    <text languages="c;chdr;cpp;cpphdr"><![CDATA[int main(int argc, char *argv[])
+{
+	$0
+	return 0;
+}]]></text>
+  </snippet>
+  <snippet _name="for" trigger="for" _description="for loop with an index">
+    <text languages="c;chdr;cpp;cpphdr"><![CDATA[for (${1:int} ${2:i} = 0; $2 < ${3:n}; $2++) {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="if" trigger="if" _description="if statement">
+    <text languages="c;chdr;cpp;cpphdr"><![CDATA[if (${1:condition}) {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="ife" trigger="ife" _description="if / else">
+    <text languages="c;chdr;cpp;cpphdr"><![CDATA[if (${1:condition}) {
+	$2
+} else {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="while" trigger="while" _description="while loop">
+    <text languages="c;chdr;cpp;cpphdr"><![CDATA[while (${1:condition}) {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="do" trigger="do" _description="do / while loop">
+    <text languages="c;chdr;cpp;cpphdr"><![CDATA[do {
+	$0
+} while (${1:condition});]]></text>
+  </snippet>
+  <snippet _name="switch" trigger="switch" _description="switch statement">
+    <text languages="c;chdr;cpp;cpphdr"><![CDATA[switch (${1:value}) {
+case ${2:0}:
+	$0
+	break;
+default:
+	break;
+}]]></text>
+  </snippet>
+  <snippet _name="struct" trigger="struct" _description="typedef struct">
+    <text languages="c;chdr"><![CDATA[typedef struct {
+	$0
+} ${1:Name};]]></text>
+  </snippet>
+  <snippet _name="inc" trigger="inc" _description="#include &lt;...&gt;">
+    <text languages="c;chdr;cpp;cpphdr"><![CDATA[#include <${1:stdio.h}>]]></text>
+  </snippet>
+  <snippet _name="incl" trigger="incl" _description='#include "..."'>
+    <text languages="c;chdr;cpp;cpphdr"><![CDATA[#include "${1:header.h}"]]></text>
+  </snippet>
+  <snippet _name="printf" trigger="printf" _description="printf">
+    <text languages="c;chdr;cpp;cpphdr"><![CDATA[printf("${1:%d}\n", ${2:value});]]></text>
+  </snippet>
+</snippets>

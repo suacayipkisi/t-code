@@ -36,6 +36,10 @@ struct EditorView {
   struct Folding *folding;         /* editor/folding.c */
   struct Sticky *sticky;           /* editor/sticky.c */
   struct Breakpoints *breakpoints; /* editor/breakpoints.c */
+  struct MultiCursor *multi;       /* editor/multicursor.c */
+  struct Inlay *inlay;             /* lsp/inlay.c */
+  struct Symbols *symbols;         /* lsp/symbols.c */
+  GtkWidget *breadcrumbs;          /* editor/breadcrumbs.c: over the text */
   char *closers;                   /* closing brackets and quotes typed for the user (editing.c), from the
                             * cursor to closers_end: typing one steps over it, Backspace takes the pair */
   GtkTextMark *closers_end;

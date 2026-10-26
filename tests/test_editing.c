@@ -119,6 +119,177 @@ static char *selection_of(Tab *tab)
   return gtk_text_buffer_get_text(GTK_TEXT_BUFFER(tab->buffer), &start, &end, TRUE);
 }
 
+/* Multiple cursors --------------------------------------------------------------------------- */
+
+/* A key to the multiple cursors' handler (TRUE: it took it). */
+static gboolean multi_key(Tab *tab, guint key, GdkModifierType state)
+{
+  return mc_on_key(NULL, key, 0, state, tab->view->multi);
+}
+
+/* Ctrl+D: the name at the cursor, then its next occurrences, round to the top; typing changes them
+ * all, and one undo takes it back. */
+static void test_multi_add_next(void)
+{
+  Tab *tab = new_tab("foo bar foo\nfoo\n");
+
+  cursor_at(tab, 1, 1);
+  multicursor_add_next(tab); /* no selection: the name */
+  g_assert_false(multicursor_active(tab));
+  char *selected = selection_of(tab);
+  g_assert_cmpstr(selected, ==, "foo");
+  g_free(selected);
+  multicursor_add_next(tab); /* past the end: from the top */
+  multicursor_add_next(tab);
+  multicursor_add_next(tab); /* none left */
+  g_assert_cmpuint(tab->view->multi->extra->len, ==, 2);
+  g_assert_true(multi_key(tab, GDK_KEY_x, 0));
+  g_assert_true(multi_key(tab, GDK_KEY_y, 0));
+  assert_text(tab, "xy bar xy\nxy\n");
+  gtk_text_buffer_undo(GTK_TEXT_BUFFER(tab->buffer));
+  gtk_text_buffer_undo(GTK_TEXT_BUFFER(tab->buffer));
+  assert_text(tab, "foo bar foo\nfoo\n");
+  g_assert_true(multi_key(tab, GDK_KEY_Escape, 0));
+  g_assert_false(multicursor_active(tab));
+  free_tab(tab);
+}
+
+/* Ctrl+Shift+L: every occurrence; copying gives one line each, and pasting as many lines gives one
+ * each. */
+static void test_multi_select_all(void)
+{
+  Tab *tab = new_tab("a1 = a1 + a1;\n");
+  char *text;
+
+  cursor_at(tab, 0, 0);
+  multicursor_select_all(tab);
+  g_assert_cmpuint(tab->view->multi->extra->len, ==, 2);
+  text = multicursor_selected_text(tab);
+  g_assert_cmpstr(text, ==, "a1\na1\na1");
+  g_free(text);
+  multicursor_paste(tab, "x\ny\nz\n"); /* a last line break ends the last line */
+  assert_text(tab, "x = y + z;\n");
+  multicursor_paste(tab, "w"); /* not one line each: the whole text everywhere */
+  assert_text(tab, "xw = yw + zw;\n");
+  free_tab(tab);
+}
+
+/* Ctrl+Shift+Down twice: three cursors in one column; Backspace, End and Enter (with the line's
+ * indentation) act on each; brackets do not pair themselves meanwhile. */
+static void test_multi_lines(void)
+{
+  Tab *tab = new_tab("  abc\n  abc\n  abc\n");
+
+  cursor_at(tab, 0, 3);
+  multicursor_add_line(tab, TRUE);
+  multicursor_add_line(tab, TRUE);
+  g_assert_cmpuint(tab->view->multi->extra->len, ==, 2);
+  multi_key(tab, GDK_KEY_BackSpace, 0);
+  assert_text(tab, "  bc\n  bc\n  bc\n");
+  multi_key(tab, GDK_KEY_End, 0);
+  g_assert_false(on_typing_key(NULL, GDK_KEY_parenleft, 0, 0, tab)); /* the typing help steps aside */
+  multi_key(tab, GDK_KEY_parenleft, 0);
+  multi_key(tab, GDK_KEY_Return, 0);
+  assert_text(tab, "  bc(\n  \n  bc(\n  \n  bc(\n  \n");
+  multi_key(tab, GDK_KEY_Home, 0); /* already at the indentation: the line's start */
+  multi_key(tab, GDK_KEY_Delete, 0);
+  assert_text(tab, "  bc(\n \n  bc(\n \n  bc(\n \n");
+  free_tab(tab);
+}
+
+/* Shift+Alt+drag: a column, cut at short lines' ends; cursors that meet become one. */
+static void test_multi_box(void)
+{
+  Tab *tab = new_tab("hello\nhi\nworld\n");
+  char *text;
+  GtkTextIter iter;
+
+  multicursor_box(tab, 0, 1, 2, 4);
+  text = multicursor_selected_text(tab);
+  g_assert_cmpstr(text, ==, "ell\ni\norl");
+  g_free(text);
+  multicursor_type(tab, "_");
+  assert_text(tab, "h_o\nh_\nw_d\n");
+  multicursor_move(tab, MULTI_UP, FALSE);
+  multicursor_move(tab, MULTI_UP, FALSE); /* all on the first line: one cursor */
+  multicursor_move(tab, MULTI_UP, FALSE);
+  g_assert_false(multicursor_active(tab));
+
+  gtk_text_buffer_get_iter_at_line_offset(GTK_TEXT_BUFFER(tab->buffer), &iter, 1, 1);
+  multicursor_toggle_at(tab, &iter); /* Alt+Click */
+  g_assert_true(multicursor_active(tab));
+  multicursor_toggle_at(tab, &iter); /* again: gone */
+  g_assert_false(multicursor_active(tab));
+  free_tab(tab);
+}
+
+/* Snippets ------------------------------------------------------------------------------------ */
+
+static GtkSourceSnippet *snippet(const char *language, const char *trigger)
+{
+  return gtk_source_snippet_manager_get_snippet(gtk_source_snippet_manager_get_default(), NULL, language, trigger);
+}
+
+/* t-code's snippets load for their languages (make test runs in the repository); one goes into an
+ * editor with its fields, Tab moving to the next. */
+static void test_snippets_builtin(void)
+{
+  const char *const path[] = { "snippets", NULL };
+  static const char *const wanted[][2] = {
+    { "c", "main" },     { "cpp", "forr" },      { "python3", "def" }, { "go", "iferr" },
+    { "rust", "match" }, { "typescript", "af" }, { "sh", "bash" },     { "chdr", "struct" },
+  };
+  Tab *tab = new_tab("");
+  GtkSourceSnippet *s;
+  GtkTextIter end;
+
+  gtk_source_snippet_manager_set_search_path(gtk_source_snippet_manager_get_default(), path);
+  for (gsize i = 0; i < G_N_ELEMENTS(wanted); i++) {
+    s = snippet(wanted[i][0], wanted[i][1]);
+    g_assert_nonnull(s);
+    g_object_unref(s);
+  }
+  g_assert_null(snippet("python3", "iferr")); /* Go's */
+
+  s = snippet("c", "for");
+  gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(tab->buffer), &end);
+  gtk_source_view_push_snippet(tab->source, s, &end);
+  /* The snippet's tab is the editor's indentation. */
+  int width = gtk_source_view_get_indent_width(tab->source) > 0 ? gtk_source_view_get_indent_width(tab->source)
+                                                                : (int)gtk_source_view_get_tab_width(tab->source);
+  char *indent =
+      gtk_source_view_get_insert_spaces_instead_of_tabs(tab->source) ? g_strnfill(width, ' ') : g_strdup("\t");
+  char *expected = g_strdup_printf("for (int i = 0; i < n; i++) {\n%s\n}", indent);
+  assert_text(tab, expected);
+  g_free(expected);
+  g_free(indent);
+  char *field = selection_of(tab);
+  g_assert_cmpstr(field, ==, "int"); /* the first field, selected to type over */
+  g_free(field);
+  g_object_unref(s);
+  free_tab(tab);
+}
+
+/* The user's file starts valid (a manager of its own: the default one has read its files). */
+static void test_snippets_user(void)
+{
+  char *dir = g_dir_make_tmp("t-code-snippets-XXXXXX", NULL), *file = g_build_filename(dir, "user.snippets", NULL);
+  const char *const path[] = { dir, NULL };
+  GtkSourceSnippetManager *manager = g_object_new(GTK_SOURCE_TYPE_SNIPPET_MANAGER, NULL);
+  GtkSourceSnippet *s;
+
+  g_assert_true(g_file_set_contents(file, snippets_template, -1, NULL));
+  gtk_source_snippet_manager_set_search_path(manager, path);
+  s = gtk_source_snippet_manager_get_snippet(manager, NULL, "c", "todo");
+  g_assert_nonnull(s);
+  g_object_unref(s);
+  g_object_unref(manager);
+  g_remove(file);
+  g_rmdir(dir);
+  g_free(file);
+  g_free(dir);
+}
+
 /* Comments ----------------------------------------------------------------------------------- */
 
 static void test_comment_lines(void)
@@ -1400,6 +1571,12 @@ int main(int argc, char **argv)
   g_test_add_func("/guides/pair-utf8", test_guide_pair_utf8);
   g_test_add_func("/guides/blank-lines", test_guide_blank_lines);
   g_test_add_func("/signature/outlived", test_signature_outlived);
+  g_test_add_func("/multicursor/add-next", test_multi_add_next);
+  g_test_add_func("/multicursor/select-all", test_multi_select_all);
+  g_test_add_func("/multicursor/lines", test_multi_lines);
+  g_test_add_func("/multicursor/box", test_multi_box);
+  g_test_add_func("/snippets/builtin", test_snippets_builtin);
+  g_test_add_func("/snippets/user", test_snippets_user);
   status = g_test_run();
   stop_broadway();
   return status;

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- t-code's JavaScript and TypeScript snippets: type the trigger, then Tab (or pick it from the completion list). -->
+<snippets _group="JavaScript and TypeScript">
+  <snippet _name="fn" trigger="fn" _description="function">
+    <text languages="js;jsx;typescript;typescript-jsx"><![CDATA[function ${1:name}(${2}) {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="af" trigger="af" _description="arrow function">
+    <text languages="js;jsx;typescript;typescript-jsx"><![CDATA[const ${1:name} = (${2}) => {
+	$0
+};]]></text>
+  </snippet>
+  <snippet _name="log" trigger="log" _description="console.log">
+    <text languages="js;jsx;typescript;typescript-jsx"><![CDATA[console.log(${1:value});]]></text>
+  </snippet>
+  <snippet _name="forof" trigger="forof" _description="for ... of">
+    <text languages="js;jsx;typescript;typescript-jsx"><![CDATA[for (const ${1:item} of ${2:items}) {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="class" trigger="class" _description="class">
+    <text languages="js;jsx;typescript;typescript-jsx"><![CDATA[class ${1:Name} {
+	constructor(${2}) {
+		$0
+	}
+}]]></text>
+  </snippet>
+  <snippet _name="imp" trigger="imp" _description="import">
+    <text languages="js;jsx;typescript;typescript-jsx"><![CDATA[import { ${2:name} } from '${1:module}';]]></text>
+  </snippet>
+</snippets>

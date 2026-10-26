@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- t-code's Shell snippets: type the trigger, then Tab (or pick it from the completion list). -->
+<snippets _group="Shell">
+  <snippet _name="bash" trigger="bash" _description="bash script header">
+    <text languages="sh"><![CDATA[#!/usr/bin/env bash
+set -euo pipefail
+
+$0]]></text>
+  </snippet>
+  <snippet _name="if" trigger="if" _description="if">
+    <text languages="sh"><![CDATA[if [[ ${1:condition} ]]; then
+	$0
+fi]]></text>
+  </snippet>
+  <snippet _name="for" trigger="for" _description="for loop">
+    <text languages="sh"><![CDATA[for ${1:item} in ${2:"$@"}; do
+	$0
+done]]></text>
+  </snippet>
+  <snippet _name="fn" trigger="fn" _description="function">
+    <text languages="sh"><![CDATA[${1:name}() {
+	$0
+}]]></text>
+  </snippet>
+</snippets>

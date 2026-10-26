@@ -29,6 +29,26 @@ char **search_argv(const SearchQuery *q, gboolean ripgrep);
 /* Finds the query in a line, to mark the matches. NULL with error for a bad regular expression. */
 GRegex *search_regex(const SearchQuery *q, GError **error);
 
+/* The command listing only the files with a match, each path followed by a '\0'. */
+char **search_files_argv(const SearchQuery *q, gboolean ripgrep);
+
+/* One replacement: the bytes start..end of a text become text. */
+typedef struct {
+  int start, end;
+  char *text;
+} SearchEdit;
+
+/* The replacements for every match of regex (search_regex's) in text, in order: replacement as it is,
+ * or, for a regular expression, with $1, ${name} (and \1, \n) standing for what the match has.
+ * Empty matches and matches across lines (the search reads line by line) are left; a group the
+ * expression lacks stands for nothing. NULL with error for a replacement GRegex cannot read. Free
+ * with search_edits_free(). */
+GArray *search_edits(GRegex *regex, const char *text, const char *replacement, gboolean is_regex, GError **error);
+void search_edits_free(GArray *edits);
+
+/* text with the edits made (they are in order and do not overlap). */
+char *search_apply_edits(const char *text, GArray *edits);
+
 /* Calls found for each match in one printed line (without its '\n'); a line where the regex finds
  * nothing (a shortened long line) still gives one hit at its start. Returns the hits. */
 int search_parse_line(const char *line, gsize len, GRegex *regex, SearchHitFunc found, gpointer data);

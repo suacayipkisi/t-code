@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- t-code's Go snippets: type the trigger, then Tab (or pick it from the completion list). -->
+<snippets _group="Go">
+  <snippet _name="main" trigger="main" _description="package main">
+    <text languages="go"><![CDATA[package main
+
+func main() {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="fn" trigger="fn" _description="function">
+    <text languages="go"><![CDATA[func ${1:name}(${2}) ${3:error} {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="iferr" trigger="iferr" _description="if err != nil">
+    <text languages="go"><![CDATA[if err != nil {
+	return ${1:err}
+}]]></text>
+  </snippet>
+  <snippet _name="for" trigger="for" _description="for loop with an index">
+    <text languages="go"><![CDATA[for ${1:i} := 0; $1 < ${2:n}; $1++ {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="forr" trigger="forr" _description="for range">
+    <text languages="go"><![CDATA[for ${1:_}, ${2:item} := range ${3:items} {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="struct" trigger="struct" _description="struct type">
+    <text languages="go"><![CDATA[type ${1:Name} struct {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="test" trigger="test" _description="test function">
+    <text languages="go"><![CDATA[func Test${1:Name}(t *testing.T) {
+	$0
+}]]></text>
+  </snippet>
+</snippets>

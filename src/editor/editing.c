@@ -4,6 +4,7 @@
 #include "editor/editing.h"
 
 #include "editor/editorview.h"
+#include "editor/multicursor.h"
 
 #include <string.h>
 
@@ -471,8 +472,8 @@ static gboolean on_typing_key(GtkEventControllerKey *keys G_GNUC_UNUSED, guint k
   GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
   gunichar c;
 
-  if (!editable(tab) || (state & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)))
-    return FALSE;
+  if (!editable(tab) || (state & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) || multicursor_active(tab))
+    return FALSE; /* with more cursors, multicursor.c types */
   if (key == GDK_KEY_Return || key == GDK_KEY_KP_Enter)
     return !(state & GDK_SHIFT_MASK) && enter_after_open(tab);
   if (key == GDK_KEY_BackSpace)

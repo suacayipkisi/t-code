@@ -24,6 +24,19 @@ the mouse. On top of that:
   problem shows its fixes as buttons (`Quick Fix: #include <iostream>`) under the message. Other
   servers' fixes come the same way; pages a server shows (gopls' package documentation and
   assembly) open in the browser.
+- **Inlay hints:** parameter names before arguments (`add(left: 1, right: 2)`) and deduced types
+  after names (`auto item: Widget = ...`), dim, inside the line; the text itself does not change.
+  From clangd, rust-analyzer, gopls and the TypeScript server, for the shown lines; the "Inlay hints"
+  setting turns them off.
+- **Outline and breadcrumbs:** the **Outline** panel (Panels menu, or "View: Toggle Outline") lists
+  the current file's classes, functions and fields as the language server sees them, the one around
+  the cursor selected; a click goes there. Over each editor, the breadcrumbs show the file's folders
+  and the symbols around the cursor (`src › shape.cpp › Shape › draw`); a symbol's crumb goes to it.
+  The "Breadcrumbs" setting hides them.
+- **Call and type hierarchy:** `Shift+Alt+H` (or the editor's right-click menu) on a function shows
+  who calls it in the **Hierarchy** panel, as a tree that opens further as you go; **Callers** /
+  **Callees** switch the direction. "Show Type Hierarchy" does the same for a type's supertypes and
+  subtypes. A row opens its place. clangd, gopls and rust-analyzer offer calls; clangd also types.
 - **Code folding** (the arrow beside a block, `Ctrl+Shift+[` / `]`) and **sticky scroll**: the
   heads of the function, loop or namespace you are in stay at the top of the editor.
 - **Colors by meaning**: clangd tells functions (yellow), types (teal), macros (blue), constants and
@@ -31,8 +44,18 @@ the mouse. On top of that:
   strings, comments and the rest from its theme (`styles/dark-classic.xml`). `.h` files
   open as C++ when they contain C++.
 - Find and replace (`Ctrl+F`, `Ctrl+H`; case, whole word, regular expressions), go to line
-  (`Ctrl+G`), comment lines (`Ctrl+/`), duplicate (`Ctrl+D`), move (`Alt+↑` / `Alt+↓`) and delete
-  (`Ctrl+Shift+K`) lines, brackets and quotes that close by themselves (and wrap a selection).
+  (`Ctrl+G`), comment lines (`Ctrl+/`), duplicate (`Shift+Alt+↓`), move (`Alt+↑` / `Alt+↓`) and
+  delete (`Ctrl+Shift+K`) lines, brackets and quotes that close by themselves (and wrap a selection).
+- **Snippets:** type a trigger (`main`, `for`, `if`, `def`, `iferr`, `match`, `af`, ...) and `Tab`;
+  `Tab` / `Shift+Tab` go through its fields. The completion list offers them too. t-code brings
+  some for C, C++, Python, Go, Rust, JavaScript / TypeScript and shell; your own go in
+  `~/.config/t-code/snippets/` ("Preferences: Open User Snippets"), read when t-code starts.
+- **Multiple cursors:** `Ctrl+D` selects the name at the cursor, then adds its next occurrence;
+  `Ctrl+Shift+L` selects every occurrence; `Ctrl+Shift+↑` / `↓` add a cursor on the line above /
+  below; `Alt+Click` adds (or removes) one; `Shift+Alt+drag` selects a column. Typing, Backspace,
+  Delete, Enter, Tab, the arrows, Home / End and copy / cut / paste act on all of them as one undo
+  step (pasting as many lines as there are cursors gives one line each); `Esc` or a click goes back
+  to one.
 - `Enter` after an opening bracket goes one level deeper (between a pair the closer gets its own
   line), and `}` outdents. A double click selects a name only (letters, digits, `_`).
 - **Highlights**: the cursor on a name lights up that symbol's uses (clangd's, not other names
@@ -177,7 +200,10 @@ come as you type, grouped by file with the matches marked. **Aa**, **ab** and **
 text turn on Match Case, Match Whole Word and regular expressions; **⋯** shows "files to include"
 and "files to exclude" (comma separated globs such as `*.c, src`). Click a file to fold its
 results, a result to open the file there. ripgrep skips what `.gitignore` ignores; without it,
-grep searches everything but `.git` and `build`.
+grep searches everything but `.git` and `build`. **⇄** shows the replacement: each result then
+shows its match struck out and what replaces it (with regular expressions, `$1` / `${name}` stand
+for a group). **All** (or `Enter` in the field) asks, then replaces every match in the project:
+files open in an editor change there (unsaved, `Ctrl+Z` takes it back), the others on disk.
 
 **Color themes.** Dark Classic and other dark and light themes (Gruvbox among them), each with a
 preview, in a rounded or a square look; the editor, the terminals and the panels all follow.
@@ -240,12 +266,15 @@ palette) finds any command by name.
 | files       | right click                            | Open, Open to the Side, Open Preview, Compare with HEAD, File History, New File/Folder, Open in Terminal, Cut/Copy/Paste, Copy (Relative) Path, Rename, Delete, Open Folder as Project |
 | editor      | `Ctrl+S` / `Ctrl+W`                    | save / close this tab                     |
 | editor      | `Ctrl+F` / `Ctrl+H`, `F3` / `Shift+F3` | find / replace, next / previous           |
-| editor      | `Ctrl+/`, `Ctrl+D`, `Ctrl+Shift+K`     | comment lines, duplicate, delete them     |
+| editor      | `Ctrl+/`, `Shift+Alt+↓`, `Ctrl+Shift+K` | comment lines, duplicate, delete them    |
+| editor      | `Ctrl+D` / `Ctrl+Shift+L`              | add the next occurrence / all occurrences as cursors |
+| editor      | `Ctrl+Shift+↑` / `↓`, `Alt+Click`, `Shift+Alt+drag` | add a cursor above / below, at the click, a column selection |
 | editor      | `Alt+↑` / `Alt+↓`                      | move lines up / down                      |
 | editor      | `Ctrl+Z` / `Ctrl+Y`, `Ctrl+Shift+Z`    | undo / redo                               |
 | editor      | `Ctrl+Space` / `Ctrl+Shift+Space`      | completion / parameter hints              |
 | editor      | `F12`, `Ctrl+Click` / `Alt+←`          | go to definition / back                   |
 | editor      | `Shift+F12` / `F2`                     | find all references / rename symbol       |
+| editor      | `Shift+Alt+H`                          | call hierarchy (the Hierarchy panel)      |
 | editor      | `Shift+Alt+F`                          | format the file with clangd               |
 | editor      | `Ctrl+.` / `Ctrl+Shift+.` / `Alt+O`    | quick fix / go to a symbol in the file / switch source and header |
 | editor      | `Ctrl+Shift+[` / `Ctrl+Shift+]`        | fold / unfold the block                   |

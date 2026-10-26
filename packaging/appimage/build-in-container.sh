@@ -44,6 +44,8 @@ mkdir -p "$appdir/usr/bin" \
 # Copy binary & assets
 cp "$src/build/t-code" "$appdir/usr/bin/"
 cp "$src/styles/dark-classic.xml" "$appdir/usr/share/t-code/styles/"
+mkdir -p "$appdir/usr/share/t-code/snippets"
+cp "$src"/snippets/*.snippets "$appdir/usr/share/t-code/snippets/"
 cp "$src/desktop/io.github.tcode.svg" "$appdir/usr/share/icons/hicolor/scalable/apps/"
 sed 's|@BIN@|t-code|' "$src/desktop/io.github.tcode.desktop.in" > "$appdir/usr/share/applications/io.github.tcode.desktop"
 desktop-file-validate "$appdir/usr/share/applications/io.github.tcode.desktop"

@@ -2,7 +2,9 @@
  * The Search panel, a tab next to the file manager and Source Control (Ctrl+Shift+F):
  * the text to find with Match Case, Match Whole Word and Use Regular Expression, files to
  * include and exclude under "⋯", and the results grouped by file. Clicking a file's heading folds
- * its lines; clicking a line opens the file there.
+ * its lines; clicking a line opens the file there. "⇄" shows the replacement: each result then shows
+ * the match struck out and what replaces it, and Replace All (after asking) replaces every match in
+ * the project: in an open file's editor (unsaved, undoable), else in the file on disk.
  * ripgrep does the work (it skips what .gitignore ignores and binary files); grep stands in when
  * it is missing. Its output is read line by line as it comes, and searchmatch.c finds the matches
  * in each line to mark them.
@@ -10,10 +12,12 @@
 #include "search/search.h"
 
 #include "editor/editor.h"
+#include "editor/tabs.h"
 #include "files/files.h"
 #include "popups/contextmenu.h"
 #include "search/searchmatch.h"
 #include "window/palette.h"
+#include "window/statusbar.h"
 #include "window/window.h"
 
 #ifdef __GLIBC__
@@ -34,9 +38,11 @@ typedef struct {
 
 static struct {
   App *app;
-  GtkEntry *entry, *include, *exclude;
-  GtkToggleButton *match_case, *whole_word, *regex, *details;
-  GtkWidget *details_box;
+  GtkEntry *entry, *include, *exclude, *replacement;
+  GtkToggleButton *match_case, *whole_word, *regex, *details, *replacing;
+  GtkWidget *details_box, *replace_box;
+  GRegex *shown;                /* what the results were found with, for the replacement's preview */
+  GCancellable *replace_cancel; /* Replace All listing the files */
   GtkLabel *summary;
   GtkListBox *list;
   guint debounce_id;
@@ -73,6 +79,10 @@ static const char *const css =
     ".tcode-search row:selected { background: var(--tc-selection); }"
     ".tcode-search row .dim { color: var(--tc-fg-faint); font-size: 0.9em; }"
     ".tcode-search row .chevron { color: var(--tc-fg); min-width: 14px; }"
+    ".tcode-search row .removed { text-decoration: line-through; }"
+    ".tcode-search button.replacing { min-height: 0; min-width: 0; padding: 0 6px; margin: 2px 0 0 10px;"
+    "  background: none; box-shadow: none; color: var(--tc-fg); }"
+    ".tcode-search button.replacing:checked { color: var(--tc-fg-strong); background: color-mix(in srgb, var(--tc-fg) 8%, transparent); }"
     ".tcode-search row .badge { background: var(--tc-border-strong); color: var(--tc-fg-strong); border-radius: 9px; padding: 0 6px;"
     "  font-size: 0.8em; }";
 
@@ -189,6 +199,63 @@ static gboolean is_folded(GtkWidget *heading)
   return GPOINTER_TO_INT(g_object_get_data(G_OBJECT(heading), "folded"));
 }
 
+/* What replaces the match at start..end of a line, or NULL when nothing is being replaced. */
+static char *replaced_by(const char *text, int start, int end)
+{
+  GArray *edits;
+  char *by = NULL;
+
+  if (!search.replacing || !gtk_toggle_button_get_active(search.replacing) || !search.shown || start == end)
+    return NULL;
+  edits = search_edits(search.shown, text, gtk_editable_get_text(GTK_EDITABLE(search.replacement)),
+                       gtk_toggle_button_get_active(search.regex), NULL);
+  for (guint i = 0; edits && i < edits->len && !by; i++)
+    if (g_array_index(edits, SearchEdit, i).start == start)
+      by = g_strdup(g_array_index(edits, SearchEdit, i).text);
+  search_edits_free(edits);
+  return by ? by : g_strdup("");
+}
+
+/* A result's line: the match marked, or, while replacing, struck out with the replacement after it. */
+static char *hit_markup(const char *text, int start, int end, const char *before, const char *match, const char *after)
+{
+  char *by = replaced_by(text, start, end), *markup;
+
+  if (by)
+    markup =
+        g_markup_printf_escaped("%s<span background=\"%s\" bgalpha=\"40%%\" strikethrough=\"true\">%s</span>"
+                                "<span background=\"%s\" bgalpha=\"40%%\">%s</span>%s",
+                                before, palette_hex(PAL_GIT_DELETED), match, palette_hex(PAL_GIT_ADDED), by, after);
+  else
+    markup = g_markup_printf_escaped("%s<span background=\"%s\" bgalpha=\"40%%\">%s</span>%s", before,
+                                     palette_hex(PAL_MATCH), match, after);
+  g_free(by);
+  return markup;
+}
+
+/* The replacement or its being shown changed: every result's preview again. */
+static void show_preview(void)
+{
+  for (GtkWidget *row = gtk_widget_get_first_child(GTK_WIDGET(search.list)); row;
+       row = gtk_widget_get_next_sibling(row)) {
+    const char *text = g_object_get_data(G_OBJECT(row), "line-text");
+    int start = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(row), "start"));
+    int end = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(row), "end"));
+    char *before, *match, *after, *markup;
+    if (!text)
+      continue;
+    before = search_snippet(text, start, end, &match, &after);
+    if (start == end)
+      g_strchug(after);
+    markup = hit_markup(text, start, end, before, match, after);
+    gtk_label_set_markup(g_object_get_data(G_OBJECT(row), "label"), markup);
+    g_free(markup);
+    g_free(before);
+    g_free(match);
+    g_free(after);
+  }
+}
+
 /* A result: the line with the match marked, under its file's heading. */
 static void add_hit(const SearchHit *hit, gpointer data)
 {
@@ -212,9 +279,8 @@ static void add_hit(const SearchHit *hit, gpointer data)
   before = search_snippet(hit->text, hit->start, hit->end, &match, &after);
   if (hit->start == hit->end)
     g_strchug(after);
-  markup = g_markup_printf_escaped("%s<span background=\"%s\" bgalpha=\"40%%\">%s</span>%s", before,
-                                   palette_hex(PAL_MATCH), match, after);
   label = gtk_label_new(NULL);
+  markup = hit_markup(hit->text, hit->start, hit->end, before, match, after);
   gtk_label_set_markup(GTK_LABEL(label), markup);
   gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
   gtk_label_set_xalign(GTK_LABEL(label), 0);
@@ -227,6 +293,10 @@ static void add_hit(const SearchHit *hit, gpointer data)
   g_object_set_data_full(G_OBJECT(row), "text", g_strdup(tip), g_free);
   g_object_set_data(G_OBJECT(row), "line", GINT_TO_POINTER(hit->line));
   g_object_set_data(G_OBJECT(row), "column", GINT_TO_POINTER(hit->column));
+  g_object_set_data_full(G_OBJECT(row), "line-text", g_strdup(hit->text), g_free); /* for the preview */
+  g_object_set_data(G_OBJECT(row), "start", GINT_TO_POINTER(hit->start));
+  g_object_set_data(G_OBJECT(row), "end", GINT_TO_POINTER(hit->end));
+  g_object_set_data(G_OBJECT(row), "label", label);
   gtk_widget_set_visible(row, !is_folded(search.heading));
   gtk_list_box_append(search.list, row);
 
@@ -326,6 +396,8 @@ static void start_search(void)
     g_free(rg);
     return;
   }
+  g_clear_pointer(&search.shown, g_regex_unref);
+  search.shown = g_regex_ref(regex);
   argv = search_argv(&q, rg != NULL);
   launcher = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
   g_subprocess_launcher_set_cwd(launcher, t->project.root);
@@ -362,6 +434,199 @@ static void schedule_search(void)
 {
   g_clear_handle_id(&search.debounce_id, g_source_remove);
   search.debounce_id = g_timeout_add(DEBOUNCE_MS, on_debounced, NULL);
+}
+
+/* Replacing --------------------------------------------------------------------------------- */
+
+/* The query as the panel holds it. */
+static SearchQuery panel_query(void)
+{
+  return (SearchQuery){
+    .text = gtk_editable_get_text(GTK_EDITABLE(search.entry)),
+    .match_case = gtk_toggle_button_get_active(search.match_case),
+    .whole_word = gtk_toggle_button_get_active(search.whole_word),
+    .regex = gtk_toggle_button_get_active(search.regex),
+    .include = gtk_editable_get_text(GTK_EDITABLE(search.include)),
+    .exclude = gtk_editable_get_text(GTK_EDITABLE(search.exclude)),
+  };
+}
+
+/* Replaces in an open file's editor, as one undo step (left unsaved, like any edit); the count. */
+static int replace_in_editor(Tab *tab, GRegex *regex, const char *replacement, gboolean is_regex)
+{
+  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
+  GtkTextIter start, end;
+  char *text;
+  GArray *edits;
+  int count;
+
+  gtk_text_buffer_get_bounds(buffer, &start, &end);
+  text = gtk_text_buffer_get_text(buffer, &start, &end, TRUE);
+  edits = search_edits(regex, text, replacement, is_regex, NULL);
+  count = edits ? (int)edits->len : 0;
+  if (count > 0 && gtk_text_view_get_editable(GTK_TEXT_VIEW(tab->source))) {
+    gtk_text_buffer_begin_user_action(buffer);
+    for (guint i = edits->len; i-- > 0;) { /* from the end: the earlier offsets stay right */
+      SearchEdit *edit = &g_array_index(edits, SearchEdit, i);
+      gtk_text_buffer_get_iter_at_offset(buffer, &start, (int)g_utf8_pointer_to_offset(text, text + edit->start));
+      gtk_text_buffer_get_iter_at_offset(buffer, &end, (int)g_utf8_pointer_to_offset(text, text + edit->end));
+      gtk_text_buffer_delete(buffer, &start, &end);
+      gtk_text_buffer_insert(buffer, &start, edit->text, -1);
+    }
+    gtk_text_buffer_end_user_action(buffer);
+  } else {
+    count = 0;
+  }
+  search_edits_free(edits);
+  g_free(text);
+  return count;
+}
+
+/* Replaces in a file on disk (its permissions kept); the count. Files that are not UTF-8 are left. */
+static int replace_in_file(const char *path, GRegex *regex, const char *replacement, gboolean is_regex)
+{
+  char *text = NULL, *changed;
+  gsize length;
+  GArray *edits;
+  int count = 0;
+
+  if (!g_file_get_contents(path, &text, &length, NULL) || !g_utf8_validate(text, (gssize)length, NULL) ||
+      strlen(text) != length) {
+    g_free(text);
+    return 0;
+  }
+  edits = search_edits(regex, text, replacement, is_regex, NULL);
+  if (edits && edits->len > 0) {
+    GFile *file = g_file_new_for_path(path);
+    changed = search_apply_edits(text, edits);
+    if (g_file_replace_contents(file, changed, strlen(changed), NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, NULL))
+      count = (int)edits->len;
+    g_object_unref(file);
+    g_free(changed);
+  }
+  search_edits_free(edits);
+  g_free(text);
+  return count;
+}
+
+/* The files with a match came: each is replaced in, the results are searched again. */
+static void on_files_listed(GObject *source, GAsyncResult *result, gpointer data G_GNUC_UNUSED)
+{
+  GBytes *out = NULL;
+  GError *error = NULL;
+
+  if (!g_subprocess_communicate_finish(G_SUBPROCESS(source), result, &out, NULL, &error)) {
+    if (!g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+      set_summary(error->message, TRUE);
+    g_clear_error(&error);
+    return;
+  }
+  SearchQuery q = panel_query();
+  const char *replacement = gtk_editable_get_text(GTK_EDITABLE(search.replacement));
+  GRegex *regex = search_regex(&q, NULL);
+  gsize size = 0;
+  const char *paths = out ? g_bytes_get_data(out, &size) : NULL;
+  int replaced = 0, files = 0;
+
+  for (gsize at = 0; regex && paths && at < size;) {
+    const char *path = paths + at, *nul = memchr(path, '\0', size - at);
+    gsize len = nul ? (gsize)(nul - path) : size - at;
+    char *relative = g_strndup(path, len), *full;
+    g_strstrip(relative);
+    full = g_build_filename(search.app->project.root, g_str_has_prefix(relative, "./") ? relative + 2 : relative, NULL);
+    Tab *tab = *relative ? find_tab(search.app, TAB_EDITOR, full) : NULL;
+    int count = !*relative ? 0
+                : tab      ? replace_in_editor(tab, regex, replacement, q.regex)
+                           : replace_in_file(full, regex, replacement, q.regex);
+    replaced += count;
+    files += count > 0;
+    g_free(full);
+    g_free(relative);
+    at += len + 1;
+  }
+  if (regex)
+    g_regex_unref(regex);
+  if (out)
+    g_bytes_unref(out);
+  char *said = g_strdup_printf("Replaced %d occurrence%s in %d file%s", replaced, replaced == 1 ? "" : "s", files,
+                               files == 1 ? "" : "s");
+  status_say(search.app, said);
+  g_free(said);
+  start_search(); /* what is left */
+}
+
+void search_replace_run(void)
+{
+  SearchQuery q = panel_query();
+  char *rg = g_find_program_in_path("rg");
+  char **argv;
+  GSubprocessLauncher *launcher;
+  GSubprocess *proc;
+  GError *error = NULL;
+
+  if (!*q.text || !search.app || !search.app->project.root) {
+    g_free(rg);
+    return;
+  }
+  argv = search_files_argv(&q, rg != NULL);
+  launcher = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
+  g_subprocess_launcher_set_cwd(launcher, search.app->project.root);
+  proc = g_subprocess_launcher_spawnv(launcher, (const char *const *)argv, &error);
+  g_object_unref(launcher);
+  g_strfreev(argv);
+  g_free(rg);
+  if (!proc) {
+    set_summary(error->message, TRUE);
+    g_error_free(error);
+    return;
+  }
+  if (search.replace_cancel)
+    g_cancellable_cancel(search.replace_cancel);
+  g_clear_object(&search.replace_cancel);
+  search.replace_cancel = g_cancellable_new();
+  set_summary("Replacing…", FALSE);
+  g_subprocess_communicate_async(proc, NULL, search.replace_cancel, on_files_listed, NULL);
+  g_object_unref(proc);
+}
+
+static void on_replace_answer(GObject *dialog, GAsyncResult *result, gpointer data G_GNUC_UNUSED)
+{
+  if (gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, NULL) == 1)
+    search_replace_run();
+}
+
+/* Replace All: asks first, with what the results counted. */
+static void replace_all(void)
+{
+  static const char *const buttons[] = { "Cancel", "Replace", NULL };
+  const char *replacement = gtk_editable_get_text(GTK_EDITABLE(search.replacement));
+  GtkAlertDialog *dialog;
+  char *question;
+
+  if (!*gtk_editable_get_text(GTK_EDITABLE(search.entry)) || search.hits == 0)
+    return;
+  question = g_strdup_printf("Replace %s%d occurrence%s in %d file%s with “%s”?", search.truncated ? "at least " : "",
+                             search.hits, search.hits == 1 ? "" : "s", search.files, search.files == 1 ? "" : "s",
+                             replacement);
+  dialog = gtk_alert_dialog_new("%s", question);
+  gtk_alert_dialog_set_detail(dialog, "Open files are changed in their editors (unsaved, undoable); the others are "
+                                      "written on disk.");
+  gtk_alert_dialog_set_buttons(dialog, buttons);
+  gtk_alert_dialog_set_cancel_button(dialog, 0);
+  gtk_alert_dialog_set_default_button(dialog, 1);
+  gtk_alert_dialog_choose(dialog, GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(search.list))), NULL, on_replace_answer,
+                          NULL);
+  g_object_unref(dialog);
+  g_free(question);
+}
+
+/* ⇄ shows or hides the replacement (and the results' preview). */
+static void on_replacing(GtkToggleButton *button, gpointer data G_GNUC_UNUSED)
+{
+  gtk_widget_set_visible(search.replace_box, gtk_toggle_button_get_active(button));
+  show_preview();
+  if (gtk_toggle_button_get_active(button))
+    gtk_widget_grab_focus(GTK_WIDGET(search.replacement));
 }
 
 /* The panel ---------------------------------------------------------------------------------- */
@@ -576,13 +841,39 @@ GtkWidget *search_panel(App *t)
   search.regex = option(query, ".*", "Use Regular Expression");
   gtk_box_append(GTK_BOX(panel), query);
 
+  search.replace_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  search.replacement = GTK_ENTRY(gtk_entry_new());
+  gtk_entry_set_placeholder_text(search.replacement, "Replace");
+  gtk_widget_set_hexpand(GTK_WIDGET(search.replacement), TRUE);
+  g_signal_connect_swapped(search.replacement, "changed", G_CALLBACK(show_preview), NULL);
+  g_signal_connect_swapped(search.replacement, "activate", G_CALLBACK(replace_all), NULL);
+  GtkWidget *replace_field = field(search.replacement), *all = gtk_button_new_with_label("All");
+  gtk_widget_add_css_class(all, "option");
+  gtk_widget_set_focusable(all, FALSE);
+  gtk_widget_set_tooltip_text(all, "Replace All");
+  gtk_widget_set_valign(all, GTK_ALIGN_CENTER);
+  g_signal_connect_swapped(all, "clicked", G_CALLBACK(replace_all), NULL);
+  gtk_box_append(GTK_BOX(replace_field), all);
+  gtk_box_append(GTK_BOX(search.replace_box), replace_field);
+  gtk_widget_set_visible(search.replace_box, FALSE);
+  gtk_box_append(GTK_BOX(panel), search.replace_box);
+
+  GtkWidget *toggles = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  search.replacing = GTK_TOGGLE_BUTTON(gtk_toggle_button_new_with_label("⇄"));
+  gtk_widget_add_css_class(GTK_WIDGET(search.replacing), "replacing");
+  gtk_widget_set_focusable(GTK_WIDGET(search.replacing), FALSE);
+  gtk_widget_set_tooltip_text(GTK_WIDGET(search.replacing), "Toggle Replace");
+  g_signal_connect(search.replacing, "toggled", G_CALLBACK(on_replacing), NULL);
+  gtk_box_append(GTK_BOX(toggles), GTK_WIDGET(search.replacing));
   search.details = GTK_TOGGLE_BUTTON(gtk_toggle_button_new_with_label("⋯"));
   gtk_widget_add_css_class(GTK_WIDGET(search.details), "details");
   gtk_widget_set_focusable(GTK_WIDGET(search.details), FALSE);
   gtk_widget_set_tooltip_text(GTK_WIDGET(search.details), "Toggle Search Details");
   gtk_widget_set_halign(GTK_WIDGET(search.details), GTK_ALIGN_END);
+  gtk_widget_set_hexpand(GTK_WIDGET(search.details), TRUE);
   g_signal_connect(search.details, "toggled", G_CALLBACK(on_details), NULL);
-  gtk_box_append(GTK_BOX(panel), GTK_WIDGET(search.details));
+  gtk_box_append(GTK_BOX(toggles), GTK_WIDGET(search.details));
+  gtk_box_append(GTK_BOX(panel), toggles);
 
   search.details_box = details = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   search.include = new_entry("e.g. *.c, src/**/include");

@@ -67,7 +67,7 @@ typedef struct Tab {
 #define GROUPS 3
 #define WINDOW_GROUP 2
 #define DOCKS 12 /* 0..3: left stacked, 4..7: bottom side-by-side, 8..11: right stacked */
-#define PANELS 7 /* the panels that go into the docks (window.h's panel_names) */
+#define PANELS 9 /* the panels that go into the docks (window.h's panel_names) */
 
 struct App {
   GtkWindow *window;
@@ -137,10 +137,11 @@ struct App {
 
   /* paths */
   struct {
-    char *styles; /* the editor's style scheme (Dark Classic) */
-    char *icons;  /* desktop/ in the build tree, holding the app icon */
-    char *temp;   /* old file versions for comparisons */
-    char *socket; /* $TCODE_SOCKET (ipc/socket.c) */
+    char *styles;   /* the editor's style scheme (Dark Classic) */
+    char *snippets; /* t-code's own snippets (editor/snippets.c) */
+    char *icons;    /* desktop/ in the build tree, holding the app icon */
+    char *temp;     /* old file versions for comparisons */
+    char *socket;   /* $TCODE_SOCKET (ipc/socket.c) */
   } paths;
 
   GSocketService *service;
@@ -176,6 +177,8 @@ struct App {
     gboolean detect_indent;  /* a file's own indentation overrides the two above */
     gboolean guides;         /* indent and bracket pair guides in editors */
     gboolean word_wrap;      /* long lines continue on the next row instead of running off */
+    gboolean inlay_hints;    /* parameter names and deduced types inside the lines (lsp/inlay.c) */
+    gboolean breadcrumbs;    /* the file's path and the symbols around the cursor over editors */
     int ruler;               /* a vertical line after this column in editors, 0 for none */
     gboolean clang_tidy;     /* clangd also runs the project's .clang-tidy checks */
     gboolean format_on_save; /* Ctrl+S formats the file with clangd first */

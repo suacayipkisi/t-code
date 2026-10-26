@@ -15,6 +15,7 @@
 #define SERVER_ARGV "/proc/self/exe", "--fake-server",
 
 #include "editor_page.h"
+#include "lsp/hierarchy.c" /* its panel, against the fake server */
 
 /* The fake server -------------------------------------------------------------------------- */
 
@@ -84,7 +85,60 @@ static void fake_position(const char *text, gsize offset, int *line, int *charac
     *character += g_utf8_get_char(p) >= 0x10000 ? 2 : 1;
 }
 
-static gboolean fake_pull; /* like neocmakelsp: diagnostics only when asked (textDocument/diagnostic) */
+static gboolean fake_pull;    /* like neocmakelsp: diagnostics only when asked (textDocument/diagnostic) */
+static gboolean fake_symbols; /* answers textDocument/documentSymbol (the Go server: the symbol tests use it) */
+
+/* Call and type hierarchy over lines "name: callee callee" (supertypes are the callees, subtypes
+ * the callers). The item of the line naming name, or NULL. */
+static char *fake_hier_item(const char *uri, const char *name)
+{
+  GString *text = g_hash_table_lookup(fake_docs, uri);
+  char **lines = g_strsplit(text ? text->str : "", "\n", -1), *item = NULL, *quoted = json_quote(uri);
+
+  for (int i = 0; lines[i] && !item; i++) {
+    const char *colon = strchr(lines[i], ':');
+    if (colon && (size_t)(colon - lines[i]) == strlen(name) && strncmp(lines[i], name, colon - lines[i]) == 0)
+      item = g_strdup_printf("{\"name\":\"%s\",\"kind\":12,\"uri\":%s,\"range\":{\"start\":{\"line\":%d,"
+                             "\"character\":0},\"end\":{\"line\":%d,\"character\":%d}},\"selectionRange\":{"
+                             "\"start\":{\"line\":%d,\"character\":0},\"end\":{\"line\":%d,\"character\":%d}}}",
+                             name, quoted, i, i, (int)strlen(lines[i]), i, i, (int)strlen(name));
+  }
+  g_free(quoted);
+  g_strfreev(lines);
+  return item;
+}
+
+/* The items related to name: the callees on its line (down), or the lines calling it (up); each
+ * wrapped as {"to": ...} / {"from": ...} when wrap is given. */
+static char *fake_hier_related(const char *uri, const char *name, gboolean up, const char *wrap)
+{
+  GString *text = g_hash_table_lookup(fake_docs, uri), *out = g_string_new(NULL);
+  char **lines = g_strsplit(text ? text->str : "", "\n", -1);
+
+  for (int i = 0; lines[i]; i++) {
+    char *colon = strchr(lines[i], ':');
+    if (!colon)
+      continue;
+    char *owner = g_strndup(lines[i], colon - lines[i]);
+    char **callees = g_strsplit(g_strstrip(colon + 1), " ", -1);
+    for (int j = 0; callees[j]; j++) {
+      const char *other = !*callees[j]                          ? NULL
+                          : up && strcmp(callees[j], name) == 0 ? owner
+                          : !up && strcmp(owner, name) == 0     ? callees[j]
+                                                                : NULL;
+      char *item = other ? fake_hier_item(uri, other) : NULL;
+      if (item && wrap)
+        g_string_append_printf(out, "%s{\"%s\":%s,\"fromRanges\":[]}", out->len ? "," : "", wrap, item);
+      else if (item)
+        g_string_append_printf(out, "%s%s", out->len ? "," : "", item);
+      g_free(item);
+    }
+    g_strfreev(callees);
+    g_free(owner);
+  }
+  g_strfreev(lines);
+  return g_string_free(out, FALSE);
+}
 
 /* The diagnostics (a JSON array) that tell the test what the server has; with clangd's code for a
  * header not found when the text includes <missing.h>. */
@@ -144,7 +198,8 @@ static int fake_server(void)
     method = json_string_at(message, "method");
     uri = json_string_at(message, "params.textDocument.uri");
     if (g_strcmp0(method, "initialize") == 0) {
-      fake_pull = json_at(message, "params.initializationOptions.lint") != NULL; /* the CMake server */
+      fake_pull = json_at(message, "params.initializationOptions.lint") != NULL;     /* the CMake server */
+      fake_symbols = json_at(message, "params.initializationOptions.hints") != NULL; /* gopls */
       char *reply =
           g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":{\"capabilities\":"
                           "{\"positionEncoding\":\"%s\",\"hoverProvider\":true,%s"
@@ -152,7 +207,10 @@ static int fake_server(void)
                           "{\"legend\":{\"tokenTypes\":[\"function\",\"variable\",\"comment\"],"
                           "\"tokenModifiers\":[\"declaration\",\"readonly\"]}}}}}",
                           json_int_at(message, "id", 0), fake_utf16 ? "utf-16" : "utf-8",
-                          fake_pull ? "\"diagnosticProvider\":{\"interFileDependencies\":false}," : "");
+                          fake_pull      ? "\"diagnosticProvider\":{\"interFileDependencies\":false},"
+                          : fake_symbols ? "\"documentSymbolProvider\":true,\"callHierarchyProvider\":true,"
+                                           "\"typeHierarchyProvider\":true,"
+                                         : "");
       fake_send(reply);
       g_free(reply);
     } else if (g_strcmp0(method, "textDocument/didOpen") == 0) {
@@ -226,6 +284,102 @@ static int fake_server(void)
                           json_int_at(message, "params.position.character", 0));
       fake_send(reply);
       g_free(reply);
+    } else if (g_strcmp0(method, "textDocument/inlayHint") == 0) {
+      /* A parameter name after each "(" with an argument, a type before each " =". */
+      GString *text = g_hash_table_lookup(fake_docs, uri), *hints = g_string_new(NULL);
+      for (gsize i = 0; text && i < text->len; i++) {
+        const char *label = NULL;
+        gsize at = i;
+        if (text->str[i] == '(' && i + 1 < text->len && text->str[i + 1] != ')') {
+          label = "\"p:\",\"paddingRight\":true";
+          at = i + 1;
+        } else if (text->str[i] == ' ' && i + 1 < text->len && text->str[i + 1] == '=') {
+          label = "\": int\"";
+        }
+        if (!label)
+          continue;
+        int line, character;
+        fake_position(text->str, at, &line, &character);
+        g_string_append_printf(hints, "%s{\"position\":{\"line\":%d,\"character\":%d},\"label\":%s}",
+                               hints->len ? "," : "", line, character, label);
+      }
+      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":[%s]}",
+                                    json_int_at(message, "id", 0), hints->str);
+      fake_send(reply);
+      g_free(reply);
+      g_string_free(hints, TRUE);
+    } else if (g_strcmp0(method, "textDocument/prepareCallHierarchy") == 0 ||
+               g_strcmp0(method, "textDocument/prepareTypeHierarchy") == 0) {
+      GString *text = g_hash_table_lookup(fake_docs, uri);
+      char **lines = g_strsplit(text ? text->str : "", "\n", -1);
+      int line = (int)json_int_at(message, "params.position.line", 0);
+      char *name = line < (int)g_strv_length(lines) && strchr(lines[line], ':')
+                       ? g_strndup(lines[line], strchr(lines[line], ':') - lines[line])
+                       : NULL;
+      char *item = name ? fake_hier_item(uri, name) : NULL;
+      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":[%s]}",
+                                    json_int_at(message, "id", 0), item ? item : "");
+      fake_send(reply);
+      g_free(reply);
+      g_free(item);
+      g_free(name);
+      g_strfreev(lines);
+    } else if (g_str_has_prefix(method ? method : "", "callHierarchy/") ||
+               g_str_has_prefix(method ? method : "", "typeHierarchy/")) {
+      const char *item_uri = json_string_at(message, "params.item.uri"),
+                 *name = json_string_at(message, "params.item.name");
+      gboolean up = strcmp(method, "callHierarchy/incomingCalls") == 0 || strcmp(method, "typeHierarchy/subtypes") == 0;
+      const char *wrap = strcmp(method, "callHierarchy/incomingCalls") == 0   ? "from"
+                         : strcmp(method, "callHierarchy/outgoingCalls") == 0 ? "to"
+                                                                              : NULL;
+      char *related = fake_hier_related(item_uri ? item_uri : "", name ? name : "", up, wrap);
+      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":[%s]}",
+                                    json_int_at(message, "id", 0), related);
+      fake_send(reply);
+      g_free(reply);
+      g_free(related);
+    } else if (g_strcmp0(method, "textDocument/documentSymbol") == 0) {
+      /* "class Name" ... "end" holds the "  fn name" lines in it; "fn name" alone is at the top. */
+      GString *text = g_hash_table_lookup(fake_docs, uri), *out = g_string_new(NULL), *children = NULL;
+      char **lines = g_strsplit(text ? text->str : "", "\n", -1);
+      int class_line = -1;
+      char *class_name = NULL;
+      for (int i = 0; lines[i]; i++) {
+        const char *line = lines[i];
+        if (g_str_has_prefix(line, "class ")) {
+          class_line = i;
+          g_free(class_name);
+          class_name = g_strdup(line + 6);
+          children = g_string_new(NULL);
+        } else if (g_str_has_prefix(line, "fn ") || g_str_has_prefix(line, "  fn ")) {
+          int column = (int)(strstr(line, "fn ") - line) + 3;
+          GString *into = children && class_line >= 0 && line[0] == ' ' ? children : out;
+          g_string_append_printf(into,
+                                 "%s{\"name\":\"%s\",\"kind\":12,\"range\":{\"start\":{\"line\":%d,\"character\":0},"
+                                 "\"end\":{\"line\":%d,\"character\":%d}},\"selectionRange\":{\"start\":{\"line\":%d,"
+                                 "\"character\":%d},\"end\":{\"line\":%d,\"character\":%d}}}",
+                                 into->len ? "," : "", line + column, i, i, (int)strlen(line), i, column, i,
+                                 (int)strlen(line));
+        } else if (strcmp(line, "end") == 0 && class_line >= 0) {
+          g_string_append_printf(out,
+                                 "%s{\"name\":\"%s\",\"kind\":5,\"range\":{\"start\":{\"line\":%d,\"character\":0},"
+                                 "\"end\":{\"line\":%d,\"character\":3}},\"selectionRange\":{\"start\":{\"line\":%d,"
+                                 "\"character\":6},\"end\":{\"line\":%d,\"character\":6}},\"children\":[%s]}",
+                                 out->len ? "," : "", class_name, class_line, i, class_line, class_line, children->str);
+          g_string_free(children, TRUE);
+          children = NULL;
+          class_line = -1;
+        }
+      }
+      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":[%s]}",
+                                    json_int_at(message, "id", 0), out->str);
+      fake_send(reply);
+      g_free(reply);
+      g_free(class_name);
+      if (children)
+        g_string_free(children, TRUE);
+      g_string_free(out, TRUE);
+      g_strfreev(lines);
     } else if (g_strcmp0(method, "textDocument/diagnostic") == 0) {
       GString *text = g_hash_table_lookup(fake_docs, uri);
       char *list = text ? fake_diagnostics(text) : g_strdup("[]");
@@ -858,6 +1012,188 @@ static void test_show_document(void)
   json_node_unref(other);
   json_node_unref(outside);
   json_node_unref(file);
+}
+
+/* The letter-spacing tag on the character at line:column, or 0. */
+static int spacing_at(Tab *tab, int line, int column)
+{
+  GtkTextIter iter;
+  GSList *tags;
+  int spacing = 0;
+
+  gtk_text_buffer_get_iter_at_line_offset(GTK_TEXT_BUFFER(tab->buffer), &iter, line, column);
+  tags = gtk_text_iter_get_tags(&iter);
+  for (GSList *t = tags; t; t = t->next) {
+    gboolean set;
+    int value;
+    g_object_get(t->data, "letter-spacing-set", &set, "letter-spacing", &value, NULL);
+    if (set)
+      spacing = value / PANGO_SCALE;
+  }
+  g_slist_free(tags);
+  return spacing;
+}
+
+/* Inlay hints come for the text and sit in gaps: on the space before or after them, or on the
+ * character before (hidden, drawn again); an edit asks again; the setting takes them away. */
+static void test_inlay_hints(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/inlay.c", "int x = f(a, b);\n");
+  gint64 until;
+  char *text = NULL;
+
+  app.settings.inlay_hints = TRUE;
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+  while (g_get_monotonic_time() < until && (!text || !*text)) {
+    g_free(text);
+    g_main_context_iteration(NULL, FALSE);
+    text = inlay_text(tab);
+  }
+  g_assert_cmpstr(text, ==, "0:5 : int\n0:10 p: \n");
+  g_free(text);
+  g_assert_cmpint(spacing_at(tab, 0, 5), >, 0); /* " =": the space after ": int" */
+  g_assert_cmpint(spacing_at(tab, 0, 9), >, 0); /* "(a": no space, the "(" holds it */
+  g_assert_cmpint(spacing_at(tab, 0, 10), ==, 0);
+
+  GtkTextIter end;
+  gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(tab->buffer), &end);
+  gtk_text_buffer_insert(GTK_TEXT_BUFFER(tab->buffer), &end, "g(c);\n", -1);
+  until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+  text = NULL;
+  while (g_get_monotonic_time() < until && (!text || !strstr(text, "1:2"))) {
+    g_free(text);
+    g_main_context_iteration(NULL, FALSE);
+    text = inlay_text(tab);
+  }
+  g_assert_cmpstr(text, ==, "0:5 : int\n0:10 p: \n1:2 p: \n");
+  g_free(text);
+
+  Lsp go = { .kind = SERVER_GO, .app = &app }, ts = { .kind = SERVER_TYPESCRIPT, .app = &app };
+  char *options = server_options(&go); /* gopls and TypeScript give hints only when asked to */
+  g_assert_nonnull(strstr(options, "\"parameterNames\":true"));
+  g_free(options);
+  options = server_options(&ts);
+  g_assert_nonnull(strstr(options, "includeInlayParameterNameHints"));
+  g_free(options);
+
+  app.settings.inlay_hints = FALSE;
+  inlay_apply_setting(tab);
+  text = inlay_text(tab);
+  g_assert_cmpstr(text, ==, "");
+  g_free(text);
+  g_assert_cmpint(spacing_at(tab, 0, 9), ==, 0);
+  free_tab(tab);
+}
+
+/* The symbols come as a tree; the breadcrumbs show the file and the symbols around the cursor; a
+ * flat list (SymbolInformation) is nested by the ranges. */
+static void test_symbols(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/shapes.go", "class Shape\n  fn area\n  fn draw\nend\nfn main\n");
+  GtkTextIter iter;
+  GPtrArray *roots;
+  char *text;
+
+  gtk_source_buffer_set_language(
+      tab->buffer, gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "go"));
+  app.settings.breadcrumbs = TRUE;
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+       !symbols_roots(tab) && g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, FALSE);
+  roots = symbols_roots(tab);
+  g_assert_nonnull(roots);
+  g_assert_cmpuint(roots->len, ==, 2);
+  g_assert_cmpstr(((Sym *)roots->pdata[0])->name, ==, "Shape");
+  g_assert_cmpuint(((Sym *)roots->pdata[0])->children->len, ==, 2);
+  g_assert_cmpstr(((Sym *)roots->pdata[1])->name, ==, "main");
+
+  gtk_text_buffer_get_iter_at_line_offset(GTK_TEXT_BUFFER(tab->buffer), &iter, 2, 5);
+  gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(tab->buffer), &iter);
+  breadcrumbs_update(tab);
+  text = breadcrumbs_text(tab);
+  g_assert_true(g_str_has_suffix(text, "shapes.go › Shape › draw"));
+  g_free(text);
+
+  JsonNode *flat = json_from_string(
+      "[{\"name\":\"inner\",\"kind\":12,\"location\":{\"uri\":\"file:///x\",\"range\":{\"start\":{\"line\":1,"
+      "\"character\":2},\"end\":{\"line\":1,\"character\":9}}}},{\"name\":\"Outer\",\"kind\":5,\"location\":{"
+      "\"uri\":\"file:///x\",\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":3,"
+      "\"character\":3}}}}]",
+      NULL);
+  GPtrArray *nested = symbols_from_information(tab, json_node_get_array(flat), FALSE);
+  g_assert_cmpuint(nested->len, ==, 1);
+  g_assert_cmpstr(((Sym *)nested->pdata[0])->name, ==, "Outer");
+  g_assert_cmpstr(((Sym *)((Sym *)nested->pdata[0])->children->pdata[0])->name, ==, "inner");
+  g_ptr_array_unref(nested);
+  json_node_unref(flat);
+  free_tab(tab);
+}
+
+/* Waits until the hierarchy's text holds part (or 5 seconds pass); returns it. */
+static char *hierarchy_waiting_for(const char *part)
+{
+  char *text = NULL;
+
+  for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC; g_get_monotonic_time() < until;) {
+    g_free(text);
+    text = hierarchy_text();
+    if (strstr(text, part))
+      break;
+    g_main_context_iteration(NULL, FALSE);
+  }
+  return text;
+}
+
+/* Callers of the function at the cursor, their callers as their rows show; callees; a type's
+ * supertypes; a server without a hierarchy says so. */
+static void test_hierarchy(void)
+{
+  GtkWidget *panel = g_object_ref_sink(hierarchy_panel(&app));
+  Tab *tab = new_tab("/tmp/t-code-test/hier.go", "main: run parse\nrun: parse\nparse:\n");
+  Tab *c = new_tab("/tmp/t-code-test/hier.c", "int x;\n");
+  GtkTextIter iter;
+  char *text;
+
+  gtk_source_buffer_set_language(
+      tab->buffer, gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "go"));
+  picker_test_tab = tab; /* find_tab finds it */
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(tab->buffer), &iter, 2);
+  gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(tab->buffer), &iter);
+
+  hierarchy_show(tab, FALSE);
+  text = hierarchy_waiting_for("run hier.go:2");
+  g_assert_true(g_str_has_prefix(text, "[Callers of parse]\nparse hier.go:3\n  main hier.go:1\n  run hier.go:2\n"));
+  g_free(text);
+
+  hierarchy_set_up(FALSE);
+  text = hierarchy_waiting_for("[Calls from parse]");
+  g_assert_cmpstr(text, ==, "[Calls from parse]\nparse hier.go:3\n"); /* it calls nothing */
+  g_free(text);
+
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(tab->buffer), &iter, 1);
+  gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(tab->buffer), &iter);
+  hierarchy_set_up(TRUE);
+  hierarchy_show(tab, TRUE);
+  text = hierarchy_waiting_for("  parse hier.go:3");
+  g_assert_true(g_str_has_prefix(text, "[Supertypes of run]\nrun hier.go:2\n  parse hier.go:3\n"));
+  g_free(text);
+
+  lsp_open(c); /* the C server here offers no hierarchy */
+  g_assert_true(server_agrees(c));
+  hierarchy_show(c, FALSE);
+  text = hierarchy_text();
+  g_assert_cmpstr(text, ==, "[]\n(The language server has no call hierarchy for this file.)\n");
+  g_free(text);
+  picker_test_tab = NULL;
+  free_tab(c);
+  free_tab(tab);
+  g_object_unref(panel);
 }
 
 /* Feeds the server's $/progress for token (JSON: "a" or 7) to tab's server. */
@@ -1633,6 +1969,9 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/progress", test_progress);
   g_test_add_func("/lsp/pull-diagnostics", test_pull_diagnostics);
   g_test_add_func("/lsp/show-document", test_show_document);
+  g_test_add_func("/lsp/inlay-hints", test_inlay_hints);
+  g_test_add_func("/lsp/symbols", test_symbols);
+  g_test_add_func("/lsp/hierarchy", test_hierarchy);
   g_test_add_func("/lsp/lru-pool", test_lru_pool);
   g_test_add_func("/lsp/crash", test_crash);
   g_test_add_func("/lsp/churn", test_churn);

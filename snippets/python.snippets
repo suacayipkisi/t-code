@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- t-code's Python snippets: type the trigger, then Tab (or pick it from the completion list). -->
+<snippets _group="Python">
+  <snippet _name="def" trigger="def" _description="function">
+    <text languages="python;python3"><![CDATA[def ${1:name}(${2}):
+	${0:pass}]]></text>
+  </snippet>
+  <snippet _name="class" trigger="class" _description="class">
+    <text languages="python;python3"><![CDATA[class ${1:Name}:
+	def __init__(self${2}):
+		${0:pass}]]></text>
+  </snippet>
+  <snippet _name="for" trigger="for" _description="for loop">
+    <text languages="python;python3"><![CDATA[for ${1:item} in ${2:items}:
+	${0:pass}]]></text>
+  </snippet>
+  <snippet _name="ifmain" trigger="ifmain" _description='if __name__ == "__main__"'>
+    <text languages="python;python3"><![CDATA[if __name__ == "__main__":
+	${0:main()}]]></text>
+  </snippet>
+  <snippet _name="with" trigger="with" _description="with statement">
+    <text languages="python;python3"><![CDATA[with ${1:open(path)} as ${2:f}:
+	${0:pass}]]></text>
+  </snippet>
+  <snippet _name="try" trigger="try" _description="try / except">
+    <text languages="python;python3"><![CDATA[try:
+	${1:pass}
+except ${2:Exception} as ${3:e}:
+	${0:raise}]]></text>
+  </snippet>
+</snippets>

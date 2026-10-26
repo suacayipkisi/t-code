@@ -15,3 +15,7 @@ void search_focus(void);
 
 /* Runs the same search again (another project was opened). */
 void search_reset(void);
+
+/* Replace All without asking (what its question's Replace runs): every match of the search in the
+ * project gets the replacement, in open files' editors or on disk; then the search runs again. */
+void search_replace_run(void);

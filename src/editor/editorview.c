@@ -6,21 +6,26 @@
 
 #include "editor/detect.h"
 #include "debug/debughover.h"
+#include "editor/breadcrumbs.h"
 #include "editor/breakpoints.h"
 #include "editor/diffgutter.h"
 #include "editor/editing.h"
 #include "editor/findbar.h"
 #include "editor/folding.h"
 #include "editor/guides.h"
+#include "editor/multicursor.h"
 #include "editor/occurrences.h"
+#include "editor/snippets.h"
 #include "editor/sticky.h"
 #include "editor/tabs.h"
 #include "lsp/client.h"
 #include "lsp/completion.h"
 #include "lsp/diagnostics.h"
 #include "lsp/hover.h"
+#include "lsp/inlay.h"
 #include "lsp/navigate.h"
 #include "lsp/semantic.h"
+#include "lsp/symbols.h"
 #include "lsp/signature.h"
 #include "window/commands.h"
 #include "window/statusbar.h"
@@ -190,6 +195,8 @@ void editor_view_apply_settings(Tab *tab)
   gtk_source_buffer_set_highlight_syntax(tab->buffer, !t->settings.plain);
   gtk_source_buffer_set_style_scheme(tab->buffer, editor_style_scheme(t)); /* a new one after a rescan */
   occurrences_recolor(tab);
+  inlay_apply_setting(tab);
+  breadcrumbs_update(tab);
   gtk_widget_queue_draw(
       GTK_WIDGET(gtk_source_view_get_gutter(view, GTK_TEXT_WINDOW_LEFT))); /* the line numbers, arrows */
   gtk_widget_set_visible(v->map, t->settings.minimap);
@@ -429,6 +436,7 @@ static const char *const menu_commands[][2] = {
   { NULL, NULL },
   { "Go to Definition", "Go to Definition" },
   { "Find All References", "Find All References" },
+  { "Show Call Hierarchy", "Show Call Hierarchy" },
   { "Go to Symbol…", "Go to Symbol in File…" },
   { "Switch Source / Header", "Switch Source / Header" },
   { "Rename Symbol…", "Rename Symbol" },
@@ -530,6 +538,7 @@ void editor_view_init(Tab *tab, gboolean readonly)
   v->cancel = g_cancellable_new();
   v->next_waiters = g_array_new(FALSE, FALSE, sizeof(SaveWaiter));
   editing_attach(tab);
+  multicursor_attach(tab);
   occurrences_attach(tab);
   diff_gutter_attach(tab);
   folding_attach(tab);
@@ -537,6 +546,9 @@ void editor_view_init(Tab *tab, gboolean readonly)
   hover_attach(tab);
   debug_hover_attach(tab);
   completion_attach(tab);
+  inlay_attach(tab);
+  symbols_attach(tab);
+  snippets_attach(tab);
   navigate_attach(tab);
   attach_menu(tab);
 
@@ -562,6 +574,7 @@ void editor_view_init(Tab *tab, gboolean readonly)
   v->column = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_widget_set_hexpand(v->column, TRUE);
   gtk_box_append(GTK_BOX(v->column), v->overlay);
+  breadcrumbs_attach(tab);
   gtk_box_append(GTK_BOX(page), v->column);
 
   v->map = tcode_map_new(tab);
@@ -595,10 +608,13 @@ void editor_view_free(EditorView *v)
   g_cancellable_cancel(v->cancel); /* loads and saves in flight drop their answer */
   signature_free(v->signature);
   semantic_free(v->semantic); /* cancel debounce before closing its LSP document */
+  inlay_free(v->inlay);
+  symbols_free(v->symbols);
   v->semantic = NULL;
   lsp_close(v->tab);
   diagnostics_clear(v->tab);
   occurrences_free(v->occurrences);
+  multicursor_free(v->multi);
   findbar_free(v->find);
   diff_gutter_free(v->diff);
   folding_free(v->folding);

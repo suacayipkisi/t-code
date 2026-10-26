@@ -107,6 +107,24 @@ static void on_guides(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointe
   session_save_settings(t);
 }
 
+static void on_breadcrumbs(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+{
+  App *t = app_of(GTK_WIDGET(toggle));
+
+  t->settings.breadcrumbs = gtk_switch_get_active(toggle);
+  each_editor(t);
+  session_save_settings(t);
+}
+
+static void on_inlay_hints(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+{
+  App *t = app_of(GTK_WIDGET(toggle));
+
+  t->settings.inlay_hints = gtk_switch_get_active(toggle);
+  each_editor(t);
+  session_save_settings(t);
+}
+
 static void on_word_wrap(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
 {
   App *t = app_of(GTK_WIDGET(toggle));
@@ -433,6 +451,11 @@ void show_settings(App *t)
           switch_for(t->settings.guides, G_CALLBACK(on_guides)));
   add_row(GTK_GRID(grid), &row, "Word wrap", "Lines longer than the editor continue on the next row",
           switch_for(t->settings.word_wrap, G_CALLBACK(on_word_wrap)));
+  add_row(GTK_GRID(grid), &row, "Inlay hints",
+          "Parameter names and deduced types inside the lines, from the language servers",
+          switch_for(t->settings.inlay_hints, G_CALLBACK(on_inlay_hints)));
+  add_row(GTK_GRID(grid), &row, "Breadcrumbs", "The file's folders and the symbols around the cursor, over each editor",
+          switch_for(t->settings.breadcrumbs, G_CALLBACK(on_breadcrumbs)));
   add_row(GTK_GRID(grid), &row, "Ruler column",
           "A vertical line after this column, to keep lines short. Type 0 to turn it off",
           spin_for(0, 300, 1, t->settings.ruler, G_CALLBACK(on_ruler)));

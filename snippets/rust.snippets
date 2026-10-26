@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- t-code's Rust snippets: type the trigger, then Tab (or pick it from the completion list). -->
+<snippets _group="Rust">
+  <snippet _name="main" trigger="main" _description="main function">
+    <text languages="rust"><![CDATA[fn main() {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="fn" trigger="fn" _description="function">
+    <text languages="rust"><![CDATA[fn ${1:name}(${2}) ${3:-> ()} {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="struct" trigger="struct" _description="struct">
+    <text languages="rust"><![CDATA[#[derive(Debug)]
+struct ${1:Name} {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="impl" trigger="impl" _description="impl block">
+    <text languages="rust"><![CDATA[impl ${1:Name} {
+	$0
+}]]></text>
+  </snippet>
+  <snippet _name="match" trigger="match" _description="match">
+    <text languages="rust"><![CDATA[match ${1:value} {
+	${2:_} => $0,
+}]]></text>
+  </snippet>
+  <snippet _name="test" trigger="test" _description="test module">
+    <text languages="rust"><![CDATA[#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn ${1:it_works}() {
+		$0
+	}
+}]]></text>
+  </snippet>
+</snippets>

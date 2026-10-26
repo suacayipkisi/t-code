@@ -108,9 +108,105 @@ GRegex *search_regex(const SearchQuery *q, GError **error)
     g_free(pattern);
     pattern = word;
   }
-  regex = g_regex_new(pattern, q->match_case ? 0 : G_REGEX_CASELESS, 0, error);
+  /* Multiline: ^ and $ at each line, as the search reads lines (a whole file is replaced at once). */
+  regex = g_regex_new(pattern, G_REGEX_MULTILINE | (q->match_case ? 0 : G_REGEX_CASELESS), 0, error);
   g_free(pattern);
   return regex;
+}
+
+char **search_files_argv(const SearchQuery *q, gboolean ripgrep)
+{
+  char **argv = search_argv(q, ripgrep);
+  guint n = g_strv_length(argv);
+  char **files = g_new0(char *, n + 2);
+
+  files[0] = argv[0];
+  files[1] = g_strdup(ripgrep ? "--files-with-matches" : "-l");
+  memcpy(files + 2, argv + 1, n * sizeof(char *)); /* the rest and the NULL */
+  g_free(argv);
+  return files;
+}
+
+/* $1 and ${name} as GRegex writes them (\g<1>, \g<name>); $$ is a "$". */
+static char *regex_replacement(const char *replacement)
+{
+  GString *out = g_string_new(NULL);
+
+  for (const char *p = replacement; *p; p++) {
+    if (p[0] == '$' && p[1] == '$') {
+      g_string_append_c(out, '$');
+      p++;
+    } else if (p[0] == '$' && g_ascii_isdigit(p[1])) {
+      const char *q = p + 1;
+      while (g_ascii_isdigit(*q))
+        q++;
+      g_string_append(out, "\\g<");
+      g_string_append_len(out, p + 1, q - p - 1);
+      g_string_append_c(out, '>');
+      p = q - 1;
+    } else if (p[0] == '$' && p[1] == '{' && strchr(p + 2, '}')) {
+      const char *close = strchr(p + 2, '}');
+      g_string_append(out, "\\g<");
+      g_string_append_len(out, p + 2, close - p - 2);
+      g_string_append_c(out, '>');
+      p = close;
+    } else if (p[0] == '$') {
+      g_string_append(out, "$");
+    } else {
+      g_string_append_c(out, *p);
+    }
+  }
+  return g_string_free(out, FALSE);
+}
+
+void search_edits_free(GArray *edits)
+{
+  for (guint i = 0; edits && i < edits->len; i++)
+    g_free(g_array_index(edits, SearchEdit, i).text);
+  if (edits)
+    g_array_free(edits, TRUE);
+}
+
+GArray *search_edits(GRegex *regex, const char *text, const char *replacement, gboolean is_regex, GError **error)
+{
+  GArray *edits = g_array_new(FALSE, FALSE, sizeof(SearchEdit));
+  char *pattern = is_regex ? regex_replacement(replacement) : NULL;
+  GMatchInfo *info = NULL;
+
+  g_regex_match(regex, text, 0, &info);
+  while (g_match_info_matches(info)) {
+    SearchEdit edit = { 0 };
+    g_match_info_fetch_pos(info, 0, &edit.start, &edit.end);
+    if (edit.end > edit.start && !memchr(text + edit.start, '\n', edit.end - edit.start)) {
+      edit.text = is_regex ? g_match_info_expand_references(info, pattern, error) : g_strdup(replacement);
+      if (!edit.text) {
+        g_match_info_free(info);
+        g_free(pattern);
+        search_edits_free(edits);
+        return NULL;
+      }
+      g_array_append_val(edits, edit);
+    }
+    g_match_info_next(info, NULL);
+  }
+  g_match_info_free(info);
+  g_free(pattern);
+  return edits;
+}
+
+char *search_apply_edits(const char *text, GArray *edits)
+{
+  GString *out = g_string_new(NULL);
+  int from = 0;
+
+  for (guint i = 0; i < edits->len; i++) {
+    SearchEdit *edit = &g_array_index(edits, SearchEdit, i);
+    g_string_append_len(out, text + from, edit->start - from);
+    g_string_append(out, edit->text);
+    from = edit->end;
+  }
+  g_string_append(out, text + from);
+  return g_string_free(out, FALSE);
 }
 
 int search_parse_line(const char *line, gsize len, GRegex *regex, SearchHitFunc found, gpointer data)

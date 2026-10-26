@@ -25,7 +25,16 @@ void open_file(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void open_to_side(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page G_GNUC_UNUSED) {}
 void files_reveal(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
+Tab *find_tab(App *t G_GNUC_UNUSED, TabKind kind G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) { return NULL; }
 /* clang-format on */
+
+static char *said; /* status_say's last message */
+
+void status_say(App *t G_GNUC_UNUSED, const char *message)
+{
+  g_free(said);
+  said = g_strdup(message);
+}
 
 static App app;
 static GtkWidget *panel;
@@ -213,9 +222,10 @@ static void test_include_exclude(void)
 
   reset_options();
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(details), TRUE);
-  /* The include and exclude entries follow the search text. */
-  include = find(gtk_widget_get_next_sibling(details), GTK_TYPE_ENTRY, NULL, NULL);
-  exclude = find(gtk_widget_get_last_child(gtk_widget_get_next_sibling(details)), GTK_TYPE_ENTRY, NULL, NULL);
+  /* The include and exclude entries follow the row of ⇄ and ⋯. */
+  GtkWidget *box = gtk_widget_get_next_sibling(gtk_widget_get_parent(details));
+  include = find(box, GTK_TYPE_ENTRY, NULL, NULL);
+  exclude = find(gtk_widget_get_last_child(box), GTK_TYPE_ENTRY, NULL, NULL);
   g_assert_true(include != exclude);
 
   gtk_editable_set_text(GTK_EDITABLE(include), "*.h");
@@ -279,6 +289,53 @@ static void test_replace_running(void)
   g_assert_cmpint(rows(FALSE, FALSE), ==, 4);
 }
 
+/* The entry with this placeholder under root. */
+static GtkEditable *entry_with(GtkWidget *root, const char *placeholder)
+{
+  if (GTK_IS_ENTRY(root) && g_strcmp0(gtk_entry_get_placeholder_text(GTK_ENTRY(root)), placeholder) == 0)
+    return GTK_EDITABLE(root);
+  for (GtkWidget *child = gtk_widget_get_first_child(root); child; child = gtk_widget_get_next_sibling(child)) {
+    GtkEditable *found = entry_with(child, placeholder);
+    if (found)
+      return found;
+  }
+  return NULL;
+}
+
+/* ⇄: the results show each match struck out with its replacement after it; Replace All writes the
+ * files (keeping their permissions), says how many, and the search runs again. */
+static void test_replace_all(void)
+{
+  char *path = g_build_filename(tmp, "r", "rep.sh", NULL), *text, *row;
+  gint64 until;
+  GStatBuf info;
+
+  reset_options();
+  gtk_toggle_button_set_active(option("Use Regular Expression"), TRUE);
+  search_for("ze(ta)");
+  g_assert_cmpstr(summary(), ==, "2 results in 1 file");
+  gtk_toggle_button_set_active(option("Toggle Replace"), TRUE);
+  gtk_editable_set_text(entry_with(panel, "Replace"), "<$1>");
+  row = text_of(nth_row(1));
+  g_assert_nonnull(strstr(row, "zeta<ta>")); /* the match, struck out, then what replaces it */
+  g_free(row);
+
+  search_replace_run();
+  until = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
+  while (g_get_monotonic_time() < until && g_strcmp0(said, "Replaced 2 occurrences in 1 file") != 0)
+    g_main_context_iteration(NULL, FALSE);
+  g_assert_cmpstr(said, ==, "Replaced 2 occurrences in 1 file");
+  g_assert_true(g_file_get_contents(path, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, "echo <ta> beta <ta>\n");
+  g_assert_cmpint(g_stat(path, &info), ==, 0);
+  g_assert_true(info.st_mode & S_IXUSR); /* still executable */
+  wait_for_results();
+  g_assert_cmpstr(summary(), ==, "No results found.");
+  gtk_toggle_button_set_active(option("Toggle Replace"), FALSE);
+  g_free(text);
+  g_free(path);
+}
+
 static void write_file(const char *dir, const char *rel, const char *contents)
 {
   char *path = g_build_filename(dir, rel, NULL);
@@ -309,6 +366,10 @@ int main(int argc, char **argv)
     g_string_append(many, "many\n");
   write_file(tmp, "z/many.txt", many->str);
   write_file(other, "x.c", "foo\n");
+  write_file(tmp, "r/rep.sh", "echo zeta beta zeta\n");
+  char *script = g_build_filename(tmp, "r", "rep.sh", NULL);
+  g_chmod(script, 0755);
+  g_free(script);
   g_string_free(many, TRUE);
 
   app.project.root = tmp;
@@ -326,6 +387,7 @@ int main(int argc, char **argv)
   g_test_add_func("/search-panel/limit", test_limit);
   g_test_add_func("/search-panel/project-switch", test_project_switch);
   g_test_add_func("/search-panel/replace-running", test_replace_running);
+  g_test_add_func("/search-panel/replace-all", test_replace_all);
   status = g_test_run();
 
   gtk_window_destroy(GTK_WINDOW(window));

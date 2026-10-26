@@ -145,6 +145,8 @@ void session_load_settings(App *t)
   t->settings.detect_indent = get_bool(kf, "settings", "detect-indentation", TRUE);
   t->settings.guides = get_bool(kf, "settings", "indent-guides", TRUE);
   t->settings.word_wrap = get_bool(kf, "settings", "word-wrap", FALSE);
+  t->settings.inlay_hints = get_bool(kf, "settings", "inlay-hints", TRUE);
+  t->settings.breadcrumbs = get_bool(kf, "settings", "breadcrumbs", TRUE);
   t->settings.ruler = CLAMP(get_int(kf, "settings", "ruler", 80), 0, 300);
   t->settings.clang_tidy = get_bool(kf, "settings", "clang-tidy", FALSE);
   t->settings.format_on_save = get_bool(kf, "settings", "format-on-save", FALSE);
@@ -212,6 +214,10 @@ void session_save_settings(App *t)
   explain(kf, "indent-guides", " Lines at each indentation level; the block around the cursor in color");
   g_key_file_set_boolean(kf, "settings", "word-wrap", t->settings.word_wrap);
   explain(kf, "word-wrap", " Lines longer than the editor continue on the next row");
+  g_key_file_set_boolean(kf, "settings", "inlay-hints", t->settings.inlay_hints);
+  explain(kf, "inlay-hints", " Parameter names and deduced types shown inside the lines (from the language servers)");
+  g_key_file_set_boolean(kf, "settings", "breadcrumbs", t->settings.breadcrumbs);
+  explain(kf, "breadcrumbs", " The file's folders and the symbols around the cursor, over each editor");
   g_key_file_set_integer(kf, "settings", "ruler", t->settings.ruler);
   explain(
       kf, "ruler",

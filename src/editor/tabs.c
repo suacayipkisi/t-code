@@ -15,6 +15,7 @@
 #include "popups/contextmenu.h"
 #include "window/statusbar.h"
 #include "lsp/problems.h"
+#include "lsp/outline.h"
 
 #ifdef __GLIBC__
 #include <malloc.h>
@@ -510,6 +511,7 @@ static void on_tabs_changed(GtkNotebook *group, GtkWidget *child G_GNUC_UNUSED, 
     return;
   update_editor_area(t);
   update_status(t);
+  outline_show_tab(t);
   if (group == t->editors.groups[1] && gtk_notebook_get_n_pages(group) == 0)
     g_idle_add(unsplit_if_empty, t);
   if (group == t->editors.groups[WINDOW_GROUP] && gtk_notebook_get_n_pages(group) == 0)
@@ -521,6 +523,7 @@ static void on_tab_switched(GtkNotebook *group, GtkWidget *page G_GNUC_UNUSED, g
 {
   t->editors.active = group_index(t, GTK_WIDGET(group));
   update_status(t);
+  outline_show_tab(t);
 }
 
 /* A click into a group makes it the active one (new tabs go there). */

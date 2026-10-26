@@ -15,10 +15,12 @@
 #include "editor/editor.h"
 #include "editor/findbar.h"
 #include "editor/folding.h"
+#include "editor/multicursor.h"
 #include "editor/preview.h"
 #include "editor/tabs.h"
 #include "lsp/client.h"
 #include "lsp/completion.h"
+#include "lsp/hierarchy.h"
 #include "lsp/navigate.h"
 #include "lsp/signature.h"
 #include "git/compare.h"
@@ -80,6 +82,8 @@ static void show_scm(App *t) { show_sidebar_page(t, "scm"); }
 static void show_search(App *t) { show_sidebar_page(t, "search"); }
 static void show_run(App *t) { show_sidebar_page(t, "run"); }
 static void show_problems_cmd(App *t) { toggle_panel(t, "problems"); }
+static void show_outline_cmd(App *t) { toggle_panel(t, "outline"); }
+static void show_hierarchy_cmd(App *t) { toggle_panel(t, "hierarchy"); }
 /* clang-format on */
 
 /* Alt+1: the file manager, showing the sidebar. */
@@ -138,6 +142,10 @@ static void find_next(App *t) { Tab *tab = current_editor(t); if (tab) findbar_n
 static void find_previous(App *t) { Tab *tab = current_editor(t); if (tab) findbar_next(tab, TRUE); }
 static void comment(App *t) { Tab *tab = current_editor(t); if (tab) editor_toggle_comment(tab); }
 static void duplicate(App *t) { Tab *tab = current_editor(t); if (tab) editor_duplicate_lines(tab); }
+static void add_next(App *t) { Tab *tab = current_editor(t); if (tab) multicursor_add_next(tab); }
+static void select_occurrences(App *t) { Tab *tab = current_editor(t); if (tab) multicursor_select_all(tab); }
+static void cursor_above(App *t) { Tab *tab = current_editor(t); if (tab) multicursor_add_line(tab, FALSE); }
+static void cursor_below(App *t) { Tab *tab = current_editor(t); if (tab) multicursor_add_line(tab, TRUE); }
 static void fold(App *t) { Tab *tab = current_editor(t); if (tab) fold_at_cursor(tab); }
 static void unfold(App *t) { Tab *tab = current_editor(t); if (tab) unfold_at_cursor(tab); }
 static void fold_everything(App *t) { Tab *tab = current_editor(t); if (tab) fold_all(tab); }
@@ -148,6 +156,8 @@ static void delete_line(App *t) { Tab *tab = current_editor(t); if (tab) editor_
 static void redo(App *t) { Tab *tab = current_editor(t); if (tab) editor_redo(tab); }
 static void definition(App *t) { Tab *tab = current_editor(t); if (tab) go_to_definition(tab); }
 static void references(App *t) { Tab *tab = current_editor(t); if (tab) find_references(tab); }
+static void call_hierarchy(App *t) { Tab *tab = current_editor(t); if (tab) hierarchy_show(tab, FALSE); }
+static void type_hierarchy(App *t) { Tab *tab = current_editor(t); if (tab) hierarchy_show(tab, TRUE); }
 static void format(App *t) { Tab *tab = current_editor(t); if (tab) format_document(tab); }
 static void rename_it(App *t) { Tab *tab = current_editor(t); if (tab) rename_symbol(tab); }
 static void switch_header(App *t) { Tab *tab = current_editor(t); if (tab) switch_source_header(tab); }
@@ -261,7 +271,11 @@ static const Command commands[] = {
   { "Find Next", "F3", "F3, Enter", find_next, TRUE, FALSE, FALSE },
   { "Find Previous", "<Shift>F3", "Shift+F3, Shift+Enter", find_previous, TRUE, FALSE, FALSE },
   { "Toggle Line Comment", "<Control>slash|<Control>KP_Divide|<Alt>slash", "Ctrl+/", comment, TRUE, FALSE, FALSE },
-  { "Duplicate Line", "<Control>d|<Shift><Alt>Down", "Ctrl+D", duplicate, TRUE, FALSE, FALSE },
+  { "Duplicate Line", "<Shift><Alt>Down", "Shift+Alt+↓", duplicate, TRUE, FALSE, FALSE },
+  { "Add Selection to Next Find Match", "<Control>d", "Ctrl+D", add_next, TRUE, FALSE, FALSE },
+  { "Select All Occurrences", "<Control><Shift>l", "Ctrl+Shift+L", select_occurrences, TRUE, FALSE, FALSE },
+  { "Add Cursor Above", "<Control><Shift>Up", "Ctrl+Shift+↑", cursor_above, TRUE, FALSE, FALSE },
+  { "Add Cursor Below", "<Control><Shift>Down", "Ctrl+Shift+↓", cursor_below, TRUE, FALSE, FALSE },
   { "Move Line Up", "<Alt>Up", "Alt+↑", line_up, TRUE, FALSE, FALSE },
   { "Move Line Down", "<Alt>Down", "Alt+↓", line_down, TRUE, FALSE, FALSE },
   { "Fold", "<Control><Shift>bracketleft|<Control><Shift>braceleft", "Ctrl+Shift+[", fold, TRUE, FALSE, FALSE },
@@ -273,6 +287,8 @@ static const Command commands[] = {
   { "Go to Definition", "F12|<Alt>d", "F12, Ctrl+Click", definition, TRUE, FALSE, FALSE },
   { "Go Back", "<Alt>Left", "Alt+←", go_back, TRUE, FALSE, FALSE },
   { "Find All References", "<Shift>F12|<Alt>r", "Shift+F12", references, TRUE, FALSE, FALSE },
+  { "Show Call Hierarchy", "<Shift><Alt>h", "Shift+Alt+H", call_hierarchy, TRUE, FALSE, FALSE },
+  { "Show Type Hierarchy", NULL, NULL, type_hierarchy, TRUE, FALSE, FALSE },
   { "Quick Fix…", "<Control>period", "Ctrl+.", fix, TRUE, FALSE, FALSE },
   { "Go to Symbol in File…", "<Control><Shift>period|<Control><Shift>greater", "Ctrl+Shift+.", symbols, TRUE, FALSE,
     FALSE },
@@ -298,6 +314,8 @@ static const Command commands[] = {
   { "Debug: Restart", "<Control><Shift>F5", "Ctrl+Shift+F5", debug_restart, FALSE, FALSE, TRUE },
   { "View: Run and Debug", "<Control><Shift>d", "Ctrl+Shift+D", show_run, FALSE, FALSE, FALSE },
   { "View: Toggle Problems", "<Control><Shift>m", "Ctrl+Shift+M", show_problems_cmd, FALSE, FALSE, FALSE },
+  { "View: Toggle Outline", NULL, NULL, show_outline_cmd, FALSE, FALSE, FALSE },
+  { "View: Toggle Hierarchy", NULL, NULL, show_hierarchy_cmd, FALSE, FALSE, FALSE },
   { "Debug: Add to Watch", NULL, NULL, add_to_watch, TRUE, FALSE, FALSE },
   { "Debug: Open Disassembly View", NULL, NULL, disassembly_open, FALSE, FALSE, FALSE },
   { "Debug: Remove All Breakpoints", NULL, NULL, breakpoints_remove_all, FALSE, FALSE, FALSE },
@@ -332,6 +350,7 @@ static const Command commands[] = {
   { "Preferences: Open Settings File", NULL, NULL, open_settings_file, FALSE, FALSE, FALSE },
   { "Preferences: Open Theme CSS", NULL, NULL, open_user_theme, FALSE, FALSE, FALSE },
   { "Preferences: Open Editor Colors", NULL, NULL, open_editor_colors, FALSE, FALSE, FALSE },
+  { "Preferences: Open User Snippets", NULL, NULL, open_user_snippets, FALSE, FALSE, FALSE },
   { "Keyboard Shortcuts", NULL, NULL, show_keybinds, FALSE, FALSE, FALSE },
   { "About t-code", NULL, NULL, show_about, FALSE, FALSE, FALSE },
   { "Check for Updates Now", NULL, NULL, check_updates_now, FALSE, FALSE, FALSE },

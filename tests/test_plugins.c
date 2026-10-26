@@ -176,18 +176,15 @@ static void test_run_command(void)
 
   plugin_run_command(&app, "runner", "go");
 
-  /* Spin main context until process finishes and output file is created */
-  int iters = 0;
-  while (!g_file_test(out_path, G_FILE_TEST_EXISTS) && iters < 100) {
+  /* Spin the main context until the script has written its last line (it writes them one by one:
+   * the file is there before it is whole). */
+  char *contents = NULL;
+  for (int iters = 0; iters < 100 && !(contents && strstr(contents, "ROOT=")); iters++) {
     g_main_context_iteration(NULL, FALSE);
     g_usleep(20000); /* 20ms */
-    iters++;
+    g_clear_pointer(&contents, g_free);
+    g_file_get_contents(out_path, &contents, NULL, NULL);
   }
-
-  g_assert_true(g_file_test(out_path, G_FILE_TEST_EXISTS));
-
-  char *contents = NULL;
-  g_file_get_contents(out_path, &contents, NULL, NULL);
   g_assert_nonnull(contents);
   g_assert_nonnull(strstr(contents, "SOCKET=/tmp/test-tcode.sock"));
   g_assert_nonnull(strstr(contents, "PLUGIN=runner"));

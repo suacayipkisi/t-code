@@ -11,8 +11,10 @@
 #include "lsp/channel.h"
 #include "lsp/compiledb.h"
 #include "lsp/diagnostics.h"
+#include "lsp/inlay.h"
 #include "lsp/navigate.h"
 #include "lsp/semantic.h"
+#include "lsp/symbols.h"
 #include "project/langenv.h"
 #include "project/toolchain.h"
 #include "window/statusbar.h"
@@ -471,6 +473,8 @@ static void add_change(Doc *doc, const char *range, const char *text)
   if (!doc->flush_id)
     doc->flush_id = g_timeout_add(FLUSH_MS, flush_later, doc);
   semantic_update(doc->tab);
+  inlay_update(doc->tab);
+  symbols_update(doc->tab);
   g_free(quoted);
 }
 
@@ -621,6 +625,8 @@ static void send_document(Doc *doc)
     evict_docs(doc->lsp);
   }
   semantic_update(doc->tab);
+  inlay_update(doc->tab);
+  symbols_update(doc->tab);
   pull_later(doc);
   g_free(params);
   g_free(text);
@@ -725,12 +731,20 @@ static char *server_program(App *t, ServerKind kind)
 #endif
 
 /* initializationOptions for the server: the JSON server neither formats nor reads schemas other than
- * local files; neocmakelsp formats and lints; rust-analyzer's Cargo features and target. NULL for
- * none. */
+ * local files; gopls' and TypeScript's inlay hints; neocmakelsp formats and lints; rust-analyzer's
+ * Cargo features and target. NULL for none. */
 static char *server_options(Lsp *l)
 {
   if (l->kind == SERVER_JSON)
     return g_strdup("{\"provideFormatter\":false,\"handledSchemaProtocols\":[\"file\"]}");
+  if (l->kind == SERVER_GO) /* inlay hints, off unless asked for (it takes them only here) */
+    return g_strdup("{\"hints\":{\"assignVariableTypes\":true,\"compositeLiteralFields\":true,"
+                    "\"constantValues\":true,\"functionTypeParameters\":true,\"parameterNames\":true,"
+                    "\"rangeVariableTypes\":true}}");
+  if (l->kind == SERVER_TYPESCRIPT) /* the same */
+    return g_strdup("{\"preferences\":{\"includeInlayParameterNameHints\":\"literals\","
+                    "\"includeInlayVariableTypeHints\":true,\"includeInlayFunctionLikeReturnTypeHints\":true,"
+                    "\"includeInlayEnumMemberValueHints\":true}}");
   if (l->kind == SERVER_CMAKE) /* the packages' own CMake files are not read through: memory */
     return g_strdup("{\"format\":{\"enable\":true},\"lint\":{\"enable\":true},\"scan_cmake_in_package\":false,"
                     "\"semantic_token\":false}");
@@ -986,6 +1000,12 @@ static void answer_server(Lsp *l, JsonNode *message)
   if (g_strcmp0(method, "workspace/applyEdit") == 0) { /* a quick fix run as a command */
     navigate_apply_edit(l->app, json_at(message, "params.edit"), FALSE, l->utf16);
     g_string_assign(result, "{\"applied\":true}");
+  } else if (g_strcmp0(method, "workspace/inlayHint/refresh") == 0) { /* its hints changed (a build ended) */
+    GHashTableIter iter;
+    gpointer tab;
+    g_hash_table_iter_init(&iter, l->docs);
+    while (g_hash_table_iter_next(&iter, &tab, NULL))
+      inlay_update(tab);
   } else if (g_strcmp0(method, "window/showDocument") == 0) { /* gopls' "Browse documentation" */
     g_string_printf(result, "{\"success\":%s}",
                     navigate_show_document(l->app, json_at(message, "params")) ? "true" : "false");
@@ -1187,6 +1207,7 @@ static void server_start(Lsp *l)
       "\"capabilities\":{"
       "\"general\":{\"positionEncodings\":[\"utf-8\",\"utf-16\"]},"
       "\"window\":{\"workDoneProgress\":true,\"showDocument\":{\"support\":true}},"
+      "\"workspace\":{\"inlayHint\":{\"refreshSupport\":true}},"
       "\"offsetEncoding\":[\"utf-8\",\"utf-16\"],"
       "\"textDocument\":{"
       "\"synchronization\":{\"didSave\":true},"
@@ -1200,7 +1221,8 @@ static void server_start(Lsp *l)
       "\"codeAction\":{\"isPreferredSupport\":true,\"codeActionLiteralSupport\":{\"codeActionKind\":"
       "{\"valueSet\":[\"quickfix\",\"refactor\",\"refactor.extract\",\"refactor.inline\",\"refactor.rewrite\","
       "\"source\",\"source.organizeImports\"]}}},"
-      "\"definition\":{},\"declaration\":{},\"references\":{},\"formatting\":{},\"rename\":{},"
+      "\"definition\":{},\"declaration\":{},\"references\":{},\"formatting\":{},\"rename\":{},\"inlayHint\":{},"
+      "\"callHierarchy\":{},\"typeHierarchy\":{},"
       "\"semanticTokens\":{\"requests\":{\"full\":{\"delta\":true}},\"formats\":[\"relative\"],"
       "\"tokenTypes\":[\"namespace\",\"type\",\"class\",\"enum\",\"interface\",\"struct\",\"typeParameter\","
       "\"parameter\",\"variable\",\"property\",\"enumMember\",\"function\",\"method\",\"macro\",\"concept\"],"
