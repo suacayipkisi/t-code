@@ -9,8 +9,9 @@
  *   +-------------+-------------------------------+
  *   | branch  problems  Build  Run      Ln, Col  Keybinds |  status bar
  *
- * The sidebar on the left is a stack of three pages: the file manager ("files"), Source Control
- * ("scm") and Search ("search").
+ * The panels (panel_names) sit in docks on the left, bottom and right, as tabs or stacked; they
+ * can be dragged between them. window.c builds the window, titlebar.c its title bar, docks/ the
+ * docks.
  */
 #pragma once
 
