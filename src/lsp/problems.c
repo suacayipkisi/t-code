@@ -51,105 +51,71 @@ void problems_focus(App *t)
     gtk_widget_grab_focus(pv.list);
 }
 
+/* A diagnostic's row: its icon, message and place; activating it opens the place. */
+static GtkWidget *problem_row(Tab *tab, const char *name, Diagnostic *d, int kind)
+{
+  static const char *const icons[] = { "dialog-error-symbolic", "dialog-warning-symbolic",
+                                       "dialog-information-symbolic" };
+  static const char *const classes[] = { "tcode-problem-error", "tcode-problem-warning", "tcode-problem-info" };
+  const char *message = diagnostic_message(d);
+  GtkWidget *row = gtk_list_box_row_new(), *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  GtkWidget *icon = gtk_image_new_from_icon_name(icons[kind]), *label = gtk_label_new(message);
+  int line = 1, col = 1;
+
+  diagnostic_position(tab, d, &line, &col);
+  char *place = g_strdup_printf("%s:%d:%d", name, line, col);
+  char *tip = g_strdup_printf("%s (%s:%d:%d)", message, tab->path, line, col);
+  GtkWidget *where = gtk_label_new(place);
+
+  gtk_widget_add_css_class(row, "tcode-problem-row");
+  g_object_set_data_full(G_OBJECT(row), "problem-path", g_strdup(tab->path), g_free);
+  g_object_set_data(G_OBJECT(row), "problem-line", GINT_TO_POINTER(line));
+  g_object_set_data(G_OBJECT(row), "problem-col", GINT_TO_POINTER(col));
+  gtk_widget_set_tooltip_text(row, tip);
+  gtk_widget_add_css_class(icon, classes[kind]);
+  gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+  gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+  gtk_widget_set_hexpand(label, TRUE);
+  gtk_widget_add_css_class(where, "tcode-problem-location");
+  gtk_box_append(GTK_BOX(box), icon);
+  gtk_box_append(GTK_BOX(box), label);
+  gtk_box_append(GTK_BOX(box), where);
+  gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
+  g_free(tip);
+  g_free(place);
+  return row;
+}
+
 /* Rebuilds the list from every open editor's diagnostics. */
 static void rebuild(App *t)
 {
-  /* Clear existing rows */
-  GtkWidget *child = gtk_widget_get_first_child(pv.list);
-  while (child) {
-    GtkWidget *next = gtk_widget_get_next_sibling(child);
-    gtk_list_box_remove(GTK_LIST_BOX(pv.list), child);
-    child = next;
-  }
+  int counts[3] = { 0 }; /* errors, warnings, the rest */
+  char *text;
 
-  int total_err = 0, total_warn = 0, total_info = 0;
-  int n_tabs = tab_count(t);
-
-  for (int i = 0; i < n_tabs; i++) {
+  gtk_list_box_remove_all(GTK_LIST_BOX(pv.list));
+  for (int i = 0; i < tab_count(t); i++) {
     Tab *tab = tab_nth(t, i);
-    if (!tab || tab->kind != TAB_EDITOR || !tab->path)
-      continue;
-
-    GPtrArray *diags = diagnostics_of(tab);
-    if (!diags)
-      continue;
-
-    char *basename = g_path_get_basename(tab->path);
-
-    for (guint j = 0; j < diags->len; j++) {
+    GPtrArray *diags = tab->kind == TAB_EDITOR && tab->path ? diagnostics_of(tab) : NULL;
+    char *name = diags ? g_path_get_basename(tab->path) : NULL;
+    for (guint j = 0; diags && j < diags->len; j++) {
       Diagnostic *d = g_ptr_array_index(diags, j);
-      if (!d)
-        continue;
-
-      int severity = diagnostic_severity(d);
-      const char *msg = diagnostic_message(d);
-      int line = 1, col = 1;
-      diagnostic_position(tab, d, &line, &col);
-
-      const char *icon_name = "dialog-information-symbolic";
-      const char *css_cls = "tcode-problem-info";
-      if (severity == 1) {
-        total_err++;
-        icon_name = "dialog-error-symbolic";
-        css_cls = "tcode-problem-error";
-      } else if (severity == 2) {
-        total_warn++;
-        icon_name = "dialog-warning-symbolic";
-        css_cls = "tcode-problem-warning";
-      } else {
-        total_info++;
-      }
-
-      GtkWidget *row = gtk_list_box_row_new();
-      gtk_widget_add_css_class(row, "tcode-problem-row");
-      g_object_set_data_full(G_OBJECT(row), "problem-path", g_strdup(tab->path), g_free);
-      g_object_set_data(G_OBJECT(row), "problem-line", GINT_TO_POINTER(line));
-      g_object_set_data(G_OBJECT(row), "problem-col", GINT_TO_POINTER(col));
-
-      GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-      GtkWidget *icon = gtk_image_new_from_icon_name(icon_name);
-      gtk_widget_add_css_class(icon, css_cls);
-      gtk_box_append(GTK_BOX(hbox), icon);
-
-      GtkWidget *msg_label = gtk_label_new(msg);
-      gtk_label_set_xalign(GTK_LABEL(msg_label), 0.0f);
-      gtk_label_set_ellipsize(GTK_LABEL(msg_label), PANGO_ELLIPSIZE_END);
-      gtk_widget_set_hexpand(msg_label, TRUE);
-      gtk_box_append(GTK_BOX(hbox), msg_label);
-
-      char *loc_text = g_strdup_printf("%s:%d:%d", basename, line, col);
-      GtkWidget *loc_label = gtk_label_new(loc_text);
-      gtk_widget_add_css_class(loc_label, "tcode-problem-location");
-      gtk_box_append(GTK_BOX(hbox), loc_label);
-      g_free(loc_text);
-
-      char *tip = g_strdup_printf("%s (%s:%d:%d)", msg, tab->path, line, col);
-      gtk_widget_set_tooltip_text(row, tip);
-      g_free(tip);
-
-      gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), hbox);
-      gtk_list_box_append(GTK_LIST_BOX(pv.list), row);
+      int severity = diagnostic_severity(d), kind = severity == 1 ? 0 : severity == 2 ? 1 : 2;
+      counts[kind]++;
+      gtk_list_box_append(GTK_LIST_BOX(pv.list), problem_row(tab, name, d, kind));
     }
-    g_free(basename);
+    g_free(name);
   }
-
-  char err_buf[32], warn_buf[32], info_buf[32];
-  g_snprintf(err_buf, sizeof(err_buf), "%d Errors", total_err);
-  g_snprintf(warn_buf, sizeof(warn_buf), "%d Warnings", total_warn);
-  g_snprintf(info_buf, sizeof(info_buf), "%d Notes", total_info);
-
-  if (pv.err_label)
-    gtk_label_set_text(pv.err_label, err_buf);
-  if (pv.warn_label)
-    gtk_label_set_text(pv.warn_label, warn_buf);
-  if (pv.info_label)
-    gtk_label_set_text(pv.info_label, info_buf);
-
-  int total = total_err + total_warn + total_info;
-  if (pv.empty_label)
-    gtk_widget_set_visible(pv.empty_label, total == 0);
-  if (pv.list)
-    gtk_widget_set_visible(pv.list, total > 0);
+  text = g_strdup_printf("%d Errors", counts[0]);
+  gtk_label_set_text(pv.err_label, text);
+  g_free(text);
+  text = g_strdup_printf("%d Warnings", counts[1]);
+  gtk_label_set_text(pv.warn_label, text);
+  g_free(text);
+  text = g_strdup_printf("%d Notes", counts[2]);
+  gtk_label_set_text(pv.info_label, text);
+  g_free(text);
+  gtk_widget_set_visible(pv.empty_label, counts[0] + counts[1] + counts[2] == 0);
+  gtk_widget_set_visible(pv.list, counts[0] + counts[1] + counts[2] > 0);
 }
 
 static gboolean rebuild_now(gpointer data)

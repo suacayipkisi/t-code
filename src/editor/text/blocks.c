@@ -31,28 +31,24 @@ static gboolean names_block(const char *text, const char *line_start)
   return end > p && !strchr(";{}", end[-1]);
 }
 
-GArray *blocks_of(const char *text)
+const char *code_next(CodeScan *scan)
 {
-  GArray *blocks = g_array_new(FALSE, FALSE, sizeof(Block)), *closed;
-  GArray *open = g_array_new(FALSE, FALSE, sizeof(guint)); /* indexes of the blocks still open */
-  const char *line_start = text;
-  gboolean comment = FALSE;
-  int line = 0;
+  const char *p;
 
-  for (const char *p = text; *p; p++) {
+  for (p = scan->p; *p; p++) {
     if (*p == '\n') {
-      line++;
-      line_start = p + 1;
-    } else if (comment) {
+      scan->line++;
+      scan->line_start = p + 1;
+    } else if (scan->comment) {
       if (p[0] == '*' && p[1] == '/') {
-        comment = FALSE;
+        scan->comment = FALSE;
         p++;
       }
     } else if (p[0] == '/' && p[1] == '/') {
       while (p[1] && p[1] != '\n')
         p++;
     } else if (p[0] == '/' && p[1] == '*') {
-      comment = TRUE;
+      scan->comment = TRUE;
       p++;
     } else if (*p == '"' || *p == '\'') {
       char quote = *p;
@@ -62,19 +58,35 @@ GArray *blocks_of(const char *text)
       if (!*p)
         break;
       if (*p == '\n') {
-        line++;
-        line_start = p + 1;
+        scan->line++;
+        scan->line_start = p + 1;
       }
-    } else if (*p == '{') {
+    } else {
+      scan->p = p + 1;
+      return p;
+    }
+  }
+  scan->p = p;
+  return NULL;
+}
+
+GArray *blocks_of(const char *text)
+{
+  GArray *blocks = g_array_new(FALSE, FALSE, sizeof(Block)), *closed;
+  GArray *open = g_array_new(FALSE, FALSE, sizeof(guint)); /* indexes of the blocks still open */
+  CodeScan scan = { text, text, 0, FALSE };
+
+  for (const char *p; (p = code_next(&scan));) {
+    if (*p == '{') {
       gboolean starts_line = TRUE;
-      for (const char *q = line_start; q < p; q++)
+      for (const char *q = scan.line_start; q < p; q++)
         starts_line = starts_line && g_ascii_isspace(*q);
-      Block b = { starts_line && names_block(text, line_start) ? line - 1 : line, line, -1 };
+      Block b = { starts_line && names_block(text, scan.line_start) ? scan.line - 1 : scan.line, scan.line, -1 };
       guint index = blocks->len;
       g_array_append_val(blocks, b);
       g_array_append_val(open, index);
     } else if (*p == '}' && open->len > 0) {
-      g_array_index(blocks, Block, g_array_index(open, guint, open->len - 1)).close_line = line;
+      g_array_index(blocks, Block, g_array_index(open, guint, open->len - 1)).close_line = scan.line;
       g_array_set_size(open, open->len - 1);
     }
   }

@@ -139,10 +139,7 @@ static void update_summary(void)
 /* Empties the result list. */
 static void clear_results(void)
 {
-  GtkListBoxRow *row;
-
-  while ((row = gtk_list_box_get_row_at_index(search.list, 0)))
-    gtk_list_box_remove(search.list, GTK_WIDGET(row));
+  gtk_list_box_remove_all(search.list);
   search.hits = search.files = 0;
   search.truncated = FALSE;
   search.heading = NULL;
@@ -362,11 +359,10 @@ static void on_line(GObject *source, GAsyncResult *result, gpointer data)
   g_data_input_stream_read_line_async(run->out, G_PRIORITY_DEFAULT, run->cancel, on_line, run);
 }
 
-/* Starts a search for what the panel holds now, stopping the one that runs. */
-static void start_search(void)
+/* The query as the panel holds it. */
+static SearchQuery panel_query(void)
 {
-  App *t = search.app;
-  SearchQuery q = {
+  return (SearchQuery){
     .text = gtk_editable_get_text(GTK_EDITABLE(search.entry)),
     .match_case = gtk_toggle_button_get_active(search.match_case),
     .whole_word = gtk_toggle_button_get_active(search.whole_word),
@@ -374,6 +370,13 @@ static void start_search(void)
     .include = gtk_editable_get_text(GTK_EDITABLE(search.include)),
     .exclude = gtk_editable_get_text(GTK_EDITABLE(search.exclude)),
   };
+}
+
+/* Starts a search for what the panel holds now, stopping the one that runs. */
+static void start_search(void)
+{
+  App *t = search.app;
+  SearchQuery q = panel_query();
   char *rg = g_find_program_in_path("rg");
   GSubprocessLauncher *launcher;
   GError *error = NULL;
@@ -437,19 +440,6 @@ static void schedule_search(void)
 }
 
 /* Replacing --------------------------------------------------------------------------------- */
-
-/* The query as the panel holds it. */
-static SearchQuery panel_query(void)
-{
-  return (SearchQuery){
-    .text = gtk_editable_get_text(GTK_EDITABLE(search.entry)),
-    .match_case = gtk_toggle_button_get_active(search.match_case),
-    .whole_word = gtk_toggle_button_get_active(search.whole_word),
-    .regex = gtk_toggle_button_get_active(search.regex),
-    .include = gtk_editable_get_text(GTK_EDITABLE(search.include)),
-    .exclude = gtk_editable_get_text(GTK_EDITABLE(search.exclude)),
-  };
-}
 
 /* Replaces in an open file's editor, as one undo step (left unsaved, like any edit); the count. */
 static int replace_in_editor(Tab *tab, GRegex *regex, const char *replacement, gboolean is_regex)

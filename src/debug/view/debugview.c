@@ -50,15 +50,21 @@ void debug_view_paused(App *t G_GNUC_UNUSED, JsonNode *frames, int shown)
   var_list_frame(MAX(shown, 0));
 }
 
-void debug_view_running(App *t G_GNUC_UNUSED)
+/* The last pause's frames and variables go (older answers are dropped); the watch rows follow. */
+static void forget_pause(void)
 {
-  if (!view.root)
-    return;
   view.generation++;
   g_list_store_remove_all(view.root);
   gtk_list_box_remove_all(view.stack);
   g_clear_pointer(&view.frames, json_node_unref);
   watch_evaluate();
+}
+
+void debug_view_running(App *t G_GNUC_UNUSED)
+{
+  if (!view.root)
+    return;
+  forget_pause();
   var_show_note("Running… The variables show here when the program pauses: at a breakpoint, after a step, or with "
                 "Pause (F6).");
 }
@@ -67,13 +73,9 @@ void debug_view_ended(App *t G_GNUC_UNUSED)
 {
   if (!view.root)
     return;
-  view.generation++;
-  g_list_store_remove_all(view.root);
-  gtk_list_box_remove_all(view.stack);
-  g_clear_pointer(&view.frames, json_node_unref);
-  g_hash_table_remove_all(view.last);
+  g_hash_table_remove_all(view.last); /* a value changed against the last run's is not shown changed */
   g_hash_table_remove_all(view.now);
-  watch_evaluate();
+  forget_pause();
   var_show_note("Not debugging.\n\nClick left of a line number (or F9) to put a breakpoint there, then F5: the program "
                 "pauses at that line, and its variables show here.");
 }

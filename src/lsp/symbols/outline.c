@@ -33,14 +33,6 @@ static void set_note(const char *text)
   gtk_widget_set_visible(GTK_WIDGET(outline.note), text != NULL);
 }
 
-static void clear_rows(void)
-{
-  GtkListBoxRow *row;
-
-  while ((row = gtk_list_box_get_row_at_index(outline.list, 0)))
-    gtk_list_box_remove(outline.list, GTK_WIDGET(row));
-}
-
 static void add_rows(GPtrArray *level, int depth)
 {
   for (guint i = 0; level && i < level->len; i++) {
@@ -80,7 +72,7 @@ void outline_fill(App *t, Tab *tab, GPtrArray *roots)
   outline_app = t;
   if (!outline.list)
     return;
-  clear_rows();
+  gtk_list_box_remove_all(outline.list);
   g_set_str(&outline.path, tab ? tab->path : NULL);
   if (!tab) {
     set_note("Open a file to see its symbols.");

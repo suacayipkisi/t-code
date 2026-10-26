@@ -74,9 +74,7 @@ void scm_on_message_changed(GtkTextBuffer *buffer, gpointer data);
 gboolean scm_on_message_key(GtkEventControllerKey *controller, guint key, guint code, GdkModifierType state,
                             gpointer data);
 
-/* The panel's lists. */
-void scm_clear_list(GtkListBox *list);
-/* Puts a row's main content in a flat button that activates the row. */
+/* The panel's lists: puts a row's main content in a flat button that activates the row. */
 GtkWidget *scm_open_button(GtkWidget *row, GtkWidget *content);
 /* The colored status letter on the right of a row (M, A, D, R, U, !). */
 GtkWidget *scm_code_label(char code);

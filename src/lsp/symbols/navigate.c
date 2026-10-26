@@ -119,6 +119,18 @@ typedef struct {
   guint changes;  /* formatting: the text's change count when it was asked */
 } Asked;
 
+/* What a request for tab is asked with: the editor by path, its server's encoding, its change count. */
+static Asked *asked_new(Tab *tab)
+{
+  Asked *asked = g_new0(Asked, 1);
+
+  asked->app = tab->app;
+  asked->path = g_strdup(tab->path);
+  asked->utf16 = lsp_utf16(tab);
+  asked->changes = tab->view->changes;
+  return asked;
+}
+
 static void asked_free(Asked *asked)
 {
   g_free(asked->path);
@@ -147,12 +159,9 @@ static void on_definition(JsonNode *result, gpointer data)
 
 void go_to_definition(Tab *tab)
 {
-  Asked *asked = g_new0(Asked, 1);
+  Asked *asked = asked_new(tab);
   char *params = at_cursor(tab, NULL);
 
-  asked->app = tab->app;
-  asked->path = g_strdup(tab->path);
-  asked->utf16 = lsp_utf16(tab);
   lsp_request(tab, "textDocument/definition", params, NULL, on_definition, asked);
   g_free(params);
 }
@@ -287,12 +296,9 @@ static void on_references(JsonNode *result, gpointer data)
 
 void find_references(Tab *tab)
 {
-  Asked *asked = g_new0(Asked, 1);
+  Asked *asked = asked_new(tab);
   char *params = at_cursor(tab, ",\"context\":{\"includeDeclaration\":true}");
 
-  asked->app = tab->app;
-  asked->path = g_strdup(tab->path);
-  asked->utf16 = lsp_utf16(tab);
   lsp_request(tab, "textDocument/references", params, NULL, on_references, asked);
   g_free(params);
 }
@@ -340,12 +346,9 @@ static void on_switched(JsonNode *result, gpointer data)
 
 void switch_source_header(Tab *tab)
 {
-  Asked *asked = g_new0(Asked, 1);
+  Asked *asked = asked_new(tab);
   char *document = lsp_document_params(tab), *params = g_strdup_printf("{%s}", document);
 
-  asked->app = tab->app;
-  asked->path = g_strdup(tab->path);
-  asked->utf16 = lsp_utf16(tab);
   if (lsp_has(tab))
     lsp_request(tab, "textDocument/switchSourceHeader", params, NULL, on_switched, asked);
   else
@@ -453,12 +456,9 @@ static void on_symbols(JsonNode *result, gpointer data)
 
 void go_to_symbol(Tab *tab)
 {
-  Asked *asked = g_new0(Asked, 1);
+  Asked *asked = asked_new(tab);
   char *document = lsp_document_params(tab), *params = g_strdup_printf("{%s}", document);
 
-  asked->app = tab->app;
-  asked->path = g_strdup(tab->path);
-  asked->utf16 = lsp_utf16(tab);
   lsp_request(tab, "textDocument/documentSymbol", params, NULL, on_symbols, asked);
   g_free(params);
   g_free(document);
@@ -725,14 +725,11 @@ void quick_fix(Tab *tab)
     if (!gtk_text_iter_ends_line(&end))
       gtk_text_iter_forward_to_line_end(&end);
   }
-  Asked *asked = g_new0(Asked, 1);
+  Asked *asked = asked_new(tab);
   char *document = lsp_document_params(tab), *range = lsp_range(tab, &start, &end);
   char *diagnostics = diagnostics_json(tab, gtk_text_iter_get_line(&start), gtk_text_iter_get_line(&end));
   char *params = g_strdup_printf("{%s,\"range\":%s,\"context\":{\"diagnostics\":%s}}", document, range, diagnostics);
 
-  asked->app = tab->app;
-  asked->path = g_strdup(tab->path);
-  asked->utf16 = lsp_utf16(tab);
   lsp_request(tab, "textDocument/codeAction", params, NULL, on_actions, asked);
   g_free(params);
   g_free(diagnostics);
@@ -758,20 +755,14 @@ static void on_formatted(JsonNode *result, gpointer data)
 /* Asks for the formatting; save: the file is saved once it is in. */
 static void format_then(Tab *tab, gboolean save)
 {
-  Asked *asked = g_new0(Asked, 1);
   char *document = lsp_document_params(tab);
   char *params = g_strdup_printf("{%s,\"options\":{\"tabSize\":%d,\"insertSpaces\":%s}}", document,
                                  gtk_source_view_get_tab_width(tab->source),
                                  gtk_source_view_get_insert_spaces_instead_of_tabs(tab->source) ? "true" : "false");
 
-  if (!gtk_text_view_get_editable(GTK_TEXT_VIEW(tab->source))) {
-    g_free(asked);
-  } else {
-    asked->app = tab->app;
-    asked->path = g_strdup(tab->path);
+  if (gtk_text_view_get_editable(GTK_TEXT_VIEW(tab->source))) {
+    Asked *asked = asked_new(tab);
     asked->save = save;
-    asked->utf16 = lsp_utf16(tab);
-    asked->changes = tab->view->changes;
     lsp_request(tab, "textDocument/formatting", params, NULL, on_formatted, asked);
   }
   g_free(params);
@@ -867,10 +858,7 @@ static void rename_choose(App *t, const char *name)
   if (!tab)
     return;
   editor_goto(tab, rename_line, rename_column); /* where it was asked, wherever the cursor went */
-  asked = g_new0(Asked, 1);
-  asked->app = t;
-  asked->path = g_strdup(tab->path);
-  asked->utf16 = lsp_utf16(tab);
+  asked = asked_new(tab);
   quoted = json_quote(name);
   extra = g_strconcat(",\"newName\":", quoted, NULL);
   params = at_cursor(tab, extra);

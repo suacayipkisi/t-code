@@ -16,14 +16,6 @@
 
 /* Lists -------------------------------------------------------------------------------------- */
 
-void scm_clear_list(GtkListBox *list)
-{
-  GtkListBoxRow *row;
-
-  while ((row = gtk_list_box_get_row_at_index(list, 0)))
-    gtk_list_box_remove(list, GTK_WIDGET(row));
-}
-
 /* A small flat button with a symbol (+, −, ↶, ⟳), shown on hover. */
 GtkWidget *scm_icon_button(const char *text, const char *tooltip)
 {
@@ -98,7 +90,7 @@ static void on_discard_clicked(GtkButton *button G_GNUC_UNUSED, Change *c) { scm
 /* Fills a list from scm.staged or scm.changes, with the buttons each row needs. */
 void scm_fill_changes(GtkListBox *list, GPtrArray *changes, gboolean staged)
 {
-  scm_clear_list(list);
+  gtk_list_box_remove_all(list);
   for (guint i = 0; i < changes->len; i++) {
     Change *c = g_ptr_array_index(changes, i);
     GtkWidget *box, *row = scm_file_row(c->path, c->code, &box);

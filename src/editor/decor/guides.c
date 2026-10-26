@@ -7,6 +7,7 @@
 #include "editor/decor/guides.h"
 
 #include "editor/gutter/breakpoints.h"
+#include "editor/text/blocks.h"
 #include "editor/gutter/diffgutter.h"
 #include "editor/editorview.h"
 #include "editor/gutter/folding.h"
@@ -51,40 +52,17 @@ static GArray *brackets_of(const char *text)
 {
   GArray *found = g_array_new(FALSE, FALSE, sizeof(Bracket));
   const char *counted = text; /* offsets are counted up to here */
-  gboolean comment = FALSE;
-  int line = 0, offset = 0;
+  CodeScan scan = { text, text, 0, FALSE };
+  int offset = 0;
 
-  for (const char *p = text; *p; p++) {
-    if (*p == '\n') {
-      line++;
-    } else if (comment) {
-      if (p[0] == '*' && p[1] == '/') {
-        comment = FALSE;
-        p++;
-      }
-    } else if (p[0] == '/' && p[1] == '/') {
-      while (p[1] && p[1] != '\n')
-        p++;
-    } else if (p[0] == '/' && p[1] == '*') {
-      comment = TRUE;
-      p++;
-    } else if (*p == '"' || *p == '\'') {
-      char quote = *p;
-      for (p++; *p && *p != quote && *p != '\n'; p++)
-        if (*p == '\\' && p[1])
-          p++;
-      if (!*p)
-        break;
-      if (*p == '\n')
-        line++;
-    } else if (strchr("([{)]}", *p)) {
-      Bracket b = { 0, line, *p };
+  for (const char *p; (p = code_next(&scan));)
+    if (strchr("([{)]}", *p)) {
+      Bracket b = { 0, scan.line, *p };
       offset += (int)g_utf8_strlen(counted, p - counted);
       counted = p;
       b.offset = offset;
       g_array_append_val(found, b);
     }
-  }
   return found;
 }
 
