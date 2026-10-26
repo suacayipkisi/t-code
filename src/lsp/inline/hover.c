@@ -6,7 +6,7 @@
 #include "lsp/inline/hover.h"
 
 #include "editor/tabs.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "lsp/inline/diagnostics.h"
 #include "lsp/symbols/navigate.h"
 #include "window/palette.h"

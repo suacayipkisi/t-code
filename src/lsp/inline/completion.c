@@ -6,7 +6,7 @@
  */
 #include "lsp/inline/completion.h"
 
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "lsp/symbols/edits.h"
 #include "lsp/inline/signature.h"
 

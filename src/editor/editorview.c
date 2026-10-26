@@ -18,7 +18,7 @@
 #include "editor/editing/snippets.h"
 #include "editor/decor/sticky.h"
 #include "editor/tabs.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "lsp/inline/completion.h"
 #include "lsp/inline/diagnostics.h"
 #include "lsp/inline/hover.h"

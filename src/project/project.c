@@ -14,7 +14,7 @@
 #include "files/files.h"
 #include "git/gitstatus.h"
 #include "git/scm/scm.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "project/session.h"
 #include "search/search.h"
 #include "window/statusbar.h"

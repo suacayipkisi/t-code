@@ -5,7 +5,7 @@
 
 #include "editor/editor.h"
 #include "editor/tabs.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "lsp/json.h"
 #include "lsp/symbols/symbols.h"
 #include "window/window.h"

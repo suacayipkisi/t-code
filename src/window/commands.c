@@ -5,7 +5,7 @@
 #include "window/commands.h"
 
 #include "debug/debugger.h"
-#include "debug/debugview.h"
+#include "debug/view/debugview.h"
 #include "debug/disassembly.h"
 #include "dialogs/about.h"
 #include "dialogs/keybinds.h"
@@ -18,7 +18,7 @@
 #include "editor/editing/multicursor.h"
 #include "editor/preview/preview.h"
 #include "editor/tabs.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "lsp/inline/completion.h"
 #include "git/scm/scm.h"
 #include "lsp/symbols/hierarchy.h"

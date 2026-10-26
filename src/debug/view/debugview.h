@@ -27,7 +27,7 @@ void debug_view_running(App *t);
 /* Debugging ended. */
 void debug_view_ended(App *t);
 
-/* The breakpoints changed (debug_breakpoints_changed): the list follows. */
+/* The breakpoints var_changed (debug_breakpoints_changed): the list follows. */
 void debug_view_breakpoints_changed(App *t);
 
 /* Adds expression to the Watch ("Debug: Add to Watch"). */

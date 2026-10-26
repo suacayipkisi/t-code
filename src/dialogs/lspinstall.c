@@ -3,7 +3,7 @@
  */
 #include "dialogs/lspinstall.h"
 
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "lsp/install.h"
 
 #define INSTALL_WIDTH 560

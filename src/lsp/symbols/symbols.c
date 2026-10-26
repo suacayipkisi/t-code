@@ -5,7 +5,7 @@
 
 #include "editor/decor/breadcrumbs.h"
 #include "editor/editorview.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "lsp/json.h"
 #include "lsp/symbols/outline.h"
 

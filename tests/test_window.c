@@ -7,7 +7,7 @@
  */
 #include "editor/editor.h"
 #include "debug/debugger.h"
-#include "debug/debugview.h"
+#include "debug/view/debugview.h"
 #include "debug/disassembly.h"
 #include "dialogs/settings.h"
 #include "editor/gutter/breakpoints.h"

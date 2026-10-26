@@ -8,7 +8,7 @@
 #include "editor/editorview.h"
 #include "editor/tabs.h"
 #include "git/gitstatus.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "lsp/inline/diagnostics.h"
 #include "lsp/symbols/edits.h"
 #include "popups/picker.h"

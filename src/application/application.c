@@ -10,7 +10,7 @@
 #include "files/files.h"
 #include "git/compare.h"
 #include "ipc/socket.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "plugins/plugins.h"
 #include "project/project.h"
 #include "project/session.h"

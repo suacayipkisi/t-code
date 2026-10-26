@@ -1,6 +1,6 @@
 /*
  * The project's Python interpreter and Rust features and target: picked from the command palette,
- * kept per project in the session, used by the language servers (lsp/client.c) and by Build, Run
+ * kept per project in the session, used by the language servers (lsp/client/client.c) and by Build, Run
  * and Test (project/run.c). Picking one restarts that language's server.
  */
 #pragma once

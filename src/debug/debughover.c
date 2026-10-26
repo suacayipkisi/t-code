@@ -6,7 +6,7 @@
 
 #include "debug/dap.h"
 #include "debug/debugger.h"
-#include "debug/debugview.h"
+#include "debug/view/debugview.h"
 #include "editor/editing/editing.h"
 #include "lsp/json.h"
 

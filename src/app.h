@@ -27,7 +27,7 @@ typedef struct App App;
 typedef struct Preview Preview;       /* editor/preview.c */
 typedef struct Picker Picker;         /* popups/picker.c */
 typedef struct EditorView EditorView; /* editor/editorview.h */
-typedef struct Lsp Lsp;               /* lsp/client.c */
+typedef struct Lsp Lsp;               /* lsp/client/client.c */
 typedef struct Debugger Debugger;     /* debug/debugger.c */
 
 typedef enum {

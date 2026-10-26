@@ -1,5 +1,5 @@
 /*
- * Tests for the language server client (src/lsp/client.c) with real editors. The server is this
+ * Tests for the language server client (src/lsp/client/client.c) with real editors. The server is this
  * program run with --fake-server (fake_server.h), so the tests see whether the editor and the server
  * agree.
  */
@@ -863,7 +863,7 @@ static void test_progress(void)
   send_progress(tab, "\"a\"", "{\"kind\":\"end\"}");
   g_assert_null(lsp_progress(&app));
   send_progress(tab, "\"b\"", "{\"kind\":\"begin\",\"title\":\"Fetching\"}");
-  server_stop(doc_of(tab)->lsp); /* its work ends with it, without an "end" */
+  lsp_server_stop(doc_of(tab)->lsp); /* its work ends with it, without an "end" */
   g_assert_null(lsp_progress(&app));
   free_tab(tab);
 }

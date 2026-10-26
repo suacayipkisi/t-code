@@ -1,7 +1,7 @@
 /*
  * Language server messages over a pair of streams, the way LSP frames them:
  * "Content-Length: <n>\r\n\r\n" then n bytes of JSON. Reads and writes are asynchronous; writes
- * wait their turn in a queue. lsp/client.c talks to the server's stdin / stdout through one.
+ * wait their turn in a queue. lsp/client/client.c talks to the server's stdin / stdout through one.
  */
 #pragma once
 

@@ -6,7 +6,7 @@
 #include "project/toolchain.h"
 
 #include "editor/tabs.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "popups/picker.h"
 #include "project/langenv.h"
 #include "project/session.h"

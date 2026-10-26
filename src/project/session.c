@@ -11,7 +11,7 @@
  */
 #include "project/session.h"
 
-#include "debug/debugview.h"
+#include "debug/view/debugview.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/editor.h"
 #include "editor/preview/preview.h"

@@ -8,7 +8,7 @@
 #include "editor/editor.h"
 #include "editor/editorview.h"
 #include "editor/tabs.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "project/session.h"
 #include "project/userfiles.h"
 #include "window/terminal.h"

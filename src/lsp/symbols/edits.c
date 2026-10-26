@@ -3,7 +3,7 @@
  */
 #include "lsp/symbols/edits.h"
 
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 
 #include <stdlib.h>
 

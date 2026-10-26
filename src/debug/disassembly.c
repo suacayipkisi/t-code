@@ -8,7 +8,7 @@
 
 #include "debug/dap.h"
 #include "debug/debugger.h"
-#include "debug/debugview.h"
+#include "debug/view/debugview.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/editor.h"
 #include "editor/tabs.h"

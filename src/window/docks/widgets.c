@@ -6,7 +6,7 @@
 #include "window/docks/docks.h"
 
 #include "debug/debugger.h"
-#include "debug/debugview.h"
+#include "debug/view/debugview.h"
 #include "editor/editor.h"
 #include "files/files.h"
 #include "git/scm/scm.h"

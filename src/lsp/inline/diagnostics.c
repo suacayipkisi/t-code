@@ -6,7 +6,7 @@
 #include "lsp/inline/diagnostics.h"
 
 #include "editor/editorview.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "window/statusbar.h"
 #include "window/palette.h"
 #include "lsp/problems.h"

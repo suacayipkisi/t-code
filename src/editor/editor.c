@@ -17,7 +17,7 @@
 #include "editor/recovery.h"
 #include "git/compare.h"
 #include "git/gitstatus.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "lsp/inline/completion.h"
 #include "lsp/inline/diagnostics.h"
 #include "project/session.h"

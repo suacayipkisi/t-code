@@ -5,7 +5,7 @@
 
 #include "editor/editing/editing.h"
 #include "editor/editorview.h"
-#include "lsp/client.h"
+#include "lsp/client/client.h"
 #include "window/palette.h"
 
 #include <string.h>

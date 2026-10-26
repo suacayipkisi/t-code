@@ -20,7 +20,7 @@ static void test_distro(void)
   g_assert_null(install_distro(NULL));
 }
 
-/* Each server t-code runs (lsp/client.c) has a title and at least one command for every family. */
+/* Each server t-code runs (lsp/client/client.c) has a title and at least one command for every family. */
 static void test_every_server(void)
 {
   static const char *const servers[] = { "clangd",

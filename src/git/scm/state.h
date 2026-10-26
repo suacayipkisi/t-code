@@ -1,6 +1,7 @@
 /*
- * What the Source Control panel's files share (scm.c, branches.c, commits.c): the panel's state,
- * running git, the note under the buttons and the list rows. Only those files include it.
+ * What the Source Control panel's files share: the panel's state (scm.c), running git (gitrun.c),
+ * staging (staging.c), the commit message (message.c), the change lists (changes.c), branches
+ * (branches.c) and Commits (commits.c). Only those files include it.
  */
 #pragma once
 
@@ -54,6 +55,24 @@ typedef void (*GitDone)(gboolean ok, const char *out, const char *err, gpointer 
 void scm_run_git_owned(const char *const *args, const char *input, gboolean quiet, GitDone done, gpointer data,
                        GDestroyNotify drop);
 void scm_run_git(const char *const *args, const char *input, gboolean quiet, GitDone done, gpointer data);
+/* A command that changes the repository and shows only its failure (failure: the note when git says
+ * nothing). */
+void scm_run_simple(const char *const *args, const char *failure);
+
+/* staging.c: + and − on a file or a section, ↶ (after asking). */
+void scm_stage(const char *path);
+void scm_unstage(const Change *c);
+void scm_discard(const Change *c);
+void scm_stage_all(void);
+void scm_unstage_all(void);
+
+/* message.c: the Commit button (and Ctrl+Enter); HEAD moved: the message history is read again at the
+ * next Up; the message box's "changed" and key handlers (Ctrl+Enter, Up / Down through the history). */
+void scm_commit(void);
+void scm_forget_history(void);
+void scm_on_message_changed(GtkTextBuffer *buffer, gpointer data);
+gboolean scm_on_message_key(GtkEventControllerKey *controller, guint key, guint code, GdkModifierType state,
+                            gpointer data);
 
 /* The panel's lists. */
 void scm_clear_list(GtkListBox *list);
@@ -63,6 +82,13 @@ GtkWidget *scm_open_button(GtkWidget *row, GtkWidget *content);
 GtkWidget *scm_code_label(char code);
 /* A file's row: name, its folder dimmed; *box_out takes the buttons and the letter on the right. */
 GtkWidget *scm_file_row(const char *path, char code, GtkWidget **box_out);
+/* A small flat button with a symbol (+, −, ↶, ⟳), shown on hover. */
+GtkWidget *scm_icon_button(const char *text, const char *tooltip);
+/* changes.c: a list filled from changes (staged: their buttons unstage), a row's click (its changes
+ * side by side) and right-click menu. */
+void scm_fill_changes(GtkListBox *list, GPtrArray *changes, gboolean staged);
+void scm_on_change_activated(GtkListBox *list, GtkListBoxRow *row, gpointer data);
+void scm_on_changes_menu(GtkWidget *list, double x, double y, gpointer data);
 
 /* commits.c: makes scm.commits_list the Commits list (its clicks, tooltips and right-click menu),
  * and lists the last 100 commits of HEAD (scm.head) in it again. */
