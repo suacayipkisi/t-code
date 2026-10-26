@@ -9,6 +9,6 @@ mkdir -p "$top/SOURCES"
 cp "/out/t-code-$VERSION.tar.gz" "$top/SOURCES/"
 rpmbuild -ba --define "_topdir $top" /src/packaging/fedora/t-code-ide.spec
 # What a Fedora package review checks first: errors fail the build, warnings are only shown.
-rpmlint "$top"/RPMS/*/*.rpm "$top"/SRPMS/*.rpm
+rpmlint -r /src/packaging/fedora/t-code-ide.rpmlintrc "$top"/RPMS/*/*.rpm "$top"/SRPMS/*.rpm
 cp "$top"/RPMS/*/*.rpm "$top"/SRPMS/*.rpm /out/
 [[ -z "${HOST_OWNER:-}" ]] || chown -R "$HOST_OWNER" /out

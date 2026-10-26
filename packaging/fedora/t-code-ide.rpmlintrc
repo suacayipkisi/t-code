@@ -1,0 +1,2 @@
+# Tool names, not misspellings.
+addFilter(r"spelling-error \('(clangd|gdb)'")
