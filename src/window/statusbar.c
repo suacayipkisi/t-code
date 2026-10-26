@@ -1,6 +1,6 @@
 /*
  * The status bar at the bottom:
- *   left   git branch ("*" when there are changes), clangd errors and warnings in the open files,
+ *   left   git branch ("*" when there are changes; a click switches branches), clangd errors and warnings in the open files,
  *          a warning when clangd has no compile flags, Build and Run buttons and what they would build
  *   right  what a language server is busy with ("rust-analyzer: Indexing 45%"), "No LSP" when the current file's language server is not installed (a click shows how to
  *          install it), the current editor's indentation ("Spaces: 4", a click chooses the
@@ -13,6 +13,7 @@
 #include "editor/editorview.h"
 #include "editor/tabs.h"
 #include "git/gitstatus.h"
+#include "git/scm.h"
 #include "lsp/client.h"
 #include "popups/picker.h"
 #include "project/session.h"
@@ -316,6 +317,12 @@ GtkWidget *status_bar(App *t)
 
   t->status.branch = status_label(bar, FALSE);
   gtk_widget_set_visible(GTK_WIDGET(t->status.branch), FALSE);
+  /* A click switches branches (or makes one). */
+  GtkGesture *branch_click = gtk_gesture_click_new();
+  g_signal_connect_swapped(branch_click, "released", G_CALLBACK(scm_switch_branch), NULL);
+  gtk_widget_add_controller(GTK_WIDGET(t->status.branch), GTK_EVENT_CONTROLLER(branch_click));
+  gtk_widget_set_cursor_from_name(GTK_WIDGET(t->status.branch), "pointer");
+  gtk_widget_set_tooltip_text(GTK_WIDGET(t->status.branch), "Switch to another branch, or create one");
   t->status.problems = status_label(bar, FALSE);
   gtk_widget_set_tooltip_text(GTK_WIDGET(t->status.problems), "clangd errors and warnings in the open files");
   t->status.flags = status_button(bar, "⚠ No compile flags", NULL, G_CALLBACK(on_flags), t);

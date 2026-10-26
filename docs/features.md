@@ -168,6 +168,14 @@ back to what was typed). Right-click a modified file to stage or unstage an indi
 commits: the pointer on one shows its message, author, date and line counts, and "Open Commit Details"
 shows it with its diff.
 
+**Branches, pull and fetch.** Click the branch in the status bar (or "Git: Checkout to…") to switch:
+the list has the local branches by their last commit, then the remote ones you have no branch of
+(picking one makes a local branch tracking it); type a name that is no branch to create it ("Git:
+Create Branch…" asks only for the name). Unsaved editors are saved first; when git refuses
+(changes in the way), the Source Control panel says why. **Pull** next to Push runs `git pull` as
+you set it up (merge or rebase); "Git: Fetch" brings the remote's branches, and Push shows how far
+ahead / behind you are.
+
 **Files panel.** A folder is read when you open it and shows new, removed and renamed files by
 itself; the git colors follow commits and saves, and an open file with errors or warnings (and
 the folders holding it) is named in red or yellow. Files and folders can be cut, copied and pasted

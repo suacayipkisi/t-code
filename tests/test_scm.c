@@ -29,6 +29,7 @@ void compare_revisions(App *t G_GNUC_UNUSED, const char *old_rev G_GNUC_UNUSED, 
                        const char *new_rev G_GNUC_UNUSED, const char *new_rel G_GNUC_UNUSED) {}
 void status_show_branch(App *t G_GNUC_UNUSED, const char *branch G_GNUC_UNUSED, gboolean dirty G_GNUC_UNUSED) {}
 void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page G_GNUC_UNUSED) {}
+void status_say(App *t G_GNUC_UNUSED, const char *message G_GNUC_UNUSED) {}
 void files_reveal(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 static char *previewed; /* what open_preview() was asked for last */
 void open_preview(App *t G_GNUC_UNUSED, const char *path) { g_set_str(&previewed, path); }
@@ -525,6 +526,86 @@ static void test_stage_hunk(void)
   g_free(dir);
 }
 
+/* git rev-parse of what in dir (stripped), waiting until it is want (or 5 s pass). */
+static char *wait_rev(const char *dir, const char *what, const char *want)
+{
+  const char *const args[] = { "rev-parse", "--abbrev-ref", what, NULL };
+  const char *const full[] = { "rev-parse", what, NULL };
+  gboolean name = strcmp(what, "HEAD") == 0;
+  char *out = g_strstrip(git_out(dir, name ? args : full));
+
+  for (gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+       strcmp(out, want) != 0 && g_get_monotonic_time() < end;) {
+    runs_for(50);
+    g_free(out);
+    out = g_strstrip(git_out(dir, name ? args : full));
+  }
+  return out;
+}
+
+/* Branches: the picker lists the local ones, then the remote ones without a local one of their name
+ * (and not origin/HEAD); a remote one is checked out tracking it, a typed name is created; fetch and
+ * pull bring the remote's new commit. */
+static void test_branches(void)
+{
+  char *origin = make_dir("origin", "o.txt"), *clone = g_build_filename(tmp, "clone", NULL), *rev, *head;
+  const char *const commit[] = { "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "more", NULL };
+
+  git(origin, (const char *[]){ "init", "-q", "-b", "main", NULL });
+  git(origin, (const char *[]){ "add", "o.txt", NULL });
+  git(origin, commit);
+  git(origin, (const char *[]){ "branch", "feature", NULL });
+  git(tmp, (const char *[]){ "clone", "-q", origin, clone, NULL });
+  open_project_at(clone);
+  wait_for(2, 1);
+
+  picked_rows = g_ptr_array_new_with_free_func(g_free);
+  scm_switch_branch();
+  wait_rows(3);
+  g_assert_cmpstr(picked_rows->pdata[0], ==, "+ Create new branch…\t\tnew\t");
+  g_assert_true(g_str_has_prefix(picked_rows->pdata[1], "main\tchecked out · "));
+  g_assert_true(g_str_has_prefix(picked_rows->pdata[2], "origin/feature\tremote · "));
+  g_assert_true(g_str_has_suffix(picked_rows->pdata[2], "\ttrack\torigin/feature"));
+  picker_pick("track\torigin/feature");
+  head = wait_rev(clone, "HEAD", "feature");
+  g_assert_cmpstr(head, ==, "feature");
+  g_free(head);
+
+  picker_run(&app, "topic");
+  g_assert_cmpstr(picked_rows->pdata[0], ==, "+ Create branch \"topic\"\tfrom what is checked out\tcreate\ttopic");
+  picker_pick("create\ttopic");
+  head = wait_rev(clone, "HEAD", "topic");
+  g_assert_cmpstr(head, ==, "topic");
+  g_free(head);
+  scm_switch_branch(); /* back to main */
+  wait_rows(4);        /* + Create, topic, feature, main (each by its last commit) */
+  picker_pick("switch\tmain");
+  head = wait_rev(clone, "HEAD", "main");
+  g_assert_cmpstr(head, ==, "main");
+  g_free(head);
+
+  /* The remote moves on: fetch brings its branch, pull the commit. */
+  char *file = g_build_filename(origin, "o.txt", NULL);
+  g_file_set_contents(file, "two\n", -1, NULL);
+  git(origin, (const char *[]){ "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "newer", NULL });
+  char *newest = g_strstrip(git_out(origin, (const char *const[]){ "rev-parse", "HEAD", NULL }));
+  scm_fetch();
+  rev = wait_rev(clone, "origin/main", newest);
+  g_assert_cmpstr(rev, ==, newest);
+  g_free(rev);
+  scm_pull();
+  rev = wait_rev(clone, "main", newest);
+  g_assert_cmpstr(rev, ==, newest);
+  g_free(rev);
+
+  g_ptr_array_free(picked_rows, TRUE);
+  picked_rows = NULL;
+  g_free(newest);
+  g_free(file);
+  g_free(clone);
+  g_free(origin);
+}
+
 int main(int argc, char **argv)
 {
   int status;
@@ -567,6 +648,7 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/commit-details", test_commit_details);
   g_test_add_func("/scm/message-history", test_message_history);
   g_test_add_func("/scm/stage-hunk", test_stage_hunk);
+  g_test_add_func("/scm/branches", test_branches);
   status = g_test_run();
 
   app.closing = TRUE;

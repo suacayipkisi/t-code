@@ -20,6 +20,7 @@
 #include "editor/tabs.h"
 #include "lsp/client.h"
 #include "lsp/completion.h"
+#include "git/scm.h"
 #include "lsp/hierarchy.h"
 #include "lsp/navigate.h"
 #include "lsp/signature.h"
@@ -82,6 +83,11 @@ static void show_scm(App *t) { show_sidebar_page(t, "scm"); }
 static void show_search(App *t) { show_sidebar_page(t, "search"); }
 static void show_run(App *t) { show_sidebar_page(t, "run"); }
 static void show_problems_cmd(App *t) { toggle_panel(t, "problems"); }
+static void git_checkout(App *t G_GNUC_UNUSED) { scm_switch_branch(); }
+static void git_create_branch(App *t G_GNUC_UNUSED) { scm_create_branch(); }
+static void git_pull(App *t G_GNUC_UNUSED) { scm_pull(); }
+static void git_push(App *t G_GNUC_UNUSED) { scm_push(); }
+static void git_fetch(App *t G_GNUC_UNUSED) { scm_fetch(); }
 static void show_outline_cmd(App *t) { toggle_panel(t, "outline"); }
 static void show_hierarchy_cmd(App *t) { toggle_panel(t, "hierarchy"); }
 /* clang-format on */
@@ -320,6 +326,11 @@ static const Command commands[] = {
   { "Debug: Open Disassembly View", NULL, NULL, disassembly_open, FALSE, FALSE, FALSE },
   { "Debug: Remove All Breakpoints", NULL, NULL, breakpoints_remove_all, FALSE, FALSE, FALSE },
   { "Debug: Select Program to Debug…", NULL, NULL, debug_select_program, FALSE, FALSE, FALSE },
+  { "Git: Checkout to…", NULL, NULL, git_checkout, FALSE, FALSE, FALSE },
+  { "Git: Create Branch…", NULL, NULL, git_create_branch, FALSE, FALSE, FALSE },
+  { "Git: Pull", NULL, NULL, git_pull, FALSE, FALSE, FALSE },
+  { "Git: Push", NULL, NULL, git_push, FALSE, FALSE, FALSE },
+  { "Git: Fetch", NULL, NULL, git_fetch, FALSE, FALSE, FALSE },
   { "Git: Compare with HEAD", "<Control><Alt>d", "Ctrl+Alt+D", compare_head, FALSE, FALSE, FALSE },
   { "Git: File History…", "<Control><Alt>h", "Ctrl+Alt+H", history, FALSE, FALSE, FALSE },
   { "Git: Stop Comparing", NULL, NULL, stop_comparing, FALSE, TRUE, FALSE },

@@ -1,6 +1,7 @@
 /*
  * The Source Control panel, the second sidebar page (Ctrl+Shift+G): a commit
- * message with Commit and Push, the Staged Changes and Changes lists, and the last commits.
+ * message with Commit, Pull and Push, the Staged Changes and Changes lists, and the last commits.
+ * Also the branches: switching (the status bar's branch, "Git: Checkout to…") and creating them.
  */
 #pragma once
 
@@ -25,6 +26,21 @@ void scm_reset(void);
  * session keeps it per project until the commit). */
 char *scm_message(void);
 void scm_set_message(const char *message);
+
+/* Talking to the remote, in the background (the panel's note says how it went): git push (a branch
+ * without an upstream goes to origin under its name), git pull, git fetch --prune. */
+void scm_push(void);
+void scm_pull(void);
+void scm_fetch(void);
+
+/* "Git: Checkout to…" and the status bar's branch: the branches (local first by their last commit,
+ * then remote ones without a local branch of their name) in the picker, and "+ Create new branch…";
+ * a typed name that is no branch offers to create it. The editors are saved, then git switch runs
+ * (--track for a remote branch, -c for a new one); git's complaint shows in the panel. */
+void scm_switch_branch(void);
+
+/* "Git: Create Branch…": the picker takes the new branch's name; git switch -c. */
+void scm_create_branch(void);
 
 /* Opens the n-th commit of Commits (from 0) in a tab: its message, author, line counts and diff
  * (its right-click menu's "Open Commit Details"; the tests call it). */
