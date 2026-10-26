@@ -1,8 +1,7 @@
 /*
- * Per-language LSP clients (see client.h): clangd for C/C++, pylsp for Python, gopls for Go,
- * rust-analyzer for Rust, typescript-language-server for TypeScript and JavaScript, the JSON language
- * server, yaml-language-server, marksman for Markdown and neocmakelsp for CMake. Each starts on first use, keeps a small LRU of open documents and stops
- * IDLE_SECONDS after its last editor closes; a crash restarts that server up to MAX_CRASHES times.
+ * Per-language LSP clients (see client.h; the servers themselves are in servers.c). Each starts on
+ * first use, keeps a small LRU of open documents and stops IDLE_SECONDS after its last editor closes;
+ * a crash restarts that server up to MAX_CRASHES times.
  */
 #include "lsp/client.h"
 
@@ -14,12 +13,10 @@
 #include "lsp/inlay.h"
 #include "lsp/navigate.h"
 #include "lsp/semantic.h"
+#include "lsp/servers.h"
 #include "lsp/symbols.h"
-#include "project/langenv.h"
-#include "project/toolchain.h"
 #include "window/statusbar.h"
 
-#include <glib/gstdio.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -37,83 +34,9 @@
 #endif
 #define MAX_CRASHES 3
 
-#define MAX_JSON_BYTES (512 * 1024) /* a bigger JSON file is data, not something edited by hand */
-
 /* A compile database written (make, cmake) is told to the server this long after its last change. */
 #define DATABASE_MS 1500
 
-#ifdef __GLIBC__
-#define MALLOC_TRIM "--malloc-trim", /* gives freed memory back to the system */
-#else
-#define MALLOC_TRIM /* glibc's malloc_trim(): clangd built on musl has no such flag and exits on it */
-#endif
-typedef enum {
-  SERVER_CLANGD,
-  SERVER_PYTHON,
-  SERVER_GO,
-  SERVER_RUST,
-  SERVER_TYPESCRIPT, /* JavaScript too */
-  SERVER_JSON,
-  SERVER_YAML,
-  SERVER_MARKDOWN,
-  SERVER_CMAKE,
-  SERVER_NONE,
-} ServerKind;
-
-#ifndef SERVER_ARGV /* tests run a fake server */
-/* clang-format off */
-static const char *const clangd_argv[] = { "clangd", "--background-index", "--pch-storage=disk", "-j=2",
-                                           "--limit-results=50", MALLOC_TRIM NULL };
-static const char *const python_argv[] = { "pylsp", NULL };
-static const char *const go_argv[] = { "gopls", NULL };
-static const char *const rust_argv[] = { "rust-analyzer", NULL };
-static const char *const typescript_argv[] = { "typescript-language-server", "--stdio", NULL };
-static const char *const json_argv[] = { "vscode-json-language-server", "--stdio", NULL };
-static const char *const yaml_argv[] = { "yaml-language-server", "--stdio", NULL };
-static const char *const markdown_argv[] = { "marksman", "server", NULL };
-static const char *const cmake_argv[] = { "neocmakelsp", "stdio", NULL };
-/* clang-format on */
-#define TIDY_FLAG
-#else
-static const char *const fake_argv[] = { SERVER_ARGV NULL };
-#endif
-
-static const char *const *server_command(ServerKind kind)
-{
-#ifdef SERVER_ARGV
-  (void)kind; /* every language's server is the fake one */
-  return fake_argv;
-#else
-  switch (kind) {
-    case SERVER_CLANGD: return clangd_argv;
-    case SERVER_PYTHON: return python_argv;
-    case SERVER_GO: return go_argv;
-    case SERVER_RUST: return rust_argv;
-    case SERVER_TYPESCRIPT: return typescript_argv;
-    case SERVER_JSON: return json_argv;
-    case SERVER_YAML: return yaml_argv;
-    case SERVER_MARKDOWN: return markdown_argv;
-    case SERVER_CMAKE: return cmake_argv;
-    default: return NULL;
-  }
-#endif
-}
-
-static const char *server_language(ServerKind kind)
-{
-  switch (kind) {
-    case SERVER_CLANGD: return NULL; /* C or C++ comes from GtkSourceView */
-    case SERVER_PYTHON: return "python";
-    case SERVER_GO: return "go";
-    case SERVER_RUST: return "rust";
-    case SERVER_TYPESCRIPT: return "typescript";
-    case SERVER_JSON: return "json";
-    case SERVER_YAML: return "yaml";
-    case SERVER_MARKDOWN: return "markdown";
-    case SERVER_CMAKE: return "cmake";
-    default: return NULL;
-  }
-}
 /* Where the system headers are looked for (tests use a folder of their own). */
 static const char *sysroot = "/";
 
@@ -581,27 +504,6 @@ static void evict_docs(Lsp *l)
   }
 }
 
-/* The file's language for didOpen. */
-static const char *language_id(Doc *doc)
-{
-  const char *path = doc->tab->path ? doc->tab->path : "";
-
-  if (doc->lsp->kind == SERVER_CLANGD) {
-    const char *source_id = gtk_source_language_get_id(gtk_source_buffer_get_language(doc->tab->buffer));
-    return g_str_has_prefix(source_id, "cpp") ? "cpp" : "c";
-  }
-  if (doc->lsp->kind == SERVER_TYPESCRIPT) {
-    gboolean react = g_str_has_suffix(path, "x"); /* .jsx, .tsx */
-    if (g_str_has_suffix(path, ".js") || g_str_has_suffix(path, ".mjs") || g_str_has_suffix(path, ".cjs") ||
-        g_str_has_suffix(path, ".jsx"))
-      return react ? "javascriptreact" : "javascript";
-    return react ? "typescriptreact" : "typescript";
-  }
-  if (doc->lsp->kind == SERVER_JSON && g_str_has_suffix(path, ".jsonc"))
-    return "jsonc";
-  return server_language(doc->lsp->kind);
-}
-
 /* Tells the server about the file: all of it, as it is now. */
 static void send_document(Doc *doc)
 {
@@ -614,7 +516,7 @@ static void send_document(Doc *doc)
     params = g_strdup_printf("{%s,\"version\":%d},\"contentChanges\":[{\"text\":%s}]}", document, ++doc->version, text);
     notify(doc->lsp, "textDocument/didChange", params);
   } else {
-    const char *id = language_id(doc);
+    const char *id = server_language_id(doc->lsp->kind, doc->tab);
     params =
         g_strdup_printf("{%s,\"languageId\":\"%s\",\"version\":%d,\"text\":%s}}", document, id, ++doc->version, text);
     notify(doc->lsp, "textDocument/didOpen", params);
@@ -640,159 +542,6 @@ static void doc_free(Doc *doc)
 }
 
 /* The server ------------------------------------------------------------------------------- */
-
-/* Whether a JSON file gets the JSON server: not a generated one (a compile database, a lock file) nor
- * one bigger than MAX_JSON_BYTES, which the server would parse on every change for nothing. */
-static gboolean json_worth_serving(const char *path)
-{
-  static const char *const generated[] = { "compile_commands.json", "package-lock.json", NULL };
-  const char *name = strrchr(path, '/') ? strrchr(path, '/') + 1 : path;
-  GStatBuf info;
-
-  if (g_strv_contains(generated, name) || g_str_has_suffix(name, ".min.json"))
-    return FALSE;
-  return g_stat(path, &info) != 0 || info.st_size <= MAX_JSON_BYTES; /* not saved yet: small */
-}
-
-static ServerKind server_kind_for_tab(Tab *tab)
-{
-  GtkSourceLanguage *language = tab && tab->kind == TAB_EDITOR ? gtk_source_buffer_get_language(tab->buffer) : NULL;
-  const char *id = language ? gtk_source_language_get_id(language) : "";
-  const char *path = tab ? tab->path : "";
-
-  if (strcmp(id, "c") == 0 || strcmp(id, "chdr") == 0 || strcmp(id, "cpp") == 0 || strcmp(id, "cpphdr") == 0)
-    return SERVER_CLANGD;
-  if (g_str_has_suffix(path, ".py"))
-    return SERVER_PYTHON;
-  if (g_str_has_suffix(path, ".go"))
-    return SERVER_GO;
-  if (g_str_has_suffix(path, ".rs"))
-    return SERVER_RUST;
-  static const char *const scripts[] = { ".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx", NULL };
-  for (int i = 0; scripts[i]; i++)
-    if (g_str_has_suffix(path, scripts[i]))
-      return SERVER_TYPESCRIPT;
-  if (g_str_has_suffix(path, ".json") || g_str_has_suffix(path, ".jsonc"))
-    return json_worth_serving(path) ? SERVER_JSON : SERVER_NONE;
-  if (g_str_has_suffix(path, ".yaml") || g_str_has_suffix(path, ".yml"))
-    return SERVER_YAML;
-  if (g_str_has_suffix(path, ".md") || g_str_has_suffix(path, ".markdown"))
-    return SERVER_MARKDOWN;
-  if (g_str_has_suffix(path, "/CMakeLists.txt") || g_str_has_suffix(path, ".cmake"))
-    return SERVER_CMAKE;
-  return SERVER_NONE;
-}
-
-#ifndef SERVER_ARGV
-/* The pylsp installed in the project's Python's venv (it sees the venv's packages), or NULL. */
-static char *venv_pylsp(App *t)
-{
-  char *python = toolchain_python(t, NULL), *bin = python ? g_path_get_dirname(python) : NULL;
-  char *pylsp = bin ? g_build_filename(bin, "pylsp", NULL) : NULL;
-
-  if (pylsp && !g_file_test(pylsp, G_FILE_TEST_IS_EXECUTABLE))
-    g_clear_pointer(&pylsp, g_free);
-  g_free(bin);
-  g_free(python);
-  return pylsp;
-}
-
-/* Where the server's program is: the project's venv's pylsp, then PATH, then the folders language
- * installers put programs in (pipx, cargo install, go install), which are not on the PATH of a
- * t-code started from the desktop's menu. NULL when it is nowhere. */
-static char *server_program(App *t, ServerKind kind)
-{
-  const char *name = server_command(kind)[0];
-  char *path = kind == SERVER_PYTHON ? venv_pylsp(t) : NULL;
-  const char *gopath = g_getenv("GOPATH");
-  char **gopaths = gopath && *gopath ? g_strsplit(gopath, ":", 2) : NULL;
-  char *folders[] = {
-    g_build_filename(g_get_home_dir(), ".local", "bin", NULL),
-    g_build_filename(g_get_home_dir(), ".cargo", "bin", NULL),
-    gopaths ? g_build_filename(gopaths[0], "bin", NULL) : g_build_filename(g_get_home_dir(), "go", "bin", NULL),
-  };
-
-  if (!path)
-    path = g_find_program_in_path(name);
-  for (size_t i = 0; i < G_N_ELEMENTS(folders); i++) {
-    char *candidate = g_build_filename(folders[i], name, NULL);
-    if (!path && g_file_test(candidate, G_FILE_TEST_IS_EXECUTABLE))
-      path = g_steal_pointer(&candidate);
-    g_free(candidate);
-    g_free(folders[i]);
-  }
-  g_strfreev(gopaths);
-  return path;
-}
-#endif
-
-/* initializationOptions for the server: the JSON server neither formats nor reads schemas other than
- * local files; gopls' and TypeScript's inlay hints; neocmakelsp formats and lints; rust-analyzer's
- * Cargo features and target. NULL for none. */
-static char *server_options(Lsp *l)
-{
-  if (l->kind == SERVER_JSON)
-    return g_strdup("{\"provideFormatter\":false,\"handledSchemaProtocols\":[\"file\"]}");
-  if (l->kind == SERVER_GO) /* inlay hints, off unless asked for (it takes them only here) */
-    return g_strdup("{\"hints\":{\"assignVariableTypes\":true,\"compositeLiteralFields\":true,"
-                    "\"constantValues\":true,\"functionTypeParameters\":true,\"parameterNames\":true,"
-                    "\"rangeVariableTypes\":true}}");
-  if (l->kind == SERVER_TYPESCRIPT) /* the same */
-    return g_strdup("{\"preferences\":{\"includeInlayParameterNameHints\":\"literals\","
-                    "\"includeInlayVariableTypeHints\":true,\"includeInlayFunctionLikeReturnTypeHints\":true,"
-                    "\"includeInlayEnumMemberValueHints\":true}}");
-  if (l->kind == SERVER_CMAKE) /* the packages' own CMake files are not read through: memory */
-    return g_strdup("{\"format\":{\"enable\":true},\"lint\":{\"enable\":true},\"scan_cmake_in_package\":false,"
-                    "\"semantic_token\":false}");
-  if (l->kind != SERVER_RUST)
-    return NULL;
-  char *features = toolchain_rust_features(l->app), *target = toolchain_rust_target(l->app);
-  char *options = langenv_rust_options(features, target);
-
-  g_free(target);
-  g_free(features);
-  return options;
-}
-
-/* The settings sent after initialize (workspace/didChangeConfiguration) and given when the server
- * asks (workspace/configuration): JSON's validation, against a file's own local "$schema" only (no
- * downloads, no formatting); YAML's validation, formatting and schemas (the SchemaStore catalog's);
- * pylsp's Python for jedi. NULL for none. */
-static char *server_settings(Lsp *l)
-{
-  if (l->kind == SERVER_JSON)
-    return g_strdup("{\"json\":{\"validate\":{\"enable\":true},\"format\":{\"enable\":false},"
-                    "\"schemaDownload\":{\"enable\":false},\"schemas\":[]}}");
-  if (l->kind == SERVER_YAML)
-    return g_strdup("{\"yaml\":{\"validate\":true,\"hover\":true,\"completion\":true,\"format\":{\"enable\":true},"
-                    "\"schemaStore\":{\"enable\":true}}}");
-  if (l->kind != SERVER_PYTHON)
-    return NULL;
-  char *python = toolchain_python(l->app, NULL), *quoted = python ? json_quote(python) : NULL;
-  char *settings = quoted ? g_strdup_printf("{\"pylsp\":{\"plugins\":{\"jedi\":{\"environment\":%s}}}}", quoted) : NULL;
-
-  g_free(quoted);
-  g_free(python);
-  return settings;
-}
-
-static gboolean server_installed(App *t, ServerKind kind)
-{
-#ifdef SERVER_ARGV
-  (void)t;
-  return kind != SERVER_NONE;
-#else
-  if (kind == SERVER_CLANGD)
-    return TRUE;
-  if (kind == SERVER_NONE)
-    return FALSE;
-  char *path = server_program(t, kind);
-  gboolean found = path != NULL;
-
-  g_free(path);
-  return found;
-#endif
-}
 
 /* Gets or creates the language server for this tab's language and project. */
 static Lsp *lsp_of(Tab *tab)
@@ -963,7 +712,7 @@ static void on_initialized(JsonNode *result, gpointer data)
   l->ready = TRUE;
   status_progress_changed(l->app); /* no longer "starting" */
   notify(l, "initialized", "{}");
-  char *settings = server_settings(l);
+  char *settings = server_settings(l->kind, l->app);
   if (settings) {
     char *params = g_strdup_printf("{\"settings\":%s}", settings);
     notify(l, "workspace/didChangeConfiguration", params);
@@ -1005,7 +754,7 @@ static void answer_server(Lsp *l, JsonNode *message)
     g_string_printf(result, "{\"success\":%s}",
                     navigate_show_document(l->app, json_at(message, "params")) ? "true" : "false");
   } else if (g_strcmp0(method, "workspace/configuration") == 0 && items && JSON_NODE_HOLDS_ARRAY(items)) {
-    char *text = server_settings(l);
+    char *text = server_settings(l->kind, l->app);
     JsonNode *settings = text ? json_from_string(text, NULL) : NULL;
     g_string_assign(result, "[");
     for (guint i = 0; i < json_array_get_length(json_node_get_array(items)); i++) {
@@ -1149,35 +898,20 @@ static void set_malloc_arenas(GSubprocessLauncher *launcher)
 /* Starts the server in the project folder and sends initialize; the files follow its answer. */
 static void server_start(Lsp *l)
 {
-  const char *const *server_argv = server_command(l->kind);
+  char **argv = server_argv(l->app, l->kind);
   GSubprocessLauncher *launcher = g_subprocess_launcher_new(
       G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
-  GPtrArray *argv = g_ptr_array_new();
   GError *error = NULL;
   char *uri, *quoted, *params, *options;
 
-#ifndef SERVER_ARGV
-  char *program = server_program(l->app, l->kind);
-#else
-  char *program = NULL;
-#endif
-
-  for (int i = 0; server_argv[i]; i++)
-    g_ptr_array_add(argv, i == 0 && program ? program : (char *)server_argv[i]);
-#ifdef TIDY_FLAG
-  if (l->kind == SERVER_CLANGD)
-    g_ptr_array_add(argv, l->app->settings.clang_tidy ? "--clang-tidy" : "--clang-tidy=false");
-#endif
-  g_ptr_array_add(argv, NULL);
   g_subprocess_launcher_set_cwd(launcher, l->workspace);
   if (l->kind == SERVER_CLANGD)
     set_malloc_arenas(launcher);
-  l->process = g_subprocess_launcher_spawnv(launcher, (const char *const *)argv->pdata, &error);
+  l->process = g_subprocess_launcher_spawnv(launcher, (const char *const *)argv, &error);
   g_object_unref(launcher);
-  g_ptr_array_free(argv, TRUE);
-  g_free(program);
+  g_strfreev(argv);
   if (!l->process) {
-    g_warning("t-code: cannot start %s: %s", server_argv[0], error->message);
+    g_warning("t-code: cannot start %s: %s", server_name(l->kind), error->message);
     l->missing = TRUE;
     g_clear_error(&error);
     return;
@@ -1194,7 +928,7 @@ static void server_start(Lsp *l)
   l->ch->on_closed = on_server_closed;
   channel_read(l->ch);
 
-  options = server_options(l);
+  options = server_options(l->kind, l->app);
   uri = lsp_path_to_uri(l->workspace);
   quoted = json_quote(uri ? uri : "");
   params = g_strdup_printf(
@@ -1259,20 +993,11 @@ gboolean lsp_wants(Tab *tab)
 
 const char *lsp_missing_server(Tab *tab)
 {
-#ifdef SERVER_ARGV
-  (void)tab;
-  return NULL; /* the fake server is always there */
-#else
-  ServerKind kind = server_kind_for_tab(tab);
+  ServerKind kind = server_kind_for_tab(tab); /* SERVER_NONE without a tab */
 
   if (kind == SERVER_NONE || tab->kind != TAB_EDITOR || tab->view->readonly || tab->compare.with)
-    return NULL;                                  /* a Markdown preview has the .md path too */
-  char *program = server_program(tab->app, kind); /* clangd too: server_installed takes it as there */
-  gboolean found = program != NULL;
-
-  g_free(program);
-  return found ? NULL : server_command(kind)[0];
-#endif
+    return NULL; /* a Markdown preview has the .md path too */
+  return server_missing(tab->app, kind);
 }
 
 void lsp_open(Tab *tab)
@@ -1445,7 +1170,7 @@ void lsp_open_installed(App *t)
 static char *progress_text(Lsp *l)
 {
   Progress *p = l->progress_last ? g_hash_table_lookup(l->progress, l->progress_last) : NULL;
-  char *name = g_path_get_basename(server_command(l->kind)[0]), *text = NULL;
+  char *name = g_path_get_basename(server_name(l->kind)), *text = NULL;
   GHashTableIter iter;
 
   if (!p) { /* the last one ended: another still running */

@@ -23,6 +23,7 @@
 #include "editor/snippets.c"
 #include "editor/breadcrumbs.c"
 #include "lsp/channel.c"
+#include "lsp/servers.c"
 #include "lsp/json.c"
 #include "lsp/client.c"
 #include "lsp/compiledb.c"

@@ -682,24 +682,22 @@ static void test_hover_fixes(void)
  * picked Python as jedi's environment; other servers neither. */
 static void test_toolchain_options(void)
 {
-  Lsp rust = { .kind = SERVER_RUST, .app = &app }, python = { .kind = SERVER_PYTHON, .app = &app };
-  Lsp c = { .kind = SERVER_CLANGD, .app = &app };
   char *text;
 
-  g_assert_null(server_options(&rust)); /* nothing picked */
-  g_assert_null(server_settings(&python));
+  g_assert_null(server_options(SERVER_RUST, &app)); /* nothing picked */
+  g_assert_null(server_settings(SERVER_PYTHON, &app));
   toolchain_test_features = "json,serde";
   toolchain_test_target = "wasm32-unknown-unknown";
   toolchain_test_python = "/p/.venv/bin/python";
-  text = server_options(&rust);
+  text = server_options(SERVER_RUST, &app);
   g_assert_cmpstr(text, ==, "{\"cargo\":{\"features\":[\"json\",\"serde\"],\"target\":\"wasm32-unknown-unknown\"}}");
   g_free(text);
-  text = server_settings(&python);
+  text = server_settings(SERVER_PYTHON, &app);
   g_assert_cmpstr(text, ==, "{\"pylsp\":{\"plugins\":{\"jedi\":{\"environment\":\"/p/.venv/bin/python\"}}}}");
   g_free(text);
-  g_assert_null(server_options(&python));
-  g_assert_null(server_settings(&rust));
-  g_assert_null(server_options(&c));
+  g_assert_null(server_options(SERVER_PYTHON, &app));
+  g_assert_null(server_settings(SERVER_RUST, &app));
+  g_assert_null(server_options(SERVER_CLANGD, &app));
   toolchain_test_features = toolchain_test_target = toolchain_test_python = NULL;
 }
 
@@ -708,8 +706,7 @@ static void test_toolchain_options(void)
  * (workspace/configuration) gets it, null for one there is not. */
 static void test_data_language_settings(void)
 {
-  Lsp json = { .kind = SERVER_JSON, .app = &app }, yaml = { .kind = SERVER_YAML, .app = &app };
-  char *text = server_options(&json);
+  char *text = server_options(SERVER_JSON, &app);
   JsonNode *node = json_from_string(text, NULL);
 
   g_assert_false(json_node_get_boolean(json_at(node, "provideFormatter")));
@@ -717,14 +714,14 @@ static void test_data_language_settings(void)
   g_assert_null(json_at(node, "handledSchemaProtocols.1"));
   json_node_unref(node);
   g_free(text);
-  text = server_settings(&json);
+  text = server_settings(SERVER_JSON, &app);
   node = json_from_string(text, NULL);
   g_assert_true(json_node_get_boolean(json_at(node, "json.validate.enable")));
   g_assert_false(json_node_get_boolean(json_at(node, "json.format.enable")));
   g_assert_false(json_node_get_boolean(json_at(node, "json.schemaDownload.enable")));
   json_node_unref(node);
   g_free(text);
-  text = server_settings(&yaml);
+  text = server_settings(SERVER_YAML, &app);
   node = json_from_string(text, NULL);
   g_assert_true(json_node_get_boolean(json_at(node, "yaml.schemaStore.enable")));
   json_node_unref(node);
@@ -960,10 +957,9 @@ static void test_pull_diagnostics(void)
   Tab *tab = new_tab("/tmp/t-code-test/CMakeLists.txt", "project(X)\n");
   Tab *module = new_tab("/tmp/t-code-test/cmake/Find.cmake", "x\n");
   Tab *text = new_tab("/tmp/t-code-test/NotCMakeLists.txt", "x\n");
-  Lsp cmake = { .kind = SERVER_CMAKE, .app = &app };
   GtkSourceLanguageManager *languages = gtk_source_language_manager_get_default();
   GtkTextIter end;
-  char *options = server_options(&cmake);
+  char *options = server_options(SERVER_CMAKE, &app);
 
   /* As t-code opens them (new_tab makes C files). */
   gtk_source_buffer_set_language(tab->buffer, gtk_source_language_manager_get_language(languages, "cmake"));
@@ -1083,11 +1079,10 @@ static void test_inlay_hints(void)
   g_assert_cmpstr(text, ==, "0:5 : int\n0:10 p:\n1:2 p:\n");
   g_free(text);
 
-  Lsp go = { .kind = SERVER_GO, .app = &app }, ts = { .kind = SERVER_TYPESCRIPT, .app = &app };
-  char *options = server_options(&go); /* gopls and TypeScript give hints only when asked to */
+  char *options = server_options(SERVER_GO, &app); /* gopls and TypeScript give hints only when asked to */
   g_assert_nonnull(strstr(options, "\"parameterNames\":true"));
   g_free(options);
-  options = server_options(&ts);
+  options = server_options(SERVER_TYPESCRIPT, &app);
   g_assert_nonnull(strstr(options, "includeInlayParameterNameHints"));
   g_free(options);
 
@@ -1913,7 +1908,7 @@ static void test_language_routing(void)
     g_assert_true(server_agrees(tabs[i]));
     servers[i] = doc_of(tabs[i])->lsp;
     g_assert_cmpint(servers[i]->kind, ==, files[i].kind);
-    g_assert_cmpstr(language_id(doc_of(tabs[i])), ==, files[i].id);
+    g_assert_cmpstr(server_language_id(servers[i]->kind, tabs[i]), ==, files[i].id);
   }
   g_assert_true(servers[4] == servers[7]); /* TypeScript's serves JavaScript too */
   g_assert_true(servers[8] == servers[9]); /* .json and .jsonc */
