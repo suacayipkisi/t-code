@@ -85,8 +85,7 @@ build/test-lsp: tests/test_lsp.c tests/fake_server.h tests/util.h $(PAGE_SRC) $(
 
 # The log file (GLib-only).
 build/test-log: tests/test_log.c tests/util.h src/application/log.c src/application/log.h | build
-	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_log.c src/application/log.c \
-	  $(shell pkg-config --libs glib-2.0)
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_log.c $(shell pkg-config --libs glib-2.0)
 
 # The debugger's protocol client against gdb (skipped without one).
 DAP_SRC := src/debug/dap.c src/lsp/channel.c src/lsp/json.c
@@ -171,7 +170,7 @@ test-scenarios: all
 test-asan: | build
 	mkdir -p build/asan
 	$(CC) $(ASAN_FLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o build/asan/test-log \
-	  tests/test_log.c src/application/log.c $(shell pkg-config --libs glib-2.0)
+	  tests/test_log.c $(shell pkg-config --libs glib-2.0)
 	$(ASAN_ENV) build/asan/test-log
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags gio-2.0) -o build/asan/test-searchmatch \
 	  tests/test_searchmatch.c src/search/searchmatch.c $(shell pkg-config --libs gio-2.0)

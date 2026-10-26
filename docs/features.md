@@ -246,10 +246,11 @@ moment), fonts, text size and reopening the last project. Changes apply at
 once, to the open editors too, and are kept in `~/.config/t-code/settings.ini` (a comment over
 each key; a hand edit applies at once).
 
-**Log file.** t-code's warnings (and GTK's) also go to `~/.local/state/t-code/t-code.log`, each with
-its time, under a line naming the version for each run: useful when t-code was started from the
-desktop's menu, where no terminal shows them. "Help: Open Log File" opens it. Over 1 MB it is kept
-as `t-code.log.1` at the next start.
+**Log file.** `~/.local/state/t-code/t-code.log` keeps the last 50 starts: a line for each start
+(the date, the version and the process id) and for each clean quit (`=== quit`), so a run without
+one crashed or was killed, and t-code's and GTK's warnings in between, each with its time. Useful
+when t-code was started from the desktop's menu, where no terminal shows them, or when a problem
+is noticed later. "Help: Open Log File" opens it.
 
 **Markdown preview** opens as a tab and follows the file as you type. It is drawn natively
 (md4c into a GTK text view, no browser engine): headings, lists, quotes, code blocks colored like

@@ -105,7 +105,7 @@ static void open_log(App *t)
   if (path && g_file_test(path, G_FILE_TEST_EXISTS))
     open_file(t, path);
   else
-    status_say(t, "Nothing logged yet: t-code has had no warnings");
+    status_say(t, "The log file could not be written");
 }
 
 /* Alt+1: the file manager, showing the sidebar. */

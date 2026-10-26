@@ -180,5 +180,6 @@ int application_run(int argc, char **argv)
   status = g_application_run(G_APPLICATION(app), argc, argv);
   g_object_unref(app);
   app_free(&t);
+  log_stop();
   return status;
 }

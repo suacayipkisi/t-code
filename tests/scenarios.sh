@@ -208,11 +208,13 @@ else
 fi
 tcode=
 
-# Nothing went wrong on the way.
-if [[ -f "$log" ]]; then
-  not_ok "t-code logged no warning" "$(grep -v '^===' "$log" | head -20)"
-else
+# Nothing went wrong on the way: the log holds this run's start and quit lines and nothing else.
+problems=$(grep -v '^===' "$log" 2>/dev/null)
+if [[ -z "$problems" ]]; then
   ok "t-code logged no warning"
+else
+  not_ok "t-code logged no warning" "$(head -20 <<< "$problems")"
 fi
+check "the log says t-code quit cleanly" grep -q '^=== quit' "$log"
 echo "1..$n"
 ((failed == 0))
