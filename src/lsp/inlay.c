@@ -9,8 +9,6 @@
 #include "lsp/json.h"
 #include "window/palette.h"
 
-#include <string.h>
-
 #define INLAY_MS 400      /* after the last change */
 #define INLAY_AROUND 100  /* lines asked for above and below the shown ones */
 #define INLAY_PAD 3       /* pixels on each side of a hint's text */
@@ -27,7 +25,8 @@ typedef enum {
 typedef struct {
   GtkTextMark *cell; /* the character holding the gap (AT_END: the hint's place) */
   char *text;
-  int width; /* of the gap, in pixels */
+  int width;       /* of the gap, in pixels */
+  int left, right; /* of it, outside the hint's box: the server's padding */
   InlayWhere where;
 } InlayHint;
 
@@ -111,27 +110,30 @@ static int inlay_text_width(GtkWidget *view, const char *text)
   return width;
 }
 
-/* A hint's text: its label (a string or parts), with a space for each padding. */
+static gboolean inlay_padded(JsonNode *hint, const char *side)
+{
+  JsonNode *padding = json_at(hint, side);
+
+  return padding && JSON_NODE_HOLDS_VALUE(padding) && json_node_get_boolean(padding);
+}
+
+/* A hint's text: its label (a string or parts). */
 static char *inlay_label_of(JsonNode *hint)
 {
-  JsonNode *label = json_at(hint, "label"), *left = json_at(hint, "paddingLeft"),
-           *right = json_at(hint, "paddingRight");
+  JsonNode *label = json_at(hint, "label");
   GString *text = g_string_new(NULL);
 
-  if (left && JSON_NODE_HOLDS_VALUE(left) && json_node_get_boolean(left))
-    g_string_append_c(text, ' ');
   if (label && JSON_NODE_HOLDS_VALUE(label))
     g_string_append(text, json_node_get_string(label));
   else if (label && JSON_NODE_HOLDS_ARRAY(label))
     for (guint i = 0; i < json_array_get_length(json_node_get_array(label)); i++)
       g_string_append(text, json_string_at(json_array_get_element(json_node_get_array(label), i), "value") ?: "");
-  if (right && JSON_NODE_HOLDS_VALUE(right) && json_node_get_boolean(right))
-    g_string_append_c(text, ' ');
   return g_string_free(text, FALSE);
 }
 
-/* Puts a hint at iter; FALSE when there is no place for it (the last one took the character). */
-static gboolean inlay_place(Inlay *in, GtkTextIter *at, const char *text, int *last_cell)
+/* Puts a hint at iter, with a space's width outside its box on each padded side; FALSE when there is
+ * no place for it (the last one took the character). */
+static gboolean inlay_place(Inlay *in, GtkTextIter *at, const char *text, gboolean left, gboolean right, int *last_cell)
 {
   GtkTextIter before = *at, cell, next;
   gboolean has_before = !gtk_text_iter_starts_line(at) && gtk_text_iter_backward_char(&before);
@@ -155,7 +157,9 @@ static gboolean inlay_place(Inlay *in, GtkTextIter *at, const char *text, int *l
   if (gtk_text_iter_get_offset(&cell) <= *last_cell)
     return FALSE; /* one gap per character */
   h.text = g_strdup(text);
-  h.width = inlay_text_width(GTK_WIDGET(in->tab->source), text) + 2 * INLAY_PAD;
+  h.left = left ? inlay_text_width(GTK_WIDGET(in->tab->source), " ") : 0;
+  h.right = right ? inlay_text_width(GTK_WIDGET(in->tab->source), " ") : 0;
+  h.width = inlay_text_width(GTK_WIDGET(in->tab->source), text) + 2 * INLAY_PAD + h.left + h.right;
   h.cell = gtk_text_buffer_create_mark(in->buffer, NULL, &cell, TRUE);
   if (h.where != AT_END) {
     next = cell;
@@ -191,9 +195,9 @@ static void inlay_on_hints(JsonNode *result, gpointer data)
     if (!position)
       continue;
     lsp_iter_at(in->tab, position, &at);
-    text = inlay_label_of(hint);
-    if (strspn(text, " ") < strlen(text)) /* not blank */
-      inlay_place(in, &at, text, &last_cell);
+    text = g_strstrip(inlay_label_of(hint));
+    if (*text)
+      inlay_place(in, &at, text, inlay_padded(hint, "paddingLeft"), inlay_padded(hint, "paddingRight"), &last_cell);
     g_free(text);
   }
   gtk_widget_queue_draw(GTK_WIDGET(in->tab->source));
@@ -418,8 +422,10 @@ void inlay_draw(Tab *tab, GtkTextView *view, GtkSnapshot *snapshot)
       }
       default: x = at.x + INLAY_PAD; break;
     }
-    gtk_snapshot_append_color(
-        snapshot, &fill, &GRAPHENE_RECT_INIT((float)x + 1, (float)at.y + 1, (float)h->width - 2, (float)at.height - 2));
+    x += h->left;
+    gtk_snapshot_append_color(snapshot, &fill,
+                              &GRAPHENE_RECT_INIT((float)x + 1, (float)at.y + 1,
+                                                  (float)(h->width - h->left - h->right) - 2, (float)at.height - 2));
     inlay_draw_text(snapshot, GTK_WIDGET(view), h->text, x + INLAY_PAD, &at, palette_rgba(PAL_FG_DIM));
   }
 }

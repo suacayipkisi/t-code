@@ -1058,8 +1058,14 @@ static void test_inlay_hints(void)
     g_main_context_iteration(NULL, FALSE);
     text = inlay_text(tab);
   }
-  g_assert_cmpstr(text, ==, "0:5 : int\n0:10 p: \n");
+  g_assert_cmpstr(text, ==, "0:5 : int\n0:10 p:\n");
   g_free(text);
+  /* paddingRight is a space outside the box, not in the hint's text. */
+  InlayHint *type = &g_array_index(tab->view->inlay->hints, InlayHint, 0),
+            *name = &g_array_index(tab->view->inlay->hints, InlayHint, 1);
+  g_assert_cmpint(type->left + type->right, ==, 0);
+  g_assert_cmpint(name->left, ==, 0);
+  g_assert_cmpint(name->right, >, 0);
   g_assert_cmpint(spacing_at(tab, 0, 5), >, 0); /* " =": the space after ": int" */
   g_assert_cmpint(spacing_at(tab, 0, 9), >, 0); /* "(a": no space, the "(" holds it */
   g_assert_cmpint(spacing_at(tab, 0, 10), ==, 0);
@@ -1074,7 +1080,7 @@ static void test_inlay_hints(void)
     g_main_context_iteration(NULL, FALSE);
     text = inlay_text(tab);
   }
-  g_assert_cmpstr(text, ==, "0:5 : int\n0:10 p: \n1:2 p: \n");
+  g_assert_cmpstr(text, ==, "0:5 : int\n0:10 p:\n1:2 p:\n");
   g_free(text);
 
   Lsp go = { .kind = SERVER_GO, .app = &app }, ts = { .kind = SERVER_TYPESCRIPT, .app = &app };
