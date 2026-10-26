@@ -125,7 +125,9 @@ static void read_editorconfig(const char *folder, const char *relative, IndentSt
   g_free(path);
 }
 
-void indent_from_editorconfig(const char *file, IndentStyle *style)
+/* What .editorconfig files say about file: the sections that match it, the nearer file and the
+ * later section winning, up to the one with "root = true". */
+static void indent_from_editorconfig(const char *file, IndentStyle *style)
 {
   GPtrArray *folders = g_ptr_array_new_with_free_func(g_free);
   char *folder = g_path_get_dirname(file);
@@ -218,7 +220,9 @@ static char *yaml_value(const char *document, const char *key)
   return value;
 }
 
-void indent_from_clang_format(const char *file, IndentStyle *style)
+/* What the nearest .clang-format (or _clang-format) says, for a C or C++ file: its Cpp section,
+ * with clang-format's defaults for what it leaves out. */
+static void indent_from_clang_format(const char *file, IndentStyle *style)
 {
   char *text = is_c_family(file) ? nearest_clang_format(file) : NULL;
   char **documents;

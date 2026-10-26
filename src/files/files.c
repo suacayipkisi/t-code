@@ -337,8 +337,7 @@ static gboolean read_git(gpointer data G_GNUC_UNUSED)
   GSubprocess *git;
 
   files.git_timer = 0;
-  if (files.git_cancel)
-    g_cancellable_cancel(files.git_cancel);
+  g_cancellable_cancel(files.git_cancel);
   g_clear_object(&files.git_cancel);
   if (!t->project.git_top) {
     g_clear_pointer(&files.marks, g_hash_table_unref);
@@ -545,6 +544,5 @@ void files_stop(App *t G_GNUC_UNUSED)
   g_clear_handle_id(&files.message_timer, g_source_remove);
   g_clear_handle_id(&files.settle_idle, g_source_remove);
   g_clear_handle_id(&files.problems_idle, g_source_remove);
-  if (files.git_cancel)
-    g_cancellable_cancel(files.git_cancel);
+  g_cancellable_cancel(files.git_cancel);
 }

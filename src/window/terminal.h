@@ -11,16 +11,8 @@
 /* A new terminal in the editor font in the color theme's colors. */
 VteTerminal *new_terminal(App *t);
 
-/* Sets a terminal's font (a Pango description like "Cascadia Code 11"; NULL: DEFAULT_FONT) at the
- * window's text size. */
-void set_terminal_font(App *t, VteTerminal *term, const char *font);
-
 /* Gives the terminals, the editors and the Files panel the fonts the settings choose for them. */
 void apply_fonts(App *t);
-
-/* Runs argv in term, in the project root, with $TCODE_SOCKET and extra_env ("NAME=value", may be
- * NULL) set; the child's pid goes to *pid. */
-void spawn(App *t, VteTerminal *term, char **argv, char **extra_env, GPid *pid);
 
 /* Creates t->shell.term (it restarts when the shell exits) ... */
 void create_shell_pane(App *t);

@@ -70,16 +70,6 @@ static void add_section(GtkGrid *grid, int *row, const char *title, const KeyHel
   }
 }
 
-/* Escape closes the window. */
-static gboolean on_key(GtkEventControllerKey *controller, guint key, guint code G_GNUC_UNUSED,
-                       GdkModifierType state G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
-{
-  if (key != GDK_KEY_Escape)
-    return FALSE;
-  gtk_window_close(GTK_WINDOW(gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller))));
-  return TRUE;
-}
-
 void show_keybinds(App *t)
 {
   static GtkWidget *window;
@@ -117,8 +107,10 @@ void show_keybinds(App *t)
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), grid);
   gtk_window_set_child(GTK_WINDOW(window), scroll);
 
-  keys = gtk_event_controller_key_new();
-  g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key), NULL);
+  keys = gtk_shortcut_controller_new(); /* Escape closes it */
+  gtk_shortcut_controller_add_shortcut(
+      GTK_SHORTCUT_CONTROLLER(keys),
+      gtk_shortcut_new(gtk_keyval_trigger_new(GDK_KEY_Escape, 0), gtk_named_action_new("window.close")));
   gtk_widget_add_controller(window, keys);
   gtk_window_present(GTK_WINDOW(window));
 }

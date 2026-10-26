@@ -54,9 +54,8 @@ void multicursor_toggle_at(Tab *tab, const GtkTextIter *iter);
  * (characters, cut at each line's end); the buffer's cursor takes the first line. */
 void multicursor_box(Tab *tab, int line0, int col0, int line1, int col1);
 
-/* Every cursor: text typed (replacing its selection), Backspace / Delete (forward), a move. */
+/* Every cursor: text typed (replacing its selection), a move. */
 void multicursor_type(Tab *tab, const char *text);
-void multicursor_erase(Tab *tab, gboolean forward);
 void multicursor_move(Tab *tab, MultiMove move, gboolean extend);
 
 /* The selections' text in the file's order, a line each (what Ctrl+C copies); NULL when none of

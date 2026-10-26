@@ -242,8 +242,7 @@ static void apply(Tab *tab, JsonNode *result)
     if (s->data)
       g_array_unref(s->data);
     s->data = data;
-    g_free(s->result_id);
-    s->result_id = g_strdup(json_string_at(result, "resultId"));
+    g_set_str(&s->result_id, json_string_at(result, "resultId"));
   } else {
     g_array_unref(data);
   }
@@ -321,8 +320,7 @@ static void apply_delta(Semantic *s, JsonNode *result, gboolean current)
     high = MAX(high, start + count);
     g_array_unref(inserted);
   }
-  g_free(s->result_id);
-  s->result_id = g_strdup(json_string_at(result, "resultId"));
+  g_set_str(&s->result_id, json_string_at(result, "resultId"));
   if (!n && !s->dirty_from)
     return;
   if (n) {
@@ -393,10 +391,8 @@ static gboolean update_now(gpointer data)
   ask_delta = s->result_id && s->data && delta && JSON_NODE_HOLDS_VALUE(delta) && json_node_get_boolean(delta);
   if (s->request)
     s->request->semantic = NULL;
-  if (s->cancel) {
-    g_cancellable_cancel(s->cancel);
-    g_object_unref(s->cancel);
-  }
+  g_cancellable_cancel(s->cancel);
+  g_clear_object(&s->cancel);
   s->cancel = g_cancellable_new();
   s->request = g_new0(TokensRequest, 1);
   s->request->semantic = s;
@@ -445,10 +441,8 @@ void semantic_free(Semantic *s)
   }
   if (s->request)
     s->request->semantic = NULL;
-  if (s->cancel) {
-    g_cancellable_cancel(s->cancel);
-    g_object_unref(s->cancel);
-  }
+  g_cancellable_cancel(s->cancel);
+  g_clear_object(&s->cancel);
   if (s->data)
     g_array_unref(s->data);
   g_free(s->result_id);

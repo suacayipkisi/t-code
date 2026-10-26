@@ -444,8 +444,7 @@ static void on_symbols(JsonNode *result, gpointer data)
   if (tab && tab->view && result && JSON_NODE_HOLDS_ARRAY(result))
     add_symbols(tab, json_node_get_array(result), NULL);
   if (tab) {
-    g_free(symbols_path);
-    symbols_path = g_strdup(tab->path);
+    g_set_str(&symbols_path, tab->path);
     remember(tab);
     picker_open(asked->app, "Go to a symbol in this file", symbols_query, symbols_choose);
   }
@@ -577,8 +576,7 @@ void go_to_workspace_symbol(Tab *tab)
 {
   if (!tab || !tab->view)
     return;
-  g_free(workspace_path);
-  workspace_path = g_strdup(tab->path);
+  g_set_str(&workspace_path, tab->path);
   picker_open(tab->app, "Go to a workspace symbol", workspace_symbols_query, workspace_symbols_choose);
 }
 
@@ -709,8 +707,7 @@ static void on_actions(JsonNode *result, gpointer data)
     else
       g_ptr_array_add(actions, text);
   }
-  g_free(actions_path);
-  actions_path = g_strdup(asked->path);
+  g_set_str(&actions_path, asked->path);
   actions_utf16 = asked->utf16;
   picker_open(asked->app, "Quick fix: pick one to apply", actions_query, actions_choose);
   asked_free(asked);
@@ -907,8 +904,7 @@ void rename_symbol(Tab *tab)
   old_name = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
   if (!*old_name)
     return;
-  g_free(rename_path);
-  rename_path = g_strdup(tab->path);
+  g_set_str(&rename_path, tab->path);
   cursor_place(tab, &rename_line, &rename_column);
   title = g_strdup_printf("New name for %s", old_name);
   picker_open(tab->app, title, rename_query, rename_choose);

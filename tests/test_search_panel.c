@@ -16,8 +16,7 @@ static struct {
 
 void open_file_at(App *t G_GNUC_UNUSED, const char *path, int line, int column)
 {
-  g_free(opened.path);
-  opened.path = g_strdup(path);
+  g_set_str(&opened.path, path);
   opened.line = line;
   opened.column = column;
 }
@@ -34,8 +33,7 @@ static char *said; /* status_say's last message */
 
 void status_say(App *t G_GNUC_UNUSED, const char *message)
 {
-  g_free(said);
-  said = g_strdup(message);
+  g_set_str(&said, message);
 }
 
 static App app;

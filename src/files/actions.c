@@ -93,7 +93,7 @@ static void on_new_folder(App *t, const char *dir, const char *name)
 }
 
 /* New File… / New Folder… in path's folder (NULL: the root). */
-void files_ask_create(const char *path, gboolean folder)
+static void files_ask_create(const char *path, gboolean folder)
 {
   char *dir = path ? files_folder_of(path) : g_strdup(files.app->project.root);
   const char *rel = files_relative(dir, files.app->project.root);
@@ -121,7 +121,7 @@ static void on_rename(App *t G_GNUC_UNUSED, const char *path, const char *name)
   g_free(dest);
 }
 
-void files_ask_rename(const char *path)
+static void files_ask_rename(const char *path)
 {
   char *name = g_path_get_basename(path);
 
@@ -142,7 +142,7 @@ static void on_delete_answer(GObject *dialog, GAsyncResult *result, gpointer dat
   g_free(path);
 }
 
-void files_ask_delete(const char *path)
+static void files_ask_delete(const char *path)
 {
   char *name = g_path_get_basename(path);
   gboolean dir = g_file_test(path, G_FILE_TEST_IS_DIR);

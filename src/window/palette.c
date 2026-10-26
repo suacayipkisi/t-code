@@ -595,8 +595,7 @@ GtkSourceStyleScheme *palette_scheme(App *t)
       gtk_source_style_scheme_manager_append_search_path(schemes, dir);
     searched = TRUE;
     gtk_source_style_scheme_manager_force_rescan(schemes);
-    g_free(made);
-    made = g_strdup(current_theme->id);
+    g_set_str(&made, current_theme->id);
     g_free(path);
     g_free(file);
     g_free(dir);

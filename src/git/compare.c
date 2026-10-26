@@ -557,8 +557,7 @@ static void show_history(App *t, char **outs, gpointer data)
     g_free(name);
     return;
   }
-  g_free(history_path);
-  history_path = g_strdup(path);
+  g_set_str(&history_path, path);
   if (!history)
     history = g_ptr_array_new_with_free_func(g_free);
   g_ptr_array_set_size(history, 0);

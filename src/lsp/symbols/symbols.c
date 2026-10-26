@@ -172,8 +172,7 @@ static gboolean symbols_ask(gpointer data)
   s->update_id = 0;
   if (!lsp_has(s->tab) || !lsp_capability(s->tab, "documentSymbolProvider"))
     return G_SOURCE_REMOVE;
-  if (s->asking)
-    g_cancellable_cancel(s->asking);
+  g_cancellable_cancel(s->asking);
   g_clear_object(&s->asking);
   s->asking = g_cancellable_new();
   a = g_new0(SymbolsAsking, 1);
@@ -283,8 +282,7 @@ void symbols_free(Symbols *s)
 {
   if (!s)
     return;
-  if (s->asking)
-    g_cancellable_cancel(s->asking);
+  g_cancellable_cancel(s->asking);
   g_clear_object(&s->asking);
   g_clear_handle_id(&s->update_id, g_source_remove);
   g_clear_handle_id(&s->cursor_id, g_source_remove);

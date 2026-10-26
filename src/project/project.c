@@ -129,8 +129,7 @@ static void switch_project(App *t, const char *root)
   malloc_trim(0); /* the old project's tabs are gone: give their memory back */
 #endif
 
-  g_free(t->project.root);
-  t->project.root = g_strdup(root);
+  g_set_str(&t->project.root, root);
   session_load_project(t);
   update_title(t);
   session_add_recent(t);

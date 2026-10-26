@@ -580,8 +580,7 @@ void search_replace_run(void)
     g_error_free(error);
     return;
   }
-  if (search.replace_cancel)
-    g_cancellable_cancel(search.replace_cancel);
+  g_cancellable_cancel(search.replace_cancel);
   g_clear_object(&search.replace_cancel);
   search.replace_cancel = g_cancellable_new();
   set_summary("Replacing…", FALSE);

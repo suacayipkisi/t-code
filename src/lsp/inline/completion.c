@@ -206,8 +206,7 @@ static void take_answer(TcodeCompletion *self, JsonNode *result, const char *wor
   for (guint i = 0; array && i < json_array_get_length(array); i++)
     g_ptr_array_add(self->all, proposal_new(json_array_get_element(array, i)));
   self->incomplete = incomplete && json_node_get_boolean(incomplete);
-  g_free(self->asked_word);
-  self->asked_word = g_strdup(word);
+  g_set_str(&self->asked_word, word);
   refill(self, word);
 }
 
@@ -317,10 +316,8 @@ static void refilter(GtkSourceCompletionProvider *provider, GtkSourceCompletionC
     Query *query = g_new0(Query, 1);
     char *params;
     gtk_source_completion_context_get_bounds(context, &begin, &end);
-    if (self->requery) {
-      g_cancellable_cancel(self->requery);
-      g_object_unref(self->requery);
-    }
+    g_cancellable_cancel(self->requery);
+    g_clear_object(&self->requery);
     self->requery = g_cancellable_new();
     query->self = g_object_ref(self);
     query->word = g_strdup(word);

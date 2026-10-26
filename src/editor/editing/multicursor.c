@@ -191,7 +191,8 @@ void multicursor_type(Tab *tab, const char *text)
   mc_changed(m);
 }
 
-void multicursor_erase(Tab *tab, gboolean forward)
+/* Backspace (or Delete: forward) at every cursor. */
+static void multicursor_erase(Tab *tab, gboolean forward)
 {
   MultiCursor *m = mc_of(tab);
   GArray *all;

@@ -80,10 +80,8 @@ static void inlay_clear(Inlay *in)
 
 static void inlay_stop_asking(Inlay *in)
 {
-  if (in->asking) {
-    g_cancellable_cancel(in->asking);
-    g_clear_object(&in->asking);
-  }
+  g_cancellable_cancel(in->asking);
+  g_clear_object(&in->asking);
 }
 
 /* The tag making a gap of width pixels at its character. Pango splits it around the glyph, which

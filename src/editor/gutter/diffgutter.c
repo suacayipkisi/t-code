@@ -230,8 +230,7 @@ static void set_kind(Tab *tab, BaseKind kind, const char *value)
   DiffGutter *g = tab->view->diff;
 
   g->kind = kind;
-  g_free(g->value);
-  g->value = g_strdup(value);
+  g_set_str(&g->value, value);
   if (!tab->view->loading)
     load_base_when_shown(g);
 }

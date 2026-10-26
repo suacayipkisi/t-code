@@ -371,8 +371,7 @@ static gboolean open_pair(Tab *tab, gunichar open)
   gtk_text_buffer_end_user_action(buffer);
   /* The closers ahead: this one, then the ones before it if they are still there. */
   if (!closers_ahead(tab)) {
-    g_free(v->closers);
-    v->closers = g_strdup("");
+    g_set_str(&v->closers, "");
     if (!v->closers_end)
       v->closers_end = gtk_text_buffer_create_mark(buffer, NULL, &cursor, TRUE);
     else

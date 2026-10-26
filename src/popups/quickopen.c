@@ -159,8 +159,7 @@ void quick_open_show(App *t)
   if (!files || g_strcmp0(files_root, t->project.root) != 0) {
     g_clear_pointer(&files, g_ptr_array_unref);
     files = g_ptr_array_new_with_free_func(g_free);
-    g_free(files_root);
-    files_root = g_strdup(t->project.root);
+    g_set_str(&files_root, t->project.root);
     list_number++;
     listing = FALSE;
   }

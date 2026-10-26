@@ -103,11 +103,6 @@ void files_move_or_copy(const char *src, const char *dir, gboolean cut);
 void files_clip(const char *path, gboolean cut);
 void files_paste(const char *path);
 
-/* actions.c: New File… / New Folder… in path's folder (NULL: the root), Rename…, Delete. */
-void files_ask_create(const char *path, gboolean folder);
-void files_ask_rename(const char *path);
-void files_ask_delete(const char *path);
-
 /* actions.c: the name entry's popover, the menu's actions (files.*) and the panel's keys. */
 GtkPopover *files_ask_new(void);
 void files_add_actions(void);

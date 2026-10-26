@@ -13,6 +13,8 @@
 
 /* Panes -------------------------------------------------------------------------------------- */
 
+static void queue_panel_checks(App *t);
+
 const char *const panel_names[PANELS] = { "files", "scm",      "search",  "shell",    "debug",
                                           "run",   "problems", "outline", "hierarchy" };
 const int panel_default_docks[PANELS] = { 0, 0, 0, 4, 4, 0, 4, 0, 0 };
@@ -75,7 +77,8 @@ int panel_dock(App *t, const char *page)
   return -1;
 }
 
-gboolean dock_has_pages(App *t, int d)
+/* Whether dock d holds any panel. */
+static gboolean dock_has_pages(App *t, int d)
 {
   return t->dock.stacks[d] && gtk_widget_get_first_child(GTK_WIDGET(t->dock.stacks[d])) != NULL;
 }
@@ -379,7 +382,7 @@ static gboolean sync_panel_checks(gpointer data)
 }
 
 /* Something about the panels changed: the menu's checks follow in an idle, once for many changes. */
-void queue_panel_checks(App *t)
+static void queue_panel_checks(App *t)
 {
   if (!t->dock.checks_id)
     t->dock.checks_id = g_idle_add(sync_panel_checks, t);

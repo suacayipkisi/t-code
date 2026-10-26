@@ -265,6 +265,8 @@ static void history(App *t)
 
 /* The table ---------------------------------------------------------------------------------- */
 
+static void command_palette(App *t);
+
 static const Command commands[] = {
   { "Save", "<Control>s", "Ctrl+S", save, TRUE, FALSE, FALSE },
   { "Close Tab", "<Control>w|<Control>q", "Ctrl+W", close_current, TRUE, FALSE, FALSE },
@@ -501,7 +503,8 @@ static void choose(App *t, const char *index)
   commands[atoi(index)].run(t);
 }
 
-void command_palette(App *t)
+/* Opens the command palette. */
+static void command_palette(App *t)
 {
   picker_open(t, "Type a command", query, choose);
 }

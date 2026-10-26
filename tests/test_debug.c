@@ -93,8 +93,7 @@ static void wait_event(Run *r, const char *event)
       g_ptr_array_set_size(r->events, 0);
       return;
     }
-  g_free(r->wanted);
-  r->wanted = g_strdup(event);
+  g_set_str(&r->wanted, event);
   wait_for(r);
   g_ptr_array_set_size(r->events, 0);
 }

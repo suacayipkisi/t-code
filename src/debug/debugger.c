@@ -460,8 +460,7 @@ static void stopped(Debugger *s, JsonNode *body)
   s->state = STOPPED;
   s->thread = json_int_at(body, "threadId", s->thread);
   update_ui(s->app, pause_reason(reason));
-  g_free(s->reason);
-  s->reason = g_strdup(reason);
+  g_set_str(&s->reason, reason);
   args = g_strdup_printf("{\"threadId\":%" G_GINT64_FORMAT ",\"levels\":%d}", s->thread, STACK_LEVELS);
   dap_request(s->dap, "stackTrace", args, on_stack, s);
   g_free(args);
@@ -690,8 +689,7 @@ static void program_choose(App *t, const char *path)
 /* Lists the programs in dir in the picker. */
 static void pick_program(App *t, const char *dir)
 {
-  g_free(ui.pick_in);
-  ui.pick_in = g_strdup(dir);
+  g_set_str(&ui.pick_in, dir);
   if (ui.programs)
     g_ptr_array_free(ui.programs, TRUE);
   ui.programs = g_ptr_array_new_with_free_func(g_free);

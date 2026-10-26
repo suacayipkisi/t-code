@@ -219,10 +219,8 @@ static void ask(SignatureHelp *h, char trigger)
     return;
   if (h->asking)
     h->asking->help = NULL;
-  if (h->cancel) {
-    g_cancellable_cancel(h->cancel);
-    g_object_unref(h->cancel);
-  }
+  g_cancellable_cancel(h->cancel);
+  g_clear_object(&h->cancel);
   h->cancel = g_cancellable_new();
   h->asking = g_new0(Asking, 1);
   h->asking->help = h;
@@ -361,9 +359,7 @@ void signature_free(SignatureHelp *h)
   g_clear_handle_id(&h->trigger_id, g_source_remove);
   if (h->asking)
     h->asking->help = NULL; /* its answer is dropped */
-  if (h->cancel) {
-    g_cancellable_cancel(h->cancel);
-    g_object_unref(h->cancel);
-  }
+  g_cancellable_cancel(h->cancel);
+  g_clear_object(&h->cancel);
   g_free(h);
 }

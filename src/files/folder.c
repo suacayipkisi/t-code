@@ -19,8 +19,7 @@ static Folder *folder_of(GListModel *list)
 
 static void folder_free(Folder *f)
 {
-  if (f->reading)
-    g_cancellable_cancel(f->reading); /* its answer is dropped (see on_read) */
+  g_cancellable_cancel(f->reading); /* its answer is dropped (see on_read) */
   g_clear_object(&f->reading);
   g_clear_handle_id(&f->timer, g_source_remove);
   if (f->monitor)
@@ -98,8 +97,7 @@ static void read_folder(Folder *f)
 {
   GTask *task;
 
-  if (f->reading)
-    g_cancellable_cancel(f->reading); /* an older reading: this one is newer */
+  g_cancellable_cancel(f->reading); /* an older reading: this one is newer */
   g_clear_object(&f->reading);
   f->reading = g_cancellable_new();
   task = g_task_new(NULL, f->reading, on_read, f);

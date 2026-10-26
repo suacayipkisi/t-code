@@ -16,9 +16,6 @@ void add_shortcuts_to(App *t, GtkWindow *window);
 /* Rebuilds built-in and plugin shortcuts after a plugin reload. */
 void refresh_shortcuts(App *t);
 
-/* Opens the command palette. */
-void command_palette(App *t);
-
 /* Runs the command of the table named name (as the command palette lists it), on the current tab.
  * The editor's right-click menu uses it. */
 void run_command(App *t, const char *name);

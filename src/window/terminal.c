@@ -15,7 +15,9 @@
 #include <string.h>
 #include <unistd.h>
 
-void set_terminal_font(App *t, VteTerminal *term, const char *font)
+/* Sets a terminal's font (a Pango description like "Cascadia Code 11"; NULL: DEFAULT_FONT) at the
+ * window's text size. */
+static void set_terminal_font(App *t, VteTerminal *term, const char *font)
 {
   PangoFontDescription *desc = pango_font_description_from_string(font ? font : DEFAULT_FONT);
   const char *family = pango_font_description_get_family(desc);
@@ -129,7 +131,7 @@ static void spawn_done(VteTerminal *term, GPid pid, GError *error, gpointer data
 
 /* Runs argv in term, in the project root, with $TCODE_SOCKET and extra_env ("NAME=value", may be
  * NULL) set; the child's pid goes to *pid. */
-void spawn(App *t, VteTerminal *term, char **argv, char **extra_env, GPid *pid)
+static void spawn(App *t, VteTerminal *term, char **argv, char **extra_env, GPid *pid)
 {
   char **env = g_get_environ();
 
@@ -253,8 +255,7 @@ void run_in_shell(App *t, const char *command)
   gtk_widget_grab_focus(GTK_WIDGET(t->shell.term));
   if (waiting) {
     /* Build or Run again while the last one waits: one command runs, the newest. */
-    g_free(waiting->command);
-    waiting->command = g_strdup(command);
+    g_set_str(&waiting->command, command);
     waiting->tries = 0;
     if (busy)
       kill(-group, SIGINT);

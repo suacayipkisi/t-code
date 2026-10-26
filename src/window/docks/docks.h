@@ -17,8 +17,7 @@ const char *panel_icon(const char *page);
 int panel_id(const char *page);
 const char *panel_from_id(int id);
 
-/* Whether dock d or a side (0 left, 1 bottom, 2 right) holds any panel; a side's widget. */
-gboolean dock_has_pages(App *t, int d);
+/* Whether a side (0 left, 1 bottom, 2 right) holds any panel; a side's widget. */
 gboolean side_has_pages(App *t, int side);
 GtkWidget *side_widget(App *t, int side);
 
@@ -39,9 +38,8 @@ int new_split_dock(App *t, int side, const char *moving_page);
 /* Source Control's tab shows its count of changes (its page's title, "SOURCE CONTROL  3"). */
 void update_scm_badge(GtkStackPage *sp, GParamSpec *pspec, App *t);
 
-/* Something about the panels changed: the Panels menu's checks follow, in an idle (a "notify"
- * handler too). */
-void queue_panel_checks(App *t);
+/* A "notify" handler: something about the panels changed, the Panels menu's checks follow (in an
+ * idle). */
 void on_layout_changed(GObject *object, GParamSpec *spec, App *t);
 
 /* titlebar.c: the menu bar on the left; the sides' toggles and Split Editor on the right. */

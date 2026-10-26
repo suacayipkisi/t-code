@@ -162,8 +162,7 @@ static const char *tab_title(void)
 /* Opens a project the way switch_project (project/project.c) does, then waits for git. */
 static void open_project_at(const char *root)
 {
-  g_free(app.project.root);
-  app.project.root = g_strdup(root);
+  g_set_str(&app.project.root, root);
   scm_reset();
   watch_git(&app); /* git_top, then git status in 300ms */
 }

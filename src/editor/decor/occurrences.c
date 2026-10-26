@@ -133,10 +133,8 @@ static void ask_server(Occurrences *o)
 
 static void stop_asking(Occurrences *o)
 {
-  if (o->asking) {
-    g_cancellable_cancel(o->asking);
-    g_clear_object(&o->asking);
-  }
+  g_cancellable_cancel(o->asking);
+  g_clear_object(&o->asking);
 }
 
 /* Highlights every whole-word occurrence of the selected name, when it has others; without a
