@@ -65,7 +65,7 @@ files. More in [docs/features.md](docs/features.md#the-editor).
 
 `t-code --version` prints the installed version.
 
-The packages are named `t-code-ide`; the command stays `t-code` (in the Snap `t-code-ide`, until the Store grants the `t-code` alias).
+The packages are named `t-code-ide`; the command stays `t-code` (in the Snap it is `t-code-ide`).
 
 ### Fedora (Copr)
 
@@ -75,6 +75,16 @@ sudo dnf install t-code-ide
 ```
 
 Fedora 43, 44 and rawhide; updates come with `dnf upgrade`.
+
+### Snap
+
+```sh
+sudo snap install t-code-ide
+sudo snap alias t-code-ide t-code    # optional: run it as t-code
+```
+
+The Snap is strictly confined: it bundles its own compiler, clangd, gdb, CMake and Python, and sees
+the projects in your home folder.
 
 ### Packages ([latest release](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.1), x86_64)
 

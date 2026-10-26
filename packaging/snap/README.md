@@ -1,6 +1,6 @@
 # Snap package
 
-This directory packages t-code 0.4.1 as the `t-code-ide` snap (command `t-code-ide`; the `t-code` alias needs a Store alias grant) for Linux amd64, with desktop/application ID `io.github.suacayipkisi.tcode`. It owns no shared packaging integration.
+This directory packages t-code 0.4.1 as the `t-code-ide` snap (command `t-code-ide`; `sudo snap alias t-code-ide t-code` adds `t-code`) for Linux amd64, with desktop/application ID `io.github.suacayipkisi.tcode`. It owns no shared packaging integration.
 
 ## Build
 
