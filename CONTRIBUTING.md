@@ -93,7 +93,7 @@ clang-format -i $(git ls-files 'src/*.c' 'src/*.h')
   path under `src/`.
 * **GLib-only modules stay GLib-only** (`editor/text/{detect,indentconf,blocks}.c`,
   `git/linediff.c`, `git/patch.c`, `search/searchmatch.c`, `lsp/compiledb.c`, `lsp/json.c`,
-  `debug/dap.c`, `project/langenv.c`, `files/{fileops,folder,gitmarks,icons}.c`): they are tested
+  `debug/dap.c`, `project/langenv.c`, `application/log.c`, `files/{fileops,folder,gitmarks,icons}.c`): they are tested
   without a display and under ASan.
 * **Low memory is the point of t-code:** long-lived code frees everything per tab and per
   document, and async answers that can arrive after a tab is gone must not touch it (cancellables,
@@ -121,7 +121,8 @@ Thank you for helping make T-Code better!
 ```
 src/                 t-code (src/app.h: struct App and struct Tab, the shared state)
   main.c             only main()
-  application/       the GTK application and signals (application.c), the command line (cli.c)
+  application/       the GTK application and signals (application.c), the command line (cli.c),
+                     the log file (log.c)
   window/            building and closing the window (window.c), the menu bar and title bar
                      (titlebar.c), the docks (docks/), terminals, the status bar, every command:
                      shortcuts, palette and Keybinds list (commands.c), theme, palette colors

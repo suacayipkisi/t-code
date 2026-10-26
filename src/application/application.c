@@ -5,6 +5,7 @@
 #define _DEFAULT_SOURCE /* kill() under -std=c23 with musl */
 #include "application/application.h"
 
+#include "application/log.h"
 #include "debug/debugger.h"
 #include "editor/editor.h"
 #include "files/files.h"
@@ -167,6 +168,7 @@ int application_run(int argc, char **argv)
   GtkApplication *app = gtk_application_new("io.github.tcode", G_APPLICATION_HANDLES_OPEN | G_APPLICATION_NON_UNIQUE);
   int status;
 
+  log_start(NULL);
   cli_add_options(G_APPLICATION(app));
   g_action_map_add_action_entries(G_ACTION_MAP(app), actions, G_N_ELEMENTS(actions), NULL);
   session_load_settings(&t);

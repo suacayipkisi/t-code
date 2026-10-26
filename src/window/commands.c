@@ -4,6 +4,7 @@
  */
 #include "window/commands.h"
 
+#include "application/log.h"
 #include "debug/debugger.h"
 #include "debug/view/debugview.h"
 #include "debug/disassembly.h"
@@ -95,6 +96,17 @@ static void git_stash_drop(App *t G_GNUC_UNUSED) { scm_pick_stash(STASH_DROP); }
 static void show_outline_cmd(App *t) { toggle_panel(t, "outline"); }
 static void show_hierarchy_cmd(App *t) { toggle_panel(t, "hierarchy"); }
 /* clang-format on */
+
+/* "Help: Open Log File": t-code's warnings (application/log.h), in an editor. */
+static void open_log(App *t)
+{
+  const char *path = log_path();
+
+  if (path && g_file_test(path, G_FILE_TEST_EXISTS))
+    open_file(t, path);
+  else
+    status_say(t, "Nothing logged yet: t-code has had no warnings");
+}
 
 /* Alt+1: the file manager, showing the sidebar. */
 static void focus_fm(App *t)
@@ -373,6 +385,7 @@ static const Command commands[] = {
   { "Preferences: Open Editor Colors", NULL, NULL, open_editor_colors, FALSE, FALSE, FALSE },
   { "Preferences: Open User Snippets", NULL, NULL, open_user_snippets, FALSE, FALSE, FALSE },
   { "Keyboard Shortcuts", NULL, NULL, show_keybinds, FALSE, FALSE, FALSE },
+  { "Help: Open Log File", NULL, NULL, open_log, FALSE, FALSE, FALSE },
   { "About t-code", NULL, NULL, show_about, FALSE, FALSE, FALSE },
   { "Check for Updates Now", NULL, NULL, check_updates_now, FALSE, FALSE, FALSE },
   { "Plugins: Reload Installed Plugins", NULL, NULL, plugins_reload, FALSE, FALSE, FALSE },

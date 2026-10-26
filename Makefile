@@ -83,6 +83,11 @@ build/test-editing: tests/test_editing.c tests/util.h tests/broadway.h $(PAGE_SR
 build/test-lsp: tests/test_lsp.c tests/fake_server.h tests/util.h $(PAGE_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_lsp.c $(shell pkg-config --libs $(PKGS))
 
+# The log file (GLib-only).
+build/test-log: tests/test_log.c tests/util.h src/application/log.c src/application/log.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_log.c src/application/log.c \
+	  $(shell pkg-config --libs glib-2.0)
+
 # The debugger's protocol client against gdb (skipped without one).
 DAP_SRC := src/debug/dap.c src/lsp/channel.c src/lsp/json.c
 build/test-debug: tests/test_debug.c tests/util.h $(DAP_SRC) src/debug/dap.h src/lsp/channel.h src/lsp/json.h | build
@@ -128,10 +133,11 @@ build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c sr
 	  $(shell pkg-config --libs $(PKGS))
 
 
-test: build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
+test: build/test-log build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
       build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-files build/test-window build/test-about \
       build/test-plugins build/test-update build/test-recovery
 	build/test-searchmatch
+	build/test-log
 	build/test-detect
 	build/test-langenv
 	build/test-lspinstall
@@ -159,6 +165,9 @@ ASAN_ENV   := G_DEBUG=gc-friendly ASAN_OPTIONS=detect_leaks=1:abort_on_error=0 \
 
 test-asan: | build
 	mkdir -p build/asan
+	$(CC) $(ASAN_FLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o build/asan/test-log \
+	  tests/test_log.c src/application/log.c $(shell pkg-config --libs glib-2.0)
+	$(ASAN_ENV) build/asan/test-log
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags gio-2.0) -o build/asan/test-searchmatch \
 	  tests/test_searchmatch.c src/search/searchmatch.c $(shell pkg-config --libs gio-2.0)
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-detect \
