@@ -67,6 +67,15 @@ files. More in [docs/features.md](docs/features.md#the-editor).
 
 The packages are named `t-code-ide`; the command stays `t-code` (in the Snap `t-code-ide`, until the Store grants the `t-code` alias).
 
+### Fedora (Copr)
+
+```sh
+sudo dnf copr enable suacayipkisi/t-code-ide
+sudo dnf install t-code-ide
+```
+
+Fedora 43, 44 and rawhide; updates come with `dnf upgrade`.
+
 ### Packages ([latest release](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.1), x86_64)
 
 ```sh
