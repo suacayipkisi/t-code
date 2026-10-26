@@ -176,6 +176,12 @@ Create Branch…" asks only for the name). Unsaved editors are saved first; when
 you set it up (merge or rebase); "Git: Fetch" brings the remote's branches, and Push shows how far
 ahead / behind you are.
 
+**Stash.** "Git: Stash…" puts the changes aside (type a message, or none; "Stash, untracked files
+too" takes the new files as well). "Git: Pop Stash…", "Git: Apply Stash…" and "Git: Drop Stash…" list
+the stashes, newest first: pop brings one back and removes it, apply keeps it, drop removes it after
+asking. Unsaved editors are saved first; when a pop conflicts, the stash stays and Source Control
+says so.
+
 **Line blame.** Once the cursor rests on a line, who last changed it, when and the commit's subject
 show dim after its end ("Ada, 3 days ago · Fix the parser"); a line you changed and did not commit
 says "Not committed yet". The "Line blame" setting turns it off.

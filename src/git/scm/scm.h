@@ -2,7 +2,8 @@
  * The Source Control panel, the second sidebar page (Ctrl+Shift+G): a commit
  * message with Commit, Pull and Push, the Staged Changes and Changes lists, and the last commits.
  * Also the branches: switching (the status bar's branch, "Git: Checkout to…") and creating them.
- * scm.c is the panel, branches.c the remote and the branches, commits.c the Commits list.
+ * scm.c is the panel, branches.c the remote and the branches, stash.c git stash, commits.c the
+ * Commits list.
  */
 #pragma once
 
@@ -47,6 +48,13 @@ void scm_switch_branch(void);
 
 /* "Git: Create Branch…": the picker takes the new branch's name; git switch -c. */
 void scm_create_branch(void);
+
+/* "Git: Stash…": the picker takes an optional message, then stashes the changes (the tracked files
+ * or the untracked ones too). "Git: Pop / Apply / Drop Stash…": the stashes in the picker; the one
+ * picked is popped, applied or (after asking) dropped. The editors are saved first. */
+typedef enum { STASH_POP, STASH_APPLY, STASH_DROP } StashAction;
+void scm_stash(void);
+void scm_pick_stash(StashAction action);
 
 /* Opens the n-th commit of Commits (from 0) in a tab: its message, author, line counts and diff
  * (its right-click menu's "Open Commit Details"; the tests call it). */

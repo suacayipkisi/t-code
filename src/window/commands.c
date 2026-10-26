@@ -88,6 +88,10 @@ static void git_create_branch(App *t G_GNUC_UNUSED) { scm_create_branch(); }
 static void git_pull(App *t G_GNUC_UNUSED) { scm_pull(); }
 static void git_push(App *t G_GNUC_UNUSED) { scm_push(); }
 static void git_fetch(App *t G_GNUC_UNUSED) { scm_fetch(); }
+static void git_stash(App *t G_GNUC_UNUSED) { scm_stash(); }
+static void git_stash_pop(App *t G_GNUC_UNUSED) { scm_pick_stash(STASH_POP); }
+static void git_stash_apply(App *t G_GNUC_UNUSED) { scm_pick_stash(STASH_APPLY); }
+static void git_stash_drop(App *t G_GNUC_UNUSED) { scm_pick_stash(STASH_DROP); }
 static void show_outline_cmd(App *t) { toggle_panel(t, "outline"); }
 static void show_hierarchy_cmd(App *t) { toggle_panel(t, "hierarchy"); }
 /* clang-format on */
@@ -333,6 +337,10 @@ static const Command commands[] = {
   { "Git: Pull", NULL, NULL, git_pull, FALSE, FALSE, FALSE },
   { "Git: Push", NULL, NULL, git_push, FALSE, FALSE, FALSE },
   { "Git: Fetch", NULL, NULL, git_fetch, FALSE, FALSE, FALSE },
+  { "Git: Stash…", NULL, NULL, git_stash, FALSE, FALSE, FALSE },
+  { "Git: Pop Stash…", NULL, NULL, git_stash_pop, FALSE, FALSE, FALSE },
+  { "Git: Apply Stash…", NULL, NULL, git_stash_apply, FALSE, FALSE, FALSE },
+  { "Git: Drop Stash…", NULL, NULL, git_stash_drop, FALSE, FALSE, FALSE },
   { "Git: Compare with HEAD", "<Control><Alt>d", "Ctrl+Alt+D", compare_head, FALSE, FALSE, FALSE },
   { "Git: File History…", "<Control><Alt>h", "Ctrl+Alt+H", history, FALSE, FALSE, FALSE },
   { "Git: Stop Comparing", NULL, NULL, stop_comparing, FALSE, TRUE, FALSE },

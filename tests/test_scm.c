@@ -600,6 +600,78 @@ static void test_branches(void)
   g_free(origin);
 }
 
+/* Runs the main loop until path holds text (or 5 s pass); TRUE when it does (NULL: until it is gone). */
+static gboolean wait_file(const char *path, const char *text)
+{
+  for (gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC; g_get_monotonic_time() < end; run_for(50)) {
+    char *now = NULL;
+    gboolean there = g_file_get_contents(path, &now, NULL, NULL), same = there && g_strcmp0(now, text) == 0;
+    g_free(now);
+    if (text ? same : !there)
+      return TRUE;
+  }
+  return FALSE;
+}
+
+static void test_stash(void)
+{
+  char *dir = make_dir("stash", "s.txt"), *file = g_build_filename(dir, "s.txt", NULL);
+  char *untracked = g_build_filename(dir, "new.txt", NULL);
+  const char *const list[] = { "stash", "list", "--format=%gs", NULL };
+
+  git(dir, (const char *[]){ "init", "-q", "-b", "main", NULL });
+  git(dir, (const char *[]){ "add", "s.txt", NULL });
+  git(dir, (const char *[]){ "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "first", NULL });
+  open_project_at(dir);
+  wait_for(2, 1);
+  picked_rows = g_ptr_array_new_with_free_func(g_free);
+
+  /* Stash with a message: the change goes; pop: it comes back and the stash goes. */
+  g_file_set_contents(file, "two\n", -1, NULL);
+  scm_stash();
+  picker_run(&app, "half done");
+  g_assert_cmpuint(picked_rows->len, ==, 2);
+  g_assert_cmpstr(picked_rows->pdata[0], ==, "Stash\thalf done\tpush\thalf done");
+  picker_pick("push\thalf done");
+  g_assert_true(wait_file(file, "one\n"));
+  scm_pick_stash(STASH_POP);
+  wait_rows(1);
+  g_assert_true(g_str_has_prefix(picked_rows->pdata[0], "On main: half done\tstash@{0} · "));
+  g_assert_true(g_str_has_suffix(picked_rows->pdata[0], " ago\tstash@{0}"));
+  picker_pick("stash@{0}");
+  g_assert_true(wait_file(file, "two\n"));
+  char *left = git_out(dir, list);
+  for (gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC; *left && g_get_monotonic_time() < end;) {
+    run_for(50);
+    g_free(left);
+    left = git_out(dir, list);
+  }
+  g_assert_cmpstr(left, ==, "");
+  g_free(left);
+
+  /* Untracked files too, no message; apply keeps the stash. */
+  g_file_set_contents(untracked, "new\n", -1, NULL);
+  scm_stash();
+  picker_pick("push-u\t");
+  g_assert_true(wait_file(untracked, NULL));
+  g_assert_true(wait_file(file, "one\n"));
+  scm_pick_stash(STASH_APPLY);
+  wait_rows(1);
+  g_assert_true(g_str_has_prefix(picked_rows->pdata[0], "WIP on main: "));
+  picker_pick("stash@{0}");
+  g_assert_true(wait_file(untracked, "new\n"));
+  g_assert_true(wait_file(file, "two\n"));
+  left = git_out(dir, list);
+  g_assert_true(g_str_has_prefix(left, "WIP on main: "));
+  g_free(left);
+
+  g_ptr_array_free(picked_rows, TRUE);
+  picked_rows = NULL;
+  g_free(untracked);
+  g_free(file);
+  g_free(dir);
+}
+
 int main(int argc, char **argv)
 {
   int status;
@@ -643,6 +715,7 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/message-history", test_message_history);
   g_test_add_func("/scm/stage-hunk", test_stage_hunk);
   g_test_add_func("/scm/branches", test_branches);
+  g_test_add_func("/scm/stash", test_stash);
   status = g_test_run();
 
   app.closing = TRUE;

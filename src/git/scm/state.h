@@ -1,7 +1,7 @@
 /*
  * What the Source Control panel's files share: the panel's state (scm.c), running git (gitrun.c),
  * staging (staging.c), the commit message (message.c), the change lists (changes.c), branches
- * (branches.c) and Commits (commits.c). Only those files include it.
+ * (branches.c), stashes (stash.c) and Commits (commits.c). Only those files include it.
  */
 #pragma once
 
