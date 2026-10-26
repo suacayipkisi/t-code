@@ -521,6 +521,8 @@ static void on_tabs_changed(GtkNotebook *group, GtkWidget *child G_GNUC_UNUSED, 
 /* Another tab became the current one of a group: that group is the active one now. */
 static void on_tab_switched(GtkNotebook *group, GtkWidget *page G_GNUC_UNUSED, guint index G_GNUC_UNUSED, App *t)
 {
+  if (t->closing) /* the groups give up their pages as the window goes: the panels may be gone */
+    return;
   t->editors.active = group_index(t, GTK_WIDGET(group));
   update_status(t);
   outline_show_tab(t);

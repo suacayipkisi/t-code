@@ -12,9 +12,9 @@
 #define INDENT_PX 14 /* per level */
 
 static struct {
-  GtkListBox *list;
-  GtkLabel *note; /* "No symbols" and the like, instead of the list */
-  char *path;     /* the editor whose symbols are listed */
+  GtkListBox *list; /* both NULL once the window is gone: tabs switch while it closes */
+  GtkLabel *note;   /* "No symbols" and the like, instead of the list */
+  char *path;       /* the editor whose symbols are listed */
 } outline;
 
 static const char *const outline_css =
@@ -70,7 +70,7 @@ static App *outline_app;
 void outline_fill(App *t, Tab *tab, GPtrArray *roots)
 {
   outline_app = t;
-  if (!outline.list)
+  if (!outline.list || !outline.note)
     return;
   gtk_list_box_remove_all(outline.list);
   g_set_str(&outline.path, tab ? tab->path : NULL);
@@ -174,6 +174,8 @@ GtkWidget *outline_panel(App *t)
   gtk_label_set_xalign(outline.note, 0);
   gtk_box_append(GTK_BOX(panel), GTK_WIDGET(outline.note));
   outline.list = GTK_LIST_BOX(gtk_list_box_new());
+  g_object_add_weak_pointer(G_OBJECT(outline.note), (gpointer *)&outline.note);
+  g_object_add_weak_pointer(G_OBJECT(outline.list), (gpointer *)&outline.list);
   gtk_list_box_set_selection_mode(outline.list, GTK_SELECTION_SINGLE);
   gtk_list_box_set_activate_on_single_click(outline.list, TRUE);
   g_signal_connect(outline.list, "row-activated", G_CALLBACK(on_outline_row), NULL);
