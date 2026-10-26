@@ -37,7 +37,6 @@ struct Inlay {
   GHashTable *tags;      /* width * 2 + hidden -> its letter-spacing tag */
   guint update_id;
   GCancellable *asking;
-  guint changes;            /* edits so far: an answer about older text is dropped */
   int asked_from, asked_to; /* the lines the hints shown cover; -1 when none were asked for */
 };
 
@@ -45,7 +44,7 @@ struct Inlay {
 typedef struct {
   Inlay *inlay;
   GCancellable *cancel;
-  guint changes;
+  guint changes; /* the text it is about (tab->view->changes): an answer about older text is dropped */
   int from, to;
 } InlayAsking;
 
@@ -178,7 +177,7 @@ static void inlay_on_hints(JsonNode *result, gpointer data)
   JsonArray *array = result && JSON_NODE_HOLDS_ARRAY(result) ? json_node_get_array(result) : NULL;
   int last_cell = -1;
 
-  if (g_cancellable_is_cancelled(a->cancel) || a->changes != in->changes || !result) {
+  if (g_cancellable_is_cancelled(a->cancel) || a->changes != in->tab->view->changes || !result) {
     g_object_unref(a->cancel);
     g_free(a);
     return;
@@ -248,7 +247,7 @@ static gboolean inlay_ask(gpointer data)
   in->asking = g_cancellable_new();
   a->inlay = in;
   a->cancel = g_object_ref(in->asking);
-  a->changes = in->changes;
+  a->changes = in->tab->view->changes;
   a->from = first;
   a->to = last;
   lsp_request(in->tab, "textDocument/inlayHint", params, in->asking, inlay_on_hints, a);
@@ -266,11 +265,6 @@ void inlay_update(Tab *tab)
     return;
   g_clear_handle_id(&in->update_id, g_source_remove);
   in->update_id = g_timeout_add(INLAY_MS, inlay_ask, in);
-}
-
-static void inlay_on_changed(GtkTextBuffer *buffer G_GNUC_UNUSED, Inlay *in)
-{
-  in->changes++; /* the hints move with the text until the new ones come */
 }
 
 void inlay_apply_setting(Tab *tab)
@@ -458,7 +452,6 @@ void inlay_attach(Tab *tab)
   in->hints = g_array_new(FALSE, FALSE, sizeof(InlayHint));
   in->tags = g_hash_table_new(NULL, NULL);
   in->asked_from = in->asked_to = -1;
-  g_signal_connect(in->buffer, "changed", G_CALLBACK(inlay_on_changed), in);
   tab->view->inlay = in;
 }
 
@@ -471,7 +464,6 @@ void inlay_free(Inlay *in)
     return;
   inlay_stop_asking(in);
   g_clear_handle_id(&in->update_id, g_source_remove);
-  g_signal_handlers_disconnect_by_data(in->buffer, in);
   inlay_clear(in);
   g_hash_table_iter_init(&iter, in->tags);
   while (g_hash_table_iter_next(&iter, NULL, &tag))

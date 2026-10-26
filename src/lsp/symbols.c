@@ -18,13 +18,12 @@ struct Symbols {
   GPtrArray *roots;      /* Sym; NULL before the first answer */
   guint update_id, cursor_id;
   GCancellable *asking;
-  guint changes; /* edits so far: an answer about older text is dropped */
 };
 
 typedef struct {
   Symbols *symbols;
   GCancellable *cancel;
-  guint changes;
+  guint changes; /* the text it is about (tab->view->changes): an answer about older text is dropped */
   gboolean utf16;
 } SymbolsAsking;
 
@@ -143,7 +142,7 @@ static void symbols_on_answer(JsonNode *result, gpointer data)
   Symbols *s = a->symbols;
   JsonArray *array = result && JSON_NODE_HOLDS_ARRAY(result) ? json_node_get_array(result) : NULL;
 
-  if (g_cancellable_is_cancelled(a->cancel) || a->changes != s->changes || !array) {
+  if (g_cancellable_is_cancelled(a->cancel) || a->changes != s->tab->view->changes || !array) {
     g_object_unref(a->cancel);
     g_free(a);
     return;
@@ -180,7 +179,7 @@ static gboolean symbols_ask(gpointer data)
   a = g_new0(SymbolsAsking, 1);
   a->symbols = s;
   a->cancel = g_object_ref(s->asking);
-  a->changes = s->changes;
+  a->changes = s->tab->view->changes;
   a->utf16 = lsp_utf16(s->tab);
   document = lsp_document_params(s->tab);
   params = g_strdup_printf("{%s}", document);
@@ -270,11 +269,6 @@ static void on_symbols_mark_set(GtkTextBuffer *buffer, const GtkTextIter *where 
   s->cursor_id = g_timeout_add(CURSOR_MS, symbols_cursor_rested, s);
 }
 
-static void on_symbols_changed(GtkTextBuffer *buffer G_GNUC_UNUSED, Symbols *s)
-{
-  s->changes++;
-}
-
 void symbols_attach(Tab *tab)
 {
   Symbols *s = g_new0(Symbols, 1);
@@ -282,7 +276,6 @@ void symbols_attach(Tab *tab)
   s->tab = tab;
   s->buffer = GTK_TEXT_BUFFER(tab->buffer);
   g_signal_connect(s->buffer, "mark-set", G_CALLBACK(on_symbols_mark_set), s);
-  g_signal_connect(s->buffer, "changed", G_CALLBACK(on_symbols_changed), s);
   tab->view->symbols = s;
 }
 

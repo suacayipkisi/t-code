@@ -22,6 +22,12 @@
 
 static App app;
 
+/* What editor.c does in t-code: every change is counted (an answer about older text is dropped). */
+static void count_change(GtkTextBuffer *buffer G_GNUC_UNUSED, Tab *tab)
+{
+  tab->view->changes++;
+}
+
 static Tab *new_tab(const char *path, const char *text)
 {
   Tab *tab = g_new0(Tab, 1);
@@ -31,6 +37,7 @@ static Tab *new_tab(const char *path, const char *text)
   tab->path = g_strdup(path);
   tab->page = g_object_ref_sink(editor_page());
   editor_view_init(tab, FALSE);
+  g_signal_connect(tab->buffer, "changed", G_CALLBACK(count_change), tab);
   gtk_source_buffer_set_language(
       tab->buffer, gtk_source_language_manager_get_language(gtk_source_language_manager_get_default(), "c"));
   gtk_text_buffer_set_text(GTK_TEXT_BUFFER(tab->buffer), text, -1);
@@ -40,6 +47,7 @@ static Tab *new_tab(const char *path, const char *text)
 
 static void free_tab(Tab *tab)
 {
+  g_signal_handlers_disconnect_by_func(tab->buffer, count_change, tab);
   editor_view_free(tab->view);
   g_object_unref(tab->page);
   g_free(tab->path);
@@ -627,6 +635,17 @@ static void test_inlay_hints(void)
     g_main_context_iteration(NULL, FALSE);
     text = inlay_text(tab);
   }
+  g_assert_cmpstr(text, ==, "0:5 : int\n0:10 p:\n");
+  g_free(text);
+  /* An answer about older text (an edit since it was asked) is dropped: the hints stay. */
+  InlayAsking *late = g_new0(InlayAsking, 1);
+  JsonNode *none = json_from_string("[]", NULL);
+  late->inlay = tab->view->inlay;
+  late->cancel = g_cancellable_new();
+  late->changes = tab->view->changes - 1;
+  inlay_on_hints(none, late);
+  json_node_unref(none);
+  text = inlay_text(tab);
   g_assert_cmpstr(text, ==, "0:5 : int\n0:10 p:\n");
   g_free(text);
   /* paddingRight is a space outside the box, not in the hint's text. */
