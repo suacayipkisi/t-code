@@ -2094,7 +2094,7 @@ static void test_settings_pages(void)
     g_assert_true(GTK_IS_SCROLLED_WINDOW(page));
     switches += count_of(page, GTK_TYPE_SWITCH);
   }
-  g_assert_cmpint(switches, ==, 14); /* none lost on the way (inlay hints and breadcrumbs the last) */
+  g_assert_cmpint(switches, ==, 15); /* none lost on the way (line blame the last) */
   g_assert_cmpstr(gtk_stack_get_visible_child_name(stack), ==, "general");
 
   gtk_stack_set_visible_child_name(stack, "appearance");

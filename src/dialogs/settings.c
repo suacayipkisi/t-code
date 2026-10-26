@@ -350,6 +350,8 @@ void show_settings(App *t)
           setting_switch(&t->settings.inlay_hints, each_editor));
   add_row(GTK_GRID(grid), &row, "Breadcrumbs", "The file's folders and the symbols around the cursor, over each editor",
           setting_switch(&t->settings.breadcrumbs, each_editor));
+  add_row(GTK_GRID(grid), &row, "Line blame", "Who last changed the cursor's line, and in which commit, after its end",
+          setting_switch(&t->settings.line_blame, each_editor));
   add_row(GTK_GRID(grid), &row, "Ruler column",
           "A vertical line after this column, to keep lines short. Type 0 to turn it off",
           setting_spin(&t->settings.ruler, 0, 300, each_editor));

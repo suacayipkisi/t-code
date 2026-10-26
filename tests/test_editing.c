@@ -933,6 +933,77 @@ static void test_diff_gutter(void)
   free_tab(tab);
 }
 
+/* Line blame -------------------------------------------------------------------------------- */
+
+static void git_in(const char *dir, const char *const *args)
+{
+  GPtrArray *argv = g_ptr_array_new();
+  int status;
+
+  g_ptr_array_add(argv, "git");
+  g_ptr_array_add(argv, "-C");
+  g_ptr_array_add(argv, (gpointer)dir);
+  g_ptr_array_add(argv, "-c");
+  g_ptr_array_add(argv, "user.name=Ada");
+  g_ptr_array_add(argv, "-c");
+  g_ptr_array_add(argv, "user.email=ada@example.com");
+  for (int i = 0; args[i]; i++)
+    g_ptr_array_add(argv, (gpointer)args[i]);
+  g_ptr_array_add(argv, NULL);
+  g_assert_true(g_spawn_sync(NULL, (char **)argv->pdata, NULL,
+                             G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL,
+                             NULL, NULL, &status, NULL));
+  g_assert_true(g_spawn_check_wait_status(status, NULL));
+  g_ptr_array_free(argv, TRUE);
+}
+
+static gboolean blame_shown(gconstpointer tab)
+{
+  return blame_text((Tab *)tab) != NULL;
+}
+
+/* The cursor's line says who committed it; once edited, that it is not committed. */
+static void test_line_blame(void)
+{
+  char *dir = g_dir_make_tmp("t-code-blame-XXXXXX", NULL), *path;
+  Tab *tab;
+
+  git_in(dir, (const char *const[]){ "init", "-q", NULL });
+  path = write_at(dir, "a.c", "int a;\nint b;\n", -1, 0);
+  git_in(dir, (const char *const[]){ "add", "a.c", NULL });
+  git_in(dir, (const char *const[]){ "commit", "-q", "-m", "First commit", NULL });
+  app.settings.line_blame = TRUE;
+  app.project.git_top = dir;
+  tab = new_tab("int a;\nint b;\n");
+  g_set_str(&tab->path, path);
+  cursor_at(tab, 1, 0);
+  run_until(blame_shown, tab);
+  g_assert_cmpstr(blame_text(tab), ==, "Ada, just now · First commit");
+
+  gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(tab->buffer), "x", -1); /* the shown blame goes at once */
+  g_assert_null(blame_text(tab));
+  run_until(blame_shown, tab);
+  g_assert_cmpstr(blame_text(tab), ==, "Not committed yet");
+
+  cursor_at(tab, 0, 0);
+  app.settings.line_blame = FALSE; /* off: nothing is asked */
+  blame_apply_setting(tab);
+  run_for(600);
+  g_assert_null(blame_text(tab));
+
+  app.settings.line_blame = TRUE;
+  blame_apply_setting(tab);
+  free_tab(tab); /* while it is asked about: the answer is dropped */
+  run_for(600);
+  app.project.git_top = NULL;
+  app.settings.line_blame = FALSE;
+  g_unlink(path);
+  g_free(path);
+  char *rm[] = { "rm", "-rf", dir, NULL };
+  g_spawn_sync(NULL, rm, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
+  g_free(dir);
+}
+
 /* Parameter hint ----------------------------------------------------------------------------- */
 
 /* The view's adjustments can outlive the editor (a comparison's other side scrolls them): once
@@ -1563,6 +1634,7 @@ int main(int argc, char **argv)
   g_test_add_func("/guides/pair-utf8", test_guide_pair_utf8);
   g_test_add_func("/guides/blank-lines", test_guide_blank_lines);
   g_test_add_func("/signature/outlived", test_signature_outlived);
+  g_test_add_func("/editing/line-blame", test_line_blame);
   g_test_add_func("/multicursor/add-next", test_multi_add_next);
   g_test_add_func("/multicursor/select-all", test_multi_select_all);
   g_test_add_func("/multicursor/lines", test_multi_lines);

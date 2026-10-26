@@ -6,6 +6,7 @@
  */
 #include "editor/decor/guides.h"
 
+#include "editor/decor/blame.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/text/blocks.h"
 #include "editor/gutter/diffgutter.h"
@@ -380,6 +381,7 @@ static void snapshot_layer(GtkTextView *view, GtkTextViewLayer layer, GtkSnapsho
     multicursor_draw(self->tab, view, snapshot, FALSE);
   } else if (layer == GTK_TEXT_VIEW_LAYER_ABOVE_TEXT && self->tab && self->tab->view && !self->tab->view->loading) {
     inlay_draw(self->tab, view, snapshot);
+    blame_draw(self->tab, view, snapshot);
     multicursor_draw(self->tab, view, snapshot, TRUE);
   }
 }

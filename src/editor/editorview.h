@@ -38,6 +38,7 @@ struct EditorView {
   struct Breakpoints *breakpoints; /* editor/gutter/breakpoints.c */
   struct MultiCursor *multi;       /* editor/editing/multicursor.c */
   struct Inlay *inlay;             /* lsp/inline/inlay.c */
+  struct Blame *blame;             /* editor/decor/blame.c */
   struct Symbols *symbols;         /* lsp/symbols/symbols.c */
   GtkWidget *breadcrumbs;          /* editor/decor/breadcrumbs.c: over the text */
   char *closers;                   /* closing brackets and quotes typed for the user (editing.c), from the

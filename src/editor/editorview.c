@@ -6,6 +6,7 @@
 
 #include "editor/text/detect.h"
 #include "debug/debughover.h"
+#include "editor/decor/blame.h"
 #include "editor/decor/breadcrumbs.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/gutter/diffgutter.h"
@@ -192,6 +193,7 @@ void editor_view_apply_settings(Tab *tab)
   gtk_source_buffer_set_style_scheme(tab->buffer, editor_style_scheme(t)); /* a new one after a rescan */
   occurrences_recolor(tab);
   inlay_apply_setting(tab);
+  blame_apply_setting(tab);
   breadcrumbs_update(tab);
   gtk_widget_queue_draw(
       GTK_WIDGET(gtk_source_view_get_gutter(view, GTK_TEXT_WINDOW_LEFT))); /* the line numbers, arrows */
@@ -543,6 +545,7 @@ void editor_view_init(Tab *tab, gboolean readonly)
   debug_hover_attach(tab);
   completion_attach(tab);
   inlay_attach(tab);
+  blame_attach(tab);
   symbols_attach(tab);
   snippets_attach(tab);
   navigate_attach(tab);
@@ -605,6 +608,7 @@ void editor_view_free(EditorView *v)
   signature_free(v->signature);
   semantic_free(v->semantic); /* cancel debounce before closing its LSP document */
   inlay_free(v->inlay);
+  blame_free(v->blame);
   symbols_free(v->symbols);
   v->semantic = NULL;
   lsp_close(v->tab);

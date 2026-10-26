@@ -155,6 +155,7 @@ static const Setting settings[] = {
   BOOL_SETTING("inlay-hints", inlay_hints, TRUE,
                " Parameter names and deduced types shown inside the lines (from the language servers)"),
   BOOL_SETTING("breadcrumbs", breadcrumbs, TRUE, " The file's folders and the symbols around the cursor, over each editor"),
+  BOOL_SETTING("line-blame", line_blame, TRUE, " Who last changed the cursor's line, and in which commit, after its end"),
   INT_SETTING("ruler", ruler, 80, 0, 300,
               " A vertical line after this column in editors, to keep lines short (80 by default, 120, ...); 0 turns"
               " it off"),

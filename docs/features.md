@@ -176,6 +176,10 @@ Create Branch…" asks only for the name). Unsaved editors are saved first; when
 you set it up (merge or rebase); "Git: Fetch" brings the remote's branches, and Push shows how far
 ahead / behind you are.
 
+**Line blame.** Once the cursor rests on a line, who last changed it, when and the commit's subject
+show dim after its end ("Ada, 3 days ago · Fix the parser"); a line you changed and did not commit
+says "Not committed yet". The "Line blame" setting turns it off.
+
 **Files panel.** A folder is read when you open it and shows new, removed and renamed files by
 itself; the git colors follow commits and saves, and an open file with errors or warnings (and
 the folders holding it) is named in red or yellow. Files and folders can be cut, copied and pasted
