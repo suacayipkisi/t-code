@@ -15,6 +15,3 @@ void problems_update(App *t);
 
 /* Focuses the problems list. */
 void problems_focus(App *t);
-
-/* Shows the dock containing the Problems panel and brings it to front. */
-void show_problems(App *t);

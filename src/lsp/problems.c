@@ -51,12 +51,6 @@ void problems_focus(App *t)
     gtk_widget_grab_focus(pv.list);
 }
 
-void show_problems(App *t)
-{
-  show_sidebar_page(t, "problems");
-  problems_focus(t);
-}
-
 /* Rebuilds the list from every open editor's diagnostics. */
 static void rebuild(App *t)
 {

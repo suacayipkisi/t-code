@@ -80,8 +80,3 @@ void move_to_new_window(App *t)
   move_tab(tab, WINDOW_GROUP);
   select_tab(tab);
 }
-
-GtkWindow *active_window(App *t)
-{
-  return t->editors.second && gtk_window_is_active(t->editors.second) ? t->editors.second : t->window;
-}

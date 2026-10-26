@@ -17,7 +17,3 @@ void open_in_new_window(App *t, const char *path);
 
 /* Moves the current tab into the second window. */
 void move_to_new_window(App *t);
-
-/* The main window, or the second one while it is the active one: for dialogs and pickers asked for
- * from the keyboard. */
-GtkWindow *active_window(App *t);
