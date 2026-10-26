@@ -6,6 +6,8 @@ PREFIX="${PREFIX:-$HOME/.local}"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 
 for path in "$PREFIX/bin/t-code" "$PREFIX/libexec/t-code" "$PREFIX/share/t-code" \
+  "$DATA_HOME/applications/io.github.suacayipkisi.tcode.desktop" \
+  "$DATA_HOME/icons/hicolor/scalable/apps/io.github.suacayipkisi.tcode.svg" \
   "$DATA_HOME/applications/io.github.tcode.desktop" \
   "$DATA_HOME/icons/hicolor/scalable/apps/io.github.tcode.svg"; do
   if [[ -e "$path" || -L "$path" ]]; then

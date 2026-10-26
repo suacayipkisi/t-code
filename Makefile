@@ -1,4 +1,4 @@
-VERSION := 0.4.0
+VERSION := 0.4.1
 PKGS    := gtk4 gtksourceview-5 json-glib-1.0 vte-2.91-gtk4 gio-unix-2.0 md4c
 # t-code: src/main.c and the feature folders (src/window, src/editor, ...).
 APP_SRC := $(wildcard src/*.c src/*/*.c src/*/*/*.c)
@@ -213,12 +213,15 @@ install: build/t-code
 	install -Dm644 styles/dark-classic.xml $(DESTDIR)$(DATADIR)/t-code/styles/dark-classic.xml
 	install -d $(DESTDIR)$(DATADIR)/t-code/snippets
 	install -m644 snippets/*.snippets $(DESTDIR)$(DATADIR)/t-code/snippets/
-	install -Dm644 desktop/io.github.tcode.svg \
-	  $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.tcode.svg
+	install -Dm644 desktop/io.github.suacayipkisi.tcode.svg \
+	  $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.suacayipkisi.tcode.svg
 	install -d $(DESTDIR)$(DATADIR)/applications
-	sed 's|@BIN@|$(BINDIR)/t-code|' desktop/io.github.tcode.desktop.in \
-	  > $(DESTDIR)$(DATADIR)/applications/io.github.tcode.desktop
-	chmod 644 $(DESTDIR)$(DATADIR)/applications/io.github.tcode.desktop
+	sed 's|@BIN@|$(BINDIR)/t-code|' desktop/io.github.suacayipkisi.tcode.desktop.in \
+	  > $(DESTDIR)$(DATADIR)/applications/io.github.suacayipkisi.tcode.desktop
+	chmod 644 $(DESTDIR)$(DATADIR)/applications/io.github.suacayipkisi.tcode.desktop
+	install -Dm644 desktop/io.github.suacayipkisi.tcode.metainfo.xml \
+	  $(DESTDIR)$(DATADIR)/metainfo/io.github.suacayipkisi.tcode.metainfo.xml
+	install -Dm644 docs/t-code.1 $(DESTDIR)$(DATADIR)/man/man1/t-code.1
 
 build:
 	mkdir -p build

@@ -23,7 +23,7 @@ combined `SHA256SUMS`. The AppImage is not part of the release any more; `packag
 one by hand. The AUR build artifact is validated but is not attached as a release package;
 publish the recipe separately to AUR after account/repository setup.
 On Fedora, the RPM is built directly with `rpmbuild`; install its build dependencies once with
-`sudo dnf install rpm-build dnf-plugins-core && sudo dnf builddep packaging/fedora/t-code.spec`.
+`sudo dnf install rpm-build dnf-plugins-core && sudo dnf builddep packaging/fedora/t-code-ide.spec`.
 
 `packaging/test.sh` installs each distribution package into a fresh container, resolves its
 dependencies, checks installed files and starts t-code under Xvfb with clangd, a project, preview,

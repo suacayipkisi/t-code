@@ -1,6 +1,6 @@
 # Maintainer: suacayipkisi <konuki8523@gmail.com>
-pkgname=t-code
-pkgver=0.4.0
+pkgname=t-code-ide
+pkgver=0.4.1
 pkgrel=1
 pkgdesc='Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell'
 arch=('x86_64')
@@ -9,19 +9,20 @@ license=('MIT')
 depends=('glib2' 'gtk4' 'gtksourceview5' 'json-glib' 'vte4' 'md4c' 'clang' 'git'
          'ttf-cascadia-code' 'hicolor-icon-theme')
 makedepends=('pkgconf')
+conflicts=('t-code')
 optdepends=('ripgrep: faster Search panel (falls back to grep)'
             'gdb: the debugger (F5)')
 # packaging/build.sh makes this tarball from the working tree
-source=("$pkgname-$pkgver.tar.gz")
+source=("t-code-$pkgver.tar.gz")
 sha256sums=('SKIP')
 
 build() {
-  cd "$pkgname-$pkgver"
+  cd "t-code-$pkgver"
   make build/t-code
 }
 
 check() {
-  cd "$pkgname-$pkgver"
+  cd "t-code-$pkgver"
   build/t-code --version | grep -qx "t-code $pkgver"
   # The other tests open windows and need a display.
   make build/test-searchmatch build/test-detect build/test-linediff
@@ -31,7 +32,7 @@ check() {
 }
 
 package() {
-  cd "$pkgname-$pkgver"
+  cd "t-code-$pkgver"
   make DESTDIR="$pkgdir" PREFIX=/usr install
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 THIRD-PARTY.md "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY.md"

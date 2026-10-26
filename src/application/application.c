@@ -174,7 +174,8 @@ int application_run(int argc, char **argv)
 {
   static const GActionEntry actions[] = { { .name = "new-window", .activate = on_new_window_action } };
   App t = { .project.root = g_get_current_dir(), .settings.font_scale = 1.0, .settings.preview_scale = 1.0 };
-  GtkApplication *app = gtk_application_new("io.github.tcode", G_APPLICATION_HANDLES_OPEN | G_APPLICATION_NON_UNIQUE);
+  GtkApplication *app =
+      gtk_application_new("io.github.suacayipkisi.tcode", G_APPLICATION_HANDLES_OPEN | G_APPLICATION_NON_UNIQUE);
   int status;
 
   cli_add_options(G_APPLICATION(app));

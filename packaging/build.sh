@@ -14,8 +14,8 @@ build_fedora() {
     trap 'rm -rf "$top"' RETURN
     make_tarball "$top/SOURCES"
     info "Building the RPM with this machine's rpmbuild"
-    rpmbuild -ba --define "_topdir $top" "$PACKAGING/fedora/t-code.spec" ||
-      die "rpmbuild failed (missing build dependencies? sudo dnf builddep packaging/fedora/t-code.spec)"
+    rpmbuild -ba --define "_topdir $top" "$PACKAGING/fedora/t-code-ide.spec" ||
+      die "rpmbuild failed (missing build dependencies? sudo dnf builddep packaging/fedora/t-code-ide.spec)"
     cp "$top"/RPMS/*/*.rpm "$top"/SRPMS/*.rpm "$out/"
   else
     make_tarball "$out"
@@ -67,16 +67,16 @@ build_debian() {
 collect_release() {
   local release="$OUT/release" files=()
   rm -rf "$release" && mkdir -p "$release"
-  for f in "$OUT/fedora/t-code-$VERSION-"[0-9]*.x86_64.rpm \
-           "$OUT/arch/t-code-$VERSION-"[0-9]*-x86_64.pkg.tar.zst \
-           "$OUT/debian/t-code_$VERSION-"[0-9]*_amd64.deb \
-           "$OUT/void/t-code-${VERSION}_"[0-9]*.x86_64.xbps \
-           "$OUT/void-musl/t-code-${VERSION}_"[0-9]*.x86_64-musl.xbps \
+  for f in "$OUT/fedora/t-code-ide-$VERSION-"[0-9]*.x86_64.rpm \
+           "$OUT/arch/t-code-ide-$VERSION-"[0-9]*-x86_64.pkg.tar.zst \
+           "$OUT/debian/t-code-ide_$VERSION-"[0-9]*_amd64.deb \
+           "$OUT/void/t-code-ide-${VERSION}_"[0-9]*.x86_64.xbps \
+           "$OUT/void-musl/t-code-ide-${VERSION}_"[0-9]*.x86_64-musl.xbps \
            "$OUT/flatpak/t-code-$VERSION-"*.flatpak \
-           "$OUT/snap/t-code_${VERSION}_amd64.snap"; do
+           "$OUT/snap/t-code-ide_${VERSION}_amd64.snap"; do
     [[ -f "$f" ]] && files+=("$f")
   done
-  if [[ -f "$OUT/snap/t-code_${VERSION}_amd64.snap" ]]; then
+  if [[ -f "$OUT/snap/t-code-ide_${VERSION}_amd64.snap" ]]; then
     for f in "$OUT/snap/build-environment.txt" "$OUT/snap/build-manifest.yaml"; do
       [[ -f "$f" ]] || die "Missing Snap build provenance: $f"
       files+=("$f")

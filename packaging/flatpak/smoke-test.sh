@@ -6,8 +6,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${1:-}" == --session ]]; then
   (($# == 2)) || exit 2
   bundle=$2
-  app=io.github.tcode
-  version="$(jq -er '."x-tcode-version"' "$here/io.github.tcode.json")"
+  app=io.github.suacayipkisi.tcode
+  version="$(jq -er '."x-tcode-version"' "$here/io.github.suacayipkisi.tcode.json")"
   flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
   flatpak --user install --assumeyes --noninteractive --bundle "$bundle"
   desktop="$FLATPAK_USER_DIR/exports/share/applications/$app.desktop"
@@ -20,7 +20,7 @@ if [[ "${1:-}" == --session ]]; then
   exit
 fi
 if (($# != 1)); then
-  echo "Usage: bash packaging/flatpak/smoke-test.sh /absolute/path/t-code-0.4.0-ARCH.flatpak" >&2
+  echo "Usage: bash packaging/flatpak/smoke-test.sh /absolute/path/t-code-0.4.1-ARCH.flatpak" >&2
   exit 2
 fi
 if ((EUID == 0)); then

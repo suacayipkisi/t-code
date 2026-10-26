@@ -1,5 +1,5 @@
 {
-    "id": "io.github.tcode",
+    "id": "io.github.suacayipkisi.tcode",
     "runtime": "org.gnome.Sdk",
     "runtime-version": "50",
     "sdk": "org.gnome.Sdk",
@@ -8,8 +8,8 @@
     ],
     "command": "t-code",
     "default-branch": "stable",
-    "x-tcode-version": "0.4.0",
-    "x-tcode-release-tag": "v0.4.0",
+    "x-tcode-version": "0.4.1",
+    "x-tcode-release-tag": "v0.4.1",
     "finish-args": [
         "--socket=wayland",
         "--socket=fallback-x11",
@@ -137,8 +137,6 @@
             "build-commands": [
                 "env PKG_CONFIG_PATH=\"/app/lib64/pkgconfig:/app/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}\" LDFLAGS=\"-Wl,-rpath-link,/app/lib64${LDFLAGS:+ $LDFLAGS}\" make -j${FLATPAK_BUILDER_N_JOBS} CC=gcc build/t-code",
                 "make CC=gcc PREFIX=/app install",
-                "install -Dm644 io.github.tcode.desktop /app/share/applications/io.github.tcode.desktop",
-                "install -Dm644 io.github.tcode.metainfo.xml /app/share/metainfo/io.github.tcode.metainfo.xml",
                 "install -Dm644 LICENSE /app/share/licenses/t-code/LICENSE",
                 "install -Dm644 THIRD-PARTY.md /app/share/licenses/t-code/THIRD-PARTY.md"
             ],
@@ -149,14 +147,6 @@
                     "archive-type": "tar-gzip",
                     "sha256": "a45a80fff10b234ecdf94b79810350e6398d8e360158b73a03e766ed757cf5bf",
                     "x-tcode-source": true
-                },
-                {
-                    "type": "file",
-                    "path": "io.github.tcode.desktop"
-                },
-                {
-                    "type": "file",
-                    "path": "io.github.tcode.metainfo.xml"
                 }
             ]
         }

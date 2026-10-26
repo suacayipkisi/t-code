@@ -1,4 +1,4 @@
-Source: t-code
+Source: t-code-ide
 Section: devel
 Priority: optional
 Maintainer: suacayipkisi <konuki8523@gmail.com>
@@ -14,7 +14,7 @@ Standards-Version: 4.7.0
 Homepage: https://github.com/suacayipkisi/t-code
 Rules-Requires-Root: no
 
-Package: t-code
+Package: t-code-ide
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
@@ -22,11 +22,13 @@ Depends: ${shlibs:Depends},
          git,
          fonts-cascadia-code,
          hicolor-icon-theme
+Breaks: t-code (<< 0.4.1)
+Replaces: t-code (<< 0.4.1)
 Recommends: ripgrep,
             gdb
 Description: lightweight C/C++ IDE
- t-code is a lightweight C/C++ IDE: a file tree,
- GtkSourceView editor tabs sharing one clangd (errors underlined, completion,
- parameter hints, go to definition) and a shell, in a GTK4 window with
- Dark Classic and other color themes. It also has a Search panel, Source Control, git comparisons
- and Markdown previews.
+ t-code is a lightweight C/C++ IDE in a GTK4 window: a project file tree,
+ GtkSourceView editor tabs sharing one clangd (diagnostics, completion,
+ parameter hints, go to definition, quick fixes), a terminal, a Search panel,
+ Source Control, git comparisons and Markdown previews. Projects are built,
+ run and debugged (with gdb) from the editor.

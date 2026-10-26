@@ -2504,7 +2504,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/debugging-conditions", test_debugging_conditions);
   g_test_add_func("/window/disassembly", test_disassembly);
 
-  gapp = gtk_application_new("io.github.tcode.test", G_APPLICATION_NON_UNIQUE);
+  gapp = gtk_application_new("io.github.suacayipkisi.tcode.test", G_APPLICATION_NON_UNIQUE);
   g_object_set_data(G_OBJECT(gapp), "status", &status);
   g_signal_connect(gapp, "activate", G_CALLBACK(on_activate), NULL);
   g_application_run(G_APPLICATION(gapp), 1, argv);

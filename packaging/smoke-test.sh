@@ -21,8 +21,8 @@ check "t-code --version prints 't-code $VERSION'" test "$("$TCODE_BIN" --version
 if [[ "$TCODE_BIN" == "t-code" ]]; then
   check "the editor's style scheme in $share/styles" test -f "$share/styles/dark-classic.xml"
   check "the built-in snippets in $share/snippets" test -f "$share/snippets/c.snippets"
-  check "desktop entry is valid" desktop-file-validate /usr/share/applications/io.github.tcode.desktop
-  check "icon installed" test -f /usr/share/icons/hicolor/scalable/apps/io.github.tcode.svg
+  check "desktop entry is valid" desktop-file-validate /usr/share/applications/io.github.suacayipkisi.tcode.desktop
+  check "icon installed" test -f /usr/share/icons/hicolor/scalable/apps/io.github.suacayipkisi.tcode.svg
 fi
 for cmd in clangd git; do
   check "dependency '$cmd' installed" command -v "$cmd"

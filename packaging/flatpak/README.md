@@ -2,13 +2,12 @@
 
 This directory is self-contained: copy its contents into a Flathub manifest
 repository without the shared `packaging/` scripts. The application ID is
-`io.github.tcode`; the packaged version is the manifest's `x-tcode-version`.
+`io.github.suacayipkisi.tcode`; the packaged version is the manifest's `x-tcode-version`.
 
 The t-code source (the archive marked `x-tcode-source`) is pinned to the commit
-of the release tag `v<x-tcode-version>` with the archive's SHA-256, and the
-metainfo's screenshot to the same commit. After a release tag is pushed,
-`packaging/flatpak/update-source.sh` updates both (it checks the tag and the
-archive's `VERSION`). Every archive has a checksum and the fast_float Git
+of the release tag `v<x-tcode-version>` with the archive's SHA-256. After a
+release tag is pushed, `packaging/flatpak/update-source.sh` updates it (it checks
+the tag and the archive's `VERSION`). Every archive has a checksum and the fast_float Git
 source has both a tag and commit.
 
 ## Runtime and tools
@@ -60,17 +59,17 @@ bash packaging/flatpak/build.sh --local-source "$PWD" packaging/packages/flatpak
 ```
 
 `--local-source` also accepts an extracted release/CI source tree. Its Makefile
-must still declare `VERSION := 0.4.0`. Only the application archive is replaced;
+must still declare `VERSION := 0.4.1`. Only the application archive is replaced;
 dependency pins, permissions, and package-local metadata remain unchanged.
 Existing object files, Git state, and output directories are excluded. No
 source files are edited, and the checkout may be mounted read-only.
 
 The output directory defaults to `packaging/packages/flatpak`. It contains:
 
-- `t-code-0.4.0-<architecture>.flatpak`: an installable, unsigned bundle;
+- `t-code-0.4.1-<architecture>.flatpak`: an installable, unsigned bundle;
 - `repo/`: an unsigned OSTree repository containing
-  `app/io.github.tcode/<architecture>/stable`;
-- `io.github.tcode.json`: the resolved-input manifest used by the helper;
+  `app/io.github.suacayipkisi.tcode/<architecture>/stable`;
+- `io.github.suacayipkisi.tcode.json`: the resolved-input manifest used by the helper;
 - `build/` and `state/`: build output and dependency/build caches.
 
 The helper adds the user-level `flathub` remote idempotently, installs missing
@@ -83,14 +82,15 @@ For a direct Flathub-style build, the checked-in manifest is also usable as-is:
 
 ```sh
 flatpak-builder --user --install-deps-from=flathub --disable-rofiles-fuse \
-  --force-clean --repo=flatpak-repo flatpak-build packaging/flatpak/io.github.tcode.json
+  --force-clean --repo=flatpak-repo flatpak-build packaging/flatpak/io.github.suacayipkisi.tcode.json
 ```
 
-The Makefile installs the existing `io.github.tcode.svg` icon and style scheme.
-The package-local desktop entry exports file arguments with `%F` and includes
+`make install` installs the icon, the style scheme, the desktop entry and the
+MetaInfo from the source's `desktop/` (the same files the other packages ship).
+The desktop entry exports file arguments with `%F` and includes
 the New Window action. Flatpak rewrites that entry to use `--file-forwarding`
 and `@@` markers. The installed MetaInfo includes the desktop ID, license,
-release, and a screenshot from the pinned upstream commit.
+releases, and a screenshot pinned to an upstream commit.
 
 ## Permissions and project access
 
@@ -116,9 +116,9 @@ For command-line file/folder opening, use Flatpak's file forwarding rather
 than passing an inaccessible raw host path:
 
 ```sh
-flatpak install --user ./packaging/packages/flatpak/t-code-0.4.0-x86_64.flatpak
-flatpak run --file-forwarding io.github.tcode @@ "$HOME/projects/example" @@
-flatpak run --file-forwarding io.github.tcode @@ "$HOME/projects/example/main.c" @@
+flatpak install --user ./packaging/packages/flatpak/t-code-0.4.1-x86_64.flatpak
+flatpak run --file-forwarding io.github.suacayipkisi.tcode @@ "$HOME/projects/example" @@
+flatpak run --file-forwarding io.github.suacayipkisi.tcode @@ "$HOME/projects/example/main.c" @@
 ```
 
 This requires a functioning document portal and file-chooser backend on the
@@ -126,11 +126,11 @@ host. A deployment without them can grant one project directory explicitly
 instead of granting the entire home or host filesystem:
 
 ```sh
-flatpak run --filesystem="$HOME/projects/example" io.github.tcode "$HOME/projects/example"
+flatpak run --filesystem="$HOME/projects/example" io.github.suacayipkisi.tcode "$HOME/projects/example"
 ```
 
 For a persistent, user-chosen grant use
-`flatpak override --user --filesystem="$HOME/projects/example" io.github.tcode`.
+`flatpak override --user --filesystem="$HOME/projects/example" io.github.suacayipkisi.tcode`.
 Git worktrees, submodules, and external include trees need their referenced
 locations granted too. The package does not expose `~/.ssh`, Git configuration,
 credential stores, SSH/GPG agents, or host-installed executables. Configure
@@ -144,7 +144,7 @@ Flatpak redirects `XDG_CONFIG_HOME` to its private app configuration directory.
 With default host paths, the current checkout discovers user plugins at:
 
 ```text
-~/.var/app/io.github.tcode/config/t-code/plugins/<plugin-id>/
+~/.var/app/io.github.suacayipkisi.tcode/config/t-code/plugins/<plugin-id>/
 ```
 
 The native installation's `~/.config/t-code/plugins` and host system plugins
@@ -168,7 +168,7 @@ uses the `preview` command, which every release has.
 
 ```sh
 bash packaging/flatpak/smoke-test.sh \
-  "$PWD/packaging/packages/flatpak/t-code-0.4.0-x86_64.flatpak"
+  "$PWD/packaging/packages/flatpak/t-code-0.4.1-x86_64.flatpak"
 ```
 
 Required host tools are Flatpak, jq, desktop-file-utils, dbus-run-session,
@@ -193,7 +193,7 @@ podman build -t t-code-flatpak-test \
   -f packaging/flatpak/Containerfile packaging/flatpak
 podman run --rm --privileged \
   -v "$PWD/packaging/packages/flatpak:/out:ro,Z" \
-  t-code-flatpak-test /out/t-code-0.4.0-x86_64.flatpak
+  t-code-flatpak-test /out/t-code-0.4.1-x86_64.flatpak
 ```
 
 The image supplies an unprivileged `tester` user. The outer container needs
@@ -208,5 +208,5 @@ This headless test does not interact with a host file-chooser portal, test
 credential providers, or exercise the plugin UI. Desktop portal folder grants
 and file forwarding need a separate real-desktop acceptance check. Release CI
 should call `build.sh --local-source <source-tree> <out>` and then
-`smoke-test.sh <out>/t-code-0.4.0-<architecture>.flatpak`; no shared script is
+`smoke-test.sh <out>/t-code-0.4.1-<architecture>.flatpak`; no shared script is
 sourced.

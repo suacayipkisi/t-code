@@ -65,7 +65,7 @@ cp "$work/packaging/snap/snapcraft.yaml" "$work/snap/snapcraft.yaml"
     grep -E '^(PRETTY_NAME|VERSION_ID)=' /etc/os-release
   fi
 } | tee "$output/build-environment.txt"
-build_artifact="$work/t-code_${version}_amd64.snap"
+build_artifact="$work/t-code-ide_${version}_amd64.snap"
 (
   cd "$work"
   if [[ "$build_mode" == destructive ]]; then

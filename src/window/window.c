@@ -130,7 +130,7 @@ void build_window(App *t, GtkApplication *app)
   start_socket(t);
   plugins_init(t);
   gtk_icon_theme_add_search_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), t->paths.icons);
-  gtk_window_set_default_icon_name("io.github.tcode");
+  gtk_window_set_default_icon_name("io.github.suacayipkisi.tcode");
 
   t->window = GTK_WINDOW(gtk_application_window_new(app));
   inlay_peek_keys(t, t->window);

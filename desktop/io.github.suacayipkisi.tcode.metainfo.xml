@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright 2026 t-code contributors -->
 <component type="desktop-application">
-  <id>io.github.tcode</id>
+  <id>io.github.suacayipkisi.tcode</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>t-code</name>
@@ -18,17 +18,11 @@
     <ul>
       <li>Complete code, navigate symbols, and apply clangd quick fixes</li>
       <li>Review Git diffs and edit several files in split views</li>
-      <li>Run Make, CMake, and Meson builds with the included development tools</li>
-      <li>Debug sandboxed programs with GDB</li>
+      <li>Run Make, CMake, and Meson builds and the project's tasks</li>
+      <li>Debug programs with GDB</li>
     </ul>
-    <p>
-      This package runs projects and terminal commands inside a sandbox. Open
-      a project folder with the file chooser to grant access to its contents.
-      Host-installed tools, libraries, credentials, and files outside the
-      selected folder are not automatically available.
-    </p>
   </description>
-  <launchable type="desktop-id">io.github.tcode.desktop</launchable>
+  <launchable type="desktop-id">io.github.suacayipkisi.tcode.desktop</launchable>
   <url type="homepage">https://github.com/suacayipkisi/t-code</url>
   <url type="bugtracker">https://github.com/suacayipkisi/t-code/issues</url>
   <url type="vcs-browser">https://github.com/suacayipkisi/t-code</url>
@@ -42,6 +36,26 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.4.1" date="2026-10-26">
+      <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.4.1</url>
+      <description>
+        <p>A log file for warnings, opened from the Help menu, and fixes:</p>
+        <ul>
+          <li>A word typed at several cursors is undone in one step</li>
+          <li>A long breadcrumb no longer widens the editor</li>
+          <li>The Outline panel forgets its widgets once they are gone</li>
+          <li>Socket requests are dropped while the window closes</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.4.0" date="2026-10-26">
+      <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.4.0</url>
+      <description>
+        <p>Multiple cursors, project-wide replace with a preview, snippets, inlay hints, an Outline panel,
+          breadcrumbs, call and type hierarchy, Git branches, pull, fetch, stash and line blame, and more
+          language servers.</p>
+      </description>
+    </release>
     <release version="0.3.2" date="2026-10-24">
       <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.3.2</url>
       <description>
@@ -61,5 +75,9 @@
       </description>
     </release>
   </releases>
+  <branding>
+    <color type="primary" scheme_preference="light">#ffe57a</color>
+    <color type="primary" scheme_preference="dark">#3c3c3c</color>
+  </branding>
   <content_rating type="oars-1.1"/>
 </component>

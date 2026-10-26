@@ -4,8 +4,8 @@
 # packaging/aur/update-checksum.sh, which puts that archive's sha256 here and in .SRCINFO.
 # packaging/build.sh cannot catch a stale checksum: it builds from the working tree's tarball and
 # replaces the checksum with that one's.
-pkgname=t-code
-pkgver=0.4.0
+pkgname=t-code-ide
+pkgver=0.4.1
 pkgrel=1
 pkgdesc='Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell'
 arch=('x86_64')
@@ -14,18 +14,19 @@ license=('MIT')
 depends=('glib2' 'gtk4' 'gtksourceview5' 'json-glib' 'vte4' 'md4c' 'clang' 'git'
          'ttf-cascadia-code' 'hicolor-icon-theme')
 makedepends=('pkgconf')
+conflicts=('t-code')
 optdepends=('ripgrep: faster Search panel (falls back to grep)'
             'gdb: the debugger (F5)')
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+source=("t-code-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('0076f6eea270c5fc0005e12289e067d062aae61f67c155489183bb2032bc20e7')
 
 build() {
-  cd "$pkgname-$pkgver"
+  cd "t-code-$pkgver"
   make build/t-code
 }
 
 check() {
-  cd "$pkgname-$pkgver"
+  cd "t-code-$pkgver"
   build/t-code --version | grep -qx "t-code $pkgver"
   # The other tests open windows and need a display.
   make build/test-searchmatch build/test-detect build/test-linediff
@@ -35,7 +36,7 @@ check() {
 }
 
 package() {
-  cd "$pkgname-$pkgver"
+  cd "t-code-$pkgver"
   make DESTDIR="$pkgdir" PREFIX=/usr install
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 THIRD-PARTY.md "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY.md"

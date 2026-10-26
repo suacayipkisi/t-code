@@ -22,7 +22,7 @@ fi
 for command in flatpak flatpak-builder jq; do
   command -v "$command" >/dev/null || { echo "Missing build prerequisite: $command" >&2; exit 1; }
 done
-version="$(jq -er '."x-tcode-version"' "$here/io.github.tcode.json")"
+version="$(jq -er '."x-tcode-version"' "$here/io.github.suacayipkisi.tcode.json")"
 arch="${FLATPAK_ARCH:-$(flatpak --default-arch)}"
 case "$arch" in
   x86_64 | aarch64) ;;
@@ -67,7 +67,7 @@ if [[ -n "$source_dir" ]]; then
     manifest_dir="$source_dir"
   fi
 fi
-manifest_tmp="$(mktemp "$manifest_dir/.io.github.tcode.XXXXXX")"
+manifest_tmp="$(mktemp "$manifest_dir/.io.github.suacayipkisi.tcode.XXXXXX")"
 manifest="$manifest_tmp.json"
 mv "$manifest_tmp" "$manifest"
 trap 'rm -f "$manifest"; [[ -z "$staging" ]] || rm -rf "$staging"' EXIT
@@ -95,7 +95,7 @@ jq --arg packaging "$packaging_path" --arg source "$source_path" \
       )
     else . end
   )
-' "$here/io.github.tcode.json" > "$manifest"
+' "$here/io.github.suacayipkisi.tcode.json" > "$manifest"
 
 flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 flatpak-builder --user --install-deps-from=flathub --force-clean \
@@ -105,5 +105,5 @@ flatpak-builder --user --install-deps-from=flathub --force-clean \
 bundle="$out/t-code-$version-$arch.flatpak"
 flatpak build-bundle --arch="$arch" \
   --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
-  "$out/repo" "$bundle" io.github.tcode stable
+  "$out/repo" "$bundle" io.github.suacayipkisi.tcode stable
 printf 'Bundle: %s\nRepository: %s\n' "$bundle" "$out/repo"

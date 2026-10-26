@@ -1,8 +1,8 @@
-# <img src="desktop/io.github.tcode.svg" alt="" width="48" align="top"> T-Code
+# <img src="desktop/io.github.suacayipkisi.tcode.svg" alt="" width="48" align="top"> T-Code
 
 A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) and other color themes.
 
-### Jump => [Latest Release v0.4.0](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.0) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md)
+### Jump => [Latest Release v0.4.1](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.1) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md)
 
 ![t-code 0.3 in the Dark Classic color theme with the rounded look](docs/dark_classic-rounded.png)
 
@@ -65,15 +65,17 @@ files. More in [docs/features.md](docs/features.md#the-editor).
 
 `t-code --version` prints the installed version.
 
-### Packages ([latest release](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.0), x86_64)
+The packages are named `t-code-ide`; the command stays `t-code` (in the Snap `t-code-ide`, until the Store grants the `t-code` alias).
+
+### Packages ([latest release](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.1), x86_64)
 
 ```sh
-sudo dnf install ./t-code-0.4.0-1.fc44.x86_64.rpm        # Fedora 44
-sudo pacman -U t-code-0.4.0-1-x86_64.pkg.tar.zst         # Arch Linux
-sudo apt install ./t-code_0.4.0-1_amd64.deb              # Debian 13
-xbps-rindex -a t-code-0.4.0_1.x86_64.xbps && sudo xbps-install --repository="$PWD" t-code   # Void (or x86_64-musl)
-flatpak install --user ./t-code-0.4.0-x86_64.flatpak     # Flatpak
-sudo snap install --dangerous ./t-code_0.4.0_amd64.snap  # Snap (strict confinement)
+sudo dnf install ./t-code-ide-0.4.1-1.fc44.x86_64.rpm        # Fedora 44
+sudo pacman -U t-code-ide-0.4.1-1-x86_64.pkg.tar.zst         # Arch Linux
+sudo apt install ./t-code-ide_0.4.1-1_amd64.deb              # Debian 13
+xbps-rindex -a t-code-ide-0.4.1_1.x86_64.xbps && sudo xbps-install --repository="$PWD" t-code-ide   # Void (or x86_64-musl)
+flatpak install --user ./t-code-0.4.1-x86_64.flatpak         # Flatpak
+sudo snap install --dangerous ./t-code-ide_0.4.1_amd64.snap  # Snap (strict confinement)
 ```
 
 The package manager pulls in clangd, git and the Cascadia Code font (Void has no Cascadia Code:

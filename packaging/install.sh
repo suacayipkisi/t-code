@@ -3,8 +3,8 @@
 #   ~/.local/bin/t-code
 #   ~/.local/share/t-code/styles/dark-classic.xml       the editor's colors
 #   ~/.local/share/t-code/snippets/*.snippets           the built-in snippets
-#   ~/.local/share/applications/io.github.tcode.desktop app menu entry
-#   ~/.local/share/icons/hicolor/scalable/apps/io.github.tcode.svg
+#   ~/.local/share/applications/io.github.suacayipkisi.tcode.desktop app menu entry
+#   ~/.local/share/icons/hicolor/scalable/apps/io.github.suacayipkisi.tcode.svg
 # Run it again after pulling changes to update the installed copy.
 set -euo pipefail
 
@@ -15,7 +15,7 @@ BIN="$PREFIX/bin/t-code"
 LIBEXEC="$PREFIX/libexec/t-code"
 SHARE="$PREFIX/share/t-code"
 APP_DIR="$DATA_HOME/applications"
-ICON="$DATA_HOME/icons/hicolor/scalable/apps/io.github.tcode.svg"
+ICON="$DATA_HOME/icons/hicolor/scalable/apps/io.github.suacayipkisi.tcode.svg"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m  %s\n' "$*"; }
@@ -58,12 +58,14 @@ install -m644 "$ROOT"/snippets/*.snippets "$SHARE/snippets/"
 info "Installed the snippets in $SHARE/snippets"
 
 # 5. App menu entry and icon
-install -Dm644 "$ROOT/desktop/io.github.tcode.svg" "$ICON"
+# Before 0.4.1 the application ID was io.github.tcode: drop that entry so the menu shows one t-code.
+rm -f "$APP_DIR/io.github.tcode.desktop" "$DATA_HOME/icons/hicolor/scalable/apps/io.github.tcode.svg"
+install -Dm644 "$ROOT/desktop/io.github.suacayipkisi.tcode.svg" "$ICON"
 touch "$DATA_HOME/icons/hicolor" # tells the desktop to rescan its icon cache
 mkdir -p "$APP_DIR"
-sed "s|@BIN@|$BIN|" "$ROOT/desktop/io.github.tcode.desktop.in" > "$APP_DIR/io.github.tcode.desktop"
+sed "s|@BIN@|$BIN|" "$ROOT/desktop/io.github.suacayipkisi.tcode.desktop.in" > "$APP_DIR/io.github.suacayipkisi.tcode.desktop"
 command -v update-desktop-database >/dev/null && update-desktop-database "$APP_DIR" 2>/dev/null || true
-info "Installed desktop entry: $APP_DIR/io.github.tcode.desktop"
+info "Installed desktop entry: $APP_DIR/io.github.suacayipkisi.tcode.desktop"
 
 info "Done. Run 't-code [dir]' or open 't-code' from the app menu."
 case ":$PATH:" in *":$PREFIX/bin:"*) ;; *) warn "$PREFIX/bin is not in your PATH" ;; esac

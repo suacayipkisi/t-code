@@ -1,10 +1,11 @@
-Name:           t-code
-Version:        0.4.0
+Name:           t-code-ide
+Version:        0.4.1
 Release:        1%{?dist}
 Summary:        Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell
 License:        MIT
 URL:            https://github.com/suacayipkisi/t-code
-Source0:        %{name}-%{version}.tar.gz
+# The upstream project and its archive are named t-code; the package is t-code-ide.
+Source0:        %{url}/archive/v%{version}/t-code-%{version}.tar.gz
 
 BuildRequires:  gcc
 BuildRequires:  make
@@ -15,6 +16,7 @@ BuildRequires:  pkgconfig(vte-2.91-gtk4)
 BuildRequires:  pkgconfig(gio-unix-2.0)
 BuildRequires:  pkgconfig(md4c)
 BuildRequires:  desktop-file-utils
+BuildRequires:  libappstream-glib
 
 Requires:       clang-tools-extra
 Requires:       git-core
@@ -22,16 +24,19 @@ Requires:       cascadia-code-fonts
 Requires:       hicolor-icon-theme
 Recommends:     ripgrep
 Recommends:     gdb
+# The package was called t-code before 0.4.1.
+Obsoletes:      t-code < 0.4.1-1
+Provides:       t-code = %{version}-%{release}
 
 %description
-t-code is a lightweight C/C++ IDE: a file tree,
-GtkSourceView editor tabs sharing one clangd (errors underlined, completion,
-parameter hints, go to definition) and a shell, in a GTK4 window with
-Dark Classic and other color themes. It also has a Search panel, Source Control, git comparisons
-and Markdown previews.
+t-code is a lightweight C/C++ IDE in a GTK4 window: a project file tree,
+GtkSourceView editor tabs sharing one clangd (diagnostics, completion,
+parameter hints, go to definition, quick fixes), a terminal, a Search panel,
+Source Control, git comparisons and Markdown previews. Projects are built,
+run and debugged (with gdb) from the editor.
 
 %prep
-%autosetup
+%autosetup -n t-code-%{version}
 
 %build
 %make_build build/t-code
@@ -40,7 +45,8 @@ and Markdown previews.
 %make_install PREFIX=%{_prefix} BINDIR=%{_bindir} DATADIR=%{_datadir}
 
 %check
-desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.tcode.desktop
+desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.suacayipkisi.tcode.desktop
+appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/io.github.suacayipkisi.tcode.metainfo.xml
 %{buildroot}%{_bindir}/t-code --version | grep -qx 't-code %{version}'
 # The other tests open windows and need a display.
 %make_build build/test-searchmatch build/test-detect build/test-linediff
@@ -52,11 +58,22 @@ build/test-linediff
 %license LICENSE THIRD-PARTY.md
 %doc README.md
 %{_bindir}/t-code
+%{_mandir}/man1/t-code.1*
 %{_datadir}/t-code/
-%{_datadir}/applications/io.github.tcode.desktop
-%{_datadir}/icons/hicolor/scalable/apps/io.github.tcode.svg
+%{_datadir}/applications/io.github.suacayipkisi.tcode.desktop
+%{_datadir}/icons/hicolor/scalable/apps/io.github.suacayipkisi.tcode.svg
+%{_metainfodir}/io.github.suacayipkisi.tcode.metainfo.xml
 
 %changelog
+* Mon Oct 26 2026 suacayipkisi <konuki8523@gmail.com> - 0.4.1-1
+- Renamed to t-code-ide; new application ID io.github.suacayipkisi.tcode
+- Ships the AppStream metainfo and a man page
+- A log file for warnings, opened from the Help menu
+- Fix: undo a word typed at several cursors in one step
+- Fix: a long breadcrumb no longer widens the editor
+- Fix: the Outline panel forgets its widgets once they are gone
+- Fix: socket requests are dropped while the window closes
+
 * Mon Oct 26 2026 suacayipkisi <konuki8523@gmail.com> - 0.4.0-1
 - Multiple cursors (add next occurrence, column selection, Alt+Click)
 - Replace across the project, with a preview

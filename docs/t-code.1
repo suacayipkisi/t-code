@@ -1,0 +1,51 @@
+.TH T-CODE 1 "October 2026" "t-code 0.4.1" "User Commands"
+.SH NAME
+t-code \- lightweight C/C++ IDE
+.SH SYNOPSIS
+.B t-code
+[\fIOPTION\fR...] [\fIFOLDER\fR | \fIFILE\fR...]
+.SH DESCRIPTION
+.B t-code
+is a GTK4 editor for C and C++ projects: a project file tree, editor tabs with clangd
+(diagnostics, completion, go to definition, quick fixes), a terminal, a Search panel, Source
+Control, git comparisons, Markdown previews, and building, running and debugging (with gdb) from
+the editor. Other language servers (pylsp, gopls, rust-analyzer) are used when they are on
+.BR PATH .
+.PP
+Given a folder, t-code opens it as the project. Given files, it opens them in tabs. Without
+arguments it reopens the last project.
+.SH OPTIONS
+.TP
+.BR \-v ", " \-\-version
+Show the version and exit.
+.TP
+.B \-\-new\-window
+Open an empty window that asks for a folder.
+.TP
+.BI \-\-send= "\(dqCOMMAND ARG\(dq"
+Send a request to the t-code this runs in (from its terminal, a task or a plugin), through the
+socket named by
+.BR TCODE_SOCKET .
+.TP
+.BR \-h ", " \-\-help
+Show the options.
+.SH ENVIRONMENT
+.TP
+.B TCODE_SOCKET
+The control socket of the t-code window, set in its terminals, tasks and plugins.
+.SH FILES
+.TP
+.I ~/.config/t-code/
+Settings (settings.ini), the session, snippets, styles and plugins.
+.TP
+.I ~/.local/state/t-code/t-code.log
+The last runs' starts, quits and warnings (Help: Open Log File).
+.TP
+.IR PROJECT /.t-code/tasks.json
+The project's build, run, test and debug tasks.
+.SH SEE ALSO
+.BR clangd (1),
+.BR gdb (1),
+.BR git (1)
+.PP
+https://github.com/suacayipkisi/t-code

@@ -9,23 +9,23 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # python3 (to talk to the socket) and pgrep. Only this version's package ($VERSION, set in the
 # container), when older ones are still in packaging/packages.
 declare -A INSTALL=(
-  ["fedora"]='dnf -y install $(ls /out/t-code-$VERSION-[0-9]*.x86_64.rpm) xorg-x11-server-Xvfb dbus-daemon
+  ["fedora"]='dnf -y install $(ls /out/t-code-ide-$VERSION-[0-9]*.x86_64.rpm) xorg-x11-server-Xvfb dbus-daemon
             python3 procps-ng desktop-file-utils fontconfig util-linux'
-  ["arch"]='pacman -Syu --noconfirm && pacman -U --noconfirm $(ls /out/t-code-$VERSION-[0-9]*-x86_64.pkg.tar.*) &&
+  ["arch"]='pacman -Syu --noconfirm && pacman -U --noconfirm $(ls /out/t-code-ide-$VERSION-[0-9]*-x86_64.pkg.tar.*) &&
           pacman -S --noconfirm --needed xorg-server-xvfb dbus python procps-ng desktop-file-utils'
-  ["aur"]='pacman -Syu --noconfirm && pacman -U --noconfirm $(ls /out/t-code-$VERSION-[0-9]*-x86_64.pkg.tar.*) &&
+  ["aur"]='pacman -Syu --noconfirm && pacman -U --noconfirm $(ls /out/t-code-ide-$VERSION-[0-9]*-x86_64.pkg.tar.*) &&
           pacman -S --noconfirm --needed xorg-server-xvfb dbus python procps-ng desktop-file-utils'
   ["debian"]='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
-            $(ls /out/t-code_$VERSION-[0-9]*_amd64.deb) xvfb dbus python3
+            $(ls /out/t-code-ide_$VERSION-[0-9]*_amd64.deb) xvfb dbus python3
             procps desktop-file-utils'
   # A local repository: xbps installs from repositories only, not from a package file.
   ["void"]='xbps-install -Syu xbps && xbps-install -Syu && mkdir -p /tmp/repo &&
-          cp /out/t-code-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&
-          xbps-install -y --repository=/tmp/repo t-code xorg-server-xvfb dbus python3 procps-ng
+          cp /out/t-code-ide-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&
+          xbps-install -y --repository=/tmp/repo t-code-ide xorg-server-xvfb dbus python3 procps-ng
           desktop-file-utils fontconfig util-linux dejavu-fonts-ttf'
   ["void-musl"]='xbps-install -Syu xbps && xbps-install -Syu && mkdir -p /tmp/repo &&
-          cp /out/t-code-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&
-          xbps-install -y --repository=/tmp/repo t-code xorg-server-xvfb dbus python3 procps-ng
+          cp /out/t-code-ide-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&
+          xbps-install -y --repository=/tmp/repo t-code-ide xorg-server-xvfb dbus python3 procps-ng
           desktop-file-utils fontconfig util-linux dejavu-fonts-ttf'
 )
 # Void has no package for the Cascadia Code font: t-code falls back to the default monospace one
@@ -52,7 +52,7 @@ test_flatpak() {
 }
 
 test_snap() {
-  local bundle="$OUT/snap/t-code_${VERSION}_amd64.snap"
+  local bundle="$OUT/snap/t-code-ide_${VERSION}_amd64.snap"
   [[ -f "$bundle" ]] || die "No Snap package at $bundle, run packaging/build.sh snap"
   info "Smoke-testing the strictly confined Snap on this Linux host"
   bash "$PACKAGING/snap/test.sh" "$bundle"

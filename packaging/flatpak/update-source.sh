@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pins packaging/flatpak/io.github.tcode.json's t-code source (and the metainfo's screenshot) to the
+# Pins packaging/flatpak/io.github.suacayipkisi.tcode.json's t-code source to the
 # v<VERSION> tag's commit, with the archive's sha256. Run it after the tag is pushed, together with
 # packaging/aur/update-checksum.sh: the release packages are built from the working tree
 # (build.sh --local-source), so a stale pin only shows when the manifest is built on its own
@@ -8,8 +8,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
 version="${1:-$VERSION}"
-manifest="$PACKAGING/flatpak/io.github.tcode.json"
-metainfo="$PACKAGING/flatpak/io.github.tcode.metainfo.xml"
+manifest="$PACKAGING/flatpak/io.github.suacayipkisi.tcode.json"
 
 declared="$(sed -n 's/.*"x-tcode-version": "\([^"]*\)".*/\1/p' "$manifest")"
 [[ "$declared" == "$version" ]] || die "The manifest says x-tcode-version $declared, not $version: bump it first"
@@ -36,6 +35,5 @@ if count != 1:
     sys.exit(f"{path}: expected one x-tcode-source archive, found {count}")
 open(path, "w").write(text)
 EOF
-sed -i "s|raw.githubusercontent.com/suacayipkisi/t-code/[0-9a-f]\{40\}/|raw.githubusercontent.com/suacayipkisi/t-code/$commit/|" "$metainfo"
 grep -q "$sum" "$manifest" || die "Could not update $manifest"
 info "Flatpak source pinned to v$version: $commit (sha256 $sum)"

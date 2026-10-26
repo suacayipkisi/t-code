@@ -48,13 +48,13 @@ def clangd_running():
 
 
 def smoke(version, work):
-    require(os.environ.get("FLATPAK_ID") == "io.github.tcode", "running inside io.github.tcode")
+    require(os.environ.get("FLATPAK_ID") == "io.github.suacayipkisi.tcode", "running inside io.github.suacayipkisi.tcode")
     require(run("t-code", "--version").stdout.strip() == f"t-code {version}", "installed version matches metadata")
     for path in (
         "/app/share/t-code/styles/dark-classic.xml",
-        "/app/share/icons/hicolor/scalable/apps/io.github.tcode.svg",
-        "/app/share/applications/io.github.tcode.desktop",
-        "/app/share/metainfo/io.github.tcode.metainfo.xml",
+        "/app/share/icons/hicolor/scalable/apps/io.github.suacayipkisi.tcode.svg",
+        "/app/share/applications/io.github.suacayipkisi.tcode.desktop",
+        "/app/share/metainfo/io.github.suacayipkisi.tcode.metainfo.xml",
     ):
         require(Path(path).is_file(), f"installed {path}")
     for command in ("clangd", "git", "gcc", "g++", "make", "cmake", "meson", "ninja", "gdb", "pkg-config"):

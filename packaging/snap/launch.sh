@@ -9,7 +9,7 @@ mkdir -p "$XDG_CONFIG_HOME/t-code/plugins" "$XDG_CONFIG_HOME/git" "$XDG_DATA_HOM
 export GIT_CONFIG_NOSYSTEM=1
 export GIT_CONFIG_GLOBAL="$XDG_CONFIG_HOME/git/config"
 
-# snapd supplies /run/user/<uid>/snap.t-code; do not move IPC into the host runtime.
+# snapd supplies /run/user/<uid>/snap.t-code-ide; do not move IPC into the host runtime.
 : "${XDG_RUNTIME_DIR:?snapd must provide XDG_RUNTIME_DIR}"
 export PATH="$SNAP/bin:$SNAP/usr/bin:$SNAP/toolchain/usr/bin:$PATH"
 export SHELL=/bin/bash

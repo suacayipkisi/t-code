@@ -49,12 +49,12 @@ run_in_container() { # <distro> <out dir> <command...>
 # Every version string has to agree with the Makefile's.
 check_versions() {
   local spec pkgbuild aur_pkgbuild aur_srcinfo changelog flatpak_version snap_version
-  spec="$(sed -n 's/^Version: *//p' "$PACKAGING/fedora/t-code.spec")"
+  spec="$(sed -n 's/^Version: *//p' "$PACKAGING/fedora/t-code-ide.spec")"
   pkgbuild="$(sed -n 's/^pkgver=//p' "$PACKAGING/arch/PKGBUILD")"
   aur_pkgbuild="$(sed -n 's/^pkgver=//p' "$PACKAGING/aur/PKGBUILD")"
   aur_srcinfo="$(sed -n 's/^[[:space:]]*pkgver = //p' "$PACKAGING/aur/.SRCINFO")"
-  changelog="$(sed -n '1s/^t-code (\([^-]*\)-.*/\1/p' "$PACKAGING/debian/debian/changelog")"
-  flatpak_version="$(sed -n 's/.*"x-tcode-version": "\([^"]*\)".*/\1/p' "$PACKAGING/flatpak/io.github.tcode.json")"
+  changelog="$(sed -n '1s/^t-code-ide (\([^-]*\)-.*/\1/p' "$PACKAGING/debian/debian/changelog")"
+  flatpak_version="$(sed -n 's/.*"x-tcode-version": "\([^"]*\)".*/\1/p' "$PACKAGING/flatpak/io.github.suacayipkisi.tcode.json")"
   snap_version="$(sed -n "s/^version: '\\([^']*\\)'/\\1/p" "$PACKAGING/snap/snapcraft.yaml")"
   [[ -n "$VERSION" ]] || die "No VERSION in Makefile"
   for v in "$spec" "$pkgbuild" "$aur_pkgbuild" "$aur_srcinfo" "$changelog" "$flatpak_version" "$snap_version"; do

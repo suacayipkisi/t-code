@@ -1,4 +1,16 @@
-t-code (0.4.0-1) unstable; urgency=medium
+t-code-ide (0.4.1-1) unstable; urgency=medium
+
+  * Renamed to t-code-ide; new application ID io.github.suacayipkisi.tcode.
+  * Ships the AppStream metainfo and a man page.
+  * A log file for warnings, opened from the Help menu.
+  * Fix: undo a word typed at several cursors in one step.
+  * Fix: a long breadcrumb no longer widens the editor.
+  * Fix: the Outline panel forgets its widgets once they are gone.
+  * Fix: socket requests are dropped while the window closes.
+
+ -- suacayipkisi <konuki8523@gmail.com>  Mon, 26 Oct 2026 19:00:00 +0300
+
+t-code-ide (0.4.0-1) unstable; urgency=medium
 
   * Multiple cursors (add next occurrence, column selection, Alt+Click).
   * Replace across the project, with a preview.
@@ -16,7 +28,7 @@ t-code (0.4.0-1) unstable; urgency=medium
 
  -- suacayipkisi <konuki8523@gmail.com>  Mon, 26 Oct 2026 10:46:21 +0300
 
-t-code (0.3.2-1) unstable; urgency=medium
+t-code-ide (0.3.2-1) unstable; urgency=medium
 
   * Fix release URL launcher from update dialog.
   * Fix compile_commands.json string quote escaping for clangd.
@@ -24,7 +36,7 @@ t-code (0.3.2-1) unstable; urgency=medium
 
  -- suacayipkisi <konuki8523@gmail.com>  Sat, 24 Oct 2026 18:45:00 +0300
 
-t-code (0.3.1-1) unstable; urgency=medium
+t-code-ide (0.3.1-1) unstable; urgency=medium
 
   * Plugins system (C shared libraries and UI contributions).
   * Problems panel (workspace diagnostics, filtering, jump to source).
@@ -36,7 +48,7 @@ t-code (0.3.1-1) unstable; urgency=medium
 
  -- suacayipkisi <konuki8523@gmail.com>  Sat, 24 Oct 2026 17:00:00 +0300
 
-t-code (0.3.0-1) unstable; urgency=medium
+t-code-ide (0.3.0-1) unstable; urgency=medium
 
   * A debugger: gdb over DAP, breakpoints (with conditions), F5 / stepping,
     the Run and Debug panel (variables, watch, call stack, breakpoints),
@@ -55,7 +67,7 @@ t-code (0.3.0-1) unstable; urgency=medium
 
  -- suacayipkisi <konuki8523@gmail.com>  Wed, 21 Oct 2026 20:00:00 +0300
 
-t-code (0.2.1-1) unstable; urgency=medium
+t-code-ide (0.2.1-1) unstable; urgency=medium
 
   * The Files panel is a native folder tree (GtkListView) instead of a
     terminal file manager: lazy folders, git colors, drag and drop, create /
@@ -72,7 +84,7 @@ t-code (0.2.1-1) unstable; urgency=medium
 
  -- suacayipkisi <konuki8523@gmail.com>  Tue, 20 Oct 2026 12:00:00 +0300
 
-t-code (0.2-1) unstable; urgency=medium
+t-code-ide (0.2-1) unstable; urgency=medium
 
   * Editor tabs are GtkSourceView 5 views instead of micro terminals, with an
     in-process clangd client: problems underlined, completion, parameter
@@ -88,7 +100,7 @@ t-code (0.2-1) unstable; urgency=medium
 
  -- suacayipkisi <konuki8523@gmail.com>  Mon, 19 Oct 2026 12:00:00 +0300
 
-t-code (0.1.1-1) unstable; urgency=medium
+t-code-ide (0.1.1-1) unstable; urgency=medium
 
   * Much less memory and CPU: editors start when their tab is first shown,
     hidden editors stay idle, clangd runs with two malloc arenas, the Markdown
@@ -98,7 +110,7 @@ t-code (0.1.1-1) unstable; urgency=medium
 
  -- suacayipkisi <konuki8523@gmail.com>  Sat, 17 Oct 2026 18:30:00 +0300
 
-t-code (0.1-1) unstable; urgency=medium
+t-code-ide (0.1-1) unstable; urgency=medium
 
   * First release.
 

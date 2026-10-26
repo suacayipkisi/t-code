@@ -1,6 +1,6 @@
 # Runs inside a Void Linux container (packaging/build.sh void / void-musl): builds t-code from
 # /out/t-code-$VERSION.tar.gz, runs the tests that need no display, installs it into a staging
-# folder and packs that with xbps-create into /out/t-code-$VERSION_<revision>.<arch>.xbps. The
+# folder and packs that with xbps-create into /out/t-code-ide-$VERSION_<revision>.<arch>.xbps. The
 # same script makes the glibc and the musl package; the container decides which.
 # Not an xbps-src template: xbps-src builds in its own chroot, which a rootless container does
 # not allow. The runtime dependencies are therefore listed here by hand.
@@ -31,15 +31,15 @@ build/test-linediff
 test "$(build/t-code --version)" = "t-code $VERSION"
 
 make install DESTDIR="$dest" PREFIX=/usr
-install -Dm644 LICENSE "$dest/usr/share/licenses/t-code/LICENSE"
-install -Dm644 THIRD-PARTY.md "$dest/usr/share/licenses/t-code/THIRD-PARTY.md"
-desktop-file-validate "$dest/usr/share/applications/io.github.tcode.desktop"
+install -Dm644 LICENSE "$dest/usr/share/licenses/t-code-ide/LICENSE"
+install -Dm644 THIRD-PARTY.md "$dest/usr/share/licenses/t-code-ide/THIRD-PARTY.md"
+desktop-file-validate "$dest/usr/share/applications/io.github.suacayipkisi.tcode.desktop"
 strip --strip-unneeded "$dest/usr/bin/t-code"
 
 # Cascadia Code is not in Void's repositories: without it the terminals use the default
 # monospace font (and any font can be picked in Settings).
 cd /out
-xbps-create -A "$arch" -n "t-code-${VERSION}_$revision" \
+xbps-create -A "$arch" -n "t-code-ide-${VERSION}_$revision" \
   -s "Lightweight C/C++ IDE: file manager, editor tabs with clangd and a shell" \
   -H "https://github.com/suacayipkisi/t-code" -l MIT \
   -m "suacayipkisi <konuki8523@gmail.com>" \

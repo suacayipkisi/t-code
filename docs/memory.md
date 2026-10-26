@@ -1,9 +1,8 @@
-# Memory: what t-code costs, and a 250–300 MB idle report (Milis Linux)
+# Memory: what t-code costs, and how to look into a high reading
 
-A report came in from Milis Linux: t-code idle at 250–300 MB. On Fedora 44, `tools/headless.sh`
-with the same kind of session (25 files) puts the window plus its helpers at about a third of that
-(clangd not counted). The difference is worth finding before writing more memory work. This is the
-plan to find it.
+When t-code looks bigger than expected on a system, this is the way to find out why. For
+reference, on Fedora 44 `tools/headless.sh` with a 25-file session puts the window plus its
+helpers at about 70 MB PSS, clangd not counted.
 
 ## 1. Split the number first
 

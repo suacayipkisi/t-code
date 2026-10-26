@@ -11,3 +11,4 @@ packaging/packages/
 !docs/tasks.md
 KNOWN_ISSUES.md
 Plan.md
+__pycache__/

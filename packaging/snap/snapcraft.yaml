@@ -1,6 +1,6 @@
-name: t-code
+name: t-code-ide
 base: core26
-version: '0.4.0'
+version: '0.4.1'
 summary: Native C and C++ IDE with clangd and an integrated terminal
 title: t-code
 contact: https://github.com/suacayipkisi/t-code/issues
@@ -14,7 +14,7 @@ description: |
 grade: stable
 confinement: strict
 license: MIT
-icon: desktop/io.github.tcode.svg
+icon: desktop/io.github.suacayipkisi.tcode.svg
 website: https://github.com/suacayipkisi/t-code
 source-code: https://github.com/suacayipkisi/t-code
 issues: https://github.com/suacayipkisi/t-code/issues
@@ -29,12 +29,12 @@ platforms:
   amd64:
 
 apps:
-  t-code:
+  t-code-ide:
     extensions: [gnome]
     command: usr/bin/t-code
     command-chain: [bin/t-code-env]
-    desktop: usr/share/applications/io.github.tcode.desktop
-    common-id: io.github.tcode
+    desktop: usr/share/applications/io.github.suacayipkisi.tcode.desktop
+    common-id: io.github.suacayipkisi.tcode
     plugs:
       - home
       - network
@@ -83,8 +83,8 @@ parts:
       install -Dm755 packaging/snap/meson.sh "$CRAFT_PART_INSTALL/bin/meson"
       install -Dm644 packaging/snap/smoke.py "$CRAFT_PART_INSTALL/usr/lib/t-code/snap-smoke.py"
       printf '%s\n' "$CRAFT_ARCH_TRIPLET_BUILD_FOR" > "$CRAFT_PART_INSTALL/usr/lib/t-code/toolchain-triplet"
-      sed -i 's|Exec=/usr/bin/t-code|Exec=t-code|; s|Icon=io.github.tcode|Icon=${SNAP}/usr/share/icons/hicolor/scalable/apps/io.github.tcode.svg|' \
-        "$CRAFT_PART_INSTALL/usr/share/applications/io.github.tcode.desktop"
+      sed -i 's|Exec=/usr/bin/t-code|Exec=t-code-ide|; s|Icon=io.github.suacayipkisi.tcode|Icon=${SNAP}/usr/share/icons/hicolor/scalable/apps/io.github.suacayipkisi.tcode.svg|' \
+        "$CRAFT_PART_INSTALL/usr/share/applications/io.github.suacayipkisi.tcode.desktop"
     prime:
       - -usr/share/man
       - -usr/share/lintian
