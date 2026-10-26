@@ -48,7 +48,7 @@ build/test-searchmatch: tests/test_searchmatch.c tests/util.h src/search/searchm
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags gio-2.0) -o $@ tests/test_searchmatch.c src/search/searchmatch.c \
 	  $(shell pkg-config --libs gio-2.0)
 
-build/test-search-panel: tests/test_search_panel.c tests/util.h src/search/search.c src/search/searchmatch.c src/window/palette.c \
+build/test-search-panel: tests/test_search_panel.c tests/util.h tests/widgets.h src/search/search.c src/search/searchmatch.c src/window/palette.c \
                          src/popups/contextmenu.c $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_search_panel.c src/search/search.c src/search/searchmatch.c \
 	  src/window/palette.c src/popups/contextmenu.c \
@@ -80,7 +80,7 @@ PAGE_SRC := $(filter-out src/editor/tabs.c src/editor/editor.c,$(wildcard src/ed
 build/test-editing: tests/test_editing.c tests/util.h tests/broadway.h $(PAGE_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_editing.c $(shell pkg-config --libs $(PKGS))
 
-build/test-lsp: tests/test_lsp.c tests/util.h $(PAGE_SRC) $(APP_HDR) | build
+build/test-lsp: tests/test_lsp.c tests/fake_server.h tests/util.h $(PAGE_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_lsp.c $(shell pkg-config --libs $(PKGS))
 
 # The debugger's protocol client against gdb (skipped without one).
@@ -109,7 +109,7 @@ build/test-files: tests/test_files.c tests/util.h $(wildcard src/files/*.c) src/
 	  $(shell pkg-config --libs $(PKGS))
 
 # A whole window (every module but main.c): how tabs open and close.
-build/test-window: tests/test_window.c tests/util.h tests/broadway.h $(APP_SRC) $(APP_HDR) build/license.h | build
+build/test-window: tests/test_window.c tests/util.h tests/widgets.h tests/broadway.h $(APP_SRC) $(APP_HDR) build/license.h | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_window.c \
 	  $(filter-out src/main.c,$(APP_SRC)) $(shell pkg-config --libs $(PKGS))
 

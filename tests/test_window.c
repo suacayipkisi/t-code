@@ -38,6 +38,7 @@
 #include "window/window.h"
 #include "broadway.h"
 #include "util.h"
+#include "widgets.h"
 
 #include <gio/gunixsocketaddress.h>
 #include <glib/gstdio.h>
@@ -1914,21 +1915,6 @@ static void test_no_lsp(void)
   g_free(saved_path);
 }
 
-/* The first widget under root of type (any for G_TYPE_NONE) with the CSS class (any for NULL). */
-static GtkWidget *descendant(GtkWidget *root, GType type, const char *css_class)
-{
-  for (GtkWidget *child = root ? gtk_widget_get_first_child(root) : NULL; child;
-       child = gtk_widget_get_next_sibling(child)) {
-    if ((type == G_TYPE_NONE || G_TYPE_CHECK_INSTANCE_TYPE(child, type)) &&
-        (!css_class || gtk_widget_has_css_class(child, css_class)))
-      return child;
-    GtkWidget *found = descendant(child, type, css_class);
-    if (found)
-      return found;
-  }
-  return NULL;
-}
-
 static Sym *outline_sym(const char *name, int kind, int line, int end_line)
 {
   Sym *sym = g_new0(Sym, 1);
@@ -1979,8 +1965,8 @@ static void test_outline(void)
   text = outline_text(&app);
   g_assert_cmpstr(text, ==, "S Shape\n  · w\n  · h\nƒ main\n");
   g_free(text);
-  GtkListBox *list = GTK_LIST_BOX(
-      descendant(descendant(GTK_WIDGET(app.window), G_TYPE_NONE, "tcode-outline"), GTK_TYPE_LIST_BOX, NULL));
+  GtkListBox *list = GTK_LIST_BOX(find_widget(find_widget(GTK_WIDGET(app.window), G_TYPE_NONE, NULL, "tcode-outline"),
+                                              GTK_TYPE_LIST_BOX, NULL, NULL));
   g_signal_emit_by_name(list, "row-activated", gtk_list_box_get_row_at_index(list, 3)); /* main */
   gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &iter,
                                    gtk_text_buffer_get_insert(GTK_TEXT_BUFFER(tab->buffer)));

@@ -3,6 +3,7 @@
  * display; skipped without one. */
 #include "search/search.h"
 #include "util.h"
+#include "widgets.h"
 
 #include <glib/gstdio.h>
 #include <string.h>
@@ -41,39 +42,24 @@ static App app;
 static GtkWidget *panel;
 static char *tmp, *other;
 
-/* The first widget under root (in order) of a type, with a tooltip or css class when given. */
-static GtkWidget *find(GtkWidget *root, GType type, const char *tooltip, const char *css_class)
-{
-  if (G_TYPE_CHECK_INSTANCE_TYPE(root, type) &&
-      (!tooltip || g_strcmp0(gtk_widget_get_tooltip_text(root), tooltip) == 0) &&
-      (!css_class || gtk_widget_has_css_class(root, css_class)))
-    return root;
-  for (GtkWidget *child = gtk_widget_get_first_child(root); child; child = gtk_widget_get_next_sibling(child)) {
-    GtkWidget *found = find(child, type, tooltip, css_class);
-    if (found)
-      return found;
-  }
-  return NULL;
-}
-
 static GtkEditable *entry(void)
 {
-  return GTK_EDITABLE(find(panel, GTK_TYPE_ENTRY, NULL, NULL));
+  return GTK_EDITABLE(find_widget(panel, GTK_TYPE_ENTRY, NULL, NULL));
 }
 
 static GtkListBox *list(void)
 {
-  return GTK_LIST_BOX(find(panel, GTK_TYPE_LIST_BOX, NULL, NULL));
+  return GTK_LIST_BOX(find_widget(panel, GTK_TYPE_LIST_BOX, NULL, NULL));
 }
 
 static const char *summary(void)
 {
-  return gtk_label_get_text(GTK_LABEL(find(panel, GTK_TYPE_LABEL, NULL, "summary")));
+  return gtk_label_get_text(GTK_LABEL(find_widget(panel, GTK_TYPE_LABEL, NULL, "summary")));
 }
 
 static GtkToggleButton *option(const char *tooltip)
 {
-  return GTK_TOGGLE_BUTTON(find(panel, GTK_TYPE_TOGGLE_BUTTON, tooltip, NULL));
+  return GTK_TOGGLE_BUTTON(find_widget(panel, GTK_TYPE_TOGGLE_BUTTON, tooltip, NULL));
 }
 
 /* Runs the main loop until the summary is final (not empty, not "Searching…") or 10s pass. */
@@ -187,7 +173,7 @@ static void test_fold(void)
   g_assert_cmpint(rows(FALSE, TRUE), ==, 4);
 
   /* Collapse All folds both files, pressed again unfolds them. */
-  GtkWidget *fold = find(panel, GTK_TYPE_BUTTON, "Collapse / Expand All", NULL);
+  GtkWidget *fold = find_widget(panel, GTK_TYPE_BUTTON, "Collapse / Expand All", NULL);
   g_signal_emit_by_name(fold, "clicked");
   g_assert_cmpint(rows(FALSE, TRUE), ==, 0);
   g_signal_emit_by_name(fold, "clicked");
@@ -218,15 +204,15 @@ static void test_options(void)
 
 static void test_include_exclude(void)
 {
-  GtkWidget *details = find(panel, GTK_TYPE_TOGGLE_BUTTON, "Toggle Search Details", NULL);
+  GtkWidget *details = find_widget(panel, GTK_TYPE_TOGGLE_BUTTON, "Toggle Search Details", NULL);
   GtkWidget *include, *exclude;
 
   reset_options();
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(details), TRUE);
   /* The include and exclude entries follow the row of ⇄ and ⋯. */
   GtkWidget *box = gtk_widget_get_next_sibling(gtk_widget_get_parent(details));
-  include = find(box, GTK_TYPE_ENTRY, NULL, NULL);
-  exclude = find(gtk_widget_get_last_child(box), GTK_TYPE_ENTRY, NULL, NULL);
+  include = find_widget(box, GTK_TYPE_ENTRY, NULL, NULL);
+  exclude = find_widget(gtk_widget_get_last_child(box), GTK_TYPE_ENTRY, NULL, NULL);
   g_assert_true(include != exclude);
 
   gtk_editable_set_text(GTK_EDITABLE(include), "*.h");
@@ -244,7 +230,7 @@ static void test_clear(void)
 {
   reset_options();
   search_for("foo");
-  g_signal_emit_by_name(find(panel, GTK_TYPE_BUTTON, "Clear Search Results", NULL), "clicked");
+  g_signal_emit_by_name(find_widget(panel, GTK_TYPE_BUTTON, "Clear Search Results", NULL), "clicked");
   g_assert_cmpstr(gtk_editable_get_text(entry()), ==, "");
   g_assert_cmpstr(summary(), ==, "");
   g_assert_null(nth_row(0));
