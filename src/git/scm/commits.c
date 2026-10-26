@@ -6,7 +6,7 @@
 #include "git/scm/scm.h"
 
 #include "editor/editor.h"
-#include "editor/preview.h"
+#include "editor/preview/preview.h"
 #include "git/compare.h"
 #include "git/scm/state.h"
 #include "popups/contextmenu.h"

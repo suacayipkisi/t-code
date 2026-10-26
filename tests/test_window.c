@@ -12,7 +12,7 @@
 #include "dialogs/settings.h"
 #include "editor/breakpoints.h"
 #include "editor/editorview.h"
-#include "editor/preview.h"
+#include "editor/preview/preview.h"
 #include "editor/recovery.h"
 #include "editor/tabmenu.h"
 #include "editor/tabs.h"

@@ -5,7 +5,7 @@
 #include "editor/tabmenu.h"
 
 #include "editor/editor.h"
-#include "editor/preview.h"
+#include "editor/preview/preview.h"
 #include "editor/tabs.h"
 #include "files/files.h"
 #include "git/compare.h"

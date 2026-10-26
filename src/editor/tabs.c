@@ -7,7 +7,7 @@
 #include "editor/diffgutter.h"
 #include "editor/editor.h"
 #include "editor/editorview.h"
-#include "editor/preview.h"
+#include "editor/preview/preview.h"
 #include "editor/tabmenu.h"
 #include "files/files.h"
 #include "files/opentabs.h"

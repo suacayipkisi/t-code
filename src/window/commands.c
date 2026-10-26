@@ -16,7 +16,7 @@
 #include "editor/findbar.h"
 #include "editor/folding.h"
 #include "editor/multicursor.h"
-#include "editor/preview.h"
+#include "editor/preview/preview.h"
 #include "editor/tabs.h"
 #include "lsp/client.h"
 #include "lsp/completion.h"

@@ -14,7 +14,7 @@
 #include "debug/debugview.h"
 #include "editor/breakpoints.h"
 #include "editor/editor.h"
-#include "editor/preview.h"
+#include "editor/preview/preview.h"
 #include "editor/tabs.h"
 #include "files/opentabs.h"
 #include "git/scm/scm.h"

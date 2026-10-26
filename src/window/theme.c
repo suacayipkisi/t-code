@@ -8,7 +8,7 @@
 #include "window/theme.h"
 #include "window/palette.h"
 #include "editor/editorview.h"
-#include "editor/preview.h"
+#include "editor/preview/preview.h"
 #include "editor/tabs.h"
 #include "files/files.h"
 #include "lsp/semantic.h"

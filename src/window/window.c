@@ -9,7 +9,7 @@
 #include "dialogs/settings.h"
 #include "editor/editor.h"
 #include "editor/editorview.h"
-#include "editor/preview.h"
+#include "editor/preview/preview.h"
 #include "editor/snippets.h"
 #include "editor/tabs.h"
 #include "files/files.h"

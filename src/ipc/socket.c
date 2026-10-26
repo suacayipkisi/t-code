@@ -15,7 +15,7 @@
 
 #include "debug/debugger.h"
 #include "editor/editor.h"
-#include "editor/preview.h"
+#include "editor/preview/preview.h"
 #include "git/compare.h"
 #include "project/project.h"
 #include "editor/tabs.h"
