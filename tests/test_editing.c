@@ -155,6 +155,38 @@ static void test_multi_add_next(void)
   free_tab(tab);
 }
 
+/* A word typed at several cursors goes with one Ctrl+Z (also after Escape) and comes back with one
+ * Ctrl+Shift+Z; a space starts the next word, another edit ends it. */
+static void test_multi_undo_word(void)
+{
+  Tab *tab = new_tab("ab ab\n");
+
+  cursor_at(tab, 0, 0);
+  multicursor_add_next(tab);
+  multicursor_add_next(tab);
+  for (const char *p = "new v"; *p; p++)
+    g_assert_true(multi_key(tab, gdk_unicode_to_keyval((guchar)*p), 0));
+  assert_text(tab, "new v new v\n");
+  g_assert_true(multi_key(tab, GDK_KEY_Escape, 0));
+  g_assert_true(multi_key(tab, GDK_KEY_z, GDK_CONTROL_MASK)); /* " v" */
+  assert_text(tab, "new new\n");
+  g_assert_true(multicursor_undo(tab, TRUE)); /* Ctrl+Y */
+  assert_text(tab, "new v new v\n");
+  g_assert_true(multicursor_undo(tab, FALSE));
+  assert_text(tab, "new new\n");
+  g_assert_true(multicursor_undo(tab, FALSE)); /* "new" */
+  assert_text(tab, "ab ab\n");
+  g_assert_false(multicursor_undo(tab, FALSE)); /* nothing left of ours: GTK's own */
+
+  multicursor_add_next(tab);
+  multicursor_add_next(tab);
+  g_assert_true(multi_key(tab, GDK_KEY_x, 0));
+  g_assert_true(multi_key(tab, GDK_KEY_y, 0));
+  gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(tab->buffer), "!", -1); /* another edit */
+  g_assert_false(multicursor_undo(tab, FALSE));
+  free_tab(tab);
+}
+
 /* Ctrl+Shift+L: every occurrence; copying gives one line each, and pasting as many lines gives one
  * each. */
 static void test_multi_select_all(void)
@@ -1691,6 +1723,7 @@ int main(int argc, char **argv)
   g_test_add_func("/guides/blank-lines", test_guide_blank_lines);
   g_test_add_func("/signature/outlived", test_signature_outlived);
   g_test_add_func("/editing/line-blame", test_line_blame);
+  g_test_add_func("/editing/multi-undo-word", test_multi_undo_word);
   g_test_add_func("/editing/conflicts", test_conflicts);
   g_test_add_func("/editing/conflicts-none", test_conflicts_none);
   g_test_add_func("/multicursor/add-next", test_multi_add_next);

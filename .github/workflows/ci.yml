@@ -21,7 +21,7 @@ jobs:
         run: |
           dnf -y install make gcc git clangd gdb \
             gtk4-devel gtksourceview5-devel json-glib-devel vte291-gtk4-devel md4c-devel \
-            xorg-x11-server-Xvfb dbus-x11 glibc-langpack-en
+            xorg-x11-server-Xvfb dbus-x11 glibc-langpack-en xdotool python3
       - name: Build
         run: make -j"$(nproc)" all
       # Gtk tests need a session bus and headless display; cairo disables the container Vulkan renderer.
@@ -42,6 +42,9 @@ jobs:
             fi
             exit 1
           fi
+      # t-code itself on its own Xvfb, driven by real key presses and clicks; its log must stay empty.
+      - name: Real-use scenarios
+        run: LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 GSK_RENDERER=cairo make test-scenarios
   asan:
     # The tests that need no display, leak-strict; -std=c23 wants gcc 14+, like the build above.
     runs-on: ubuntu-24.04

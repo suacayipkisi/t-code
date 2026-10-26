@@ -24,7 +24,22 @@ struct MultiCursor {
   gboolean boxing;       /* a Shift+Alt drag is selecting a column */
   int box_line, box_col; /* where it started */
   GCancellable *cancel;  /* a paste reading the clipboard */
+  /* Each key typed at several cursors is an undo step of its own (GTK merges no insertions in many
+   * places): the steps of each word are counted to be undone, and redone, together. */
+  GArray *words;     /* int: the steps of each word, the last one at the end; a space starts a word */
+  GArray *undone;    /* int: the words Ctrl+Z took back, for Ctrl+Y */
+  guint changes;     /* the buffer's changes, counted */
+  guint own_changes; /* changes after the last of these: another change forgets them */
 };
+
+/* Another change came between: the words are forgotten (GTK's own undo goes on from there). */
+static void mc_words_check(MultiCursor *m)
+{
+  if (m->own_changes != m->changes) {
+    g_array_set_size(m->words, 0);
+    g_array_set_size(m->undone, 0);
+  }
+}
 
 static MultiCursor *mc_of(Tab *tab)
 {
@@ -175,6 +190,10 @@ void multicursor_type(Tab *tab, const char *text)
 
   if (!m || !mc_editable(tab))
     return;
+  mc_words_check(m);
+  if (m->words->len == 0 || g_unichar_isspace(g_utf8_get_char(text)))
+    g_array_append_val(m->words, (int){ 0 });
+  g_array_set_size(m->undone, 0);
   all = mc_all_carets(m);
   gtk_text_buffer_begin_user_action(m->buffer);
   for (guint i = 0; i < all->len; i++) {
@@ -189,6 +208,32 @@ void multicursor_type(Tab *tab, const char *text)
   gtk_text_buffer_end_user_action(m->buffer);
   g_array_free(all, TRUE);
   mc_changed(m);
+  g_array_index(m->words, int, m->words->len - 1)++;
+  m->own_changes = m->changes;
+}
+
+gboolean multicursor_undo(Tab *tab, gboolean redo)
+{
+  MultiCursor *m = mc_of(tab);
+  GArray *from, *to;
+  int n;
+
+  if (!m || !mc_editable(tab))
+    return FALSE;
+  mc_words_check(m);
+  from = redo ? m->undone : m->words;
+  to = redo ? m->words : m->undone;
+  if (from->len == 0)
+    return FALSE; /* none of ours: GTK's own undo */
+  n = g_array_index(from, int, from->len - 1);
+  g_array_set_size(from, from->len - 1);
+  for (int i = 0; i < n; i++)
+    if (redo ? gtk_text_buffer_get_can_redo(m->buffer) : gtk_text_buffer_get_can_undo(m->buffer))
+      (redo ? gtk_text_buffer_redo : gtk_text_buffer_undo)(m->buffer);
+  g_array_append_val(to, n);
+  m->own_changes = m->changes;
+  mc_changed(m);
+  return TRUE;
 }
 
 /* Backspace (or Delete: forward) at every cursor. */
@@ -647,6 +692,8 @@ static gboolean mc_on_key(GtkEventControllerKey *keys G_GNUC_UNUSED, guint key, 
   gboolean shift = (state & GDK_SHIFT_MASK) != 0, control = (state & GDK_CONTROL_MASK) != 0;
   gunichar c;
 
+  if (control && !(state & GDK_ALT_MASK) && (key == GDK_KEY_z || key == GDK_KEY_Z))
+    return multicursor_undo(m->tab, shift); /* also once the cursors are gone (Escape) */
   if (m->extra->len == 0 || (state & (GDK_ALT_MASK | GDK_SUPER_MASK)))
     return FALSE;
   if (key == GDK_KEY_Escape) {
@@ -767,6 +814,11 @@ static void mc_on_drag_end(GtkGestureDrag *drag G_GNUC_UNUSED, double dx G_GNUC_
   m->boxing = FALSE;
 }
 
+static void mc_count_change(MultiCursor *m)
+{
+  m->changes++;
+}
+
 void multicursor_attach(Tab *tab)
 {
   MultiCursor *m = g_new0(MultiCursor, 1);
@@ -776,8 +828,11 @@ void multicursor_attach(Tab *tab)
   m->tab = tab;
   m->buffer = GTK_TEXT_BUFFER(tab->buffer);
   m->extra = g_array_new(FALSE, FALSE, sizeof(McCaret));
+  m->words = g_array_new(FALSE, FALSE, sizeof(int));
+  m->undone = g_array_new(FALSE, FALSE, sizeof(int));
   m->last = -1;
   m->cancel = g_cancellable_new();
+  g_signal_connect_swapped(m->buffer, "changed", G_CALLBACK(mc_count_change), m);
   tab->view->multi = m;
 
   gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
@@ -797,11 +852,14 @@ void multicursor_free(MultiCursor *m)
     return;
   g_cancellable_cancel(m->cancel);
   g_object_unref(m->cancel);
+  g_signal_handlers_disconnect_by_data(m->buffer, m);
   for (guint i = 0; i < m->extra->len; i++) {
     McCaret *c = &g_array_index(m->extra, McCaret, i);
     gtk_text_buffer_delete_mark(m->buffer, c->insert);
     gtk_text_buffer_delete_mark(m->buffer, c->bound);
   }
   g_array_free(m->extra, TRUE);
+  g_array_free(m->words, TRUE);
+  g_array_free(m->undone, TRUE);
   g_free(m);
 }

@@ -59,6 +59,15 @@ Before submitting your PR, verify that all tests pass locally:
 make test
 ```
 
+### Real-Use Scenarios
+`tests/scenarios.sh` runs t-code itself on its own virtual X screen and drives it with real key
+presses and mouse clicks (xdotool): opening files, typing and saving, multiple cursors, split
+editors, tabs, Settings, git stash, closing the window. t-code's log must hold no warning at the end.
+It needs `Xvfb` and `xdotool` (Fedora: `xorg-x11-server-Xvfb xdotool`) and is skipped without them:
+```bash
+make test-scenarios
+```
+
 ### Memory & Sanitizer Checks
 T-Code is leak-strict. Run AddressSanitizer and UndefinedBehaviorSanitizer checks:
 ```bash

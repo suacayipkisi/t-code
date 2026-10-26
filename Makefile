@@ -163,6 +163,11 @@ ASAN_FLAGS := -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-s
 ASAN_ENV   := G_DEBUG=gc-friendly ASAN_OPTIONS=detect_leaks=1:abort_on_error=0 \
               LSAN_OPTIONS=suppressions=$(CURDIR)/tests/lsan.supp:print_suppressions=0
 
+# Real-use scenarios: build/t-code on its own Xvfb, driven by xdotool's real keys and clicks
+# (tests/scenarios.sh; skipped without Xvfb or xdotool).
+test-scenarios: all
+	tests/scenarios.sh
+
 test-asan: | build
 	mkdir -p build/asan
 	$(CC) $(ASAN_FLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o build/asan/test-log \
@@ -222,4 +227,4 @@ build:
 clean:
 	rm -rf build
 
-.PHONY: all clean test test-asan install
+.PHONY: all clean test test-asan test-scenarios install

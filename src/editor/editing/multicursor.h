@@ -58,6 +58,11 @@ void multicursor_box(Tab *tab, int line0, int col0, int line1, int col1);
 void multicursor_type(Tab *tab, const char *text);
 void multicursor_move(Tab *tab, MultiMove move, gboolean extend);
 
+/* Ctrl+Z (redo: Ctrl+Shift+Z, Ctrl+Y) after words typed at several cursors: undoes (or redoes) the
+ * last word, as for one cursor, instead of its last key. FALSE: nothing such (another change came
+ * between), GTK's own undo. */
+gboolean multicursor_undo(Tab *tab, gboolean redo);
+
 /* The selections' text in the file's order, a line each (what Ctrl+C copies); NULL when none of
  * them selects anything. */
 char *multicursor_selected_text(Tab *tab);

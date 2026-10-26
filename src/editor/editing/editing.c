@@ -219,6 +219,8 @@ void editor_delete_lines(Tab *tab)
 
 void editor_redo(Tab *tab)
 {
+  if (multicursor_undo(tab, TRUE))
+    return;
   if (editable(tab) && gtk_text_buffer_get_can_redo(GTK_TEXT_BUFFER(tab->buffer)))
     gtk_text_buffer_redo(GTK_TEXT_BUFFER(tab->buffer));
 }
