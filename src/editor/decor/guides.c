@@ -7,6 +7,7 @@
 #include "editor/decor/guides.h"
 
 #include "editor/decor/blame.h"
+#include "editor/decor/conflicts.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/text/blocks.h"
 #include "editor/gutter/diffgutter.h"
@@ -373,6 +374,7 @@ static void snapshot_layer(GtkTextView *view, GtkTextViewLayer layer, GtkSnapsho
     diff_gutter_check_width(self->tab);
     draw_diff_gaps(self, snapshot);
     draw_ruler(self, snapshot);
+    conflicts_draw(self->tab, view, snapshot);
     if (self->tab->app->settings.guides)
       draw_guides(self, snapshot);
     diagnostics_draw(self->tab, view, snapshot);

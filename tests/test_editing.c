@@ -1004,6 +1004,62 @@ static void test_line_blame(void)
   g_free(dir);
 }
 
+/* Merge conflicts --------------------------------------------------------------------------- */
+
+#define CONFLICT_TEXT                                                                                                  \
+  "a\n<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> feature\nb\n<<<<<<< HEAD\nx\n||||||| base\nold\n=======\ny\n"       \
+  ">>>>>>> feature"
+
+/* Clicks a conflict's link (current, incoming, both). */
+static void accept_conflict(Tab *tab, guint index, const char *which)
+{
+  Conflicts *c = tab->view->conflicts;
+  gboolean handled = FALSE;
+
+  g_assert_cmpuint(index, <, c->list->len);
+  g_signal_emit_by_name(g_array_index(c->list, Conflict, index).actions, "activate-link", which, &handled);
+  g_assert_true(handled);
+}
+
+static void test_conflicts(void)
+{
+  static const struct {
+    guint index;
+    const char *which, *expected;
+  } cases[] = {
+    { 0, "current", "a\nmine\nb\n<<<<<<< HEAD\nx\n||||||| base\nold\n=======\ny\n>>>>>>> feature" },
+    { 0, "incoming", "a\ntheirs\nb\n<<<<<<< HEAD\nx\n||||||| base\nold\n=======\ny\n>>>>>>> feature" },
+    { 0, "both", "a\nmine\ntheirs\nb\n<<<<<<< HEAD\nx\n||||||| base\nold\n=======\ny\n>>>>>>> feature" },
+    { 1, "current", "a\n<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> feature\nb\nx\n" }, /* the common lines go */
+    { 1, "incoming", "a\n<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> feature\nb\ny\n" },
+  };
+
+  for (guint i = 0; i < G_N_ELEMENTS(cases); i++) {
+    Tab *tab = new_tab(CONFLICT_TEXT);
+    conflicts_scan(tab->view->conflicts);
+    g_assert_cmpuint(tab->view->conflicts->list->len, ==, 2);
+    accept_conflict(tab, cases[i].index, cases[i].which);
+    assert_text(tab, cases[i].expected);
+    g_assert_cmpuint(tab->view->conflicts->list->len, ==, 1); /* the other one is left */
+    gtk_text_buffer_undo(GTK_TEXT_BUFFER(tab->buffer));       /* one step */
+    assert_text(tab, CONFLICT_TEXT);
+    free_tab(tab);
+  }
+}
+
+/* Lines like markers that make no block are left alone. */
+static void test_conflicts_none(void)
+{
+  Tab *tab = new_tab("=======\n<<<<<<<< eight\n<<<<<<< HEAD\nno middle\n>>>>>>> x\n<<<<<<< HEAD\na\n=======\n");
+
+  conflicts_scan(tab->view->conflicts);
+  g_assert_cmpuint(tab->view->conflicts->list->len, ==, 0);
+  gtk_text_buffer_set_text(GTK_TEXT_BUFFER(tab->buffer), "<<<<<<< HEAD\na\n=======\nb\n>>>>>>> x\n", -1);
+  run_for(SCAN_MS + 200); /* looked for again after a change */
+  g_assert_cmpuint(tab->view->conflicts->list->len, ==, 1);
+  free_tab(tab);
+}
+
 /* Parameter hint ----------------------------------------------------------------------------- */
 
 /* The view's adjustments can outlive the editor (a comparison's other side scrolls them): once
@@ -1635,6 +1691,8 @@ int main(int argc, char **argv)
   g_test_add_func("/guides/blank-lines", test_guide_blank_lines);
   g_test_add_func("/signature/outlived", test_signature_outlived);
   g_test_add_func("/editing/line-blame", test_line_blame);
+  g_test_add_func("/editing/conflicts", test_conflicts);
+  g_test_add_func("/editing/conflicts-none", test_conflicts_none);
   g_test_add_func("/multicursor/add-next", test_multi_add_next);
   g_test_add_func("/multicursor/select-all", test_multi_select_all);
   g_test_add_func("/multicursor/lines", test_multi_lines);

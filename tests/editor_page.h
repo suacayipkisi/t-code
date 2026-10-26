@@ -22,6 +22,7 @@
 #include "editor/editing/multicursor.c"
 #include "editor/editing/snippets.c"
 #include "editor/decor/blame.c"
+#include "editor/decor/conflicts.c"
 #include "editor/decor/breadcrumbs.c"
 #include "lsp/channel.c"
 #include "lsp/servers.c"

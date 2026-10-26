@@ -7,6 +7,7 @@
 #include "editor/text/detect.h"
 #include "debug/debughover.h"
 #include "editor/decor/blame.h"
+#include "editor/decor/conflicts.h"
 #include "editor/decor/breadcrumbs.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/gutter/diffgutter.h"
@@ -546,6 +547,7 @@ void editor_view_init(Tab *tab, gboolean readonly)
   completion_attach(tab);
   inlay_attach(tab);
   blame_attach(tab);
+  conflicts_attach(tab);
   symbols_attach(tab);
   snippets_attach(tab);
   navigate_attach(tab);
@@ -609,6 +611,7 @@ void editor_view_free(EditorView *v)
   semantic_free(v->semantic); /* cancel debounce before closing its LSP document */
   inlay_free(v->inlay);
   blame_free(v->blame);
+  conflicts_free(v->conflicts);
   symbols_free(v->symbols);
   v->semantic = NULL;
   lsp_close(v->tab);
