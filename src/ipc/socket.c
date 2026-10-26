@@ -156,82 +156,53 @@ static void subscribe_events(Client *c)
   client_send(c, response, sizeof response - 1);
 }
 
+/* Answers with text and a line break. */
+static void send_line(Client *c, const char *text)
+{
+  char *line = g_strconcat(text, "\n", NULL);
+
+  client_send(c, line, strlen(line));
+  g_free(line);
+}
+
 /* One request (see the top of this file). */
 static void handle(Client *c, const char *command, const char *arg)
 {
   App *t = c->app;
+  Tab *tab = current_tab(t);
+  gboolean editor = tab && tab->kind == TAB_EDITOR;
+  GtkTextBuffer *buffer = editor && tab->buffer ? GTK_TEXT_BUFFER(tab->buffer) : NULL; /* NULL: no editor */
+  GtkTextIter start, end;
 
-  if (strcmp(command, "subscribe") == 0) {
+  if (buffer)
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+  if (strcmp(command, "subscribe") == 0)
     subscribe_events(c);
-    return;
-  }
-  if (strcmp(command, "say") == 0) {
+  else if (strcmp(command, "say") == 0)
     status_say(t, arg);
-    return;
-  }
-  if (strcmp(command, "insert") == 0) {
-    Tab *tab = current_tab(t);
-    if (tab && tab->kind == TAB_EDITOR && tab->buffer)
-      gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(tab->buffer), arg, -1);
-    return;
-  }
-  if (strcmp(command, "append") == 0) {
-    Tab *tab = current_tab(t);
-    if (tab && tab->kind == TAB_EDITOR && tab->buffer) {
-      GtkTextIter end;
-      gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(tab->buffer), &end);
-      gtk_text_buffer_insert(GTK_TEXT_BUFFER(tab->buffer), &end, arg, -1);
-    }
-    return;
-  }
-  if (strcmp(command, "replace-all") == 0) {
-    Tab *tab = current_tab(t);
-    if (tab && tab->kind == TAB_EDITOR && tab->buffer)
-      gtk_text_buffer_set_text(GTK_TEXT_BUFFER(tab->buffer), arg, -1);
-    return;
-  }
-  if (strcmp(command, "get-file") == 0) {
-    Tab *tab = current_tab(t);
-    char *line = g_strconcat((tab && tab->kind == TAB_EDITOR && tab->path) ? tab->path : "", "\n", NULL);
-    client_send(c, line, strlen(line));
-    g_free(line);
-    return;
-  }
-  if (strcmp(command, "get-project") == 0) {
-    char *line = g_strconcat(t->project.root ? t->project.root : "", "\n", NULL);
-    client_send(c, line, strlen(line));
-    g_free(line);
-    return;
-  }
-  if (strcmp(command, "get-text") == 0) {
-    Tab *tab = current_tab(t);
-    char *text = NULL;
-    if (tab && tab->kind == TAB_EDITOR && tab->buffer) {
-      GtkTextIter start, end;
-      gtk_text_buffer_get_bounds(GTK_TEXT_BUFFER(tab->buffer), &start, &end);
-      text = gtk_text_buffer_get_text(GTK_TEXT_BUFFER(tab->buffer), &start, &end, TRUE);
-    }
-    client_send(c, text ? text : "", text ? strlen(text) + 1 : 1); /* with its NUL */
+  else if (strcmp(command, "insert") == 0 && buffer)
+    gtk_text_buffer_insert_at_cursor(buffer, arg, -1);
+  else if (strcmp(command, "append") == 0 && buffer)
+    gtk_text_buffer_insert(buffer, &end, arg, -1);
+  else if (strcmp(command, "replace-all") == 0 && buffer)
+    gtk_text_buffer_set_text(buffer, arg, -1);
+  else if (strcmp(command, "get-file") == 0)
+    send_line(c, editor && tab->path ? tab->path : "");
+  else if (strcmp(command, "get-project") == 0)
+    send_line(c, t->project.root ? t->project.root : "");
+  else if (strcmp(command, "get-text") == 0) {
+    char *text = buffer ? gtk_text_buffer_get_text(buffer, &start, &end, TRUE) : g_strdup("");
+    client_send(c, text, strlen(text) + 1); /* with its NUL */
     g_free(text);
-    return;
-  }
-  if (strcmp(command, "save") == 0) {
-    Tab *tab = current_tab(t);
-    if (tab && tab->kind == TAB_EDITOR)
-      save_editor(tab);
-    return;
-  }
-  if (strcmp(command, "copy") == 0) {
+  } else if (strcmp(command, "save") == 0 && editor)
+    save_editor(tab);
+  else if (strcmp(command, "copy") == 0)
     gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(t->window)), arg);
-    return;
-  }
-  if (strcmp(command, "debug-failed") == 0) {
+  else if (strcmp(command, "debug-failed") == 0)
     debug_build_failed(t);
-    return;
-  }
-  if (!g_path_is_absolute(arg))
-    return;
-  if (strcmp(command, "open") == 0)
+  else if (!g_path_is_absolute(arg))
+    ; /* the rest take a file or folder */
+  else if (strcmp(command, "open") == 0)
     open_file(t, arg);
   else if (strcmp(command, "open-side") == 0)
     open_to_side(t, arg);

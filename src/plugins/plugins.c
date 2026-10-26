@@ -53,135 +53,110 @@ static Plugin *find_plugin(App *t, const char *id)
   return NULL;
 }
 
-static void load_plugin_from_dir(App *t, const char *plugin_dir, const char *dir_name)
+/* A string member of obj, or NULL when it is missing or not a string. */
+static const char *string_member(JsonObject *obj, const char *name)
 {
-  char *json_path = g_build_filename(plugin_dir, "plugin.json", NULL);
-  if (!g_file_test(json_path, G_FILE_TEST_IS_REGULAR)) {
-    g_free(json_path);
-    return;
-  }
+  JsonNode *node = json_object_get_member(obj, name);
 
-  JsonParser *parser = json_parser_new();
-  GError *error = NULL;
-  if (!json_parser_load_from_file(parser, json_path, &error)) {
-    g_warning("Plugin at %s: invalid JSON: %s", json_path, error ? error->message : "unknown error");
-    g_clear_error(&error);
-    g_object_unref(parser);
-    g_free(json_path);
-    return;
-  }
-  g_free(json_path);
+  return node && JSON_NODE_HOLDS_VALUE(node) && json_node_get_value_type(node) == G_TYPE_STRING
+             ? json_node_get_string(node)
+             : NULL;
+}
 
-  JsonNode *root = json_parser_get_root(parser);
-  if (!root || !JSON_NODE_HOLDS_OBJECT(root)) {
-    g_object_unref(parser);
-    return;
-  }
-  JsonObject *obj = json_node_get_object(root);
+/* The program a plugin runs: plugin.json's "executable" (relative to its folder), else run.sh, plugin or a file
+ * named like its folder; NULL when it is not there or cannot run. */
+static char *plugin_executable(const char *plugin_dir, const char *dir_name, const char *configured)
+{
+  const char *defaults[] = { "run.sh", "plugin", dir_name, NULL };
 
-  if (!json_object_has_member(obj, "name") || !json_object_has_member(obj, "commands")) {
+  if (configured && *configured) {
+    char *path = g_path_is_absolute(configured) ? g_strdup(configured) : g_build_filename(plugin_dir, configured, NULL);
+    if (g_file_test(path, G_FILE_TEST_IS_EXECUTABLE))
+      return path;
+    g_free(path);
+    return NULL;
+  }
+  for (int i = 0; defaults[i]; i++) {
+    char *path = g_build_filename(plugin_dir, defaults[i], NULL);
+    if (g_file_test(path, G_FILE_TEST_IS_EXECUTABLE))
+      return path;
+    g_free(path);
+  }
+  return NULL;
+}
+
+/* The plugin plugin.json (obj) describes, or NULL: a warning says what is wrong with a broken one; an empty
+ * one, or one with the id of a plugin found before, is left out quietly. */
+static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, const char *dir_name)
+{
+  const char *name = string_member(obj, "name"), *id = string_member(obj, "id");
+  JsonNode *commands = json_object_get_member(obj, "commands");
+  JsonArray *list = commands && JSON_NODE_HOLDS_ARRAY(commands) ? json_node_get_array(commands) : NULL;
+  char *executable;
+
+  if (!json_object_has_member(obj, "name") || !commands) {
     g_warning("Plugin at %s: missing required 'name' or 'commands'", plugin_dir);
-    g_object_unref(parser);
-    return;
+    return NULL;
   }
-
-  const char *name = json_object_get_string_member(obj, "name");
-  if (!name || !*name) {
-    g_object_unref(parser);
-    return;
-  }
-
-  JsonNode *cmds_node = json_object_get_member(obj, "commands");
-  if (!cmds_node || !JSON_NODE_HOLDS_ARRAY(cmds_node)) {
-    g_object_unref(parser);
-    return;
-  }
-  JsonArray *cmds_arr = json_node_get_array(cmds_node);
-  guint n_cmds = json_array_get_length(cmds_arr);
-  if (n_cmds == 0) {
-    g_object_unref(parser);
-    return;
-  }
-
-  const char *id = json_object_has_member(obj, "id") ? json_object_get_string_member(obj, "id") : dir_name;
   if (!id || !*id)
     id = dir_name;
-
-  if (find_plugin(t, id)) {
-    g_object_unref(parser);
-    return;
-  }
-
-  const char *version = json_object_has_member(obj, "version") ? json_object_get_string_member(obj, "version") : NULL;
-  const char *desc =
-      json_object_has_member(obj, "description") ? json_object_get_string_member(obj, "description") : NULL;
-  const char *exe_cfg =
-      json_object_has_member(obj, "executable") ? json_object_get_string_member(obj, "executable") : NULL;
-
-  char *executable = NULL;
-  if (exe_cfg && *exe_cfg) {
-    if (g_path_is_absolute(exe_cfg))
-      executable = g_strdup(exe_cfg);
-    else
-      executable = g_build_filename(plugin_dir, exe_cfg, NULL);
-  } else {
-    const char *defaults[] = { "run.sh", "plugin", dir_name, NULL };
-    for (int i = 0; defaults[i]; i++) {
-      char *cand = g_build_filename(plugin_dir, defaults[i], NULL);
-      if (g_file_test(cand, G_FILE_TEST_IS_EXECUTABLE)) {
-        executable = cand;
-        break;
-      }
-      g_free(cand);
-    }
-  }
-
-  if (!executable || !g_file_test(executable, G_FILE_TEST_IS_EXECUTABLE)) {
-    g_warning("Plugin %s (%s): no executable found at %s", name, id, executable ? executable : "(null)");
-    g_free(executable);
-    g_object_unref(parser);
-    return;
+  if (!name || !*name || !list || json_array_get_length(list) == 0 || find_plugin(t, id))
+    return NULL;
+  if (!(executable = plugin_executable(plugin_dir, dir_name, string_member(obj, "executable")))) {
+    g_warning("Plugin %s (%s): no executable found in %s", name, id, plugin_dir);
+    return NULL;
   }
 
   Plugin *p = g_new0(Plugin, 1);
   p->id = g_strdup(id);
   p->name = g_strdup(name);
-  p->version = g_strdup(version ? version : "");
-  p->description = g_strdup(desc ? desc : "");
+  p->version = g_strdup(string_member(obj, "version") ?: "");
+  p->description = g_strdup(string_member(obj, "description") ?: "");
   p->dir = g_strdup(plugin_dir);
   p->executable = executable;
   p->commands = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_command_free);
-
-  for (guint i = 0; i < n_cmds; i++) {
-    JsonNode *cnode = json_array_get_element(cmds_arr, i);
-    if (!cnode || !JSON_NODE_HOLDS_OBJECT(cnode))
+  for (guint i = 0; i < json_array_get_length(list); i++) {
+    JsonNode *node = json_array_get_element(list, i);
+    JsonObject *command = JSON_NODE_HOLDS_OBJECT(node) ? json_node_get_object(node) : NULL;
+    const char *command_id = command ? string_member(command, "id") : NULL;
+    const char *command_name = command ? string_member(command, "name") : NULL;
+    if (!command_id || !command_name)
       continue;
-    JsonObject *cobj = json_node_get_object(cnode);
-    if (!json_object_has_member(cobj, "id") || !json_object_has_member(cobj, "name"))
-      continue;
-    const char *cid = json_object_get_string_member(cobj, "id");
-    const char *cname = json_object_get_string_member(cobj, "name");
-    const char *ckeys = json_object_has_member(cobj, "keys") ? json_object_get_string_member(cobj, "keys") : NULL;
-    const char *trigger =
-        json_object_has_member(cobj, "trigger") ? json_object_get_string_member(cobj, "trigger") : NULL;
-
     PluginCommand *cmd = g_new0(PluginCommand, 1);
-    cmd->id = g_strdup(cid);
-    cmd->name = g_strdup(cname);
-    cmd->keys = ckeys ? g_strdup(ckeys) : NULL;
-    cmd->trigger = trigger ? g_strdup(trigger) : NULL;
+    cmd->id = g_strdup(command_id);
+    cmd->name = g_strdup(command_name);
+    cmd->keys = g_strdup(string_member(command, "keys"));
+    cmd->trigger = g_strdup(string_member(command, "trigger"));
     cmd->plugin = p;
     g_ptr_array_add(p->commands, cmd);
   }
-
-  g_object_unref(parser);
-
   if (p->commands->len == 0) {
     plugin_free(p);
-    return;
+    return NULL;
   }
+  return p;
+}
 
-  g_ptr_array_add(t->plugins, p);
+/* The plugin in plugin_dir (its plugin.json), when there is one that works. */
+static void load_plugin_from_dir(App *t, const char *plugin_dir, const char *dir_name)
+{
+  char *json_path = g_build_filename(plugin_dir, "plugin.json", NULL);
+  JsonParser *parser = json_parser_new();
+  GError *error = NULL;
+  JsonNode *root;
+  Plugin *p;
+
+  if (!g_file_test(json_path, G_FILE_TEST_IS_REGULAR)) {
+    /* not a plugin's folder */
+  } else if (!json_parser_load_from_file(parser, json_path, &error)) {
+    g_warning("Plugin at %s: invalid JSON: %s", json_path, error->message);
+  } else if ((root = json_parser_get_root(parser)) && JSON_NODE_HOLDS_OBJECT(root) &&
+             (p = plugin_from(t, json_node_get_object(root), plugin_dir, dir_name))) {
+    g_ptr_array_add(t->plugins, p);
+  }
+  g_clear_error(&error);
+  g_object_unref(parser);
+  g_free(json_path);
 }
 
 void plugins_scan_dir(App *t, const char *dir_path)

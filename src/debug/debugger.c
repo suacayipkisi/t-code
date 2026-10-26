@@ -28,6 +28,7 @@
 #include "window/window.h"
 
 #include <fcntl.h>
+#include <stdarg.h>
 #include <glib/gstdio.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,7 +74,7 @@ static struct {
 /* The terminal ------------------------------------------------------------------------------- */
 
 /* A line of t-code's own in the program's terminal, dimmed (or red: an error). */
-static void say(App *t, gboolean error, const char *text)
+static void say_text(App *t, gboolean error, const char *text)
 {
   long column = 0;
   char *line;
@@ -86,6 +87,19 @@ static void say(App *t, gboolean error, const char *text)
   g_free(line);
 }
 
+/* The same, printf-like. */
+G_GNUC_PRINTF(3, 4) static void say(App *t, gboolean error, const char *format, ...)
+{
+  va_list args;
+  char *text;
+
+  va_start(args, format);
+  text = g_strdup_vprintf(format, args);
+  va_end(args);
+  say_text(t, error, text);
+  g_free(text);
+}
+
 typedef struct {
   App *app;
   gboolean error;
@@ -96,7 +110,7 @@ static gboolean say_now(gpointer data)
 {
   Line *line = data;
 
-  say(line->app, line->error, line->text);
+  say_text(line->app, line->error, line->text);
   g_free(line->text);
   g_free(line);
   return G_SOURCE_REMOVE;
@@ -104,17 +118,20 @@ static gboolean say_now(gpointer data)
 
 /* The same a moment later: gdb tells of the program's end before its terminal has read the program's
  * last lines. */
-static void say_later(App *t, gboolean error, char *text)
+G_GNUC_PRINTF(3, 4) static void say_later(App *t, gboolean error, const char *format, ...)
 {
   Line *line = g_new(Line, 1);
+  va_list args;
 
-  *line = (Line){ t, error, text };
+  va_start(args, format);
+  *line = (Line){ t, error, g_strdup_vprintf(format, args) };
+  va_end(args);
   g_timeout_add(LATER_MS, say_now, line);
 }
 
 void debug_say(App *t, const char *text)
 {
-  say(t, TRUE, text);
+  say_text(t, TRUE, text);
 }
 
 /* The panel's buttons and status follow the session. */
@@ -273,10 +290,7 @@ static void on_breakpoints_set(gpointer data, JsonNode *body, const char *error 
     }
     if (g_strcmp0(reason, "failed") == 0 && message) { /* a condition gdb cannot read */
       char *name = g_path_get_basename(a->path);
-      char *line =
-          g_strdup_printf("The breakpoint at %s:%d does not work: %s", name, g_array_index(a->lines, int, i), message);
-      say(a->app, TRUE, line);
-      g_free(line);
+      say(a->app, TRUE, "The breakpoint at %s:%d does not work: %s", name, g_array_index(a->lines, int, i), message);
       g_free(name);
     }
   }
@@ -372,7 +386,7 @@ static void crash_free(gpointer data)
 
 static void say_crash(App *t, const char *where, gboolean sanitizer, int signo)
 {
-  say_later(t, TRUE, g_strdup_printf("■ The program crashed at %s: %s.", where, crash_meaning(sanitizer, signo)));
+  say_later(t, TRUE, "■ The program crashed at %s: %s.", where, crash_meaning(sanitizer, signo));
 }
 
 /* The signal's number came ($_siginfo.si_signo). */
@@ -428,7 +442,7 @@ static void on_stack(gpointer data, JsonNode *body, const char *error)
     where = g_strdup_printf("%s (no source)", top ? top : "?");
     char *status = g_strdup_printf("%s in %s", crash ? "Crashed" : pause_reason(s->reason), where);
     if (error)
-      say(t, TRUE, error);
+      say_text(t, TRUE, error);
     update_ui(t, status);
     g_free(status);
   }
@@ -502,16 +516,16 @@ static void on_event(gpointer owner, const char *event, JsonNode *body)
     update_ui(t, "Running");
   } else if (strcmp(event, "exited") == 0 && s->state != ENDING) { /* Stop says so itself */
     if (s->crashed)                                                /* gdb says 0 */
-      say_later(t, FALSE, g_strdup("The program ended: the crash killed it."));
+      say_later(t, FALSE, "The program ended: the crash killed it.");
     else
-      say_later(t, FALSE, g_strdup_printf("The program exited with code %d.", (int)json_int_at(body, "exitCode", 0)));
+      say_later(t, FALSE, "The program exited with code %d.", (int)json_int_at(body, "exitCode", 0));
   } else if (strcmp(event, "terminated") == 0) {
     finish(s);
   } else if (strcmp(event, "output") == 0) {
     const char *category = json_string_at(body, "category"), *output = json_string_at(body, "output");
     if (output && (g_strcmp0(category, "important") == 0 || g_strcmp0(category, "stderr") == 0)) {
       char *text = g_strchomp(g_strdup(output));
-      say(t, FALSE, text);
+      say_text(t, FALSE, text);
       g_free(text);
     }
   }
@@ -540,9 +554,7 @@ static void on_launched(gpointer data, JsonNode *body G_GNUC_UNUSED, const char 
   Debugger *s = data;
 
   if (error) {
-    char *line = g_strdup_printf("Could not start the program: %s", error);
-    say(s->app, TRUE, line);
-    g_free(line);
+    say(s->app, TRUE, "Could not start the program: %s", error);
     end_session(s);
   }
 }
@@ -559,7 +571,7 @@ static void start(App *t, const char *program, const char *cwd)
   char **env = sanitizer_env(g_get_environ());
   GError *error = NULL;
   Debugger *s = g_new0(Debugger, 1);
-  char *line, *args, *qprogram = json_quote(program), *qcwd = json_quote(cwd);
+  char *args, *qprogram = json_quote(program), *qcwd = json_quote(cwd);
 
   s->app = t;
   s->state = STARTING;
@@ -571,19 +583,14 @@ static void start(App *t, const char *program, const char *cwd)
   show_sidebar_page(t, "debug");
   show_sidebar_page(t, "run");
   if (!s->dap) {
-    line = g_strdup_printf("Could not start gdb: %s", error->message);
-    say(t, TRUE, line);
-    g_free(line);
+    say(t, TRUE, "Could not start gdb: %s", error->message);
     g_hash_table_destroy(s->sent);
     g_free(s);
     update_ui(t, "Not debugging");
   } else {
     t->debug.session = s;
-    line = g_str_has_prefix(program, t->project.root) && program[strlen(t->project.root)] == '/'
-               ? g_strdup_printf("▶ %s", program + strlen(t->project.root) + 1)
-               : g_strdup_printf("▶ %s", program);
-    say(t, FALSE, line);
-    g_free(line);
+    gboolean inside = g_str_has_prefix(program, t->project.root) && program[strlen(t->project.root)] == '/';
+    say(t, FALSE, "▶ %s", inside ? program + strlen(t->project.root) + 1 : program);
     args = g_strdup_printf("{\"program\":%s,\"cwd\":%s}", qprogram, qcwd);
     dap_request(s->dap, "launch", args, on_launched, s); /* answered once configurationDone went */
     g_free(args);
@@ -841,12 +848,9 @@ static void on_evaluated(gpointer data, JsonNode *body, const char *error)
   const char *result = json_string_at(body, "result");
 
   if (error)
-    say(t, TRUE, error);
-  else if (result) {
-    char *text = g_strdup_printf("= %s", result);
-    say(t, FALSE, text);
-    g_free(text);
-  }
+    say_text(t, TRUE, error);
+  else if (result)
+    say(t, FALSE, "= %s", result);
 }
 
 /* Enter in the line under the terminal: the expression is evaluated in the paused frame ("-exec ..."
@@ -856,13 +860,11 @@ static void on_evaluate(GtkEntry *entry, App *t)
   const char *text = gtk_editable_get_text(GTK_EDITABLE(entry));
   gint64 frame = debug_view_frame_id();
   gboolean command = g_str_has_prefix(text, "-exec ");
-  char *quoted, *args, *echo;
+  char *quoted, *args;
 
   if (!*text)
     return;
-  echo = g_strdup_printf("› %s", text);
-  say(t, FALSE, echo);
-  g_free(echo);
+  say(t, FALSE, "› %s", text);
   if (!debug_dap(t) || (frame < 0 && !command)) {
     say(t, TRUE, "Pause the program first (a breakpoint, or Pause): an expression is evaluated where it is paused.");
     return;

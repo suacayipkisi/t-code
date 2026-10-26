@@ -23,6 +23,7 @@
 #include "window/terminal.h"
 #include "window/window.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #define PREVIEW_PREFIX "preview:"
@@ -128,6 +129,57 @@ static double get_double(GKeyFile *kf, const char *group, const char *key, doubl
   return value;
 }
 
+/* The plain settings in settings.ini: each one's key, field in App (an int: a number from low to high,
+ * or a gboolean), default and the comment over it. The theme, colors and fonts are read and written
+ * by hand. */
+typedef struct {
+  const char *key;
+  size_t field; /* offsetof(App, settings.<name>) */
+  gboolean number;
+  int fallback, low, high;
+  const char *comment;
+} Setting;
+
+#define BOOL_SETTING(key, name, fallback, comment) { key, offsetof(App, settings.name), FALSE, fallback, 0, 0, comment }
+#define INT_SETTING(key, name, fallback, low, high, comment)                                                           \
+  { key, offsetof(App, settings.name), TRUE, fallback, low, high, comment }
+
+/* clang-format off */
+static const Setting settings[] = {
+  BOOL_SETTING("minimap", minimap, TRUE, " A small picture of the file next to the scrollbar"),
+  BOOL_SETTING("sticky-scroll", sticky_scroll, TRUE,
+               " The first lines of the blocks around the editor's top (namespace, function, loop) stay\n"
+               " at its top"),
+  BOOL_SETTING("indent-guides", guides, TRUE, " Lines at each indentation level; the block around the cursor in color"),
+  BOOL_SETTING("word-wrap", word_wrap, FALSE, " Lines longer than the editor continue on the next row"),
+  BOOL_SETTING("inlay-hints", inlay_hints, TRUE,
+               " Parameter names and deduced types shown inside the lines (from the language servers)"),
+  BOOL_SETTING("breadcrumbs", breadcrumbs, TRUE, " The file's folders and the symbols around the cursor, over each editor"),
+  INT_SETTING("ruler", ruler, 80, 0, 300,
+              " A vertical line after this column in editors, to keep lines short (80 by default, 120, ...); 0 turns"
+              " it off"),
+  INT_SETTING("tab-size", tab_size, 2, 1, 16,
+              " 1 to 16, for projects without their own: the status bar's choice, .editorconfig or .clang-format come"
+              " first"),
+  BOOL_SETTING("tabs-to-spaces", tabs_to_spaces, TRUE, " The Tab key inserts spaces"),
+  BOOL_SETTING("detect-indentation", detect_indent, TRUE, " Files indented with tabs or another number of spaces keep it"),
+  BOOL_SETTING("autosave", autosave, TRUE, " Save a second after the last change"),
+  BOOL_SETTING("format-on-save", format_on_save, FALSE,
+               " Ctrl+S formats C and C++ files with clangd first (the project's .clang-format)"),
+  BOOL_SETTING("clang-tidy", clang_tidy, FALSE,
+               " clangd also reports what the project's .clang-tidy asks for (more CPU while typing)"),
+  BOOL_SETTING("reopen-last-project", reopen_last, TRUE,
+               " When started from the app menu (not from a folder in a terminal)"),
+  BOOL_SETTING("check-updates", check_updates, TRUE,
+               " Once at start-up, the latest release on GitHub goes against this version; a newer one asks"),
+};
+/* clang-format on */
+
+static int *setting_field(App *t, const Setting *setting)
+{
+  return (int *)((char *)t + setting->field);
+}
+
 void session_load_settings(App *t)
 {
   char *path = settings_file();
@@ -135,21 +187,12 @@ void session_load_settings(App *t)
   GKeyFile *kf = moved ? load() : load_from(path); /* none yet: the ones session.ini kept before 0.3 */
   char *theme = g_key_file_get_string(kf, "settings", "theme", NULL);
 
-  t->settings.minimap = get_bool(kf, "settings", "minimap", TRUE);
-  t->settings.sticky_scroll = get_bool(kf, "settings", "sticky-scroll", TRUE);
-  t->settings.reopen_last = get_bool(kf, "settings", "reopen-last-project", TRUE);
-  t->settings.check_updates = get_bool(kf, "settings", "check-updates", TRUE);
-  t->settings.autosave = get_bool(kf, "settings", "autosave", TRUE);
-  t->settings.tabs_to_spaces = get_bool(kf, "settings", "tabs-to-spaces", TRUE);
-  t->settings.tab_size = CLAMP(get_int(kf, "settings", "tab-size", 2), 1, 16);
-  t->settings.detect_indent = get_bool(kf, "settings", "detect-indentation", TRUE);
-  t->settings.guides = get_bool(kf, "settings", "indent-guides", TRUE);
-  t->settings.word_wrap = get_bool(kf, "settings", "word-wrap", FALSE);
-  t->settings.inlay_hints = get_bool(kf, "settings", "inlay-hints", TRUE);
-  t->settings.breadcrumbs = get_bool(kf, "settings", "breadcrumbs", TRUE);
-  t->settings.ruler = CLAMP(get_int(kf, "settings", "ruler", 80), 0, 300);
-  t->settings.clang_tidy = get_bool(kf, "settings", "clang-tidy", FALSE);
-  t->settings.format_on_save = get_bool(kf, "settings", "format-on-save", FALSE);
+  for (size_t i = 0; i < G_N_ELEMENTS(settings); i++) {
+    const Setting *setting = &settings[i];
+    *setting_field(t, setting) =
+        setting->number ? CLAMP(get_int(kf, "settings", setting->key, setting->fallback), setting->low, setting->high)
+                        : get_bool(kf, "settings", setting->key, setting->fallback);
+  }
   t->settings.square = g_strcmp0(theme ? g_strstrip(theme) : NULL, "square") == 0;
   g_free(t->settings.color_theme);
   t->settings.color_theme = g_key_file_get_string(kf, "settings", "color-theme", NULL);
@@ -202,49 +245,20 @@ void session_save_settings(App *t)
                         t->settings.color_theme ? t->settings.color_theme : "dark-classic");
   explain(kf, "color-theme",
           " dark-classic, light-classic, dracula, nord, ...: \"Preferences: Color Theme\" lists them all");
-  g_key_file_set_boolean(kf, "settings", "minimap", t->settings.minimap);
-  explain(kf, "minimap", " A small picture of the file next to the scrollbar");
-  g_key_file_set_boolean(kf, "settings", "sticky-scroll", t->settings.sticky_scroll);
-  explain(kf, "sticky-scroll",
-          " The first lines of the blocks around the editor's top (namespace, function, loop) stay\n"
-          " at its top");
   g_key_file_set_boolean(kf, "settings", "code-coloring", !t->settings.plain);
   explain(kf, "code-coloring", " Syntax colors in the editors (also F7)");
-  g_key_file_set_boolean(kf, "settings", "indent-guides", t->settings.guides);
-  explain(kf, "indent-guides", " Lines at each indentation level; the block around the cursor in color");
-  g_key_file_set_boolean(kf, "settings", "word-wrap", t->settings.word_wrap);
-  explain(kf, "word-wrap", " Lines longer than the editor continue on the next row");
-  g_key_file_set_boolean(kf, "settings", "inlay-hints", t->settings.inlay_hints);
-  explain(kf, "inlay-hints", " Parameter names and deduced types shown inside the lines (from the language servers)");
-  g_key_file_set_boolean(kf, "settings", "breadcrumbs", t->settings.breadcrumbs);
-  explain(kf, "breadcrumbs", " The file's folders and the symbols around the cursor, over each editor");
-  g_key_file_set_integer(kf, "settings", "ruler", t->settings.ruler);
-  explain(
-      kf, "ruler",
-      " A vertical line after this column in editors, to keep lines short (80 by default, 120, ...); 0 turns it off");
-  g_key_file_set_integer(kf, "settings", "tab-size", t->settings.tab_size);
-  explain(kf, "tab-size",
-          " 1 to 16, for projects without their own: the status bar's choice, .editorconfig or .clang-format come"
-          " first");
-  g_key_file_set_boolean(kf, "settings", "tabs-to-spaces", t->settings.tabs_to_spaces);
-  explain(kf, "tabs-to-spaces", " The Tab key inserts spaces");
-  g_key_file_set_boolean(kf, "settings", "detect-indentation", t->settings.detect_indent);
-  explain(kf, "detect-indentation", " Files indented with tabs or another number of spaces keep it");
-  g_key_file_set_boolean(kf, "settings", "autosave", t->settings.autosave);
-  explain(kf, "autosave", " Save a second after the last change");
-  g_key_file_set_boolean(kf, "settings", "format-on-save", t->settings.format_on_save);
-  explain(kf, "format-on-save", " Ctrl+S formats C and C++ files with clangd first (the project's .clang-format)");
-  g_key_file_set_boolean(kf, "settings", "clang-tidy", t->settings.clang_tidy);
-  explain(kf, "clang-tidy", " clangd also reports what the project's .clang-tidy asks for (more CPU while typing)");
+  for (size_t i = 0; i < G_N_ELEMENTS(settings); i++) {
+    const Setting *setting = &settings[i];
+    if (setting->number)
+      g_key_file_set_integer(kf, "settings", setting->key, *setting_field(t, setting));
+    else
+      g_key_file_set_boolean(kf, "settings", setting->key, *setting_field(t, setting));
+    explain(kf, setting->key, setting->comment);
+  }
   g_key_file_set_string(kf, "settings", "font", t->settings.font);
   explain(kf, "font", " Editors and the terminal: a font name and size, like Cascadia Code 11");
   g_key_file_set_string(kf, "settings", "file-manager-font", t->settings.files_font);
   explain(kf, "file-manager-font", " The Files panel (its file icons need a Nerd Font)");
-  g_key_file_set_boolean(kf, "settings", "reopen-last-project", t->settings.reopen_last);
-  explain(kf, "reopen-last-project", " When started from the app menu (not from a folder in a terminal)");
-  g_key_file_set_boolean(kf, "settings", "check-updates", t->settings.check_updates);
-  explain(kf, "check-updates",
-          " Once at start-up, the latest release on GitHub goes against this version; a newer one asks");
   store_to(kf, path);
   g_key_file_set_double(session, "window", "font-scale", t->settings.font_scale);
   g_key_file_set_double(session, "window", "preview-scale", t->settings.preview_scale);
