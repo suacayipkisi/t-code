@@ -1,6 +1,5 @@
 Source: t-code-ide
 Section: devel
-Priority: optional
 Maintainer: suacayipkisi <konuki8523@gmail.com>
 Build-Depends: debhelper-compat (= 13),
                pkgconf,
@@ -10,9 +9,8 @@ Build-Depends: debhelper-compat (= 13),
                libvte-2.91-gtk4-dev,
                libmd4c-dev,
                desktop-file-utils
-Standards-Version: 4.7.0
+Standards-Version: 4.7.4
 Homepage: https://github.com/suacayipkisi/t-code
-Rules-Requires-Root: no
 
 Package: t-code-ide
 Architecture: any

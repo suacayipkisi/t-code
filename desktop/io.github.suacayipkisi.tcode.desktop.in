@@ -6,6 +6,7 @@ Exec=@BIN@ %F
 Icon=io.github.suacayipkisi.tcode
 Terminal=false
 Categories=Development;IDE;
+Keywords=IDE;editor;C;C++;clangd;programming;
 MimeType=text/x-csrc;text/x-chdr;text/plain;inode/directory;
 StartupWMClass=io.github.suacayipkisi.tcode
 StartupNotify=true

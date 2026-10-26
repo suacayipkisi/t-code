@@ -4,6 +4,7 @@ Source: https://github.com/suacayipkisi/t-code
 
 Files: *
 Copyright: 2026 suacayipkisi
+ 2026 t-code contributors
 License: MIT
 
 Files: src/window/palette.c styles/dark-classic.xml
@@ -25,6 +26,14 @@ Copyright: 2026 suacayipkisi
 Comment: The color themes' values come from these authors' themes; see THIRD-PARTY.md.
  Monokai's colors are Wimer Hazenberg's, credited there (no license was published for them).
 License: MIT
+
+Files: desktop/io.github.suacayipkisi.tcode.metainfo.xml
+Copyright: 2026 suacayipkisi
+License: CC0-1.0
+
+License: CC0-1.0
+ On Debian systems, the full text of the CC0 1.0 Universal license can be
+ found in /usr/share/common-licenses/CC0-1.0.
 
 License: MIT
  Permission is hereby granted, free of charge, to any person obtaining a copy

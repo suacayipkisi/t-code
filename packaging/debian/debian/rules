@@ -1,6 +1,8 @@
 #!/usr/bin/make -f
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 include /usr/share/dpkg/pkg-info.mk
+# 0.4.1's Makefile leaves CPPFLAGS out of the compile line, which drops _FORTIFY_SOURCE.
+export DEB_CFLAGS_MAINT_APPEND := $(shell dpkg-buildflags --get CPPFLAGS)
 
 %:
 	dh $@

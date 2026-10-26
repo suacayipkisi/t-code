@@ -20,7 +20,7 @@ APP_DEP := $(APP_OBJ:.o=.d)
 
 build/obj/%.o: src/%.c build/license.h Makefile | build
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -MMD -MP -c -o $@ $<
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -MMD -MP -c -o $@ $<
 
 build/t-code: $(APP_OBJ) Makefile | build
 	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) $(shell pkg-config --libs $(PKGS))
