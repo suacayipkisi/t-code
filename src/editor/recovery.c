@@ -3,6 +3,7 @@
  */
 #include "editor/recovery.h"
 
+#include "application/identity.h"
 #include "editor/editor.h"
 #include "editor/editorview.h"
 #include "editor/tabs.h"
@@ -16,7 +17,7 @@
 
 static char *recovery_dir(void)
 {
-  char *dir = g_build_filename(g_get_user_cache_dir(), "t-code", "recovery", NULL);
+  char *dir = g_build_filename(g_get_user_cache_dir(), TCODE_NAME, "recovery", NULL);
   g_mkdir_with_parents(dir, 0700);
   return dir;
 }

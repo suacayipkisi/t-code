@@ -6,6 +6,7 @@
  * over the panels' CSS, and the user's theme.css over everything.
  */
 #include "window/theme.h"
+#include "application/identity.h"
 #include "window/palette.h"
 #include "editor/editorview.h"
 #include "editor/preview/preview.h"
@@ -151,7 +152,7 @@ void apply_theme(App *t)
 
 char *user_theme_file(void)
 {
-  return g_build_filename(g_get_user_config_dir(), "t-code", "theme.css", NULL);
+  return g_build_filename(g_get_user_config_dir(), TCODE_NAME, "theme.css", NULL);
 }
 
 void load_user_theme(void)

@@ -11,6 +11,7 @@
  */
 #include "project/session.h"
 
+#include "application/identity.h"
 #include "debug/view/debugview.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/editor.h"
@@ -35,12 +36,12 @@ static const char *const active_keys[GROUPS] = { "active", "active-side", "activ
 /* ~/.config/t-code/session.ini */
 static char *session_file(void)
 {
-  return g_build_filename(g_get_user_config_dir(), "t-code", "session.ini", NULL);
+  return g_build_filename(g_get_user_config_dir(), TCODE_NAME, "session.ini", NULL);
 }
 
 char *settings_file(void)
 {
-  return g_build_filename(g_get_user_config_dir(), "t-code", "settings.ini", NULL);
+  return g_build_filename(g_get_user_config_dir(), TCODE_NAME, "settings.ini", NULL);
 }
 
 /* A key file as it is now (empty when there is none yet). */

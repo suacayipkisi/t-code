@@ -5,6 +5,8 @@
  */
 #include "window/palette.h"
 
+#include "application/identity.h"
+
 #include <glib/gstdio.h>
 #include <string.h>
 
@@ -503,7 +505,7 @@ void palette_init(App *t G_GNUC_UNUSED, const char *id)
 /* Where the schemes made for the other themes go. */
 static char *pal_schemes_dir(void)
 {
-  return g_build_filename(g_get_user_cache_dir(), "t-code", "styles", NULL);
+  return g_build_filename(g_get_user_cache_dir(), TCODE_NAME, "styles", NULL);
 }
 
 /* styles/dark-classic.xml with the theme's colors in its <color> lines: the scheme for the theme. */

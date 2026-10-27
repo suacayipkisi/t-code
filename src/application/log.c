@@ -5,6 +5,8 @@
 
 #include "application/log.h"
 
+#include "application/identity.h"
+
 #include <glib/gstdio.h>
 #include <stdio.h>
 #include <string.h>
@@ -20,7 +22,7 @@ static GMutex lock; /* messages come from any thread */
 
 char *log_default_path(void)
 {
-  return g_build_filename(g_get_user_state_dir(), "t-code", "t-code.log", NULL);
+  return g_build_filename(g_get_user_state_dir(), TCODE_NAME, "t-code.log", NULL);
 }
 
 const char *log_path(void)

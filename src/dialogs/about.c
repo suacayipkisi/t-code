@@ -6,6 +6,8 @@
  */
 #include "dialogs/about.h"
 
+#include "application/identity.h"
+
 #include <string.h>
 #ifdef __GLIBC__
 #include <gnu/libc-version.h>
@@ -171,9 +173,9 @@ void show_about(App *t)
                         "modal", TRUE,
                         "default-width", ABOUT_WIDTH,
                         "default-height", ABOUT_HEIGHT,
-                        "program-name", "t-code",
+                        "program-name", TCODE_DISPLAY_NAME,
                         "version", TCODE_VERSION,
-                        "logo-icon-name", "io.github.suacayipkisi.tcode",
+                        "logo-icon-name", TCODE_APP_ID,
                         "comments", "A lightweight C/C++ IDE:\n"
                                     "a file manager, editor tabs and a shell, sharing language servers",
                         "website", "https://github.com/suacayipkisi/t-code",

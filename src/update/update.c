@@ -11,6 +11,8 @@
  */
 #include "update/update.h"
 
+#include "application/identity.h"
+
 #include <json-glib/json-glib.h>
 #include <string.h>
 
@@ -301,7 +303,7 @@ void updates_start(App *t)
 {
   static gboolean scheduled; /* at most one by itself: more windows would mean more checks */
 
-  if (scheduled)
+  if (scheduled || TCODE_DEV) /* the dev variant is newer than any release */
     return;
   scheduled = TRUE;
   g_timeout_add_seconds(1, begin_first_check, t);

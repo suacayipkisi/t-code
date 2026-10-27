@@ -5,6 +5,8 @@
  */
 #include "window/paths.h"
 
+#include "application/identity.h"
+
 #include <unistd.h>
 
 /* Looked up next to the executable: the installed layout (bin/t-code, share/t-code/styles) or the
@@ -33,8 +35,8 @@ static char *find_beside_exe(const char *const *candidates)
 
 void find_files(App *t)
 {
-  static const char *const styles[] = { "../share/t-code/styles", "../styles", NULL };
-  static const char *const snippets[] = { "../share/t-code/snippets", "../snippets", NULL };
+  static const char *const styles[] = { "../share/" TCODE_NAME "/styles", "../styles", NULL };
+  static const char *const snippets[] = { "../share/" TCODE_NAME "/snippets", "../snippets", NULL };
   /* Installed, the icon is in ~/.local/share/icons; from the build tree it is in desktop/. */
   static const char *const icons[] = { "../desktop", NULL };
   /* Old file versions for comparisons; the pid keeps two t-code windows apart. */

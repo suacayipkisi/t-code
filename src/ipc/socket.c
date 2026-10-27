@@ -13,6 +13,7 @@
  */
 #include "ipc/socket.h"
 
+#include "application/identity.h"
 #include "debug/debugger.h"
 #include "editor/editor.h"
 #include "editor/preview/preview.h"
@@ -310,7 +311,7 @@ void start_socket(App *t)
   GSocketAddress *address;
   GError *error = NULL;
 
-  t->paths.socket = g_strdup_printf("%s/t-code-%d.sock", g_get_user_runtime_dir(), getpid());
+  t->paths.socket = g_strdup_printf("%s/" TCODE_NAME "-%d.sock", g_get_user_runtime_dir(), getpid());
   unlink(t->paths.socket);
   address = g_unix_socket_address_new(t->paths.socket);
   t->service = g_socket_service_new();

@@ -3,6 +3,8 @@
  */
 #include "editor/editing/snippets.h"
 
+#include "application/identity.h"
+
 const char *const snippets_template =
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     "<!--\n"
@@ -21,12 +23,12 @@ const char *const snippets_template =
 
 char *snippets_user_file(void)
 {
-  return g_build_filename(g_get_user_config_dir(), "t-code", "snippets", "user.snippets", NULL);
+  return g_build_filename(g_get_user_config_dir(), TCODE_NAME, "snippets", "user.snippets", NULL);
 }
 
 void snippets_init(App *t)
 {
-  char *user = g_build_filename(g_get_user_config_dir(), "t-code", "snippets", NULL);
+  char *user = g_build_filename(g_get_user_config_dir(), TCODE_NAME, "snippets", NULL);
   const char *const path[] = { user, t->paths.snippets, NULL };
 
   /* Before any editor: the manager reads its files once, the first time a snippet is looked for. */

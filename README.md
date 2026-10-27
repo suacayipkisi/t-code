@@ -74,7 +74,7 @@ sudo dnf install t-code-ide
 
 Fedora 43, 44 and rawhide; updates come with `dnf upgrade`.
 
-### Ubuntu (PPA) (Currently Waiting PPA Release, Try again a few hours later please.)
+### Ubuntu (PPA)
 
 ```sh
 sudo add-apt-repository ppa:suacayipkisi/t-code-ide

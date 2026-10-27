@@ -4,6 +4,7 @@
  */
 #include "editor/editorview.h"
 
+#include "application/identity.h"
 #include "editor/text/detect.h"
 #include "debug/debughover.h"
 #include "editor/decor/blame.h"
@@ -91,7 +92,7 @@ static void init_look(App *t)
 
 char *user_colors_file(void)
 {
-  return g_build_filename(g_get_user_config_dir(), "t-code", "styles", "dark-classic.xml", NULL);
+  return g_build_filename(g_get_user_config_dir(), TCODE_NAME, "styles", "dark-classic.xml", NULL);
 }
 
 void editor_view_reload_colors(void)

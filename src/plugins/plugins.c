@@ -6,6 +6,7 @@
  */
 #include "plugins/plugins.h"
 
+#include "application/identity.h"
 #include "editor/tabs.h"
 #include "popups/picker.h"
 #include "window/statusbar.h"
@@ -186,7 +187,7 @@ void plugins_init(App *t)
     t->plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
 
   /* 1. User directory: ~/.config/t-code/plugins */
-  char *user_dir = g_build_filename(g_get_user_config_dir(), "t-code", "plugins", NULL);
+  char *user_dir = g_build_filename(g_get_user_config_dir(), TCODE_NAME, "plugins", NULL);
   g_mkdir_with_parents(user_dir, 0755);
   plugins_scan_dir(t, user_dir);
   g_free(user_dir);
@@ -436,7 +437,7 @@ void plugin_run_command(App *t, const char *plugin_id, const char *command_id)
 
 void open_plugins_folder(App *t)
 {
-  char *dir = g_build_filename(g_get_user_config_dir(), "t-code", "plugins", NULL);
+  char *dir = g_build_filename(g_get_user_config_dir(), TCODE_NAME, "plugins", NULL);
   g_mkdir_with_parents(dir, 0755);
   char *uri = g_filename_to_uri(dir, NULL, NULL);
   if (uri) {

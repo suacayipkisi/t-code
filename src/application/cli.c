@@ -3,6 +3,8 @@
  */
 #include "application/application.h"
 
+#include "application/identity.h"
+
 #include <gio/gunixsocketaddress.h>
 #include <string.h>
 
@@ -44,7 +46,7 @@ static int on_local_options(GApplication *app G_GNUC_UNUSED, GVariantDict *optio
   const char *request = NULL;
 
   if (g_variant_dict_contains(options, "version")) {
-    g_print("t-code %s\n", TCODE_VERSION);
+    g_print(TCODE_NAME " %s\n", TCODE_VERSION);
     return 0;
   }
   if (g_variant_dict_lookup(options, "send", "&s", &request))

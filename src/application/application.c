@@ -5,6 +5,7 @@
 #define _DEFAULT_SOURCE /* kill() under -std=c23 with musl */
 #include "application/application.h"
 
+#include "application/identity.h"
 #include "application/log.h"
 #include "debug/debugger.h"
 #include "editor/editor.h"
@@ -32,7 +33,7 @@ static gboolean already_running(void)
 
   while (dir && !found && (name = g_dir_read_name(dir))) {
     int pid = 0;
-    if (sscanf(name, "t-code-%d.sock", &pid) == 1 && pid > 0 && pid != getpid() && kill(pid, 0) == 0)
+    if (sscanf(name, TCODE_NAME "-%d.sock", &pid) == 1 && pid > 0 && pid != getpid() && kill(pid, 0) == 0)
       found = TRUE;
   }
   if (dir)
@@ -174,8 +175,7 @@ int application_run(int argc, char **argv)
 {
   static const GActionEntry actions[] = { { .name = "new-window", .activate = on_new_window_action } };
   App t = { .project.root = g_get_current_dir(), .settings.font_scale = 1.0, .settings.preview_scale = 1.0 };
-  GtkApplication *app =
-      gtk_application_new("io.github.suacayipkisi.tcode", G_APPLICATION_HANDLES_OPEN | G_APPLICATION_NON_UNIQUE);
+  GtkApplication *app = gtk_application_new(TCODE_APP_ID, G_APPLICATION_HANDLES_OPEN | G_APPLICATION_NON_UNIQUE);
   int status;
 
   cli_add_options(G_APPLICATION(app));

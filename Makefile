@@ -13,16 +13,39 @@ BINDIR     ?= $(PREFIX)/bin
 DATADIR    ?= $(PREFIX)/share
 APP_CFLAGS := $(shell pkg-config --cflags $(PKGS) 2>/dev/null) -Isrc -Ibuild
 
+# make DEV=1: the dev variant, to try the latest changes next to an installed t-code. It is
+# build/t-code-dev (objects in build/dev/), named t-code-dev for its config, state, cache, socket
+# and data folders, with its own app ID and no update check (src/application/identity.h);
+# packaging/install.sh --dev installs it.
+ifeq ($(DEV),1)
+OBJ_DIR     := build/dev/obj
+APP_BIN     := build/t-code-dev
+APP_VERSION := $(VERSION)-dev+$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD 2>/dev/null || echo .dirty)
+APP_DEFS    := -DTCODE_NAME='"t-code-dev"' -DTCODE_DISPLAY_NAME='"t-code Dev"' \
+               -DTCODE_APP_ID='"io.github.suacayipkisi.tcode.Devel"' -DTCODE_DEV=1
+all: $(APP_BIN)
+else
+OBJ_DIR     := build/obj
+APP_BIN     := build/t-code
+APP_VERSION := $(VERSION)
+APP_DEFS    :=
 all: build/t-code build/compile_commands.json
+endif
 
-APP_OBJ := $(patsubst src/%.c,build/obj/%.o,$(APP_SRC))
+APP_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(APP_SRC))
 APP_DEP := $(APP_OBJ:.o=.d)
 
-build/obj/%.o: src/%.c build/license.h Makefile | build
+# Rewritten only when the defines change (a new commit changes the dev version): the objects rebuild then.
+$(OBJ_DIR)/defines: FORCE | build
 	@mkdir -p $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -MMD -MP -c -o $@ $<
+	@echo '$(APP_VERSION) $(subst ',,$(APP_DEFS))' | cmp -s - $@ || echo '$(APP_VERSION) $(subst ',,$(APP_DEFS))' > $@
+FORCE:
 
-build/t-code: $(APP_OBJ) Makefile | build
+$(OBJ_DIR)/%.o: src/%.c build/license.h $(OBJ_DIR)/defines Makefile | build
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(APP_VERSION)"' $(APP_DEFS) -MMD -MP -c -o $@ $<
+
+$(APP_BIN): $(APP_OBJ) Makefile | build
 	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) $(shell pkg-config --libs $(PKGS))
 
 -include $(APP_DEP)
@@ -229,4 +252,4 @@ build:
 clean:
 	rm -rf build
 
-.PHONY: all clean test test-asan test-scenarios install
+.PHONY: all clean test test-asan test-scenarios install FORCE

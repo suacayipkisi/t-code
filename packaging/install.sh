@@ -6,16 +6,29 @@
 #   ~/.local/share/applications/io.github.suacayipkisi.tcode.desktop app menu entry
 #   ~/.local/share/icons/hicolor/scalable/apps/io.github.suacayipkisi.tcode.svg
 # Run it again after pulling changes to update the installed copy.
+#
+# --dev installs the dev variant instead (make DEV=1), to try the working tree next to a t-code
+# installed from a package: ~/.local/bin/t-code-dev, ~/.local/share/t-code-dev, the menu entry
+# "t-code Dev" (io.github.suacayipkisi.tcode.Devel) and its icon, drawn in blue. It has its own
+# settings, session, log and socket, and checks for no updates. For this machine only: no package
+# builds it.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFIX="${PREFIX:-$HOME/.local}"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
-BIN="$PREFIX/bin/t-code"
+DEV=0
+[[ "${1:-}" == "--dev" ]] && DEV=1
+if ((DEV)); then
+  NAME=t-code-dev APP_ID=io.github.suacayipkisi.tcode.Devel MENU_NAME="t-code Dev"
+else
+  NAME=t-code APP_ID=io.github.suacayipkisi.tcode MENU_NAME=t-code
+fi
+BIN="$PREFIX/bin/$NAME"
 LIBEXEC="$PREFIX/libexec/t-code"
-SHARE="$PREFIX/share/t-code"
+SHARE="$PREFIX/share/$NAME"
 APP_DIR="$DATA_HOME/applications"
-ICON="$DATA_HOME/icons/hicolor/scalable/apps/io.github.suacayipkisi.tcode.svg"
+ICON="$DATA_HOME/icons/hicolor/scalable/apps/$APP_ID.svg"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m  %s\n' "$*"; }
@@ -40,12 +53,12 @@ fi
 
 # 2. Build
 info "Building..."
-make -C "$ROOT" --no-print-directory
+make -C "$ROOT" --no-print-directory DEV="$DEV"
 
 # 3. Programs (a leftover symlink from a manual 'ln -s' setup is replaced by a real copy)
 [[ -L "$BIN" ]] && rm "$BIN"
-install -Dm755 "$ROOT/build/t-code" "$BIN"
-rm -rf "$LIBEXEC" # t-code-fm, the terminal file manager before 0.2.1: the file tree is built in now
+install -Dm755 "$ROOT/build/$NAME" "$BIN"
+((DEV)) || rm -rf "$LIBEXEC" # t-code-fm, the terminal file manager before 0.2.1: the file tree is built in now
 info "Installed $BIN"
 
 # 4. The editor's colors. What the micro-based t-code (0.1.x) installed is not used any more.
@@ -60,12 +73,21 @@ info "Installed the snippets in $SHARE/snippets"
 # 5. App menu entry and icon
 # Before 0.4.1 the application ID was io.github.tcode: drop that entry so the menu shows one t-code.
 rm -f "$APP_DIR/io.github.tcode.desktop" "$DATA_HOME/icons/hicolor/scalable/apps/io.github.tcode.svg"
-install -Dm644 "$ROOT/desktop/io.github.suacayipkisi.tcode.svg" "$ICON"
+install -d "$(dirname "$ICON")"
+if ((DEV)); then # the stable icon has gold braces and a grey t, the dev one blue ones
+  sed -e 's/#FFD700/#3794FF/g' -e 's/#CCCCCC/#3794FF/g' "$ROOT/desktop/io.github.suacayipkisi.tcode.svg" > "$ICON"
+else
+  install -m644 "$ROOT/desktop/io.github.suacayipkisi.tcode.svg" "$ICON"
+fi
 touch "$DATA_HOME/icons/hicolor" # tells the desktop to rescan its icon cache
 mkdir -p "$APP_DIR"
-sed "s|@BIN@|$BIN|" "$ROOT/desktop/io.github.suacayipkisi.tcode.desktop.in" > "$APP_DIR/io.github.suacayipkisi.tcode.desktop"
+# The dev variant claims no file types: opening a file from the file manager stays with t-code.
+((DEV)) && no_mime='/^MimeType=/d' || no_mime=''
+sed -e "s|@BIN@|$BIN|" -e "s|^Name=t-code$|Name=$MENU_NAME|" \
+  -e "s|io\.github\.suacayipkisi\.tcode$|$APP_ID|" -e "$no_mime" \
+  "$ROOT/desktop/io.github.suacayipkisi.tcode.desktop.in" > "$APP_DIR/$APP_ID.desktop"
 command -v update-desktop-database >/dev/null && update-desktop-database "$APP_DIR" 2>/dev/null || true
-info "Installed desktop entry: $APP_DIR/io.github.suacayipkisi.tcode.desktop"
+info "Installed desktop entry: $APP_DIR/$APP_ID.desktop"
 
-info "Done. Run 't-code [dir]' or open 't-code' from the app menu."
+info "Done. Run '$NAME [dir]' or open '$MENU_NAME' from the app menu."
 case ":$PATH:" in *":$PREFIX/bin:"*) ;; *) warn "$PREFIX/bin is not in your PATH" ;; esac
