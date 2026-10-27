@@ -90,7 +90,7 @@ static void on_discard_clicked(GtkButton *button G_GNUC_UNUSED, Change *c) { scm
 /* Fills a list from scm.staged or scm.changes, with the buttons each row needs. */
 void scm_fill_changes(GtkListBox *list, GPtrArray *changes, gboolean staged)
 {
-  gtk_list_box_remove_all(list);
+  context_menu_clear_list(list);
   for (guint i = 0; i < changes->len; i++) {
     Change *c = g_ptr_array_index(changes, i);
     GtkWidget *box, *row = scm_file_row(c->path, c->code, &box);

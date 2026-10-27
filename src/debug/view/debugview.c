@@ -55,7 +55,7 @@ static void forget_pause(void)
 {
   view.generation++;
   g_list_store_remove_all(view.root);
-  gtk_list_box_remove_all(view.stack);
+  context_menu_clear_list(view.stack);
   g_clear_pointer(&view.frames, json_node_unref);
   watch_evaluate();
 }

@@ -182,7 +182,7 @@ void scm_update(App *t, const char *out, gsize size)
     else if (head && !scm.initial)
       commits_load();
     else
-      gtk_list_box_remove_all(scm.commits_list);
+      context_menu_clear_list(scm.commits_list);
   } else {
     g_free(head);
   }
@@ -392,5 +392,5 @@ void scm_reset(void)
   scm.ahead = scm.behind = 0;
   scm.initial = FALSE;
   show_changes(scm.app);
-  gtk_list_box_remove_all(scm.commits_list);
+  context_menu_clear_list(scm.commits_list);
 }

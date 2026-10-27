@@ -44,7 +44,7 @@ void stack_fill(void)
 {
   guint n = view.frames ? json_array_get_length(json_node_get_array(view.frames)) : 0;
 
-  gtk_list_box_remove_all(view.stack);
+  context_menu_clear_list(view.stack);
   for (guint i = 0; i < n; i++) {
     JsonNode *frame = json_array_get_element(json_node_get_array(view.frames), i);
     const char *function = json_string_at(frame, "name"), *path = json_string_at(frame, "source.path");

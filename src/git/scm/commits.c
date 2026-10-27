@@ -445,7 +445,7 @@ static void on_log(gboolean ok, const char *out, const char *err G_GNUC_UNUSED, 
   g_free(data);
   if (stale)
     return;
-  gtk_list_box_remove_all(scm.commits_list);
+  context_menu_clear_list(scm.commits_list);
   g_clear_pointer(&scm.open_commit, g_free);
   if (!ok)
     return;

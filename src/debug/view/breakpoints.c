@@ -99,7 +99,7 @@ void debug_view_breakpoints_changed(App *t)
     g_array_free(all, TRUE);
     return;
   }
-  gtk_list_box_remove_all(view.breakpoints);
+  context_menu_clear_list(view.breakpoints);
   if (t->debug.breakpoints) {
     g_hash_table_iter_init(&iter, t->debug.breakpoints);
     while (g_hash_table_iter_next(&iter, &path, &list))
