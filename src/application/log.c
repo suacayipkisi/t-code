@@ -69,8 +69,11 @@ static void drop_old_runs(void)
     g_array_free(starts, TRUE);
     return;
   }
+  /* memcmp, not g_str_has_prefix: that one measures the rest of the file at every line, which never
+   * ends on a log grown to hundreds of MB */
   for (gsize at = 0; at < size;) {
-    if (g_str_has_prefix(text + at, "=== ") && !g_str_has_prefix(text + at, "=== quit"))
+    if (size - at >= 4 && memcmp(text + at, "=== ", 4) == 0 &&
+        !(size - at >= 8 && memcmp(text + at, "=== quit", 8) == 0))
       g_array_append_val(starts, at);
     const char *end = memchr(text + at, '\n', size - at);
     at = end ? (gsize)(end - text) + 1 : size;

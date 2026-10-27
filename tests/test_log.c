@@ -54,6 +54,26 @@ static void test_log_bytes(void)
   g_free(big);
 }
 
+/* A run with a flood of short lines (a warning repeated a million times) is dropped at once: the
+ * scan stays linear. */
+static void test_log_flood(void)
+{
+  GString *runs = g_string_new("=== 2026-01-01 a t-code old\n");
+  char *text = NULL, *saved = file_path;
+
+  while (runs->len < 5 * LOG_MAX_BYTES)
+    g_string_append(runs, "Tried to remove non-child\n");
+  g_string_append(runs, "=== 2026-01-02 b t-code old\nlast\n");
+  file_path = write_at(dir, "flood.log", runs->str, -1, 0);
+  drop_old_runs();
+  g_assert_true(g_file_get_contents(file_path, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, "=== 2026-01-02 b t-code old\nlast\n");
+  g_free(text);
+  g_free(file_path);
+  file_path = saved;
+  g_string_free(runs, TRUE);
+}
+
 int main(int argc, char **argv)
 {
   GString *old = g_string_new(NULL);
@@ -72,6 +92,7 @@ int main(int argc, char **argv)
   g_test_init(&argc, &argv, NULL);
   g_test_add_func("/log/runs", test_log_runs);
   g_test_add_func("/log/bytes", test_log_bytes);
+  g_test_add_func("/log/flood", test_log_flood);
   status = g_test_run();
   char *rm[] = { "rm", "-rf", dir, NULL };
   g_spawn_sync(NULL, rm, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
