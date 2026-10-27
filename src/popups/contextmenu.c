@@ -138,6 +138,14 @@ void context_menu_attach(GtkWidget *widget, ContextMenuShow show, gpointer data)
   gtk_widget_add_controller(widget, GTK_EVENT_CONTROLLER(click));
 }
 
+void context_menu_clear_list(GtkListBox *list)
+{
+  GtkListBoxRow *row;
+
+  while ((row = gtk_list_box_get_row_at_index(list, 0)))
+    gtk_list_box_remove(list, GTK_WIDGET(row));
+}
+
 void copy_to_clipboard(const char *text)
 {
   gdk_clipboard_set_text(gdk_display_get_clipboard(gdk_display_get_default()), text ? text : "");

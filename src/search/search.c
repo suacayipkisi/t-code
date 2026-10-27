@@ -139,7 +139,7 @@ static void update_summary(void)
 /* Empties the result list. */
 static void clear_results(void)
 {
-  gtk_list_box_remove_all(search.list);
+  context_menu_clear_list(search.list);
   search.hits = search.files = 0;
   search.truncated = FALSE;
   search.heading = NULL;

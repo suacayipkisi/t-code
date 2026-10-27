@@ -929,6 +929,20 @@ static void test_context_menus(void)
   g_assert_cmpint(ran, ==, 1);
   g_assert_cmpint(menu_freed, ==, 2);
 
+  /* a list whose menu was opened empties (its popover is a child too: remove_all never ended) */
+  GtkWidget *window = gtk_window_new();
+  GtkListBox *list = GTK_LIST_BOX(gtk_list_box_new());
+  gtk_window_set_child(GTK_WINDOW(window), GTK_WIDGET(list));
+  gtk_list_box_append(list, gtk_label_new("row"));
+  gtk_window_present(GTK_WINDOW(window));
+  run_for(20);
+  context_menu(GTK_WIDGET(list), 1, 1, items, G_N_ELEMENTS(items), &ran, count_free);
+  context_menu_clear_list(list);
+  g_assert_null(gtk_list_box_get_row_at_index(list, 0));
+  gtk_popover_popdown(GTK_POPOVER(shown_menu(GTK_WIDGET(list))));
+  run_until(menu_gone, list);
+  gtk_window_destroy(GTK_WINDOW(window));
+
   tab_menu(tab_nth(&app, 0), widget, 1, 1);
   choose_menu_item(widget, "Close to the Right");
   assert_tabs("m1.txt");

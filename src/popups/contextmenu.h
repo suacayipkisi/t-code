@@ -20,5 +20,9 @@ void context_menu(GtkWidget *widget, double x, double y, const MenuItem *items, 
 typedef void (*ContextMenuShow)(GtkWidget *widget, double x, double y, gpointer data);
 void context_menu_attach(GtkWidget *widget, ContextMenuShow show, gpointer data);
 
+/* Empties a list box that has right-click menus: removes only its rows. The menu's popover is a
+ * child of the list too, and gtk_list_box_remove_all() never gets past it (the UI hangs). */
+void context_menu_clear_list(GtkListBox *list);
+
 /* Puts text on the clipboard. */
 void copy_to_clipboard(const char *text);
