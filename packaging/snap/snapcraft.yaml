@@ -22,7 +22,7 @@ package-repositories:
   - type: apt
     url: https://archive.ubuntu.com/ubuntu
     key-id: F6ECB3762474EDA9D21B7022871920D1991BC93C
-    suites: [resolute]
+    suites: [resolute, resolute-updates, resolute-security]
     components: [main, universe]
 
 platforms:

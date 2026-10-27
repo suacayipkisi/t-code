@@ -58,7 +58,10 @@ cp "$work/packaging/snap/snapcraft.yaml" "$work/snap/snapcraft.yaml"
   snapcraft --version
   snap list snapcraft
   snap version
-  apt-cache policy libvte-2.91-gtk4-0
+  # Only an Ubuntu host has apt; in LXD mode the archive is read inside the instance.
+  if command -v apt-cache >/dev/null; then
+    apt-cache policy libvte-2.91-gtk4-0
+  fi
   if [[ "$build_mode" == lxd ]]; then
     lxc version
   else
