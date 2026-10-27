@@ -171,13 +171,13 @@ Most of the structure and code written with using AI coding agent. Every single 
 Measured on Fedora 44 with the same 25 C files of this repository open, each tab shown in turn
 (`tools/measure.sh`; PSS, so the rows add up):
 
-| all 25 tabs shown | 0.1.1 (micro) | 0.2 (GtkSourceView) | 0.3 | 0.3.2 |
+| all 25 tabs shown | 0.1.1 (micro) | 0.2 (GtkSourceView) | 0.3 | 0.4.1 |
 |---|---:|---:|---:|---:|
 | editors | 25 micro processes, 412 MB | in the window | in the window | in the window |
-| t-code window | 57 MB | 83 MB | 70 MB | 66–70 MB |
+| t-code window | 57 MB | 83 MB | 70 MB | 70–72 MB |
 | helper processes per editor | 50, 6 MB | none | none | none |
-| clangd | 361 MB | 470 MB | 345–367 MB | 366–370 MB |
-| **memory in all** | **839 MB** | **557 MB** | **418–442 MB** | **436–441 MB** |
+| clangd | 361 MB | 470 MB | 345–367 MB | 372–392 MB |
+| **memory in all** | **839 MB** | **557 MB** | **418–442 MB** | **445–467 MB** |
 
 clangd gets a file only once its tab is shown, keeps at most five open, runs with two malloc
 arenas and stops when its last file closes; idle, t-code uses no CPU. What keeps it small and how
