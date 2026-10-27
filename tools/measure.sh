@@ -25,8 +25,14 @@ tree="$(cd "${1:-$root}" && pwd)"
 mapfile -t files < <(git -C "$root" ls-tree -r --name-only v0.3 src | grep -E '^src/[^/]+/[^/]+\.c$' | LC_ALL=C sort |
   head -25)
 [[ ${#files[@]} -eq 25 ]] || { echo "no v0.3 tag here: git fetch --tags" >&2; exit 1; }
-for f in "${files[@]}"; do
-  [[ -f "$tree/$f" ]] || { echo "$tree has no $f" >&2; exit 1; }
+# Files moved into subfolders since (src/editor/blocks.c is now src/editor/text/blocks.c): find them
+# by name under the same area.
+for i in "${!files[@]}"; do
+  f=${files[i]}
+  [[ -f "$tree/$f" ]] && continue
+  moved=$(cd "$tree" && find "$(dirname "$f")" -name "$(basename "$f")")
+  [[ -n "$moved" && $(wc -l <<<"$moved") -eq 1 ]] || { echo "$tree has no $f" >&2; exit 1; }
+  files[i]=$moved
 done
 
 out=$(mktemp)
