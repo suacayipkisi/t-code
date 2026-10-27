@@ -6,9 +6,7 @@ A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) 
 
 ![t-code 0.3 in the Dark Classic color theme with the rounded look](docs/dark_classic-rounded.png)
 
-![t-code 0.3 in the Dark Classic color theme with the square look](docs/dark_classic-squared.png)
-
-<sub>t-code 0.3: Dark Classic, rounded (top) and Dark Classic, square (bottom).</sub>
+<sub>t-code 0.3: Dark Classic, rounded.</sub>
 
 **New in 0.4.0:** multiple cursors, replace across the project, snippets, inlay hints, Outline and call / type
 hierarchy, and in git: branches, pull / fetch, stash, line blame and merge conflict buttons; more
@@ -75,6 +73,15 @@ sudo dnf install t-code-ide
 ```
 
 Fedora 43, 44 and rawhide; updates come with `dnf upgrade`.
+
+### Ubuntu (PPA)
+
+```sh
+sudo add-apt-repository ppa:suacayipkisi/t-code-ide
+sudo apt install t-code-ide
+```
+
+Ubuntu 26.04 and 26.10 (24.04's GtkSourceView is too old).
 
 ### Snap
 
