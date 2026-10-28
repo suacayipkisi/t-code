@@ -569,7 +569,7 @@ void editor_goto(Tab *tab, int line, int column)
 }
 
 /* Files t-code shows rather than edits: an image in a preview tab; documents, archives, audio, video
- * and fonts in the desktop's app for them. TRUE when path was one of them. */
+ * and fonts in the desktop's app for them (a missing one in none). TRUE when path was one of them. */
 static gboolean open_other(App *t, const char *path)
 {
   /* clang-format off */
@@ -592,6 +592,8 @@ static gboolean open_other(App *t, const char *path)
   }
   for (int i = 0; ext && outside[i]; i++)
     if (g_ascii_strcasecmp(ext, outside[i]) == 0) {
+      if (!g_file_test(path, G_FILE_TEST_EXISTS))
+        return TRUE; /* nothing to show, and no app (or portal) to start */
       GFile *file = g_file_new_for_path(path);
       GtkFileLauncher *launcher = gtk_file_launcher_new(file);
       gtk_file_launcher_launch(launcher, t->window, NULL, NULL, NULL);
