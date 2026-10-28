@@ -239,8 +239,9 @@ void update_tab_label(Tab *tab)
     g_free(name);
     name = both;
   }
-  char *text = tab->kind == TAB_PREVIEW ? g_strdup_printf("Preview %s", name)
-                                        : g_strdup_printf("%s%s", tab->modified ? "● " : "", name);
+  char *text = tab->kind == TAB_PREVIEW && !is_image(tab->path) ? g_strdup_printf("Preview %s", name)
+               : tab->kind == TAB_PREVIEW ? g_strdup(name)
+                                          : g_strdup_printf("%s%s", tab->modified ? "● " : "", name);
 
   gtk_label_set_text(tab->label, text);
   if (tab->temporary)

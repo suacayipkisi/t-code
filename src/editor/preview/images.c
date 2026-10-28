@@ -9,6 +9,7 @@
 #include "application/identity.h"
 #include "window/palette.h"
 
+#include <glib/gstdio.h>
 #include <string.h>
 
 #define PENDING GINT_TO_POINTER(1) /* p->remote's values besides paintables */
@@ -341,4 +342,57 @@ GtkWidget *preview_picture_new(Preview *p, GdkPaintable *paintable, int width, c
     gtk_widget_set_cursor_from_name(picture, "pointer");
   }
   return picture;
+}
+
+/* Image files ------------------------------------------------------------------------------------ */
+
+/* A click on an image's picture switches between fitting the view and its own size. */
+static void on_image_click(GtkGestureClick *gesture, int n_press G_GNUC_UNUSED, double x G_GNUC_UNUSED,
+                           double y G_GNUC_UNUSED, Preview *p)
+{
+  GtkWidget *picture = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  gboolean actual = !g_object_get_data(G_OBJECT(picture), "t-code-actual");
+
+  g_object_set_data(G_OBJECT(picture), "t-code-actual", GINT_TO_POINTER(actual));
+  gtk_widget_set_tooltip_text(picture, actual ? "Click to fit the view" : "Click to show at its own size");
+  preview_size_picture(picture, preview_content_width(p));
+}
+
+void preview_render_image(Preview *p)
+{
+  GtkTextBuffer *b = p->buffer;
+  GdkPaintable *paintable = paintable_from_file(p->tab->path);
+  GtkTextIter end, from;
+  GStatBuf st;
+  char *type = g_content_type_guess(p->tab->path, NULL, 0, NULL), *kind = g_content_type_get_description(type);
+  char *bytes = g_stat(p->tab->path, &st) == 0 ? g_format_size(st.st_size) : g_strdup("");
+
+  if (paintable) {
+    GtkWidget *picture = preview_picture_new(p, paintable, 0, NULL, NULL);
+    GtkGesture *click = gtk_gesture_click_new();
+    char *line = g_strdup_printf("\n%d × %d · %s · %s", gdk_paintable_get_intrinsic_width(paintable),
+                                 gdk_paintable_get_intrinsic_height(paintable), bytes, kind);
+    g_signal_connect(click, "released", G_CALLBACK(on_image_click), p);
+    gtk_widget_add_controller(picture, GTK_EVENT_CONTROLLER(click));
+    gtk_widget_set_tooltip_text(picture, "Click to show at its own size");
+    preview_size_picture(picture, preview_content_width(p));
+    gtk_text_buffer_get_end_iter(b, &end);
+    gtk_text_view_add_child_at_anchor(p->view, picture, gtk_text_buffer_create_child_anchor(b, &end));
+    g_ptr_array_add(p->pictures, picture);
+    gtk_text_buffer_get_end_iter(b, &end);
+    gtk_text_buffer_insert_with_tags_by_name(b, &end, line, -1, "caption", NULL);
+    g_free(line);
+    g_object_unref(paintable);
+  } else {
+    char *line = g_strdup_printf("This image cannot be shown (%s, %s).", kind, bytes);
+    gtk_text_buffer_get_end_iter(b, &end);
+    gtk_text_buffer_insert_with_tags_by_name(b, &end, line, -1, "error", NULL);
+    g_free(line);
+  }
+  gtk_text_buffer_get_bounds(b, &from, &end);
+  gtk_text_buffer_apply_tag_by_name(b, "center", &from, &end);
+  gtk_text_buffer_apply_tag_by_name(b, "base", &from, &end);
+  g_free(bytes);
+  g_free(kind);
+  g_free(type);
 }

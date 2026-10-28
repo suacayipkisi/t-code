@@ -568,11 +568,36 @@ void editor_goto(Tab *tab, int line, int column)
   update_position(tab);
 }
 
+/* Files t-code shows rather than edits: an image in a preview tab, a PDF in the desktop's viewer.
+ * TRUE when path was one of them. */
+static gboolean open_other(App *t, const char *path)
+{
+  static const char *const documents[] = { ".pdf", NULL };
+  const char *ext = strrchr(path, '.');
+
+  if (is_image(path)) {
+    open_preview(t, path);
+    return TRUE;
+  }
+  for (int i = 0; ext && documents[i]; i++)
+    if (g_ascii_strcasecmp(ext, documents[i]) == 0) {
+      GFile *file = g_file_new_for_path(path);
+      GtkFileLauncher *launcher = gtk_file_launcher_new(file);
+      gtk_file_launcher_launch(launcher, t->window, NULL, NULL, NULL);
+      g_object_unref(launcher);
+      g_object_unref(file);
+      return TRUE;
+    }
+  return FALSE;
+}
+
 /* An open file is not opened twice: its tab is shown and its cursor moved. */
 void open_file_at(App *t, const char *path, int line, int column)
 {
   Tab *existing = find_tab(t, TAB_EDITOR, path);
 
+  if (open_other(t, path))
+    return;
   if (!existing) {
     open_editor(t, path, line, column, FALSE);
     return;
@@ -584,29 +609,39 @@ void open_file_at(App *t, const char *path, int line, int column)
 
 void open_file(App *t, const char *path)
 {
-  Tab *existing = find_tab(t, TAB_EDITOR, path);
+  Tab *existing = find_tab(t, is_image(path) ? TAB_PREVIEW : TAB_EDITOR, path);
 
   if (existing)
     keep_tab(existing); /* opened on purpose: no longer temporary */
+  if (open_other(t, path))
+    return;
   open_file_at(t, path, 0, 0);
 }
 
 void open_file_temporary(App *t, const char *path)
 {
   int group = t->editors.active;
-  Tab *existing = find_tab(t, TAB_EDITOR, path), *old = temporary_tab(t, group), *tab;
+  gboolean image = is_image(path); /* shown in a preview tab, temporary as well */
+  Tab *existing = find_tab(t, image ? TAB_PREVIEW : TAB_EDITOR, path), *old = temporary_tab(t, group), *tab;
   int position = -1;
 
   if (existing) {
     select_tab(existing);
     return;
   }
+  if (!image && open_other(t, path))
+    return;
   if (old) { /* replaced, in its place */
     position = tab_position(old);
     remove_tab(old);           /* temporary tabs have nothing unsaved: an edit keeps them */
     t->editors.active = group; /* removing it focused another tab, maybe in the other group */
   }
-  tab = open_editor(t, path, 0, 0, FALSE);
+  if (image) {
+    open_preview(t, path);
+    tab = current_tab(t);
+  } else {
+    tab = open_editor(t, path, 0, 0, FALSE);
+  }
   tab->temporary = TRUE;
   update_tab_label(tab);
   if (position >= 0)
@@ -619,6 +654,8 @@ void open_to_side(App *t, const char *path)
 
   set_split(t, TRUE);
   t->editors.active = 1;
+  if (open_other(t, path))
+    return;
   if (existing) {
     move_tab(existing, 1);
     select_tab(existing);

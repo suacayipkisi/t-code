@@ -969,6 +969,10 @@ void preview_render(Preview *p)
 
   g_object_set(gtk_text_tag_table_lookup(gtk_text_buffer_get_tag_table(p->buffer), "base"), "size-points",
                BODY_POINTS * p->scale, NULL);
+  if (p->image) {
+    preview_render_image(p);
+    return;
+  }
   r.dir = g_path_get_dirname(p->tab->path);
   r.starts = g_array_new(FALSE, FALSE, sizeof(int));
   r.images = g_array_new(FALSE, FALSE, sizeof(gboolean));

@@ -205,7 +205,7 @@ void tab_menu(Tab *tab, GtkWidget *widget, double x, double y)
   items[n++] = (MenuItem){ NULL, NULL };
   if (tab->temporary)
     items[n++] = (MenuItem){ "Keep Open", on_keep };
-  if (tab->kind == TAB_EDITOR && is_markdown(tab->path) && !tab->compare.with)
+  if (tab->kind == TAB_EDITOR && has_preview(tab->path) && !tab->compare.with)
     items[n++] = (MenuItem){ "Open Preview", on_preview };
   items[n++] = (MenuItem){ group == 0   ? "Move to Other Group"
                            : group == 1 ? "Move to First Group"

@@ -252,12 +252,12 @@ static void go_to_line(App *t)
     picker_open(t, "Line number", line_query, line_choose);
 }
 
-/* Ctrl+Shift+V: a preview of the current Markdown file. */
+/* Ctrl+Shift+V: a preview of the current Markdown (or SVG) file. */
 static void preview(App *t)
 {
   Tab *tab = current_tab(t);
 
-  if (tab && tab->kind == TAB_EDITOR && is_markdown(tab->path))
+  if (tab && tab->kind == TAB_EDITOR && has_preview(tab->path))
     open_preview(t, tab->path);
 }
 

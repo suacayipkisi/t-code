@@ -39,6 +39,7 @@ void open_preview(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void open_in_new_window(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 GtkWidget *open_tabs_new(App *t G_GNUC_UNUSED) { return gtk_box_new(GTK_ORIENTATION_VERTICAL, 0); }
 gboolean is_markdown(const char *path) { return g_str_has_suffix(path, ".md"); }
+gboolean has_preview(const char *path) { return is_markdown(path) || g_str_has_suffix(path, ".svg"); }
 void compare_with_head(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void file_history(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void open_project(App *t G_GNUC_UNUSED, const char *root G_GNUC_UNUSED) {}

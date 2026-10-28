@@ -1816,6 +1816,65 @@ static void test_preview_github(void)
   g_free(path);
 }
 
+/* Images open in a tab that shows them (temporary from a single click, like editors), not as text; an
+ * SVG opens in an editor and its preview draws it; a PDF does not open as text. */
+static void test_open_images(void)
+{
+  char *png = g_build_filename(app.project.root, "pixel.png", NULL);
+  char *svg = g_build_filename(app.project.root, "shape.svg", NULL);
+  char *pdf = g_build_filename(app.project.root, "missing.pdf", NULL); /* missing: no viewer starts */
+  static const guchar pixel[] = {
+    /* a 1×1 PNG */
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+    0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+    0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff,
+    0x89, 0x99, 0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+  };
+  GtkTextIter iter;
+
+  g_assert_true(g_file_set_contents(png, (const char *)pixel, sizeof pixel, NULL));
+  g_assert_true(g_file_set_contents(
+      svg, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"4\"><rect width=\"8\" height=\"4\"/></svg>",
+      -1, NULL));
+
+  open_file_temporary(&app, png);
+  run_for(100);
+  Tab *tab = current_tab(&app);
+  g_assert_true(tab->kind == TAB_PREVIEW);
+  g_assert_true(tab->temporary);
+  g_assert_cmpstr(gtk_label_get_text(tab->label), ==, "pixel.png");
+  GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
+  gtk_text_buffer_get_start_iter(buffer, &iter);
+  g_assert_nonnull(gtk_text_iter_get_child_anchor(&iter));
+  iter = preview_find(buffer, "1 × 1 · ");
+  open_file(&app, png); /* opened on purpose: kept */
+  g_assert_true(current_tab(&app) == tab);
+  g_assert_false(tab->temporary);
+  remove_tab(tab);
+
+  open_file(&app, svg);
+  tab = current_tab(&app);
+  g_assert_true(tab->kind == TAB_EDITOR); /* SVG is text */
+  run_command(&app, "Markdown Preview");
+  Tab *drawn = current_tab(&app);
+  g_assert_true(drawn->kind == TAB_PREVIEW);
+  view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(drawn->page)));
+  iter = preview_find(gtk_text_view_get_buffer(view), "8 × 4 · ");
+  remove_tab(drawn);
+  remove_tab(tab);
+
+  int tabs = tab_count(&app);
+  open_file(&app, pdf);
+  g_assert_cmpint(tab_count(&app), ==, tabs);
+
+  g_unlink(png);
+  g_unlink(svg);
+  g_free(pdf);
+  g_free(svg);
+  g_free(png);
+}
+
 /* A renamed theme's old id (in a settings.ini from before) gives its new one. */
 static void test_theme_renamed(void)
 {
@@ -2732,6 +2791,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/preview-look", test_preview_look);
   g_test_add_func("/window/preview-math", test_preview_math);
   g_test_add_func("/window/preview-github", test_preview_github);
+  g_test_add_func("/window/open-images", test_open_images);
   g_test_add_func("/window/run-scripts", test_run_scripts);
   g_test_add_func("/window/run-tests", test_run_tests);
   g_test_add_func("/window/run-projects", test_run_projects);

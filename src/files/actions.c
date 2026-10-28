@@ -305,7 +305,7 @@ void files_show_menu(const char *path, double x, double y)
   if (dir) {
     add_section(menu, (const char *const[]){ "Open", "open", "Open Folder as Project", "project", NULL });
   } else if (path) {
-    if (is_markdown(path))
+    if (has_preview(path))
       add_section(menu, (const char *const[]){ "Open", "open", "Open to the Side", "open-side", "Open in New Window",
                                                "open-window", "Open Preview", "preview", NULL });
     else

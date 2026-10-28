@@ -35,6 +35,32 @@ gboolean is_markdown(const char *path)
   return FALSE;
 }
 
+/* Whether path's extension is one of extensions (lower case, with their dots). */
+static gboolean has_extension(const char *path, const char *const *extensions)
+{
+  const char *ext = strrchr(path, '.');
+
+  for (int i = 0; ext && extensions[i]; i++)
+    if (g_ascii_strcasecmp(ext, extensions[i]) == 0)
+      return TRUE;
+  return FALSE;
+}
+
+gboolean is_image(const char *path)
+{
+  static const char *const extensions[] = { ".png", ".jpg", ".jpeg", ".gif",  ".webp", ".bmp",
+                                            ".ico", ".tif", ".tiff", ".avif", ".jxl",  NULL };
+
+  return has_extension(path, extensions);
+}
+
+gboolean has_preview(const char *path)
+{
+  static const char *const svg[] = { ".svg", NULL };
+
+  return is_markdown(path) || has_extension(path, svg);
+}
+
 /* Rendering ---------------------------------------------------------------------------------- */
 
 static void clear_links(Preview *p)
@@ -329,6 +355,7 @@ void open_preview(App *t, const char *path)
   GFile *file = g_file_new_for_path(path);
 
   p->scale = t->settings.preview_scale;
+  p->image = !is_markdown(path); /* an image, or an SVG drawn */
   p->links = g_array_new(FALSE, FALSE, sizeof(Link));
   p->code_spans = g_array_new(FALSE, FALSE, sizeof(CodeSpan));
   p->blocks = g_array_new(FALSE, FALSE, sizeof(Block));
@@ -363,7 +390,8 @@ void open_preview(App *t, const char *path)
    * GtkTextView measures lines with a hanging indent (list items) a few pixels too wide: no
    * horizontal scrollbar for those. EXTERNAL, not NEVER, which would make the view's width the
    * scrolled window's minimum. */
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled), GTK_POLICY_EXTERNAL, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled), p->image ? GTK_POLICY_AUTOMATIC : GTK_POLICY_EXTERNAL,
+                                 GTK_POLICY_AUTOMATIC); /* an image at its size may be wider than the view */
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), GTK_WIDGET(p->view));
   gtk_widget_set_hexpand(scrolled, TRUE);
   gtk_widget_set_vexpand(scrolled, TRUE);

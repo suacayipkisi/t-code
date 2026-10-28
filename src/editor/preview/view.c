@@ -122,6 +122,8 @@ static int image_width(GtkWidget *picture, int max_width)
 {
   int natural = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(picture), "t-code-width"));
 
+  if (g_object_get_data(G_OBJECT(picture), "t-code-actual")) /* an image's preview at its own size */
+    return MAX(natural, 1);
   return max_width > 0 ? MAX(MIN(natural, max_width), 16) : 16;
 }
 
@@ -139,6 +141,8 @@ static int side_margin(Preview *p, int width)
 {
   int max_w = (int)(MAX_CONTENT_WIDTH * p->scale);
 
+  if (p->image) /* an image may use the whole width */
+    return MARGIN;
   return width > max_w + 2 * MARGIN ? (width - max_w) / 2 : MARGIN;
 }
 

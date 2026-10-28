@@ -80,6 +80,7 @@ struct Preview {
   GArray *details;      /* Details, in the order of the text */
   int width;            /* the view's width the images were sized for */
   double scale;         /* the previews' text size (t->settings.preview_scale) */
+  gboolean image;       /* an image's preview (images.c): the picture may fill the view's width */
   gboolean over_link;
   int hovered; /* the link under the pointer (its index in links, underlined), or -1 */
   GFileMonitor *monitor;
@@ -135,6 +136,9 @@ GdkPaintable *preview_image(Preview *p, const char *dir, const char *src);
 GdkPaintable *preview_mermaid(Preview *p, const char *source);
 /* images.c: an image's picture: width its own when 0, clicking it follows href, title shown over it. */
 GtkWidget *preview_picture_new(Preview *p, GdkPaintable *paintable, int width, const char *href, const char *title);
+/* images.c: an image file's preview: the picture (fitted to the view, a click shows it at its own size)
+ * and a line about it (its size, bytes and kind). */
+void preview_render_image(Preview *p);
 /* images.c: frees a value of p->remote. */
 void preview_remote_free(gpointer data);
 

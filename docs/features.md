@@ -270,6 +270,10 @@ diagrams are drawn when mermaid-cli (`mmdc`) is installed; without it, and for G
 STL blocks, the code shows under a line saying what it is. Links to other markdown files open their
 preview, other local files open in an editor, and web links open in the browser.
 
+**Images** (`.png`, `.jpg`, `.gif`, `.webp`, `.bmp`, `.ico`, `.tiff`, `.avif`) open in a tab that shows
+them, fitted to it (a click shows one at its own size), with its size and kind under it; an SVG opens
+in an editor, and its preview (`Ctrl+Shift+V`) draws it. **PDFs** open in the desktop's PDF viewer.
+
 ## Keys
 
 The **⌨ Keybinds** button in the status bar shows all of them, and `Ctrl+Shift+P` (command

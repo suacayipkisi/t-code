@@ -11,6 +11,13 @@
 /* Whether path's extension is a Markdown one (.md, .markdown, ...). */
 gboolean is_markdown(const char *path);
 
+/* Whether path is an image t-code shows instead of editing (.png, .jpg, .gif, .webp, ...; not .svg, which
+ * is text: it opens in an editor and has a preview). */
+gboolean is_image(const char *path);
+
+/* Whether path has a preview: Markdown, and SVG drawn. */
+gboolean has_preview(const char *path);
+
 /* Opens a preview of path in a new tab, or switches to the one that shows it already. */
 void open_preview(App *t, const char *path);
 
