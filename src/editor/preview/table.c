@@ -146,7 +146,7 @@ void preview_cell_span(Render *r, MD_SPANTYPE type, void *detail)
       break;
     case MD_SPAN_A: {
       MD_SPAN_A_DETAIL *a = detail;
-      char *href = g_strndup(a->href.text, a->href.size);
+      char *href = preview_target(&a->href);
       link = g_markup_printf_escaped("<a href=\"%s\">", href);
       g_free(href);
       open = link, close = "</a>";

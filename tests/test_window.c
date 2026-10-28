@@ -1633,7 +1633,7 @@ static int lowered(GtkTextIter *iter)
 
 /* TeX math in the preview: $...$ inline on the baseline (a fraction reaches below it), $$...$$ and
  * ```math centered on lines of their own, prices stay text, broken TeX still shows (too deep: nothing); a quote that
- * starts with [!WARNING] is an alert. */
+ * starts with [!WARNING] is an alert. Images and links with an empty target (half typed) show their text. */
 static void test_preview_math(void)
 {
   char *path = g_build_filename(app.project.root, "math.md", NULL);
@@ -1645,7 +1645,8 @@ static void test_preview_math(void)
     g_string_append_c(deep, '{');
   g_string_append(deep, "x$\n\n");
   char *text =
-      g_strconcat("Inline $x^2$ and $\\frac{a}{b}$ here.\n\n"
+      g_strconcat("Empty targets ![alt]() and [a link]().\n\n| h |\n|---|\n| ![c]() [d]() |\n\n"
+                  "Inline $x^2$ and $\\frac{a}{b}$ here.\n\n"
                   "$$\\sum_{i=1}^n i = \\frac{n(n+1)}{2}$$\n\n"
                   "```math\n\\begin{aligned} a &= b \\\\ c &= \\left( \\sqrt[3]{d} \\right) \\end{aligned}\n```\n\n"
                   "Broken $\\frac{\\left( {x \\foo$ and ",

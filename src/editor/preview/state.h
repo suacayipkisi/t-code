@@ -68,6 +68,10 @@ void preview_render(Preview *p);
 /* markdown.c: an HTML entity (&amp;, &#169;, &#xA9;), as the text it stands for; the caller frees it. */
 char *preview_decode_entity(const char *text, gsize size);
 
+/* markdown.c: a link's or image's target as a string, "" when it is empty: md4c gives no text for
+ * ![alt]() (a half typed image), and NULL would crash. */
+char *preview_target(const MD_ATTRIBUTE *target);
+
 /* markdown.c: the local file a link or image points to (relative to dir, the Markdown file's
  * folder), or NULL. */
 char *preview_local_path(const char *dir, const char *target);

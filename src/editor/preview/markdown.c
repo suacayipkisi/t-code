@@ -133,6 +133,11 @@ static void append_entity(Render *r, const char *text, gsize size)
 
 /* Images ------------------------------------------------------------------------------------- */
 
+char *preview_target(const MD_ATTRIBUTE *target)
+{
+  return target->text ? g_strndup(target->text, target->size) : g_strdup("");
+}
+
 char *preview_local_path(const char *dir, const char *target)
 {
   char *path = NULL, *plain;
@@ -766,10 +771,10 @@ static int enter_span(MD_SPANTYPE type, void *detail, void *data)
     append(r, "\u2009", -1); /* a thin space: the pill's edge, inside it, so the text keeps its spaces */
   if (type == MD_SPAN_A) {
     MD_SPAN_A_DETAIL *a = detail;
-    g_ptr_array_add(r->hrefs, g_strndup(a->href.text, a->href.size));
+    g_ptr_array_add(r->hrefs, preview_target(&a->href));
   } else if (type == MD_SPAN_IMG) {
     MD_SPAN_IMG_DETAIL *img = detail;
-    char *src = g_strndup(img->src.text, img->src.size);
+    char *src = preview_target(&img->src);
     gboolean shown = !r->hidden && append_image(r, src, 0);
     g_array_append_val(r->images, shown);
     r->hidden += shown;
