@@ -155,16 +155,30 @@ in `plugins/word-count`.
 
 ## Creating a Plugin
 
-If you are interested in writing a plugin for t-code, all types of plugins will be gladly accepted. However, you also have to consider the main idea of t-code's existence, which is as low resource usage as possible. Because of that I highly recommend writing the plugin in the C language, which is the language t-code is written in. You can also use AI. Also, the plugin must be safe.
+If you are interested in writing a plugin for t-code, all types of plugins will be gladly accepted. However, you also 
+have to consider the main idea of t-code's existence, which is as low resource usage as possible. Because of that I highly 
+recommend writing the plugin in the C language, which is the language t-code is written in. You can also use AI. Also, the 
+plugin must be safe.
 
 ## Contributing
 
 If you want to contribute, all contributions will be gladly accepted. Please read
-[`CONTRIBUTING.md`](CONTRIBUTING.md) and open a pull request.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and open a pull request.  
+AI usage is strictly forbidden for contributing anymore. However you can open a discussiın and explain the issue and the 
+way to solve which is found with using AI. You can use AI for asking help and template. 
 
 ## AI Usage in Project  
 
-Most of the structure and code written with using AI coding agent. Every single line of code is reviewed or currently under review. I did not spend enough time to write just myself because I just want an ide that uses not much ram as immediately as possible, the editor I used was using too much then I got angry and tada... BUT I will review every detail of this project and after than I will continue to add new features as I wish.
+### Following commit 288f482, the use of AI has been significantly restricted. The use of AI in contributions is prohibited.
+
+Most of the structure and code written with using AI coding agent until commit 288f482. Every single line of code is reviewed or currently 
+under review. I did not spend enough time to write just myself because I just want an ide that uses not much ram as 
+immediately as possible, the editor I used was using too much then I got angry and tada... BUT I will review every 
+detail of this project and after than I will continue to add new features as I wish.
+
+Currently project is mostly usable and not problematic. The aim was having an IDE as soon as possible that using low resource and today I have because 
+of that I will stop using AI for vibe coding. Every single line of code is currently under review. Review will finish approximately 
+5-6 weeks later but bugfixes and new features will continue to being added.
 
 ## Performance
 
@@ -191,4 +205,4 @@ MIT, see [LICENSE](LICENSE). The color themes' and language servers' sources and
 ## Contributors
 
 - [@suacayipkisi](https://github.com/suacayipkisi) — Creator & Lead Maintainer
-- [@dontworryplz](https://github.com/dontworryplz) — Plugin system, unified problems panel, tasks runner, crash recovery, Flatpak, Snap & AUR packaging
+- [@dontworryplz](https://github.com/dontworryplz) — Plugin system, unified problems panel, tasks runner, crash recovery, Flatpak, Snap & AUR packaging (includes highly AI usage)
