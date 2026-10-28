@@ -1817,12 +1817,13 @@ static void test_preview_github(void)
 }
 
 /* Images open in a tab that shows them (temporary from a single click, like editors), not as text; an
- * SVG opens in an editor and its preview draws it; a PDF does not open as text. */
+ * SVG opens in an editor and its preview draws it; a PDF or an archive does not open as text. */
 static void test_open_images(void)
 {
   char *png = g_build_filename(app.project.root, "pixel.png", NULL);
   char *svg = g_build_filename(app.project.root, "shape.svg", NULL);
-  char *pdf = g_build_filename(app.project.root, "missing.pdf", NULL); /* missing: no viewer starts */
+  char *pdf = g_build_filename(app.project.root, "missing.pdf", NULL); /* missing: no app starts */
+  char *zip = g_build_filename(app.project.root, "missing.tar.gz", NULL);
   static const guchar pixel[] = {
     /* a 1×1 PNG */
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
@@ -1866,10 +1867,12 @@ static void test_open_images(void)
 
   int tabs = tab_count(&app);
   open_file(&app, pdf);
+  open_file_temporary(&app, zip);
   g_assert_cmpint(tab_count(&app), ==, tabs);
 
   g_unlink(png);
   g_unlink(svg);
+  g_free(zip);
   g_free(pdf);
   g_free(svg);
   g_free(png);

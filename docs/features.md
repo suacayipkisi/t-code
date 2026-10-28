@@ -272,7 +272,8 @@ preview, other local files open in an editor, and web links open in the browser.
 
 **Images** (`.png`, `.jpg`, `.gif`, `.webp`, `.bmp`, `.ico`, `.tiff`, `.avif`) open in a tab that shows
 them, fitted to it (a click shows one at its own size), with its size and kind under it; an SVG opens
-in an editor, and its preview (`Ctrl+Shift+V`) draws it. **PDFs** open in the desktop's PDF viewer.
+in an editor, and its preview (`Ctrl+Shift+V`) draws it. **PDFs**, office documents, archives, audio,
+video and fonts open in the desktop's app for them instead of as text.
 
 ## Keys
 

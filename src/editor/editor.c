@@ -568,19 +568,30 @@ void editor_goto(Tab *tab, int line, int column)
   update_position(tab);
 }
 
-/* Files t-code shows rather than edits: an image in a preview tab, a PDF in the desktop's viewer.
- * TRUE when path was one of them. */
+/* Files t-code shows rather than edits: an image in a preview tab; documents, archives, audio, video
+ * and fonts in the desktop's app for them. TRUE when path was one of them. */
 static gboolean open_other(App *t, const char *path)
 {
-  static const char *const documents[] = { ".pdf", NULL };
+  /* clang-format off */
+  static const char *const outside[] = {
+    ".pdf", ".epub", ".djvu", ".xps", ".odt", ".ods", ".odp", ".odg", ".doc", ".docx", ".xls", ".xlsx",
+    ".ppt", ".pptx", ".rtf",
+    ".zip", ".tar", ".gz", ".tgz", ".bz2", ".tbz2", ".xz", ".txz", ".zst", ".7z", ".rar", ".deb", ".rpm",
+    ".jar", ".iso",
+    ".mp3", ".wav", ".ogg", ".oga", ".flac", ".m4a", ".aac", ".opus",
+    ".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".ogv",
+    ".ttf", ".otf", ".woff", ".woff2",
+    NULL,
+  };
+  /* clang-format on */
   const char *ext = strrchr(path, '.');
 
   if (is_image(path)) {
     open_preview(t, path);
     return TRUE;
   }
-  for (int i = 0; ext && documents[i]; i++)
-    if (g_ascii_strcasecmp(ext, documents[i]) == 0) {
+  for (int i = 0; ext && outside[i]; i++)
+    if (g_ascii_strcasecmp(ext, outside[i]) == 0) {
       GFile *file = g_file_new_for_path(path);
       GtkFileLauncher *launcher = gtk_file_launcher_new(file);
       gtk_file_launcher_launch(launcher, t->window, NULL, NULL, NULL);
