@@ -968,6 +968,158 @@ static Node *parse_formula(const char *tex)
   return m;
 }
 
+/* Markup ------------------------------------------------------------------------------------- */
+
+/* Whether a node shows as one thing (x, 2, α): written without parentheses around it. */
+static gboolean is_simple(Node *n)
+{
+  while (n->kind == NODE_LIST && n->kids->len == 1)
+    n = KID(n, 0);
+  return n->kind == NODE_SYMBOL && g_utf8_strlen(n->text, -1) <= 3;
+}
+
+static void markup_node(GString *out, Node *n);
+
+static void markup_wrapped(GString *out, Node *n)
+{
+  gboolean simple = is_simple(n);
+
+  if (!simple)
+    g_string_append_c(out, '(');
+  markup_node(out, n);
+  if (!simple)
+    g_string_append_c(out, ')');
+}
+
+static void markup_node(GString *out, Node *n)
+{
+  static const struct {
+    Accent accent;
+    const char *glyph;
+    gunichar combining;
+  } combining[] = {
+    { ACCENT_GLYPH, "ˆ", 0x302 },     { ACCENT_GLYPH, "˜", 0x303 }, { ACCENT_GLYPH, "¯", 0x304 },
+    { ACCENT_GLYPH, "˙", 0x307 },     { ACCENT_GLYPH, "¨", 0x308 }, { ACCENT_GLYPH, "→", 0x20D7 },
+    { ACCENT_OVERLINE, NULL, 0x305 },
+  };
+  char *escaped;
+
+  if (!n)
+    return;
+  switch (n->kind) {
+    case NODE_LIST:
+      for (guint i = 0; i < n->kids->len; i++) {
+        Node *kid = KID(n, i);
+        if (i && (kid->cls == REL || kid->cls == BIN) && kid->kind == NODE_SYMBOL)
+          g_string_append(out, " ");
+        markup_node(out, kid);
+        if (i + 1 < n->kids->len && (kid->cls == REL || kid->cls == BIN) && kid->kind == NODE_SYMBOL)
+          g_string_append(out, " ");
+      }
+      break;
+    case NODE_SYMBOL:
+      escaped = g_markup_escape_text(n->text, -1);
+      g_string_append(out, n->font == FONT_ITALIC        ? "<i>"
+                           : n->font == FONT_BOLD        ? "<b>"
+                           : n->font == FONT_BOLD_ITALIC ? "<b><i>"
+                                                         : "");
+      g_string_append(out, escaped);
+      g_string_append(out, n->font == FONT_ITALIC        ? "</i>"
+                           : n->font == FONT_BOLD        ? "</b>"
+                           : n->font == FONT_BOLD_ITALIC ? "</i></b>"
+                                                         : "");
+      g_free(escaped);
+      break;
+    case NODE_SCRIPTS:
+      markup_node(out, KID(n, 0));
+      if (KID(n, 1)) {
+        g_string_append(out, "<sup>");
+        markup_node(out, KID(n, 1));
+        g_string_append(out, "</sup>");
+      }
+      if (KID(n, 2)) {
+        g_string_append(out, "<sub>");
+        markup_node(out, KID(n, 2));
+        g_string_append(out, "</sub>");
+      }
+      break;
+    case NODE_FRAC:
+      if (is_simple(KID(n, 0)) && is_simple(KID(n, 1))) {
+        g_string_append(out, "<sup>");
+        markup_node(out, KID(n, 0));
+        g_string_append(out, "</sup>⁄<sub>");
+        markup_node(out, KID(n, 1));
+        g_string_append(out, "</sub>");
+      } else {
+        markup_wrapped(out, KID(n, 0));
+        g_string_append(out, n->bar ? "/" : " ");
+        markup_wrapped(out, KID(n, 1));
+      }
+      break;
+    case NODE_SQRT:
+      if (KID(n, 1)->kids->len) {
+        g_string_append(out, "<sup>");
+        markup_node(out, KID(n, 1));
+        g_string_append(out, "</sup>");
+      }
+      g_string_append(out, "√");
+      markup_wrapped(out, KID(n, 0));
+      break;
+    case NODE_FENCED:
+      if (strcmp(n->text, ".") != 0)
+        g_string_append(out, n->text);
+      markup_node(out, KID(n, 0));
+      if (strcmp(n->close, ".") != 0)
+        g_string_append(out, n->close);
+      break;
+    case NODE_DELIM:
+      if (strcmp(n->text, ".") != 0)
+        g_string_append(out, n->text);
+      break;
+    case NODE_ACCENT: {
+      gunichar mark = 0;
+      for (gsize i = 0; i < G_N_ELEMENTS(combining); i++)
+        if (combining[i].accent == n->accent && (!combining[i].glyph || g_strcmp0(combining[i].glyph, n->text) == 0))
+          mark = combining[i].combining;
+      markup_node(out, KID(n, 0));
+      if (mark && is_simple(KID(n, 0)))
+        g_string_append_unichar(out, mark);
+      break;
+    }
+    case NODE_MATRIX:
+      g_string_append_c(out, '[');
+      for (guint r = 0; r < n->kids->len; r++) {
+        Node *row = KID(n, r);
+        if (r)
+          g_string_append(out, "; ");
+        for (guint c = 0; c < row->kids->len; c++) {
+          if (c)
+            g_string_append(out, n->pairs ? " " : ", ");
+          markup_node(out, KID(row, c));
+        }
+      }
+      g_string_append_c(out, ']');
+      break;
+    case NODE_SPACE:
+      if (n->size >= 9)
+        g_string_append(out, n->size >= 18 ? " " : " ");
+      else if (n->size > 0)
+        g_string_append(out, " ");
+      break;
+    case NODE_STYLE: break;
+  }
+}
+
+char *preview_math_markup(const char *tex)
+{
+  Node *root = parse_formula(tex);
+  GString *out = g_string_new(NULL);
+
+  markup_node(out, root);
+  node_free(root);
+  return g_string_free(out, FALSE);
+}
+
 /* Boxes -------------------------------------------------------------------------------------- */
 
 /* ceil() and round() without libm. */

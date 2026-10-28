@@ -17,9 +17,11 @@
 static const char *const css =
     ".tcode-preview, .tcode-preview text { background: var(--tc-panel); color: var(--tc-fg); }"
     ".tcode-preview-table { border: 1px solid var(--tc-border-strong); }"
-    ".tcode-preview-table label { padding: 6px 10px; color: var(--tc-fg); }"
-    ".tcode-preview-table label.head { background: var(--tc-border); color: var(--tc-fg-strong); }"
-    ".tcode-preview-table label.odd { background: var(--tc-hover); }"
+    ".tcode-preview-table > label, .tcode-preview-table > box { padding: 6px 10px; color: var(--tc-fg); }"
+    ".tcode-preview-table > box label { color: var(--tc-fg); }"
+    ".tcode-preview-table > .head { background: var(--tc-border); color: var(--tc-fg-strong); }"
+    ".tcode-preview-table > box.head label { color: var(--tc-fg-strong); font-weight: bold; }"
+    ".tcode-preview-table > .odd { background: var(--tc-hover); }"
     ".tcode-preview-table label link { color: var(--tc-link); }";
 
 gboolean is_markdown(const char *path)
@@ -37,8 +39,10 @@ gboolean is_markdown(const char *path)
 
 static void clear_links(Preview *p)
 {
-  for (guint i = 0; i < p->links->len; i++)
+  for (guint i = 0; i < p->links->len; i++) {
     g_free(g_array_index(p->links, Link, i).url);
+    g_free(g_array_index(p->links, Link, i).title);
+  }
   g_array_set_size(p->links, 0);
 }
 
@@ -58,6 +62,7 @@ static void reload(Preview *p)
   g_ptr_array_set_size(p->pictures, 0);
   g_array_set_size(p->code_spans, 0);
   g_array_set_size(p->blocks, 0);
+  g_array_set_size(p->details, 0);
   clear_links(p);
   p->hovered = -1;
   g_hash_table_remove_all(p->anchors);
@@ -87,14 +92,56 @@ static gboolean reload_now(gpointer data)
   return G_SOURCE_REMOVE;
 }
 
+void preview_reload_later(Preview *p)
+{
+  g_clear_handle_id(&p->reload_id, g_source_remove);
+  p->reload_id = g_timeout_add(150, reload_now, p);
+}
+
 /* The file was saved: show it again shortly, once for a burst of changes. */
 static void on_file_changed(GFileMonitor *monitor G_GNUC_UNUSED, GFile *file G_GNUC_UNUSED, GFile *other G_GNUC_UNUSED,
                             GFileMonitorEvent event, Preview *p)
 {
   if (event == G_FILE_MONITOR_EVENT_DELETED || event == G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED)
     return;
-  g_clear_handle_id(&p->reload_id, g_source_remove);
-  p->reload_id = g_timeout_add(150, reload_now, p);
+  preview_reload_later(p);
+}
+
+/* Details -------------------------------------------------------------------------------------- */
+
+void preview_show_details(Preview *p, Details *details)
+{
+  GtkTextIter from, to;
+
+  if (details->summary < 0 || details->content < 0 || details->end < details->content)
+    return; /* no summary to click: it stays open */
+  gtk_text_buffer_get_iter_at_offset(p->buffer, &from, details->summary);
+  to = from;
+  gtk_text_iter_forward_char(&to);
+  gtk_text_buffer_delete(p->buffer, &from, &to);
+  gtk_text_buffer_insert(p->buffer, &from, details->open ? "▼" : "▶", -1);
+  gtk_text_buffer_get_iter_at_offset(p->buffer, &from, details->summary);
+  to = from;
+  gtk_text_iter_forward_char(&to);
+  gtk_text_buffer_apply_tag_by_name(p->buffer, "bold", &from, &to);
+  gtk_text_buffer_apply_tag_by_name(p->buffer, "base", &from, &to);
+  gtk_text_buffer_get_iter_at_offset(p->buffer, &from, details->content);
+  gtk_text_buffer_get_iter_at_offset(p->buffer, &to, details->end);
+  if (details->open)
+    gtk_text_buffer_remove_tag_by_name(p->buffer, "hidden", &from, &to);
+  else
+    gtk_text_buffer_apply_tag_by_name(p->buffer, "hidden", &from, &to);
+}
+
+/* The <details> whose summary is at offset, or NULL. */
+static Details *details_at(Preview *p, int offset)
+{
+  for (guint i = 0; i < p->details->len; i++) {
+    Details *details = &g_array_index(p->details, Details, i);
+    if (details->summary >= 0 && offset >= details->summary && offset < details->content)
+      return details;
+  }
+  return NULL;
 }
 
 /* Links -------------------------------------------------------------------------------------- */
@@ -146,11 +193,26 @@ void preview_follow(Preview *p, const char *url)
   g_free(dir);
 }
 
+/* The offset of the text at a point of the view, or -1. */
+static int offset_at(Preview *p, double x, double y)
+{
+  GtkTextIter iter;
+  int bx, by;
+
+  gtk_text_view_window_to_buffer_coords(p->view, GTK_TEXT_WINDOW_WIDGET, (int)x, (int)y, &bx, &by);
+  return gtk_text_view_get_iter_at_location(p->view, &iter, bx, by) ? gtk_text_iter_get_offset(&iter) : -1;
+}
+
 static void on_click(GtkGestureClick *gesture G_GNUC_UNUSED, int n_press, double x, double y, Preview *p)
 {
-  const Link *link = n_press == 1 && !gtk_text_buffer_get_has_selection(p->buffer) ? link_at(p, x, y) : NULL;
+  gboolean plain = n_press == 1 && !gtk_text_buffer_get_has_selection(p->buffer);
+  const Link *link = plain ? link_at(p, x, y) : NULL;
+  Details *details = plain && !link ? details_at(p, offset_at(p, x, y)) : NULL;
 
-  if (link) {
+  if (details) { /* a summary: its details open or close */
+    details->open = !details->open;
+    preview_show_details(p, details);
+  } else if (link) {
     char *url = g_strdup(link->url); /* following it may show the file again */
     preview_follow(p, url);
     g_free(url);
@@ -197,10 +259,24 @@ static void on_leave(GtkEventControllerMotion *motion G_GNUC_UNUSED, Preview *p)
   hover_link(p, -1);
 }
 
+/* Over a link: its title, else where it goes. */
+static gboolean on_query_tooltip(GtkWidget *view G_GNUC_UNUSED, int x, int y, gboolean keyboard, GtkTooltip *tooltip,
+                                 Preview *p)
+{
+  const Link *link = keyboard ? NULL : link_at(p, x, y);
+
+  if (!link)
+    return FALSE;
+  gtk_tooltip_set_text(tooltip, link->title && *link->title ? link->title : link->url);
+  return TRUE;
+}
+
 /* Tabs --------------------------------------------------------------------------------------- */
 
 void preview_free(Preview *p)
 {
+  g_cancellable_cancel(p->cancel); /* the background fetches: their answers find no preview */
+  g_object_unref(p->cancel);
   g_clear_handle_id(&p->reload_id, g_source_remove);
   if (p->monitor) {
     g_file_monitor_cancel(p->monitor);
@@ -215,6 +291,8 @@ void preview_free(Preview *p)
   g_ptr_array_free(p->tables, TRUE);
   g_ptr_array_free(p->pictures, TRUE);
   g_hash_table_destroy(p->rises);
+  g_hash_table_destroy(p->remote);
+  g_array_free(p->details, TRUE);
   g_free(p);
 }
 
@@ -260,6 +338,9 @@ void open_preview(App *t, const char *path)
   p->tables = g_ptr_array_new_with_free_func(preview_table_free);
   p->pictures = g_ptr_array_new();
   p->rises = g_hash_table_new(NULL, NULL);
+  p->remote = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, preview_remote_free);
+  p->cancel = g_cancellable_new();
+  p->details = g_array_new(FALSE, FALSE, sizeof(Details));
   p->buffer = gtk_text_buffer_new(NULL);
   PangoFontDescription *font = pango_font_description_from_string(t->settings.font ? t->settings.font : DEFAULT_FONT);
   const char *family = pango_font_description_get_family(font);
@@ -291,6 +372,8 @@ void open_preview(App *t, const char *path)
   g_signal_connect(motion, "motion", G_CALLBACK(on_motion), p);
   g_signal_connect(motion, "leave", G_CALLBACK(on_leave), p);
   gtk_widget_add_controller(GTK_WIDGET(p->view), motion);
+  gtk_widget_set_has_tooltip(GTK_WIDGET(p->view), TRUE);
+  g_signal_connect(p->view, "query-tooltip", G_CALLBACK(on_query_tooltip), p);
 
   p->tab = add_tab(t, TAB_PREVIEW, scrolled, path);
   p->tab->preview = p;

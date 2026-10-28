@@ -253,11 +253,21 @@ when t-code was started from the desktop's menu, where no terminal shows them, o
 is noticed later. "Help: Open Log File" opens it.
 
 **Markdown preview** opens as a tab and follows the file as you type. It is drawn natively
-(md4c into a GTK text view, no browser engine): headings, lists, quotes, code blocks colored like
-the editor, tables whose cells wrap, local images, GitHub's alerts (`> [!NOTE]`, `> [!WARNING]`, ...)
-and TeX math: `$...$` inline, `$$...$$` and ```` ```math ```` blocks centered (fractions, roots,
-scripts, sums and integrals with limits, stretched delimiters, matrices, `cases`, `aligned`), set by
-t-code itself with Pango and cairo, no TeX installation needed. Links to other markdown files open their
+(md4c into a GTK text view, no browser engine) and shows what GitHub shows: all of GitHub Flavored
+Markdown (headings, lists, task lists, quotes, tables whose cells wrap, strikethrough, autolinks, every
+HTML5 entity), code blocks colored like the editor, GitHub's alerts (`> [!NOTE]`, `> [!WARNING]`, ...),
+footnotes (`[^1]`), `:emoji:` shortcodes, and the HTML READMEs use: `<b>`, `<i>`, `<ins>`, `<del>`,
+`<sub>`, `<sup>`, `<kbd>`, `<mark>`, `<a href>` and `<a name>` anchors, `<img>` with `width`,
+`<picture>` (its image for the light or dark theme), `<br>`, `<hr>`, `<h1>` .. `<h6>`, `align="center"`,
+and `<details>` that a click on their `<summary>` opens; comments are left out. Images are local files
+(a path starting with `/` is from the git repository's root) or web addresses (fetched with `curl`),
+SVG included; an image inside a link follows it when clicked, and link titles show over links.
+
+TeX math: `$...$` inline, `$$...$$` and ```` ```math ```` blocks centered (fractions, roots, scripts,
+sums and integrals with limits, stretched delimiters, matrices, `cases`, `aligned`), set by t-code
+itself with Pango and cairo, no TeX installation needed; in table cells on one line. ```` ```mermaid ````
+diagrams are drawn when mermaid-cli (`mmdc`) is installed; without it, and for GeoJSON, TopoJSON and
+STL blocks, the code shows under a line saying what it is. Links to other markdown files open their
 preview, other local files open in an editor, and web links open in the browser.
 
 ## Keys

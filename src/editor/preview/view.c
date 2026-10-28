@@ -36,7 +36,8 @@ void preview_color_tags(GtkTextBuffer *b)
     { "h5", "foreground", PAL_FG_BRIGHT },   { "h6", "foreground", PAL_FG_DIM },
     { "bold", "foreground", PAL_FG_STRONG }, { "code", "foreground", PAL_FG_STRONG },
     { "dim", "foreground", PAL_FG_DIM },     { "error", "foreground", PAL_ERROR },
-    { "link", "foreground", PAL_LINK },
+    { "link", "foreground", PAL_LINK },      { "caption", "foreground", PAL_FG_DIM },
+    { "mark", "background", PAL_MATCH },
   };
   GtkTextTagTable *table = gtk_text_buffer_get_tag_table(b);
 
@@ -99,6 +100,13 @@ void preview_create_tags(GtkTextBuffer *b, const char *mono)
   gtk_text_buffer_create_tag(b, "small", "scale", 0.85, NULL);
   gtk_text_buffer_create_tag(b, "link", NULL);
   gtk_text_buffer_create_tag(b, "link-hover", "underline", PANGO_UNDERLINE_SINGLE, NULL);
+  gtk_text_buffer_create_tag(b, "sup", "scale", 0.75, "rise", 5 * PANGO_SCALE, NULL);
+  gtk_text_buffer_create_tag(b, "sub", "scale", 0.75, "rise", -2 * PANGO_SCALE, NULL);
+  gtk_text_buffer_create_tag(b, "mark", NULL);
+  gtk_text_buffer_create_tag(b, "center", "justification", GTK_JUSTIFY_CENTER, NULL);
+  gtk_text_buffer_create_tag(b, "right", "justification", GTK_JUSTIFY_RIGHT, NULL);
+  gtk_text_buffer_create_tag(b, "caption", "style", PANGO_STYLE_ITALIC, "scale", 0.85, NULL);
+  gtk_text_buffer_create_tag(b, "hidden", "invisible", TRUE, NULL); /* a closed <details>' content */
   gtk_text_buffer_create_tag(b, "math-display", "justification", GTK_JUSTIFY_CENTER, "pixels-above-lines", 6, NULL);
   for (int i = 1; i <= 5; i++) {
     g_snprintf(name, sizeof name, "alert%d", i);

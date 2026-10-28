@@ -13,16 +13,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "editor/preview/emoji.h" /* emoji_names, entity_names */
+#include "editor/preview/entities.h"
+
 #define MATH_SCALE 1.1 /* serif math beside the sans text looks smaller at the same size */
 
 /* Appending ---------------------------------------------------------------------------------- */
 
-static int end_offset(Render *r)
+int preview_end_offset(Render *r)
 {
   return gtk_text_buffer_get_char_count(r->p->buffer);
 }
 
-static void append(Render *r, const char *text, gssize len)
+void preview_append(Render *r, const char *text, gssize len)
 {
   GtkTextIter end;
 
@@ -31,7 +34,7 @@ static void append(Render *r, const char *text, gssize len)
 }
 
 /* Applies tag (a name, or a tag when name is NULL) from start to the end of the buffer. */
-static void tag_from(Render *r, const char *name, GtkTextTag *tag, int start)
+void preview_tag(Render *r, const char *name, GtkTextTag *tag, int start)
 {
   GtkTextIter from, end;
 
@@ -56,38 +59,38 @@ static void tag_last_line(Render *r, const char *name)
 }
 
 /* A block starts on a line of its own. */
-static void begin_block(Render *r)
+void preview_begin_block(Render *r)
 {
   GtkTextIter end;
 
   gtk_text_buffer_get_end_iter(r->p->buffer, &end);
   if (gtk_text_iter_backward_char(&end) && gtk_text_iter_get_char(&end) != '\n')
-    append(r, "\n", 1);
+    preview_append(r, "\n", 1);
 }
 
 /* Ends the paragraph that started at start: a line break, its indent and the space after it. */
-static void end_paragraph(Render *r, int start, const char *gap)
+void preview_end_paragraph(Render *r, int start, const char *gap)
 {
   char name[16];
 
-  append(r, "\n", 1);
+  preview_append(r, "\n", 1);
   g_snprintf(name, sizeof name, "indent%d", MIN(r->level, MAX_LEVEL));
-  tag_from(r, name, NULL, start);
+  preview_tag(r, name, NULL, start);
   if (gap)
     tag_last_line(r, gap);
 }
 
 /* A block drawn below the text (draw_blocks), from start to the end of the buffer. */
-static void add_block(Render *r, BlockKind kind, int start, int level)
+void preview_add_block(Render *r, BlockKind kind, int start, int level)
 {
-  Block block = { kind, start, end_offset(r), level, 0 };
+  Block block = { kind, start, preview_end_offset(r), level, 0 };
 
   g_array_append_val(r->p->blocks, block);
 }
 
 static void push_start(Render *r)
 {
-  int start = end_offset(r);
+  int start = preview_end_offset(r);
 
   g_array_append_val(r->starts, start);
 }
@@ -101,25 +104,85 @@ static int pop_start(Render *r)
   return start;
 }
 
+gboolean preview_at_line_start(Render *r)
+{
+  GtkTextIter end;
+
+  gtk_text_buffer_get_end_iter(r->p->buffer, &end);
+  return !gtk_text_iter_backward_char(&end) || gtk_text_iter_get_char(&end) == '\n';
+}
+
+/* A horizontal rule on a line of its own, a little space above and below it. */
+void preview_add_rule(Render *r)
+{
+  int start;
+
+  preview_begin_block(r);
+  preview_append(r, "\n", 1);
+  tag_last_line(r, "spacer");
+  start = preview_end_offset(r);
+  preview_append(r, " \n", 2); /* the line the rule is drawn on */
+  preview_tag(r, "hr", NULL, start);
+  preview_add_block(r, BLOCK_HR, start, MIN(r->level, MAX_LEVEL));
+  preview_append(r, "\n", 1);
+  tag_last_line(r, "spacer");
+}
+
+void preview_add_named_anchor(Render *r, const char *name, int offset)
+{
+  if (*name && !g_hash_table_contains(r->p->anchors, name))
+    g_hash_table_insert(r->p->anchors, g_strdup(name), GINT_TO_POINTER(offset));
+}
+
+void preview_add_link(Render *r, int start, char *url, char *title)
+{
+  Link link = { start, preview_end_offset(r), url, title };
+
+  g_array_append_val(r->p->links, link);
+  preview_tag(r, "link", NULL, start);
+}
+
+void preview_add_code_span(Render *r, int start)
+{
+  CodeSpan span = { start, preview_end_offset(r) };
+
+  if (span.end > span.start)
+    g_array_append_val(r->p->code_spans, span);
+  preview_tag(r, "code", NULL, start);
+}
+
+/* Names ---------------------------------------------------------------------------------------- */
+
+static int compare_name(const void *key, const void *entry)
+{
+  return strcmp(key, ((const PreviewName *)entry)->name);
+}
+
+static const char *find_name(const PreviewName *names, gsize count, const char *name, gsize len)
+{
+  char *key = g_strndup(name, len);
+  const PreviewName *found = bsearch(key, names, count, sizeof *names, compare_name);
+
+  g_free(key);
+  return found ? found->text : NULL;
+}
+
 char *preview_decode_entity(const char *text, gsize size)
 {
-  static const char *const named[][2] = {
-    { "&amp;", "&" },       { "&lt;", "<" },     { "&gt;", ">" },   { "&quot;", "\"" }, { "&apos;", "'" },
-    { "&nbsp;", "\u00a0" }, { "&copy;", "©" },   { "&reg;", "®" },  { "&trade;", "™" }, { "&mdash;", "—" },
-    { "&ndash;", "–" },     { "&hellip;", "…" }, { "&rarr;", "→" }, { "&larr;", "←" },  { "&times;", "×" },
-    { "&middot;", "·" },    { "&bull;", "•" },
-  };
   char utf8[8];
 
-  if (size > 3 && text[1] == '#') {
+  if (size > 3 && text[1] == '#') { /* &#169; &#xA9;: what is not a character is U+FFFD */
     gboolean hex = text[2] == 'x' || text[2] == 'X';
-    gunichar c = (gunichar)strtoul(text + (hex ? 3 : 2), NULL, hex ? 16 : 10);
-    if (c && g_unichar_validate(c))
-      return g_strndup(utf8, g_unichar_to_utf8(c, utf8));
+    gunichar c = (gunichar)g_ascii_strtoull(text + (hex ? 3 : 2), NULL, hex ? 16 : 10);
+    if (!c || !g_unichar_validate(c))
+      c = 0xFFFD;
+    return g_strndup(utf8, g_unichar_to_utf8(c, utf8));
   }
-  for (gsize i = 0; i < G_N_ELEMENTS(named); i++)
-    if (strlen(named[i][0]) == size && strncmp(text, named[i][0], size) == 0)
-      return g_strdup(named[i][1]);
+  if (size > 2 && text[0] == '&' && text[size - 1] == ';') {
+    const char *named = find_name(entity_names, G_N_ELEMENTS(entity_names), text + 1, size - 2);
+    if (named)
+      return g_strdup(named);
+  }
   return g_strndup(text, size);
 }
 
@@ -127,8 +190,45 @@ static void append_entity(Render *r, const char *text, gsize size)
 {
   char *decoded = preview_decode_entity(text, size);
 
-  append(r, decoded, -1);
+  preview_append(r, decoded, -1);
   g_free(decoded);
+}
+
+char *preview_emojify(const char *text, gsize size)
+{
+  GString *out = NULL;
+  const char *end = text + size, *copied = text;
+
+  for (const char *c = text; c < end; c++) {
+    if (*c != ':')
+      continue;
+    const char *name = c + 1, *close = name;
+    while (close < end && (g_ascii_isalnum(*close) || *close == '_' || *close == '+' || *close == '-'))
+      close++;
+    const char *emoji = close < end && *close == ':' && close > name
+                            ? find_name(emoji_names, G_N_ELEMENTS(emoji_names), name, close - name)
+                            : NULL;
+    if (!emoji)
+      continue;
+    if (!out)
+      out = g_string_new(NULL);
+    g_string_append_len(out, copied, c - copied);
+    g_string_append(out, emoji);
+    copied = close + 1;
+    c = close;
+  }
+  if (!out)
+    return NULL;
+  g_string_append_len(out, copied, end - copied);
+  return g_string_free(out, FALSE);
+}
+
+void preview_append_text(Render *r, const char *text, gsize size)
+{
+  char *emojified = memchr(text, ':', size) ? preview_emojify(text, size) : NULL;
+
+  preview_append(r, emojified ? emojified : text, emojified ? -1 : (gssize)size);
+  g_free(emojified);
 }
 
 /* Images ------------------------------------------------------------------------------------- */
@@ -138,141 +238,74 @@ char *preview_target(const MD_ATTRIBUTE *target)
   return target->text ? g_strndup(target->text, target->size) : g_strdup("");
 }
 
+/* The work tree root above dir (the folder holding .git), or NULL. */
+static char *git_root(const char *dir)
+{
+  char *at = g_strdup(dir);
+
+  while (at) {
+    char *git = g_build_filename(at, ".git", NULL);
+    gboolean found = g_file_test(git, G_FILE_TEST_EXISTS);
+    g_free(git);
+    if (found)
+      return at;
+    char *up = g_path_get_dirname(at);
+    if (strcmp(up, at) == 0)
+      g_clear_pointer(&up, g_free);
+    g_free(at);
+    at = up;
+  }
+  return NULL;
+}
+
 char *preview_local_path(const char *dir, const char *target)
 {
   char *path = NULL, *plain;
   const char *cut;
 
+  if (!target)
+    return NULL;
   if (g_str_has_prefix(target, "file://"))
     return g_filename_from_uri(target, NULL, NULL);
   if (g_uri_peek_scheme(target) || !*target || *target == '#')
     return NULL;
   cut = strpbrk(target, "#?");
   plain = g_uri_unescape_segment(target, cut, NULL);
-  if (plain && *plain)
-    path = g_path_is_absolute(plain) && g_file_test(plain, G_FILE_TEST_EXISTS) ? g_strdup(plain)
-                                                                               : g_build_filename(dir, plain, NULL);
+  if (plain && *plain) {
+    if (g_path_is_absolute(plain) && !g_file_test(plain, G_FILE_TEST_EXISTS)) { /* GitHub's /: the repository's root */
+      char *root = git_root(dir);
+      path = g_build_filename(root ? root : dir, plain, NULL);
+      g_free(root);
+    } else {
+      path = g_path_is_absolute(plain) ? g_strdup(plain) : g_build_filename(dir, plain, NULL);
+    }
+  }
   g_free(plain);
   return path;
 }
 
-/* Shows the image at src (width: wanted width in pixels, 0 for its own); FALSE when it is not a
- * local image that loads. */
-static gboolean append_image(Render *r, const char *src, int width)
+/* A paintable as a picture in the text, at the end. */
+static void add_picture(Render *r, GtkWidget *picture)
 {
-  char *path = preview_local_path(r->dir, src);
-  GdkTexture *texture = path ? gdk_texture_new_from_filename(path, NULL) : NULL;
-
-  g_free(path);
-  if (!texture)
-    return FALSE;
-
-  GtkWidget *picture = gtk_picture_new_for_paintable(GDK_PAINTABLE(texture));
   GtkTextIter end;
-  GtkTextChildAnchor *anchor;
 
-  g_object_set_data(G_OBJECT(picture), "t-code-width",
-                    GINT_TO_POINTER(width > 0 ? width : gdk_texture_get_width(texture)));
-  gtk_picture_set_content_fit(GTK_PICTURE(picture), GTK_CONTENT_FIT_CONTAIN);
   preview_size_picture(picture, preview_content_width(r->p));
   gtk_text_buffer_get_end_iter(r->p->buffer, &end);
-  anchor = gtk_text_buffer_create_child_anchor(r->p->buffer, &end);
-  gtk_text_view_add_child_at_anchor(r->p->view, picture, anchor);
+  gtk_text_view_add_child_at_anchor(r->p->view, picture, gtk_text_buffer_create_child_anchor(r->p->buffer, &end));
   g_ptr_array_add(r->p->pictures, picture);
-  g_object_unref(texture);
+}
+
+gboolean preview_append_image(Render *r, const char *src, int width, int height, const char *href, const char *title)
+{
+  GdkPaintable *paintable = preview_image(r->p, r->dir, src);
+
+  if (!paintable)
+    return FALSE;
+  if (width <= 0 && height > 0 && gdk_paintable_get_intrinsic_height(paintable) > 0)
+    width = height * gdk_paintable_get_intrinsic_width(paintable) / gdk_paintable_get_intrinsic_height(paintable);
+  add_picture(r, preview_picture_new(r->p, paintable, width, href, title));
+  g_object_unref(paintable);
   return TRUE;
-}
-
-/* HTML --------------------------------------------------------------------------------------- */
-
-/* The value of attribute name in an HTML tag, or NULL. */
-static char *html_attribute(const char *tag, const char *name)
-{
-  char *pattern = g_strdup_printf("\\s%s\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))", name);
-  GMatchInfo *match = NULL;
-  char *value = NULL;
-
-  if (g_regex_match_simple(pattern, tag, G_REGEX_CASELESS, 0)) {
-    GRegex *regex = g_regex_new(pattern, G_REGEX_CASELESS, 0, NULL);
-    if (g_regex_match(regex, tag, 0, &match))
-      for (int group = 1; group <= 3 && (!value || !*value); group++) {
-        g_free(value);
-        value = g_match_info_fetch(match, group);
-      }
-    g_match_info_free(match);
-    g_regex_unref(regex);
-  }
-  g_free(pattern);
-  return value;
-}
-
-/* Whether tag is <name> or <name ...> (closing: </name>), in any case. */
-static gboolean is_tag(const char *tag, const char *name, gboolean closing)
-{
-  const char *rest = tag + 1 + closing;
-  size_t len = strlen(name);
-
-  return (!closing || tag[1] == '/') && g_ascii_strncasecmp(rest, name, len) == 0 &&
-         (rest[len] == '>' || g_ascii_isspace(rest[len]));
-}
-
-/* Raw HTML: <img> shows its image, <br> breaks the line, <sub>, <sup> and <small> make their text
- * smaller, other tags are left out and the text between them is shown. */
-static void append_html(Render *r, const char *text, gsize size, gboolean block)
-{
-  const char *p = text, *end = text + size;
-
-  while (p < end) {
-    if (*p == '<') {
-      const char *close = memchr(p, '>', end - p);
-      if (!close)
-        break;
-      char *tag = g_strndup(p, close - p + 1);
-      if (g_ascii_strncasecmp(tag, "<img", 4) == 0) {
-        char *src = html_attribute(tag, "src"), *width = html_attribute(tag, "width");
-        if (src && !append_image(r, src, width ? atoi(width) : 0)) {
-          char *alt = html_attribute(tag, "alt");
-          if (alt && *alt) {
-            int start = end_offset(r);
-            append(r, alt, -1);
-            tag_from(r, "dim", NULL, start);
-          }
-          g_free(alt);
-        }
-        g_free(width);
-        g_free(src);
-      } else if (g_ascii_strncasecmp(tag, "<br", 3) == 0) {
-        append(r, "\u2028", -1);
-      } else if (is_tag(tag, "sub", FALSE) || is_tag(tag, "sup", FALSE) || is_tag(tag, "small", FALSE)) {
-        int start = end_offset(r);
-        g_array_append_val(r->smalls, start);
-      } else if ((is_tag(tag, "sub", TRUE) || is_tag(tag, "sup", TRUE) || is_tag(tag, "small", TRUE)) &&
-                 r->smalls->len) {
-        tag_from(r, "small", NULL, g_array_index(r->smalls, int, r->smalls->len - 1));
-        g_array_set_size(r->smalls, r->smalls->len - 1);
-      }
-      g_free(tag);
-      p = close + 1;
-    } else if (*p == '&') {
-      const char *semi = memchr(p, ';', MIN(end - p, 12));
-      gsize len = semi ? (gsize)(semi - p + 1) : 1;
-      append_entity(r, p, len);
-      p += len;
-    } else {
-      const char *next = p;
-      while (next < end && *next != '<' && *next != '&')
-        next++;
-      if (block) { /* the lines of an HTML block flow like a paragraph's */
-        char *flat = g_strndup(p, next - p);
-        g_strdelimit(flat, "\r\n\t", ' ');
-        append(r, flat, -1);
-        g_free(flat);
-      } else {
-        append(r, p, next - p);
-      }
-      p = next;
-    }
-  }
 }
 
 /* Code blocks -------------------------------------------------------------------------------- */
@@ -353,7 +386,7 @@ static void append_code(Render *r, const char *text, const char *lang)
   GtkTextIter at, end;
 
   if (!language) {
-    append(r, text, -1);
+    preview_append(r, text, -1);
     return;
   }
   source = gtk_source_buffer_new_with_language(language);
@@ -366,18 +399,40 @@ static void append_code(Render *r, const char *text, const char *lang)
     gtk_text_iter_forward_to_tag_toggle(&next, NULL);
     char *piece = gtk_text_iter_get_slice(&at, &next);
     GSList *tags = gtk_text_iter_get_tags(&at);
-    int start = end_offset(r);
-    append(r, piece, -1);
+    int start = preview_end_offset(r);
+    preview_append(r, piece, -1);
     for (GSList *each = tags; each; each = each->next) {
       GtkTextTag *tag = color_tag(r->p, each->data);
       if (tag)
-        tag_from(r, NULL, tag, start);
+        preview_tag(r, NULL, tag, start);
     }
     g_slist_free(tags);
     g_free(piece);
     at = next;
   }
   g_object_unref(source);
+}
+
+/* A code block of a kind GitHub draws (a map, a 3D model, a diagram without mmdc): a line saying so
+ * above its code. */
+static void code_caption(Render *r)
+{
+  static const char *const kinds[][2] = {
+    { "mermaid", "Mermaid diagram" },
+    { "geojson", "GeoJSON map" },
+    { "topojson", "TopoJSON map" },
+    { "stl", "STL 3D model" },
+  };
+
+  for (gsize i = 0; r->lang && i < G_N_ELEMENTS(kinds); i++)
+    if (g_ascii_strcasecmp(r->lang, kinds[i][0]) == 0) {
+      int start = preview_end_offset(r);
+      preview_append(r, kinds[i][1], -1);
+      if (i == 0 && !preview_can_draw_mermaid())
+        preview_append(r, " (install mermaid-cli, mmdc, to see it drawn)", -1);
+      preview_append(r, "\n", 1);
+      preview_tag(r, "caption", NULL, start);
+    }
 }
 
 /* Math --------------------------------------------------------------------------------------- */
@@ -408,15 +463,15 @@ static void append_math(Render *r, const char *tex, gboolean display)
   if (!math)
     return;
   if (display)
-    begin_block(r);
-  start = end_offset(r);
+    preview_begin_block(r);
+  start = preview_end_offset(r);
   gtk_text_buffer_get_end_iter(r->p->buffer, &end);
   gtk_text_buffer_insert_paintable(r->p->buffer, &end, math);
   g_object_unref(math);
   if (depth > 0)
-    tag_from(r, NULL, rise_tag(r->p, depth), start);
+    preview_tag(r, NULL, rise_tag(r->p, depth), start);
   if (display) {
-    tag_from(r, "math-display", NULL, start);
+    preview_tag(r, "math-display", NULL, start);
     r->after_display = TRUE;
   }
 }
@@ -426,7 +481,7 @@ static void after_display(Render *r)
 {
   if (r->after_display) {
     r->after_display = FALSE;
-    append(r, "\n", 1);
+    preview_append(r, "\n", 1);
   }
 }
 
@@ -477,6 +532,12 @@ static void find_alert(Render *r, int start)
         span->end += shift;
       }
     }
+    for (guint d = 0; d < r->p->details->len; d++) {
+      Details *details = &g_array_index(r->p->details, Details, d);
+      for (int *offset = &details->summary; offset <= &details->end; offset++)
+        if (*offset >= start)
+          *offset += shift;
+    }
     g_array_index(r->alerts, int, r->alerts->len - 1) = i + 1;
     g_free(title);
     break;
@@ -488,7 +549,7 @@ static void find_alert(Render *r, int start)
 
 /* A heading's anchor as GitHub makes it: lower case, spaces to '-', punctuation left out; the
  * second "Usage" is "usage-1". */
-static void add_anchor(Render *r, int start)
+void preview_add_anchor(Render *r, int start)
 {
   GtkTextIter from, end;
   GString *slug = g_string_new(NULL);
@@ -537,24 +598,24 @@ static int enter_block(MD_BLOCKTYPE type, void *detail, void *data)
       static const char *const bullets[] = { "•   ", "◦   ", "▪   " };
       MD_BLOCK_LI_DETAIL *li = detail;
       int list = MIN(r->nlists, MAX_LEVEL) - 1;
-      begin_block(r);
+      preview_begin_block(r);
       push_start(r);
       r->in_item_start = TRUE;
       r->in_item_p = FALSE;
       if (li->is_task) {
-        append(r, li->task_mark == ' ' ? "☐   " : "☑   ", -1);
+        preview_append(r, li->task_mark == ' ' ? "☐   " : "☑   ", -1);
       } else if (list >= 0 && r->lists[list] > 0) {
         char *number = g_strdup_printf("%d.  ", r->lists[list]++);
-        append(r, number, -1);
+        preview_append(r, number, -1);
         g_free(number);
       } else {
-        append(r, bullets[MAX(list, 0) % 3], -1);
+        preview_append(r, bullets[MAX(list, 0) % 3], -1);
       }
       break;
     }
     case MD_BLOCK_QUOTE: {
       int none = 0;
-      begin_block(r);
+      preview_begin_block(r);
       push_start(r);
       r->level++;
       g_array_append_val(r->alerts, none);
@@ -563,26 +624,15 @@ static int enter_block(MD_BLOCKTYPE type, void *detail, void *data)
     }
     case MD_BLOCK_CODE: {
       MD_BLOCK_CODE_DETAIL *code = detail;
-      begin_block(r);
+      preview_begin_block(r);
       push_start(r);
       r->code = g_string_new(NULL);
-      r->lang = g_strndup(code->lang.text, code->lang.size);
+      r->lang = preview_target(&code->lang);
       break;
     }
-    case MD_BLOCK_HR: {
-      begin_block(r);
-      append(r, "\n", 1);
-      tag_last_line(r, "spacer");
-      int start = end_offset(r);
-      append(r, " \n", 2); /* the line the rule is drawn on */
-      tag_from(r, "hr", NULL, start);
-      add_block(r, BLOCK_HR, start, MIN(r->level, MAX_LEVEL));
-      append(r, "\n", 1);
-      tag_last_line(r, "spacer");
-      break;
-    }
+    case MD_BLOCK_HR: preview_add_rule(r); break;
     case MD_BLOCK_TABLE:
-      begin_block(r);
+      preview_begin_block(r);
       preview_table_begin(r);
       break;
     case MD_BLOCK_TR:
@@ -596,11 +646,11 @@ static int enter_block(MD_BLOCKTYPE type, void *detail, void *data)
       break;
     case MD_BLOCK_HTML:
       r->html_block = TRUE;
-      begin_block(r);
+      preview_begin_block(r);
       push_start(r);
       break;
     case MD_BLOCK_H:
-      begin_block(r);
+      preview_begin_block(r);
       push_start(r);
       r->heading = (int)((MD_BLOCK_H_DETAIL *)detail)->level;
       break;
@@ -610,7 +660,7 @@ static int enter_block(MD_BLOCKTYPE type, void *detail, void *data)
         r->in_item_start = FALSE;
         r->in_item_p = TRUE;
       } else {
-        begin_block(r);
+        preview_begin_block(r);
       }
       push_start(r);
       break;
@@ -637,7 +687,7 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
       GtkTextIter end;
       gtk_text_buffer_get_end_iter(r->p->buffer, &end);
       if (gtk_text_iter_backward_char(&end) && gtk_text_iter_get_char(&end) != '\n')
-        append(r, "\n", 1);
+        preview_append(r, "\n", 1);
 
       GtkTextIter from, to;
       gtk_text_buffer_get_iter_at_offset(r->p->buffer, &from, start);
@@ -657,15 +707,15 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
       break;
     }
     case MD_BLOCK_QUOTE:
-      begin_block(r);
+      preview_begin_block(r);
       int start = pop_start(r), alert = 0;
       if (r->alerts->len) {
         alert = g_array_index(r->alerts, int, r->alerts->len - 1);
         g_array_set_size(r->alerts, r->alerts->len - 1);
       }
       if (!alert) /* an alert's text keeps the text's color */
-        tag_from(r, "quote", NULL, start);
-      add_block(r, BLOCK_QUOTE, start, MIN(r->level, MAX_LEVEL) - 1); /* the bar left of its text */
+        preview_tag(r, "quote", NULL, start);
+      preview_add_block(r, BLOCK_QUOTE, start, MIN(r->level, MAX_LEVEL) - 1); /* the bar left of its text */
       g_array_index(r->p->blocks, Block, r->p->blocks->len - 1).alert = alert;
       r->level--;
       tag_last_line(r, "gap");
@@ -678,27 +728,42 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
         g_clear_pointer(&r->lang, g_free);
         r->code = NULL;
         r->after_display = FALSE;
-        end_paragraph(r, start, "gap");
+        preview_end_paragraph(r, start, "gap");
         break;
       }
+      if (r->lang && g_ascii_strcasecmp(r->lang, "mermaid") == 0) { /* drawn by mmdc, when it is there */
+        GdkPaintable *diagram = preview_mermaid(r->p, r->code->str);
+        if (diagram) {
+          add_picture(r,
+                      preview_picture_new(r->p, diagram, gdk_paintable_get_intrinsic_width(diagram) / 2, NULL, NULL));
+          g_object_unref(diagram);
+          g_string_free(r->code, TRUE);
+          g_clear_pointer(&r->lang, g_free);
+          r->code = NULL;
+          preview_end_paragraph(r, start, "gap");
+          preview_tag(r, "center", NULL, start);
+          break;
+        }
+      }
+      code_caption(r);
       if (r->code->len && r->code->str[r->code->len - 1] == '\n')
         g_string_truncate(r->code, r->code->len - 1);
       append_code(r, r->code->str, r->lang);
       g_string_free(r->code, TRUE);
       g_clear_pointer(&r->lang, g_free);
       r->code = NULL;
-      end_paragraph(r, start, "pre-bottom");
-      tag_from(r, "pre", NULL, start);
+      preview_end_paragraph(r, start, "pre-bottom");
+      preview_tag(r, "pre", NULL, start);
       char pre[16];
       g_snprintf(pre, sizeof pre, "pre%d", MIN(r->level, MAX_LEVEL));
-      tag_from(r, pre, NULL, start);
-      add_block(r, BLOCK_PRE, start, MIN(r->level, MAX_LEVEL));
+      preview_tag(r, pre, NULL, start);
+      preview_add_block(r, BLOCK_PRE, start, MIN(r->level, MAX_LEVEL));
       GtkTextIter from, first_end;
       gtk_text_buffer_get_iter_at_offset(r->p->buffer, &from, start);
       first_end = from;
       gtk_text_iter_forward_line(&first_end);
       gtk_text_buffer_apply_tag_by_name(r->p->buffer, "pre-top", &from, &first_end);
-      append(r, "\n", 1);
+      preview_append(r, "\n", 1);
       tag_last_line(r, "spacer");
       break;
     }
@@ -706,13 +771,13 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
       int start = pop_start(r);
       char name[4];
       r->heading = 0;
-      add_anchor(r, start);
-      end_paragraph(r, start, NULL);
+      preview_add_anchor(r, start);
+      preview_end_paragraph(r, start, NULL);
       unsigned level = MIN(((MD_BLOCK_H_DETAIL *)detail)->level, 6u);
       g_snprintf(name, sizeof name, "h%u", level);
-      tag_from(r, name, NULL, start);
+      preview_tag(r, name, NULL, start);
       if (level <= 2)
-        add_block(r, BLOCK_RULE, start, MIN(r->level, MAX_LEVEL));
+        preview_add_block(r, BLOCK_RULE, start, MIN(r->level, MAX_LEVEL));
       break;
     }
     case MD_BLOCK_P: {
@@ -723,20 +788,20 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
       }
       if (r->in_item_p) {
         r->in_item_p = FALSE;
-        append(r, "\n", 1);
+        preview_append(r, "\n", 1);
       } else if (r->nlists > 0) {
         gboolean in_tight = r->tight[MIN(r->nlists, MAX_LEVEL) - 1];
-        end_paragraph(r, start, in_tight ? "tight" : "gap");
+        preview_end_paragraph(r, start, in_tight ? "tight" : "gap");
       } else {
-        end_paragraph(r, start, "gap");
+        preview_end_paragraph(r, start, "gap");
       }
       break;
     }
     case MD_BLOCK_HTML: {
       int start = pop_start(r);
       r->html_block = FALSE;
-      if (end_offset(r) > start) /* not only tags */
-        end_paragraph(r, start, "gap");
+      if (preview_end_offset(r) > start && !preview_at_line_start(r)) /* not only tags */
+        preview_end_paragraph(r, start, "gap");
       break;
     }
     case MD_BLOCK_TH:
@@ -746,7 +811,7 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
       break;
     case MD_BLOCK_TABLE:
       preview_table_end(r);
-      append(r, "\n", 1);
+      preview_append(r, "\n", 1);
       tag_last_line(r, "gap");
       break;
     default: break;
@@ -768,16 +833,19 @@ static int enter_span(MD_SPANTYPE type, void *detail, void *data)
     after_display(r);
   push_start(r);
   if (type == MD_SPAN_CODE)
-    append(r, "\u2009", -1); /* a thin space: the pill's edge, inside it, so the text keeps its spaces */
+    preview_append(r, "\u2009", -1); /* a thin space: the pill's edge, inside it, so the text keeps its spaces */
   if (type == MD_SPAN_A) {
     MD_SPAN_A_DETAIL *a = detail;
     g_ptr_array_add(r->hrefs, preview_target(&a->href));
+    g_ptr_array_add(r->titles, a->title.size ? preview_target(&a->title) : NULL);
   } else if (type == MD_SPAN_IMG) {
     MD_SPAN_IMG_DETAIL *img = detail;
-    char *src = preview_target(&img->src);
-    gboolean shown = !r->hidden && append_image(r, src, 0);
+    char *src = preview_target(&img->src), *title = img->title.size ? preview_target(&img->title) : NULL;
+    const char *href = r->hrefs->len ? g_ptr_array_index(r->hrefs, r->hrefs->len - 1) : NULL;
+    gboolean shown = !r->hidden && preview_append_image(r, src, 0, 0, href, title);
     g_array_append_val(r->images, shown);
     r->hidden += shown;
+    g_free(title);
     g_free(src);
   }
   return 0;
@@ -794,10 +862,10 @@ static int leave_span(MD_SPANTYPE type, void *detail G_GNUC_UNUSED, void *data)
   int start = pop_start(r);
 
   switch (type) {
-    case MD_SPAN_EM: tag_from(r, "italic", NULL, start); break;
-    case MD_SPAN_STRONG: tag_from(r, "bold", NULL, start); break;
-    case MD_SPAN_DEL: tag_from(r, "strike", NULL, start); break;
-    case MD_SPAN_U: tag_from(r, "underline", NULL, start); break;
+    case MD_SPAN_EM: preview_tag(r, "italic", NULL, start); break;
+    case MD_SPAN_STRONG: preview_tag(r, "bold", NULL, start); break;
+    case MD_SPAN_DEL: preview_tag(r, "strike", NULL, start); break;
+    case MD_SPAN_U: preview_tag(r, "underline", NULL, start); break;
     case MD_SPAN_LATEXMATH:
     case MD_SPAN_LATEXMATH_DISPLAY:
       if (r->math && !r->hidden)
@@ -806,25 +874,18 @@ static int leave_span(MD_SPANTYPE type, void *detail G_GNUC_UNUSED, void *data)
         g_string_free(r->math, TRUE);
       r->math = NULL;
       break;
-    case MD_SPAN_CODE: {
-      append(r, "\u2009", -1);
-      int end = end_offset(r);
-      if (end > start) {
-        CodeSpan span = { start, end };
-        g_array_append_val(r->p->code_spans, span);
-      }
-      tag_from(r, "code", NULL, start);
+    case MD_SPAN_CODE:
+      preview_append(r, "\u2009", -1);
+      preview_add_code_span(r, start);
       break;
-    }
     case MD_SPAN_A: {
       char *url = r->hrefs->len ? g_ptr_array_steal_index(r->hrefs, r->hrefs->len - 1) : NULL;
-      int end = end_offset(r);
-      if (url && end > start) {
-        Link link = { start, end, url };
-        g_array_append_val(r->p->links, link);
-        tag_from(r, "link", NULL, start);
+      char *title = r->titles->len ? g_ptr_array_steal_index(r->titles, r->titles->len - 1) : NULL;
+      if (url && preview_end_offset(r) > start) {
+        preview_add_link(r, start, url, title);
       } else {
         g_free(url);
+        g_free(title);
       }
       break;
     }
@@ -834,7 +895,7 @@ static int leave_span(MD_SPANTYPE type, void *detail G_GNUC_UNUSED, void *data)
         g_array_set_size(r->images, r->images->len - 1);
       r->hidden -= shown;
       if (!shown)
-        tag_from(r, "dim", NULL, start); /* its alt text */
+        preview_tag(r, "dim", NULL, start); /* its alt text */
       break;
     }
     default: break;
@@ -864,6 +925,14 @@ static int on_text(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size, void *da
   }
   if (r->hidden)
     return 0;
+  if (r->html_carry && type != MD_TEXT_HTML) { /* inside a tag md4c gave line by line */
+    g_string_append_c(r->html_carry, ' ');
+    if (type != MD_TEXT_SOFTBR && type != MD_TEXT_BR)
+      g_string_append_len(r->html_carry, text, size);
+    return 0;
+  }
+  if (r->in_comment && type != MD_TEXT_HTML)
+    return 0;
   if (r->after_display) { /* the text after a display formula: on the next line, without its spaces */
     if (type == MD_TEXT_SOFTBR || type == MD_TEXT_BR)
       return 0;
@@ -876,12 +945,13 @@ static int on_text(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size, void *da
     after_display(r);
   }
   switch (type) {
-    case MD_TEXT_NULLCHAR: append(r, "\uFFFD", -1); break;
-    case MD_TEXT_BR: append(r, "\u2028", -1); break; /* a line break inside the paragraph */
-    case MD_TEXT_SOFTBR: append(r, " ", 1); break;
+    case MD_TEXT_NULLCHAR: preview_append(r, "\uFFFD", -1); break;
+    case MD_TEXT_BR: preview_append(r, "\u2028", -1); break; /* a line break inside the paragraph */
+    case MD_TEXT_SOFTBR: preview_append(r, " ", 1); break;
     case MD_TEXT_ENTITY: append_entity(r, text, size); break;
-    case MD_TEXT_HTML: append_html(r, text, size, r->html_block); break;
-    default: append(r, text, size); break;
+    case MD_TEXT_HTML: preview_html(r, text, size, r->html_block); break;
+    case MD_TEXT_NORMAL: preview_append_text(r, text, size); break;
+    default: preview_append(r, text, size); break;
   }
   return 0;
 }
@@ -903,14 +973,24 @@ void preview_render(Preview *p)
   r.starts = g_array_new(FALSE, FALSE, sizeof(int));
   r.images = g_array_new(FALSE, FALSE, sizeof(gboolean));
   r.hrefs = g_ptr_array_new_with_free_func(g_free);
+  r.titles = g_ptr_array_new_with_free_func(g_free);
   r.closers = g_ptr_array_new();
-  r.smalls = g_array_new(FALSE, FALSE, sizeof(int));
   r.alerts = g_array_new(FALSE, FALSE, sizeof(int));
+  r.html_open = g_array_new(FALSE, FALSE, sizeof(HtmlOpen));
+  r.cell_html = g_ptr_array_new();
+  r.cell_openers = g_ptr_array_new_with_free_func(g_free);
   if (g_file_get_contents(p->tab->path, &text, &len, &error)) {
+    char *notes = preview_footnotes(text);
+    if (notes) {
+      g_free(text);
+      text = notes;
+      len = strlen(text);
+    }
     md_parse(text, (MD_SIZE)len, &parser, &r);
+    preview_html_finish(&r);
   } else {
-    append(&r, error->message, -1);
-    tag_from(&r, "error", NULL, 0);
+    preview_append(&r, error->message, -1);
+    preview_tag(&r, "error", NULL, 0);
     g_error_free(error);
   }
   if (r.code)
@@ -921,9 +1001,15 @@ void preview_render(Preview *p)
   g_array_free(r.starts, TRUE);
   g_array_free(r.images, TRUE);
   g_ptr_array_free(r.hrefs, TRUE);
+  g_ptr_array_free(r.titles, TRUE);
   g_ptr_array_free(r.closers, TRUE);
-  g_array_free(r.smalls, TRUE);
   g_array_free(r.alerts, TRUE);
+  g_array_free(r.html_open, TRUE);
+  g_ptr_array_free(r.cell_html, TRUE);
+  g_ptr_array_free(r.cell_openers, TRUE);
+  if (r.html_carry)
+    g_string_free(r.html_carry, TRUE);
+  g_clear_object(&r.cell_box);
   if (r.math)
     g_string_free(r.math, TRUE);
   if (r.markup) /* md4c stopped inside a table */
@@ -935,4 +1021,6 @@ void preview_render(Preview *p)
   }
   gtk_text_buffer_get_bounds(p->buffer, &start, &end);
   gtk_text_buffer_apply_tag_by_name(p->buffer, "base", &start, &end);
+  for (guint i = 0; i < p->details->len; i++)
+    preview_show_details(p, &g_array_index(p->details, Details, i));
 }

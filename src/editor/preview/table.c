@@ -6,6 +6,7 @@
 
 #include "window/palette.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 void preview_table_begin(Render *r)
@@ -27,6 +28,9 @@ void preview_table_end(Render *r)
   g_ptr_array_add(r->p->tables, r->table);
   preview_size_table(g_steal_pointer(&r->table), preview_content_width(r->p));
 }
+
+/* What closes a math span and a shown image in a cell (r->closers): they are not markup. */
+static const char math_closer[] = "", image_closer[] = "";
 
 void preview_cell_begin(Render *r, MD_ALIGN align)
 {
@@ -53,26 +57,33 @@ static gboolean link_to_span(const GMatchInfo *match, GString *result, gpointer 
   return FALSE;
 }
 
-/* A table cell ended: its markup becomes a wrapping label in the grid. */
-void preview_cell_end(Render *r, gboolean head)
+/* A wrapping label of a cell's markup (or a piece of it, beside images); *width: its width on one line. */
+static GtkWidget *cell_label(Render *r, const char *text, gboolean head, int *width)
 {
   static const float xalign[] = { 0.0f, 0.0f, 0.5f, 1.0f }; /* MD_ALIGN_DEFAULT .. RIGHT */
+  static GRegex *links, *tags;
   GtkWidget *label = gtk_label_new(NULL);
-  GArray *natural = r->table->natural;
   char size[G_ASCII_DTOSTR_BUF_SIZE];
   char *markup = g_strdup_printf("<span size=\"%spt\" insert_hyphens=\"false\">%s%s%s</span>",
-                                 g_ascii_dtostr(size, sizeof size, BODY_POINTS * r->p->scale), head ? "<b>" : "",
-                                 r->markup->str, head ? "</b>" : "");
+                                 g_ascii_dtostr(size, sizeof size, BODY_POINTS * r->p->scale), head ? "<b>" : "", text,
+                                 head ? "</b>" : "");
   PangoLayout *layout = gtk_widget_create_pango_layout(GTK_WIDGET(r->p->view), NULL); /* in the window's font */
-  int width = 0;
 
-  static GRegex *links;
-  if (!links) /* <a> is GtkLabel's, not Pango's: measured as a <span> */
+  if (!links) { /* <a> is GtkLabel's, not Pango's: measured as a <span> */
     links = g_regex_new("<a href=\"[^\"]*\">|</a>", G_REGEX_OPTIMIZE, 0, NULL);
+    tags = g_regex_new("<[^>]*>", G_REGEX_OPTIMIZE, 0, NULL);
+  }
   char *measured = g_regex_replace_eval(links, markup, -1, 0, 0, link_to_span, NULL, NULL);
+  if (!pango_parse_markup(measured, -1, 0, NULL, NULL, NULL, NULL)) { /* raw HTML left it broken: its text */
+    char *plain = g_regex_replace_literal(tags, markup, -1, 0, "", 0, NULL);
+    g_free(markup);
+    markup = g_strdup(plain);
+    g_free(measured);
+    measured = plain;
+  }
   pango_layout_set_markup(layout, measured, -1);
   g_free(measured);
-  pango_layout_get_pixel_size(layout, &width, NULL); /* on one line */
+  pango_layout_get_pixel_size(layout, width, NULL); /* on one line */
   g_object_unref(layout);
   gtk_label_set_markup(GTK_LABEL(label), markup);
   gtk_label_set_wrap(GTK_LABEL(label), TRUE);
@@ -80,15 +91,125 @@ void preview_cell_end(Render *r, gboolean head)
   gtk_label_set_max_width_chars(GTK_LABEL(label), 1); /* its width is the one preview_size_table() gives it */
   gtk_label_set_xalign(GTK_LABEL(label), xalign[r->align]);
   gtk_label_set_yalign(GTK_LABEL(label), 0.0f);
-  gtk_widget_add_css_class(label, head ? "head" : r->row % 2 ? "odd" : "even");
   g_signal_connect(label, "activate-link", G_CALLBACK(on_cell_link), r->p);
+  g_free(markup);
+  return label;
+}
+
+/* The markup so far goes into the cell's row of labels and pictures (the spans open are closed in
+ * it and opened again after it). */
+static void flush_piece(Render *r, gboolean head)
+{
+  GString *closed = g_string_new(r->markup->str), *reopened = g_string_new(NULL);
+  int width;
+
+  if (!r->cell_box) {
+    r->cell_box = g_object_ref_sink(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4));
+    r->cell_width = 0;
+  }
+  for (guint i = r->closers->len; i-- > 0;)
+    g_string_append(closed, g_ptr_array_index(r->closers, i));
+  for (guint i = 0; i < r->cell_openers->len; i++)
+    g_string_append(reopened, g_ptr_array_index(r->cell_openers, i));
+  if (r->markup->len) {
+    GtkWidget *label = cell_label(r, closed->str, head, &width);
+    gtk_widget_set_hexpand(label, FALSE);
+    gtk_label_set_max_width_chars(GTK_LABEL(label), -1);
+    gtk_box_append(GTK_BOX(r->cell_box), label);
+    r->cell_width += width + 4;
+  }
+  g_string_free(closed, TRUE);
+  g_string_free(r->markup, TRUE);
+  r->markup = reopened;
+}
+
+/* A table cell ended: its markup becomes a wrapping label in the grid (with images: a row of labels
+ * and pictures). */
+void preview_cell_end(Render *r, gboolean head)
+{
+  GArray *natural = r->table->natural;
+  GtkWidget *cell;
+  int width = 0;
+  gboolean boxed = r->cell_box != NULL;
+
+  while (r->cell_html->len) { /* raw HTML elements left open */
+    char *end = g_strdup_printf("</%s>", (const char *)g_ptr_array_index(r->cell_html, r->cell_html->len - 1));
+    char *markup = preview_html_markup(end, r->cell_html);
+    if (markup)
+      g_string_append(r->markup, markup);
+    else
+      g_ptr_array_set_size(r->cell_html, r->cell_html->len - 1);
+    g_free(markup);
+    g_free(end);
+  }
+  if (boxed) {
+    flush_piece(r, head);
+    cell = g_steal_pointer(&r->cell_box);
+    gtk_widget_set_halign(cell, r->align == MD_ALIGN_CENTER  ? GTK_ALIGN_CENTER
+                                : r->align == MD_ALIGN_RIGHT ? GTK_ALIGN_END
+                                                             : GTK_ALIGN_FILL);
+    width = r->cell_width;
+  } else {
+    cell = cell_label(r, r->markup->str, head, &width);
+  }
+  gtk_widget_add_css_class(cell, head ? "head" : r->row % 2 ? "odd" : "even");
   if ((guint)r->cell >= natural->len)
     g_array_set_size(natural, r->cell + 1);
   g_array_index(natural, int, r->cell) = MAX(g_array_index(natural, int, r->cell), width + 2 * CELL_PAD + 2);
-  gtk_grid_attach(GTK_GRID(r->table->grid), label, r->cell, r->row, 1, 1);
-  g_free(markup);
+  gtk_grid_attach(GTK_GRID(r->table->grid), cell, r->cell, r->row, 1, 1);
+  if (boxed)
+    g_object_unref(cell); /* the grid holds the box now */
   g_string_free(g_steal_pointer(&r->markup), TRUE);
+  g_ptr_array_set_size(r->cell_openers, 0);
   r->cell++;
+}
+
+/* An image in a cell: a picture beside the labels, FALSE when it cannot be shown (its alt text is). */
+static gboolean cell_image(Render *r, const char *src, int width, const char *title)
+{
+  const char *href = r->hrefs->len ? g_ptr_array_index(r->hrefs, r->hrefs->len - 1) : NULL;
+  GdkPaintable *paintable = src ? preview_image(r->p, r->dir, src) : NULL;
+  GtkWidget *picture;
+
+  if (!paintable)
+    return FALSE;
+  flush_piece(r, FALSE);
+  picture = preview_picture_new(r->p, paintable, width, href, title);
+  preview_size_picture(picture, preview_content_width(r->p));
+  gtk_widget_set_valign(picture, GTK_ALIGN_CENTER);                              /* its own height, not the row's */
+  gtk_picture_set_content_fit(GTK_PICTURE(picture), GTK_CONTENT_FIT_SCALE_DOWN); /* a tall row: no larger */
+  gtk_box_append(GTK_BOX(r->cell_box), picture);
+  r->cell_width += GPOINTER_TO_INT(g_object_get_data(G_OBJECT(picture), "t-code-width")) + 4;
+  g_object_unref(paintable);
+  return TRUE;
+}
+
+/* Raw HTML in a cell: formatting tags become Pango's, <img> a picture, others are left out. */
+static void cell_html(Render *r, const char *text, gsize size)
+{
+  char *tag = g_strndup(text, size), *markup;
+
+  g_strdelimit(tag, "\r\n\t", ' ');
+  if (g_ascii_strncasecmp(tag, "<img", 4) == 0) {
+    char *src = preview_html_attribute(tag, "src"), *width = preview_html_attribute(tag, "width");
+    char *title = preview_html_attribute(tag, "title");
+    if (!cell_image(r, src, width ? atoi(width) : 0, title)) {
+      char *alt = preview_html_attribute(tag, "alt");
+      if (alt) {
+        char *escaped = g_markup_escape_text(alt, -1);
+        g_string_append(r->markup, escaped);
+        g_free(escaped);
+      }
+      g_free(alt);
+    }
+    g_free(title);
+    g_free(width);
+    g_free(src);
+  } else if ((markup = preview_html_markup(tag, r->cell_html))) {
+    g_string_append(r->markup, markup);
+    g_free(markup);
+  }
+  g_free(tag);
 }
 
 /* Text in a table cell, as markup. */
@@ -96,17 +217,24 @@ void preview_cell_text(Render *r, MD_TEXTTYPE type, const char *text, gsize size
 {
   char *plain = NULL, *escaped;
 
+  if (r->math) {
+    g_string_append_len(r->math, type == MD_TEXT_SOFTBR || type == MD_TEXT_BR ? " " : text,
+                        type == MD_TEXT_SOFTBR || type == MD_TEXT_BR ? 1 : size);
+    return;
+  }
+  if (r->hidden) /* a shown image's alt text */
+    return;
   switch (type) {
-    case MD_TEXT_NULLCHAR: g_string_append(r->markup, "\uFFFD"); return;
+    case MD_TEXT_NULLCHAR: g_string_append(r->markup, "�"); return;
     case MD_TEXT_BR: g_string_append_c(r->markup, '\n'); return;
     case MD_TEXT_SOFTBR: g_string_append_c(r->markup, ' '); return;
-    case MD_TEXT_HTML: /* tags are left out, but <br> */
-      if (g_ascii_strncasecmp(text, "<br", MIN(size, 3)) == 0 && size >= 3)
-        g_string_append_c(r->markup, '\n');
-      return;
+    case MD_TEXT_HTML: cell_html(r, text, size); return;
     case MD_TEXT_ENTITY: plain = preview_decode_entity(text, size); break;
-    default: plain = g_strndup(text, size); break;
+    case MD_TEXT_NORMAL: plain = preview_emojify(text, size); break;
+    default: break;
   }
+  if (!plain)
+    plain = g_strndup(text, size);
   escaped = g_markup_escape_text(plain, -1);
   g_string_append(r->markup, escaped);
   g_free(escaped);
@@ -133,9 +261,12 @@ void preview_cell_span(Render *r, MD_SPANTYPE type, void *detail)
     case MD_SPAN_STRONG: open = "<b>", close = "</b>"; break;
     case MD_SPAN_DEL: open = "<s>", close = "</s>"; break;
     case MD_SPAN_U: open = "<u>", close = "</u>"; break;
-    case MD_SPAN_CODE:
     case MD_SPAN_LATEXMATH:
-    case MD_SPAN_LATEXMATH_DISPLAY:
+    case MD_SPAN_LATEXMATH_DISPLAY: /* its TeX is collected, and shown as markup at its end */
+      r->math = g_string_new(NULL);
+      close = math_closer;
+      break;
+    case MD_SPAN_CODE:
       if (in_cell_link(r)) /* a foreground would win over the link's color */
         link = g_strdup_printf("<span font_family=\"monospace\" background=\"%s\">", palette_hex(PAL_BORDER_STRONG));
       else
@@ -148,25 +279,53 @@ void preview_cell_span(Render *r, MD_SPANTYPE type, void *detail)
       MD_SPAN_A_DETAIL *a = detail;
       char *href = preview_target(&a->href);
       link = g_markup_printf_escaped("<a href=\"%s\">", href);
-      g_free(href);
+      g_ptr_array_add(r->hrefs, href); /* an image inside it follows it */
       open = link, close = "</a>";
       break;
     }
-    case MD_SPAN_IMG: /* its alt text */
-      link = g_strdup_printf("<span foreground=\"%s\">", palette_hex(PAL_FG_DIM));
-      open = link, close = "</span>";
+    case MD_SPAN_IMG: {
+      MD_SPAN_IMG_DETAIL *img = detail;
+      char *src = preview_target(&img->src), *title = img->title.size ? preview_target(&img->title) : NULL;
+      if (!r->hidden && cell_image(r, src, 0, title)) {
+        r->hidden++;
+        close = image_closer;
+      } else { /* its alt text */
+        link = g_strdup_printf("<span foreground=\"%s\">", palette_hex(PAL_FG_DIM));
+        open = link, close = "</span>";
+      }
+      g_free(title);
+      g_free(src);
       break;
+    }
     default: break;
   }
   g_string_append(r->markup, open);
   g_ptr_array_add(r->closers, (gpointer)close);
+  g_ptr_array_add(r->cell_openers, g_strdup(open));
   g_free(link);
 }
 
 void preview_cell_span_end(Render *r)
 {
-  if (r->closers->len)
-    g_string_append(r->markup, g_ptr_array_steal_index(r->closers, r->closers->len - 1));
+  const char *close;
+
+  if (!r->closers->len)
+    return;
+  close = g_ptr_array_steal_index(r->closers, r->closers->len - 1);
+  if (r->cell_openers->len)
+    g_ptr_array_set_size(r->cell_openers, r->cell_openers->len - 1);
+  if (close == math_closer) {
+    char *markup = preview_math_markup(r->math->str);
+    g_string_append(r->markup, markup);
+    g_free(markup);
+    g_string_free(g_steal_pointer(&r->math), TRUE);
+  } else if (close == image_closer) {
+    r->hidden--;
+  } else {
+    if (strcmp(close, "</a>") == 0 && r->hrefs->len)
+      g_ptr_array_set_size(r->hrefs, r->hrefs->len - 1);
+    g_string_append(r->markup, close);
+  }
 }
 
 /* Shares width between the columns like a browser: when they all fit, each gets its widest cell;

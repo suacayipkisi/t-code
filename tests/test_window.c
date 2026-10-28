@@ -1497,7 +1497,7 @@ static gboolean has_tag(GtkTextIter *iter, const char *name)
       iter, gtk_text_tag_table_lookup(gtk_text_buffer_get_tag_table(gtk_text_iter_get_buffer(iter)), name));
 }
 
-/* The Markdown preview looks: quotes are not italic, <sub> text is smaller, a link is
+/* The Markdown preview looks: quotes are not italic, <sub> text is smaller and lower, a link is
  * underlined only under the pointer, and nothing scrolls sideways. */
 static void test_preview_look(void)
 {
@@ -1536,7 +1536,7 @@ static void test_preview_look(void)
   }
   g_slist_free(tags);
   iter = preview_find(buffer, "a caption");
-  g_assert_true(has_tag(&iter, "small"));
+  g_assert_true(has_tag(&iter, "sub")); /* smaller and lowered */
 
   iter = preview_find(buffer, "the link");
   g_assert_true(has_tag(&iter, "link"));
@@ -1693,6 +1693,127 @@ static void test_preview_math(void)
   g_free(path);
   g_free(text);
   g_string_free(deep, TRUE);
+}
+
+/* The first label under root whose markup holds needle, or NULL. */
+static GtkWidget *find_label_with(GtkWidget *root, const char *needle)
+{
+  if (GTK_IS_LABEL(root) && strstr(gtk_label_get_label(GTK_LABEL(root)), needle))
+    return root;
+  for (GtkWidget *child = gtk_widget_get_first_child(root); child; child = gtk_widget_get_next_sibling(child)) {
+    GtkWidget *found = find_label_with(child, needle);
+    if (found)
+      return found;
+  }
+  return NULL;
+}
+
+/* The preview shows what GitHub shows: every HTML5 entity, :emoji:, raw HTML (formatting, <sub> and <sup>
+ * raised, <kbd>, links, anchors, images, comments over several lines left out, GFM's filtered tags as
+ * text), footnotes, <details> that a click on their summary opens, math and images in table cells, and a
+ * caption over a diagram it cannot draw. */
+static void test_preview_github(void)
+{
+  char *path = g_build_filename(app.project.root, "github.md", NULL);
+  char *svg = g_build_filename(app.project.root, "badge.svg", NULL);
+  GtkTextIter iter;
+  GdkRectangle where;
+  int x, y, pictures = 0;
+
+  g_assert_true(g_file_set_contents(svg,
+                                    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"40\" height=\"10\">"
+                                    "<rect width=\"40\" height=\"10\" fill=\"#08c\"/></svg>",
+                                    -1, NULL));
+  g_assert_true(g_file_set_contents(
+      path,
+      "Entities &frac12; &NotEqualTilde; &#x1F600; &bogus; and :tada: but :no_such_emoji:\n\n"
+      "Tags <ins>under</ins> H<sub>2</sub>O E=mc<sup>2</sup> <kbd>Ctrl</kbd> <a href=\"#end\">html link</a>\n\n"
+      "<!-- a comment\nover > lines -->\n\n"
+      "<p align=\"center\"><a href=\"https://example.com\"><img src=\"badge.svg\" alt=\"logo\"></a></p>\n\n"
+      "A note[^n].\n\n"
+      "<details>\n<summary>More</summary>\n\nsecret text\n\n</details>\n\n"
+      "| a | b |\n|---|---|\n| $x^2$ | ![c](badge.svg) |\n\n"
+      "```mermaid\ngraph TD; A-->B;\n```\n\n"
+      "<script>alert(1)</script>\n\n"
+      "<a name=\"end\"></a>The end.\n\n"
+      "[^n]: The note's text.\n",
+      -1, NULL));
+  open_preview(&app, path);
+  run_for(300);
+  Tab *tab = current_tab(&app);
+  g_assert_true(tab->kind == TAB_PREVIEW);
+  GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
+
+  iter = preview_find(buffer, "Entities ½ ≂̸ 😀 &bogus; and 🎉 but :no_such_emoji:");
+  iter = preview_find(buffer, "under");
+  g_assert_true(has_tag(&iter, "underline"));
+  iter = preview_find(buffer, "2O");
+  g_assert_true(has_tag(&iter, "sub"));
+  iter = preview_find(buffer, "2 Ctrl");
+  g_assert_true(has_tag(&iter, "sup"));
+  iter = preview_find(buffer, "Ctrl");
+  g_assert_true(has_tag(&iter, "code"));
+  iter = preview_find(buffer, "html link");
+  g_assert_true(has_tag(&iter, "link"));
+  gtk_text_buffer_get_start_iter(buffer, &iter);
+  g_assert_false(gtk_text_iter_forward_search(&iter, "comment", 0, NULL, NULL, NULL));
+  g_assert_false(gtk_text_iter_forward_search(&iter, "lines", 0, NULL, NULL, NULL));
+  g_assert_false(gtk_text_iter_forward_search(&iter, "[^n]", 0, NULL, NULL, NULL));
+  iter = preview_find(buffer, "<script>alert(1)</script>");
+  iter = preview_find(buffer, "Mermaid diagram");
+  g_assert_true(has_tag(&iter, "caption"));
+  iter = preview_find(buffer, "The note's text. ↩");
+  iter = preview_find(buffer, "↩");
+  g_assert_true(has_tag(&iter, "link"));
+
+  for (gtk_text_buffer_get_start_iter(buffer, &iter); !gtk_text_iter_is_end(&iter); gtk_text_iter_forward_char(&iter)) {
+    GtkTextChildAnchor *anchor = gtk_text_iter_get_child_anchor(&iter);
+    guint n = 0;
+    GtkWidget **widgets = anchor ? gtk_text_child_anchor_get_widgets(anchor, &n) : NULL;
+    if (n && GTK_IS_PICTURE(widgets[0])) {
+      pictures++;
+      g_assert_true(has_tag(&iter, "center")); /* <p align="center"> */
+    }
+    g_free(widgets);
+  }
+  g_assert_cmpint(pictures, ==, 1); /* the SVG drawn (the one in the table is in its grid) */
+  GtkWidget *grid = find_widget(GTK_WIDGET(view), GTK_TYPE_GRID, NULL, "tcode-preview-table");
+  g_assert_nonnull(grid);
+  g_assert_nonnull(find_label_with(grid, "<sup>2</sup>")); /* $x^2$ in a cell */
+  g_assert_nonnull(find_widget(grid, GTK_TYPE_PICTURE, NULL, NULL));
+
+  /* <details> is closed: its text is hidden until its summary is clicked. */
+  iter = preview_find(buffer, "secret text");
+  g_assert_true(has_tag(&iter, "hidden"));
+  iter = preview_find(buffer, "▶  More");
+  GtkGesture *click = NULL;
+  GListModel *controllers = gtk_widget_observe_controllers(GTK_WIDGET(view));
+  for (guint i = 0; !click && i < g_list_model_get_n_items(controllers); i++) {
+    GtkEventController *controller = g_list_model_get_item(controllers, i);
+    if (GTK_IS_GESTURE_CLICK(controller))
+      click = GTK_GESTURE(controller);
+    g_object_unref(controller);
+  }
+  g_object_unref(controllers);
+  g_assert_nonnull(click);
+  gtk_text_iter_forward_chars(&iter, 4);
+  gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+  do {
+    run_for(20);
+    gtk_text_view_get_iter_location(view, &iter, &where);
+  } while (where.height <= 0 && g_get_monotonic_time() < end);
+  gtk_text_view_buffer_to_window_coords(view, GTK_TEXT_WINDOW_WIDGET, where.x + 1, where.y + where.height / 2, &x, &y);
+  g_signal_emit_by_name(click, "released", 1, (double)x, (double)y);
+  iter = preview_find(buffer, "secret text");
+  g_assert_false(has_tag(&iter, "hidden"));
+  iter = preview_find(buffer, "▼  More");
+
+  remove_tab(tab);
+  g_unlink(path);
+  g_unlink(svg);
+  g_free(svg);
+  g_free(path);
 }
 
 /* A renamed theme's old id (in a settings.ini from before) gives its new one. */
@@ -2610,6 +2731,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/theme-renamed", test_theme_renamed);
   g_test_add_func("/window/preview-look", test_preview_look);
   g_test_add_func("/window/preview-math", test_preview_math);
+  g_test_add_func("/window/preview-github", test_preview_github);
   g_test_add_func("/window/run-scripts", test_run_scripts);
   g_test_add_func("/window/run-tests", test_run_tests);
   g_test_add_func("/window/run-projects", test_run_projects);
