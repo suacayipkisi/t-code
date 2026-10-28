@@ -327,7 +327,8 @@ static void on_run(App *t)
   build_project(t, TRUE);
 }
 
-static void on_font_scale_reset(App *t) {
+static void on_font_scale_reset(App *t)
+{
   set_font_scale(t, 1.0);
 }
 
