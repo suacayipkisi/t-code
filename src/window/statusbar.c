@@ -14,11 +14,13 @@
 #include "editor/tabs.h"
 #include "git/gitstatus.h"
 #include "git/scm/scm.h"
+#include "glib-object.h"
 #include "lsp/client/client.h"
 #include "popups/picker.h"
 #include "project/session.h"
 #include "project/run/run.h"
 #include "window/palette.h"
+#include "window/window.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -86,8 +88,29 @@ void update_status(App *t)
   gtk_widget_set_visible(t->status.no_lsp, server != NULL);
 
   status_show_progress(t);
+  status_show_font_scale(t);
   status_show_indent(t);
   status_show_position(t);
+}
+
+void status_show_font_scale(App *t)
+{
+  if (!t->status.font_scale)
+    return;
+
+  double current_font_scale = t->settings.font_scale;
+  int fs = (int)(current_font_scale * 100.0 + 0.5);
+  if (fs == 100) {
+    gtk_widget_set_visible(GTK_WIDGET(t->status.font_scale), FALSE);
+  } else {
+    char *text = g_strdup_printf("%s%d", "Text Scale: %", fs);
+    char *tip = g_strdup_printf("CTRL + OR CTRL -");
+    gtk_button_set_label(GTK_BUTTON(t->status.font_scale), text);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(t->status.font_scale), tip);
+    g_free(text);
+    g_free(tip);
+    gtk_widget_set_visible(GTK_WIDGET(t->status.font_scale), TRUE);
+  }
 }
 
 void status_show_indent(App *t)
@@ -304,6 +327,10 @@ static void on_run(App *t)
   build_project(t, TRUE);
 }
 
+static void on_font_scale_reset(App *t) {
+  set_font_scale(t, 1.0);
+}
+
 GtkWidget *status_bar(App *t)
 {
   GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
@@ -338,6 +365,8 @@ GtkWidget *status_bar(App *t)
   t->status.no_lsp = status_button(bar, "⚠ No LSP", NULL, G_CALLBACK(on_no_lsp), t);
   gtk_widget_add_css_class(t->status.no_lsp, "warning");
   gtk_widget_set_visible(t->status.no_lsp, FALSE);
+  t->status.font_scale = status_button(bar, "", "Reset Text Size (Ctrl + 0)", G_CALLBACK(on_font_scale_reset), t);
+  gtk_widget_set_visible(t->status.font_scale, FALSE);
   t->status.indent = status_button(bar, "", NULL, G_CALLBACK(status_pick_indent), t);
   gtk_widget_set_visible(t->status.indent, FALSE);
   t->status.position = status_label(bar, FALSE);

@@ -18,6 +18,8 @@ void start_status_updates(App *t);
 /* Fills the bar again from the tabs: problems, what Build would build, the cursor position. */
 void update_status(App *t);
 
+void status_show_font_scale(App *t);
+
 /* The current editor's indentation, "Spaces: 4" or "Tab Size: 4" (hidden without an editor). */
 void status_show_indent(App *t);
 
