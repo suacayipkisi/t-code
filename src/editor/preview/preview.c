@@ -1,7 +1,7 @@
 /*
  * Markdown preview tabs (see preview.h): the file becomes text with tags in one read-only
  * GtkTextView (markdown.c, view.c), no browser engine, so a preview costs about what its text does.
- * Links open (anchors scroll to their heading, Markdown files open as previews, other files in an
+ * Formulas are drawn by math.c. Links open (anchors scroll to their heading, Markdown files open as previews, other files in an
  * editor, the rest in the browser). The preview follows the file as it is saved, keeping its
  * scroll position.
  */
@@ -214,6 +214,7 @@ void preview_free(Preview *p)
   g_hash_table_destroy(p->colors);
   g_ptr_array_free(p->tables, TRUE);
   g_ptr_array_free(p->pictures, TRUE);
+  g_hash_table_destroy(p->rises);
   g_free(p);
 }
 
@@ -258,6 +259,7 @@ void open_preview(App *t, const char *path)
   p->colors = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   p->tables = g_ptr_array_new_with_free_func(preview_table_free);
   p->pictures = g_ptr_array_new();
+  p->rises = g_hash_table_new(NULL, NULL);
   p->buffer = gtk_text_buffer_new(NULL);
   PangoFontDescription *font = pango_font_description_from_string(t->settings.font ? t->settings.font : DEFAULT_FONT);
   const char *family = pango_font_description_get_family(font);

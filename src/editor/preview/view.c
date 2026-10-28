@@ -8,6 +8,21 @@
 
 /* Tags -------------------------------------------------------------------------------------- */
 
+static const double heading_scale[] = { 1.85, 1.45, 1.25, 1.1, 1.0, 0.9 };
+
+/* GitHub's alerts: note, tip, important, warning, caution. */
+static const PalColor alert_colors[] = { PAL_INFO, PAL_GIT_ADDED, PAL_ACCENT, PAL_WARNING, PAL_ERROR };
+
+double preview_heading_scale(int level)
+{
+  return heading_scale[CLAMP(level, 1, 6) - 1];
+}
+
+const GdkRGBA *preview_alert_color(int alert)
+{
+  return palette_rgba(alert_colors[CLAMP(alert, 1, 5) - 1]);
+}
+
 /* The tags' colors, from the color theme (again when it changes). */
 void preview_color_tags(GtkTextBuffer *b)
 {
@@ -30,13 +45,19 @@ void preview_color_tags(GtkTextBuffer *b)
     if (tag)
       g_object_set(tag, colors[i].property, palette_hex(colors[i].color), NULL);
   }
+  for (int i = 1; i <= 5; i++) {
+    char name[16];
+    g_snprintf(name, sizeof name, "alert%d", i);
+    GtkTextTag *tag = gtk_text_tag_table_lookup(table, name);
+    if (tag)
+      g_object_set(tag, "foreground", palette_hex(alert_colors[i - 1]), NULL);
+  }
 }
 
 /* The tags every rendering uses, made with the buffer. Later tags win where they set the same
  * thing, so the order matters: the base first, deeper indents after shallower ones. */
 void preview_create_tags(GtkTextBuffer *b, const char *mono)
 {
-  static const double heading_scale[] = { 1.85, 1.45, 1.25, 1.1, 1.0, 0.9 };
   char name[16];
 
   gtk_text_buffer_create_tag(b, "base", NULL);
@@ -78,6 +99,11 @@ void preview_create_tags(GtkTextBuffer *b, const char *mono)
   gtk_text_buffer_create_tag(b, "small", "scale", 0.85, NULL);
   gtk_text_buffer_create_tag(b, "link", NULL);
   gtk_text_buffer_create_tag(b, "link-hover", "underline", PANGO_UNDERLINE_SINGLE, NULL);
+  gtk_text_buffer_create_tag(b, "math-display", "justification", GTK_JUSTIFY_CENTER, "pixels-above-lines", 6, NULL);
+  for (int i = 1; i <= 5; i++) {
+    g_snprintf(name, sizeof name, "alert%d", i);
+    gtk_text_buffer_create_tag(b, name, NULL);
+  }
   preview_color_tags(b);
 }
 
@@ -231,10 +257,16 @@ static void draw_blocks(GtkTextView *view, Preview *p, GtkSnapshot *snapshot, in
     gtk_text_view_get_line_yrange(view, &iter, &bottom, &height);
     bottom += height;
     switch (block->kind) {
-      case BLOCK_QUOTE: /* its last line has a paragraph's gap below it: most of it is outside */
-        fill(snapshot, &quote, left, top - 6, right - left, bottom - top - 2, 0);
-        fill(snapshot, &bar, left, top - 6, BAR_WIDTH, bottom - top - 2, 0);
+      case BLOCK_QUOTE: { /* its last line has a paragraph's gap below it: most of it is outside */
+        GdkRGBA tint = quote, line = bar;
+        if (block->alert) {
+          tint = line = *preview_alert_color(block->alert);
+          tint.alpha = 0.07f;
+        }
+        fill(snapshot, &tint, left, top - 6, right - left, bottom - top - 2, 0);
+        fill(snapshot, &line, left, top - 6, BAR_WIDTH, bottom - top - 2, 0);
         break;
+      }
       case BLOCK_PRE: fill(snapshot, &box, left, top, right - left, bottom - top, 6); break;
       case BLOCK_RULE: fill(snapshot, &rule, left, bottom - 8, right - left, 1, 0); break;
       case BLOCK_HR: fill(snapshot, &hr, left, (top + bottom) / 2 - 1, right - left, 2, 0); break;

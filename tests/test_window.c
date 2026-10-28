@@ -1597,6 +1597,103 @@ static void test_preview_look(void)
   g_free(path);
 }
 
+/* The paintables (formulas) in the preview's buffer, in order; the caller frees the array. */
+static GPtrArray *preview_formulas(GtkTextBuffer *buffer, GArray *offsets)
+{
+  GPtrArray *formulas = g_ptr_array_new();
+  GtkTextIter iter;
+
+  for (gtk_text_buffer_get_start_iter(buffer, &iter); !gtk_text_iter_is_end(&iter); gtk_text_iter_forward_char(&iter)) {
+    GdkPaintable *paintable = gtk_text_iter_get_paintable(&iter);
+    if (paintable) {
+      int offset = gtk_text_iter_get_offset(&iter);
+      g_ptr_array_add(formulas, paintable);
+      g_array_append_val(offsets, offset);
+    }
+  }
+  return formulas;
+}
+
+/* How far a tag at the iter lowers the text (a formula's depth), in Pango units. */
+static int lowered(GtkTextIter *iter)
+{
+  GSList *tags = gtk_text_iter_get_tags(iter);
+  int rise = 0;
+
+  for (GSList *each = tags; each; each = each->next) {
+    gboolean set;
+    int value;
+    g_object_get(each->data, "rise-set", &set, "rise", &value, NULL);
+    if (set)
+      rise = value;
+  }
+  g_slist_free(tags);
+  return -rise;
+}
+
+/* TeX math in the preview: $...$ inline on the baseline (a fraction reaches below it), $$...$$ and
+ * ```math centered on lines of their own, prices stay text, broken TeX still shows (too deep: nothing); a quote that
+ * starts with [!WARNING] is an alert. */
+static void test_preview_math(void)
+{
+  char *path = g_build_filename(app.project.root, "math.md", NULL);
+  GString *deep = g_string_new("$");
+  GArray *offsets = g_array_new(FALSE, FALSE, sizeof(int));
+  GtkTextIter iter;
+
+  for (int i = 0; i < 300; i++)
+    g_string_append_c(deep, '{');
+  g_string_append(deep, "x$\n\n");
+  char *text =
+      g_strconcat("Inline $x^2$ and $\\frac{a}{b}$ here.\n\n"
+                  "$$\\sum_{i=1}^n i = \\frac{n(n+1)}{2}$$\n\n"
+                  "```math\n\\begin{aligned} a &= b \\\\ c &= \\left( \\sqrt[3]{d} \\right) \\end{aligned}\n```\n\n"
+                  "Broken $\\frac{\\left( {x \\foo$ and ",
+                  deep->str,
+                  "> [!WARNING]\n> careful [link](#x)\n\n"
+                  "Costs $5 and $10.\n",
+                  NULL);
+  g_assert_true(g_file_set_contents(path, text, -1, NULL));
+  open_preview(&app, path);
+  run_for(300);
+  Tab *tab = current_tab(&app);
+  g_assert_true(tab->kind == TAB_PREVIEW);
+  GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
+
+  GPtrArray *formulas = preview_formulas(buffer, offsets);
+  g_assert_cmpuint(formulas->len, ==, 5); /* the one 300 groups deep shows nothing, without crashing */
+  GdkPaintable *square = g_ptr_array_index(formulas, 0), *fraction = g_ptr_array_index(formulas, 1);
+  g_assert_cmpint(gdk_paintable_get_intrinsic_height(fraction), >, gdk_paintable_get_intrinsic_height(square));
+  gtk_text_buffer_get_iter_at_offset(buffer, &iter, g_array_index(offsets, int, 1));
+  g_assert_cmpint(lowered(&iter), >, 0); /* the denominator goes below the baseline */
+  g_assert_false(has_tag(&iter, "math-display"));
+  for (guint i = 2; i <= 3; i++) {
+    gtk_text_buffer_get_iter_at_offset(buffer, &iter, g_array_index(offsets, int, i));
+    g_assert_true(has_tag(&iter, "math-display"));
+    g_assert_true(gtk_text_iter_starts_line(&iter));
+  }
+  GdkPaintable *aligned = g_ptr_array_index(formulas, 3);
+  g_assert_cmpint(gdk_paintable_get_intrinsic_height(aligned), >, 2 * gdk_paintable_get_intrinsic_height(square));
+
+  iter = preview_find(buffer, "Costs $5 and $10.");
+  iter = preview_find(buffer, "Warning");
+  g_assert_true(has_tag(&iter, "alert4"));
+  g_assert_false(has_tag(&iter, "quote"));
+  gtk_text_buffer_get_start_iter(buffer, &iter);
+  g_assert_false(gtk_text_iter_forward_search(&iter, "[!WARNING]", 0, NULL, NULL, NULL));
+  iter = preview_find(buffer, "link");
+  g_assert_true(has_tag(&iter, "link"));
+
+  g_ptr_array_free(formulas, TRUE);
+  g_array_free(offsets, TRUE);
+  remove_tab(tab);
+  g_unlink(path);
+  g_free(path);
+  g_free(text);
+  g_string_free(deep, TRUE);
+}
+
 /* A renamed theme's old id (in a settings.ini from before) gives its new one. */
 static void test_theme_renamed(void)
 {
@@ -2511,6 +2608,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/theme-current-line", test_theme_current_line);
   g_test_add_func("/window/theme-renamed", test_theme_renamed);
   g_test_add_func("/window/preview-look", test_preview_look);
+  g_test_add_func("/window/preview-math", test_preview_math);
   g_test_add_func("/window/run-scripts", test_run_scripts);
   g_test_add_func("/window/run-tests", test_run_tests);
   g_test_add_func("/window/run-projects", test_run_projects);

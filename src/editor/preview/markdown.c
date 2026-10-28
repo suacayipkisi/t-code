@@ -1,8 +1,9 @@
 /*
  * The preview's Markdown (see state.h): md4c parses the file (GitHub flavor: tables, task lists,
- * strikethrough, autolinks) and its blocks and spans are appended as text with tags. Code blocks are
- * colored with GtkSourceView's language definitions and the editor's style scheme; local images and
- * tables become widgets in the text.
+ * strikethrough, autolinks, $math$) and its blocks and spans are appended as text with tags. Code
+ * blocks are colored with GtkSourceView's language definitions and the editor's style scheme; local
+ * images and tables become widgets in the text, formulas (math.c) paintables; quotes that start with
+ * [!NOTE], [!TIP], ... are GitHub's alerts.
  */
 #include "editor/preview/state.h"
 
@@ -11,6 +12,8 @@
 #include <md4c.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define MATH_SCALE 1.1 /* serif math beside the sans text looks smaller at the same size */
 
 /* Appending ---------------------------------------------------------------------------------- */
 
@@ -77,7 +80,7 @@ static void end_paragraph(Render *r, int start, const char *gap)
 /* A block drawn below the text (draw_blocks), from start to the end of the buffer. */
 static void add_block(Render *r, BlockKind kind, int start, int level)
 {
-  Block block = { kind, start, end_offset(r), level };
+  Block block = { kind, start, end_offset(r), level, 0 };
 
   g_array_append_val(r->p->blocks, block);
 }
@@ -372,6 +375,110 @@ static void append_code(Render *r, const char *text, const char *lang)
   g_object_unref(source);
 }
 
+/* Math --------------------------------------------------------------------------------------- */
+
+/* The tag that lowers a formula depth pixels: it is drawn on the baseline, its depth goes below it. */
+static GtkTextTag *rise_tag(Preview *p, int depth)
+{
+  GtkTextTag *tag = g_hash_table_lookup(p->rises, GINT_TO_POINTER(depth));
+
+  if (!tag) {
+    tag = gtk_text_buffer_create_tag(p->buffer, NULL, "rise", -depth * PANGO_SCALE, NULL);
+    g_hash_table_insert(p->rises, GINT_TO_POINTER(depth), tag);
+  }
+  return tag;
+}
+
+/* A TeX formula: inline on the text's baseline, or (display) centered on a line of its own. */
+static void append_math(Render *r, const char *tex, gboolean display)
+{
+  double size = BODY_POINTS * r->p->scale * 96.0 / 72.0 * MATH_SCALE;
+  int depth = 0, start;
+  GdkPaintable *math;
+  GtkTextIter end;
+
+  if (r->heading)
+    size *= preview_heading_scale(r->heading);
+  math = preview_math_new(tex, display, size, &depth);
+  if (!math)
+    return;
+  if (display)
+    begin_block(r);
+  start = end_offset(r);
+  gtk_text_buffer_get_end_iter(r->p->buffer, &end);
+  gtk_text_buffer_insert_paintable(r->p->buffer, &end, math);
+  g_object_unref(math);
+  if (depth > 0)
+    tag_from(r, NULL, rise_tag(r->p, depth), start);
+  if (display) {
+    tag_from(r, "math-display", NULL, start);
+    r->after_display = TRUE;
+  }
+}
+
+/* Text after a display formula starts a new line. */
+static void after_display(Render *r)
+{
+  if (r->after_display) {
+    r->after_display = FALSE;
+    append(r, "\n", 1);
+  }
+}
+
+/* Alerts ------------------------------------------------------------------------------------- */
+
+/* A quote's first paragraph (from start) that begins with [!NOTE], [!TIP], ...: the marker becomes
+ * the alert's title, in its color, and the quote is drawn in it. */
+static void find_alert(Render *r, int start)
+{
+  static const char *const markers[] = { "[!NOTE]", "[!TIP]", "[!IMPORTANT]", "[!WARNING]", "[!CAUTION]" };
+  static const char *const titles[] = { "ⓘ  Note", "✱  Tip", "❢  Important", "⚠  Warning", "⊘  Caution" };
+  GtkTextBuffer *b = r->p->buffer;
+  GtkTextIter from, to;
+  char *text;
+
+  gtk_text_buffer_get_iter_at_offset(b, &from, start);
+  gtk_text_buffer_get_end_iter(b, &to);
+  text = gtk_text_iter_get_text(&from, &to);
+  for (int i = 0; i < (int)G_N_ELEMENTS(markers); i++) {
+    int len = (int)strlen(markers[i]);
+    if (g_ascii_strncasecmp(text, markers[i], len) != 0 || (text[len] && text[len] != ' '))
+      continue;
+    gboolean more = text[len] == ' ' && text[len + 1];
+    char *title = g_strconcat(titles[i], more ? "\u2028" : "", NULL); /* the text goes on the next line */
+    int removed = len + (text[len] == ' '), added = (int)g_utf8_strlen(title, -1), shift = added - removed;
+    char name[16];
+
+    to = from;
+    gtk_text_iter_forward_chars(&to, removed);
+    gtk_text_buffer_delete(b, &from, &to);
+    gtk_text_buffer_insert(b, &from, title, -1);
+    gtk_text_buffer_get_iter_at_offset(b, &from, start);
+    gtk_text_buffer_get_iter_at_offset(b, &to, start + (int)g_utf8_strlen(titles[i], -1));
+    g_snprintf(name, sizeof name, "alert%d", i + 1);
+    gtk_text_buffer_apply_tag_by_name(b, "bold", &from, &to);
+    gtk_text_buffer_apply_tag_by_name(b, name, &from, &to);
+    for (guint l = 0; l < r->p->links->len; l++) { /* links and code after it moved */
+      Link *link = &g_array_index(r->p->links, Link, l);
+      if (link->start >= start) {
+        link->start += shift;
+        link->end += shift;
+      }
+    }
+    for (guint c = 0; c < r->p->code_spans->len; c++) {
+      CodeSpan *span = &g_array_index(r->p->code_spans, CodeSpan, c);
+      if (span->start >= start) {
+        span->start += shift;
+        span->end += shift;
+      }
+    }
+    g_array_index(r->alerts, int, r->alerts->len - 1) = i + 1;
+    g_free(title);
+    break;
+  }
+  g_free(text);
+}
+
 /* Headings ----------------------------------------------------------------------------------- */
 
 /* A heading's anchor as GitHub makes it: lower case, spaces to '-', punctuation left out; the
@@ -407,7 +514,9 @@ static void add_anchor(Render *r, int start)
 static int enter_block(MD_BLOCKTYPE type, void *detail, void *data)
 {
   Render *r = data;
+  gboolean first_in_quote = r->quote_start;
 
+  r->quote_start = FALSE;
   switch (type) {
     case MD_BLOCK_UL:
     case MD_BLOCK_OL:
@@ -438,11 +547,15 @@ static int enter_block(MD_BLOCKTYPE type, void *detail, void *data)
       }
       break;
     }
-    case MD_BLOCK_QUOTE:
+    case MD_BLOCK_QUOTE: {
+      int none = 0;
       begin_block(r);
       push_start(r);
       r->level++;
+      g_array_append_val(r->alerts, none);
+      r->quote_start = TRUE;
       break;
+    }
     case MD_BLOCK_CODE: {
       MD_BLOCK_CODE_DETAIL *code = detail;
       begin_block(r);
@@ -484,8 +597,10 @@ static int enter_block(MD_BLOCKTYPE type, void *detail, void *data)
     case MD_BLOCK_H:
       begin_block(r);
       push_start(r);
+      r->heading = (int)((MD_BLOCK_H_DETAIL *)detail)->level;
       break;
     case MD_BLOCK_P:
+      r->alert_p = first_in_quote;
       if (r->in_item_start) {
         r->in_item_start = FALSE;
         r->in_item_p = TRUE;
@@ -503,6 +618,7 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
 {
   Render *r = data;
 
+  r->after_display = FALSE; /* the block's line break ends a display formula's line */
   switch (type) {
     case MD_BLOCK_UL:
     case MD_BLOCK_OL:
@@ -537,14 +653,29 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
     }
     case MD_BLOCK_QUOTE:
       begin_block(r);
-      int start = pop_start(r);
-      tag_from(r, "quote", NULL, start);
+      int start = pop_start(r), alert = 0;
+      if (r->alerts->len) {
+        alert = g_array_index(r->alerts, int, r->alerts->len - 1);
+        g_array_set_size(r->alerts, r->alerts->len - 1);
+      }
+      if (!alert) /* an alert's text keeps the text's color */
+        tag_from(r, "quote", NULL, start);
       add_block(r, BLOCK_QUOTE, start, MIN(r->level, MAX_LEVEL) - 1); /* the bar left of its text */
+      g_array_index(r->p->blocks, Block, r->p->blocks->len - 1).alert = alert;
       r->level--;
       tag_last_line(r, "gap");
       break;
     case MD_BLOCK_CODE: {
       int start = pop_start(r);
+      if (r->lang && g_ascii_strcasecmp(r->lang, "math") == 0) { /* ```math: a display formula */
+        append_math(r, r->code->str, TRUE);
+        g_string_free(r->code, TRUE);
+        g_clear_pointer(&r->lang, g_free);
+        r->code = NULL;
+        r->after_display = FALSE;
+        end_paragraph(r, start, "gap");
+        break;
+      }
       if (r->code->len && r->code->str[r->code->len - 1] == '\n')
         g_string_truncate(r->code, r->code->len - 1);
       append_code(r, r->code->str, r->lang);
@@ -569,6 +700,7 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
     case MD_BLOCK_H: {
       int start = pop_start(r);
       char name[4];
+      r->heading = 0;
       add_anchor(r, start);
       end_paragraph(r, start, NULL);
       unsigned level = MIN(((MD_BLOCK_H_DETAIL *)detail)->level, 6u);
@@ -580,6 +712,10 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
     }
     case MD_BLOCK_P: {
       int start = pop_start(r);
+      if (r->alert_p) {
+        r->alert_p = FALSE;
+        find_alert(r, start);
+      }
       if (r->in_item_p) {
         r->in_item_p = FALSE;
         append(r, "\n", 1);
@@ -621,6 +757,10 @@ static int enter_span(MD_SPANTYPE type, void *detail, void *data)
     preview_cell_span(r, type, detail);
     return 0;
   }
+  if (type == MD_SPAN_LATEXMATH || type == MD_SPAN_LATEXMATH_DISPLAY)
+    r->math = g_string_new(NULL);
+  else
+    after_display(r);
   push_start(r);
   if (type == MD_SPAN_CODE)
     append(r, "\u2009", -1); /* a thin space: the pill's edge, inside it, so the text keeps its spaces */
@@ -653,11 +793,16 @@ static int leave_span(MD_SPANTYPE type, void *detail G_GNUC_UNUSED, void *data)
     case MD_SPAN_STRONG: tag_from(r, "bold", NULL, start); break;
     case MD_SPAN_DEL: tag_from(r, "strike", NULL, start); break;
     case MD_SPAN_U: tag_from(r, "underline", NULL, start); break;
-    case MD_SPAN_CODE:
     case MD_SPAN_LATEXMATH:
-    case MD_SPAN_LATEXMATH_DISPLAY: {
-      if (type == MD_SPAN_CODE)
-        append(r, "\u2009", -1);
+    case MD_SPAN_LATEXMATH_DISPLAY:
+      if (r->math && !r->hidden)
+        append_math(r, r->math->str, type == MD_SPAN_LATEXMATH_DISPLAY);
+      if (r->math)
+        g_string_free(r->math, TRUE);
+      r->math = NULL;
+      break;
+    case MD_SPAN_CODE: {
+      append(r, "\u2009", -1);
       int end = end_offset(r);
       if (end > start) {
         CodeSpan span = { start, end };
@@ -707,8 +852,24 @@ static int on_text(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size, void *da
     preview_cell_text(r, type, text, size);
     return 0;
   }
+  if (r->math) {
+    g_string_append_len(r->math, type == MD_TEXT_SOFTBR || type == MD_TEXT_BR ? " " : text,
+                        type == MD_TEXT_SOFTBR || type == MD_TEXT_BR ? 1 : size);
+    return 0;
+  }
   if (r->hidden)
     return 0;
+  if (r->after_display) { /* the text after a display formula: on the next line, without its spaces */
+    if (type == MD_TEXT_SOFTBR || type == MD_TEXT_BR)
+      return 0;
+    while (size && g_ascii_isspace(*text)) {
+      text++;
+      size--;
+    }
+    if (!size)
+      return 0;
+    after_display(r);
+  }
   switch (type) {
     case MD_TEXT_NULLCHAR: append(r, "\uFFFD", -1); break;
     case MD_TEXT_BR: append(r, "\u2028", -1); break; /* a line break inside the paragraph */
@@ -722,7 +883,9 @@ static int on_text(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size, void *da
 
 void preview_render(Preview *p)
 {
-  MD_PARSER parser = { 0, MD_DIALECT_GITHUB, enter_block, leave_block, enter_span, leave_span, on_text, NULL, NULL };
+  MD_PARSER parser = {
+    0, MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS, enter_block, leave_block, enter_span, leave_span, on_text, NULL, NULL
+  };
   Render r = { .p = p };
   char *text = NULL;
   gsize len = 0;
@@ -737,6 +900,7 @@ void preview_render(Preview *p)
   r.hrefs = g_ptr_array_new_with_free_func(g_free);
   r.closers = g_ptr_array_new();
   r.smalls = g_array_new(FALSE, FALSE, sizeof(int));
+  r.alerts = g_array_new(FALSE, FALSE, sizeof(int));
   if (g_file_get_contents(p->tab->path, &text, &len, &error)) {
     md_parse(text, (MD_SIZE)len, &parser, &r);
   } else {
@@ -754,6 +918,9 @@ void preview_render(Preview *p)
   g_ptr_array_free(r.hrefs, TRUE);
   g_ptr_array_free(r.closers, TRUE);
   g_array_free(r.smalls, TRUE);
+  g_array_free(r.alerts, TRUE);
+  if (r.math)
+    g_string_free(r.math, TRUE);
   if (r.markup) /* md4c stopped inside a table */
     g_string_free(r.markup, TRUE);
   if (r.table) {

@@ -254,7 +254,10 @@ is noticed later. "Help: Open Log File" opens it.
 
 **Markdown preview** opens as a tab and follows the file as you type. It is drawn natively
 (md4c into a GTK text view, no browser engine): headings, lists, quotes, code blocks colored like
-the editor, tables whose cells wrap, local images. Links to other markdown files open their
+the editor, tables whose cells wrap, local images, GitHub's alerts (`> [!NOTE]`, `> [!WARNING]`, ...)
+and TeX math: `$...$` inline, `$$...$$` and ```` ```math ```` blocks centered (fractions, roots,
+scripts, sums and integrals with limits, stretched delimiters, matrices, `cases`, `aligned`), set by
+t-code itself with Pango and cairo, no TeX installation needed. Links to other markdown files open their
 preview, other local files open in an editor, and web links open in the browser.
 
 ## Keys

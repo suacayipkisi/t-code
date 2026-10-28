@@ -32,6 +32,7 @@ typedef struct {
   BlockKind kind;
   int start, end; /* the block's text: a heading's for the rule under it */
   int level;      /* lists and quotes around it */
+  int alert;      /* BLOCK_QUOTE: a GitHub alert's kind (1 note ... 5 caution), or 0 */
 } Block;
 
 /* A table: a grid of wrapping labels in the text, its columns sized to the view's width. */
@@ -51,6 +52,7 @@ struct Preview {
   GHashTable *colors;  /* a code coloring ("fg|weight|style") -> its tag, made once per preview */
   GPtrArray *tables;   /* PreviewTable: the tables shown, sized to the view's width */
   GPtrArray *pictures; /* the images shown, sized to the view's width */
+  GHashTable *rises;   /* a formula's depth below the baseline -> the tag that lowers it that far */
   int width;           /* the view's width the images were sized for */
   double scale;        /* the previews' text size (t->settings.preview_scale) */
   gboolean over_link;
@@ -81,6 +83,15 @@ void preview_size_picture(GtkWidget *picture, int max_width);
  * and their colors from the color theme (again when it changes). */
 void preview_create_tags(GtkTextBuffer *b, const char *mono);
 void preview_color_tags(GtkTextBuffer *b);
+/* view.c: a heading's text size (level 1 to 6) relative to the body's. */
+double preview_heading_scale(int level);
+/* view.c: the color of a GitHub alert (1 note ... 5 caution). */
+const GdkRGBA *preview_alert_color(int alert);
+
+/* math.c: a TeX formula as a paintable in the text's color, size: the text's size in pixels; display: set
+ * apart (larger operators, limits above and below). It is drawn on the baseline; *depth: how far it
+ * reaches below it, in pixels (the caller lowers it that far). NULL when it shows nothing. */
+GdkPaintable *preview_math_new(const char *tex, gboolean display, double size, int *depth);
 
 /* One rendering: md4c's callbacks append to the end of the buffer. Tags are applied when a block or
  * span ends, from where it started (starts) to the end. */
@@ -103,9 +114,15 @@ typedef struct {
   MD_ALIGN align;         /* its column's alignment */
   GString *code;          /* inside a code block: its text */
   char *lang;
-  int hidden;          /* inside a shown image: its alt text is not added */
-  GArray *smalls;      /* int: where each open <sub>, <sup> or <small> started */
-  gboolean html_block; /* inside an HTML block: its lines flow like a paragraph's */
+  int hidden;             /* inside a shown image: its alt text is not added */
+  GArray *smalls;         /* int: where each open <sub>, <sup> or <small> started */
+  gboolean html_block;    /* inside an HTML block: its lines flow like a paragraph's */
+  GString *math;          /* inside a math span: its TeX */
+  gboolean after_display; /* a display formula ended the line: what follows starts a new one */
+  int heading;            /* inside a heading: its level (formulas are as large as its text) */
+  GArray *alerts;         /* int: per open quote, its GitHub alert (0: none) */
+  gboolean quote_start;   /* the next block is a quote's first */
+  gboolean alert_p;       /* inside a quote's first paragraph: it may start with [!NOTE] */
 } Render;
 
 /* table.c: a table starts (r->table) and ends (its grid goes into the text, sized to it); a cell

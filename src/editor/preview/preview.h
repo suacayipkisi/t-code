@@ -1,6 +1,7 @@
 /*
  * Markdown preview tabs (Ctrl+Shift+V, or "Open Preview" in the file manager): md4c parses the
- * file and it is shown as styled text in a read-only GtkTextView (no browser engine). It follows
+ * file and it is shown as styled text in a read-only GtkTextView (no browser engine), TeX math
+ * included. It follows
  * the file as it is saved.
  */
 #pragma once
