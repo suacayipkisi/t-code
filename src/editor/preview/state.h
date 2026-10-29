@@ -52,7 +52,7 @@ typedef struct {
   char *href, *title;
 } HtmlOpen;
 
-/* A name and the text it stands for (entities.h, emoji.h). */
+/* A name and the text it stands for (entities.h). */
 typedef struct {
   const char *name, *text;
 } PreviewName;

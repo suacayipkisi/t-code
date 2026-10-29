@@ -4,6 +4,7 @@ PKGS    := gtk4 gtksourceview-5 json-glib-1.0 vte-2.91-gtk4 gio-unix-2.0 md4c
 APP_SRC := $(wildcard src/*.c src/*/*.c src/*/*/*.c)
 APP_HDR := $(wildcard src/*.h src/*/*.h src/*/*/*.h)
 TEST_SRC := $(wildcard tests/*.c)
+TOOL_SRC := $(wildcard tools/*.c)
 CFLAGS  ?= -O2 -g
 CFLAGS  += -Wall -Wextra -std=c23
 # Where 'make install' puts things. t-code finds its data next to itself, so DATADIR must be
@@ -54,7 +55,7 @@ build/license.h: LICENSE | build
 	sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/"&\\n"/' $< > $@
 
 # How each file is compiled, so clangd (in t-code or another editor) finds the GTK, VTE and md4c headers.
-build/compile_commands.json: Makefile $(APP_SRC) $(TEST_SRC) | build
+build/compile_commands.json: Makefile $(APP_SRC) $(TEST_SRC) $(TOOL_SRC) | build
 	@( printf '['; sep=; \
 	   for f in $(APP_SRC); do \
 	     printf '%s\n  {"directory": "%s", "file": "%s", "command": "cc %s -DTCODE_VERSION=\\\\\\"%s\\\\\\" -c %s"}' \
@@ -62,6 +63,9 @@ build/compile_commands.json: Makefile $(APP_SRC) $(TEST_SRC) | build
 	   for f in $(TEST_SRC); do \
 	     printf '%s\n  {"directory": "%s", "file": "%s", "command": "cc %s -DTCODE_VERSION=\\\\\\"%s\\\\\\" -c %s"}' \
 	       "$$sep" "$(CURDIR)" "$$f" "$(CFLAGS) $(APP_CFLAGS)" "$(VERSION)" "$$f"; sep=,; done; \
+	   for f in $(TOOL_SRC); do \
+	     printf '%s\n  {"directory": "%s", "file": "%s", "command": "cc %s -c %s"}' \
+	       "$$sep" "$(CURDIR)" "$$f" "$(CFLAGS)" "$$f"; sep=,; done; \
 	   printf '\n]\n' ) > $@
 
 # Tests: searchmatch.c, editor/text/detect.c, git/linediff.c and files/{fileops,folder,gitmarks}.c alone (GLib); the Search

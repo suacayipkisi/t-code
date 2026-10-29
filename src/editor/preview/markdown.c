@@ -13,8 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "editor/preview/emoji.h" /* emoji_names, entity_names */
-#include "editor/preview/entities.h"
+#include "editor/preview/emoji_bin.h"
+#include "editor/preview/entities.h" /* entity_names */
 
 #define MATH_SCALE 1.1 /* serif math beside the sans text looks smaller at the same size */
 
@@ -206,7 +206,7 @@ char *preview_emojify(const char *text, gsize size)
     while (close < end && (g_ascii_isalnum(*close) || *close == '_' || *close == '+' || *close == '-'))
       close++;
     const char *emoji = close < end && *close == ':' && close > name
-                            ? find_name(emoji_names, G_N_ELEMENTS(emoji_names), name, close - name)
+                            ? emoji_bin_lookup(name, close - name)
                             : NULL;
     if (!emoji)
       continue;
