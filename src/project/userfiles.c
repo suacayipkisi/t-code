@@ -72,9 +72,9 @@ static void reload_settings(App *t)
          old.guides == t->settings.guides && old.word_wrap == t->settings.word_wrap &&
          old.inlay_hints == t->settings.inlay_hints && old.breadcrumbs == t->settings.breadcrumbs &&
          old.line_blame == t->settings.line_blame && old.ruler == t->settings.ruler &&
-         old.clang_tidy == t->settings.clang_tidy && old.format_on_save == t->settings.format_on_save &&
-         old.square == t->settings.square && g_strcmp0(old.font, t->settings.font) == 0 &&
-         g_strcmp0(old.files_font, t->settings.files_font) == 0 &&
+         old.autosave_ms == t->settings.autosave_ms && old.clang_tidy == t->settings.clang_tidy &&
+         old.format_on_save == t->settings.format_on_save && old.square == t->settings.square &&
+         g_strcmp0(old.font, t->settings.font) == 0 && g_strcmp0(old.files_font, t->settings.files_font) == 0 &&
          g_strcmp0(old.color_theme, t->settings.color_theme) == 0;
   if (!same)
     settings_changed(t, old.clang_tidy != t->settings.clang_tidy);

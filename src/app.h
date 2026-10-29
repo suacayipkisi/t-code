@@ -184,6 +184,7 @@ struct App {
     gboolean breadcrumbs;    /* the file's path and the symbols around the cursor over editors */
     gboolean line_blame;     /* who last changed the cursor's line, after its end (editor/decor/blame.c) */
     int ruler;               /* a vertical line after this column in editors, 0 for none */
+    int autosave_ms;         /* stores the value of the autosave after edit as ms(milisecons) */
     gboolean clang_tidy;     /* clangd also runs the project's .clang-tidy checks */
     gboolean format_on_save; /* Ctrl+S formats the file with clangd first */
     char *font;              /* editors and the shell, a Pango font description */

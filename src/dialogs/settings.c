@@ -355,6 +355,9 @@ void show_settings(App *t)
   add_row(GTK_GRID(grid), &row, "Ruler column",
           "A vertical line after this column, to keep lines short. Type 0 to turn it off",
           setting_spin(&t->settings.ruler, 0, 300, each_editor));
+  add_row(GTK_GRID(grid), &row, "Editor Autosave (ms)",
+          "Set value of the autosave after editing (max 5 min (300'000 ms))",
+          setting_spin(&t->settings.autosave_ms, 0, 300000, each_editor));
 
   grid = add_page(GTK_STACK(stack), "indentation", "Indentation", &row);
   add_row(GTK_GRID(grid), &row, "Tab size",

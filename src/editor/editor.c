@@ -5,6 +5,7 @@
  */
 #include "editor/editor.h"
 
+#include "app.h"
 #include "editor/decor/breadcrumbs.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/text/detect.h"
@@ -24,7 +25,6 @@
 #include "window/statusbar.h"
 #include "ipc/socket.h"
 
-#define AUTOSAVE_MS 1000  /* after the last change */
 #define RELOAD_MS 200     /* a burst of changes on disk is looked at once */
 #define SNIFF_BYTES 65536 /* the start of a file, enough to tell its language and indentation */
 
@@ -172,7 +172,8 @@ static void on_changed(GtkTextBuffer *buffer G_GNUC_UNUSED, Tab *tab)
   if (!tab->app->settings.autosave || v->readonly || editor_in_conflict(tab)) /* the user decides first */
     return;
   g_clear_handle_id(&v->autosave_id, g_source_remove);
-  v->autosave_id = g_timeout_add(AUTOSAVE_MS, autosave_now, tab);
+  guint delay = tab->app->settings.autosave_ms > 0 ? (guint)tab->app->settings.autosave_ms : 1000;
+  v->autosave_id = g_timeout_add(delay, autosave_now, tab);
 }
 
 /* Scrolls the cursor into view (editor_view_reveal_cursor). A view not on the screen yet (a hidden
