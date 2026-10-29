@@ -205,9 +205,7 @@ char *preview_emojify(const char *text, gsize size)
     const char *name = c + 1, *close = name;
     while (close < end && (g_ascii_isalnum(*close) || *close == '_' || *close == '+' || *close == '-'))
       close++;
-    const char *emoji = close < end && *close == ':' && close > name
-                            ? emoji_bin_lookup(name, close - name)
-                            : NULL;
+    const char *emoji = close < end && *close == ':' && close > name ? emoji_bin_lookup(name, close - name) : NULL;
     if (!emoji)
       continue;
     if (!out)

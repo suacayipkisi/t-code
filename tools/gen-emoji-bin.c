@@ -229,6 +229,7 @@ int main(int argc, char **argv)
     fprintf(fh, "#pragma pack(pop)\n\n");
 
     fprintf(fh, "/* Embedded binary payload (.rodata) */\n");
+    fprintf(fh, "/* clang-format off */\n");
     fprintf(fh, "static const unsigned char emoji_bin[] = {\n");
 
     for (size_t i = 0; i < bin.size; i++) {
@@ -241,7 +242,8 @@ int main(int argc, char **argv)
         fprintf(fh, " ");
     }
 
-    fprintf(fh, "};\n\n");
+    fprintf(fh, "};\n");
+    fprintf(fh, "/* clang-format on */\n\n");
     fprintf(fh, "static const size_t emoji_bin_len = sizeof(emoji_bin);\n\n");
 
     fprintf(fh, "/* Fast O(log N) lookup directly from the embedded binary data. */\n");
@@ -251,7 +253,9 @@ int main(int argc, char **argv)
     fprintf(fh, "    return NULL;\n\n");
     fprintf(fh, "  const EmojiBinHeader *hdr = (const EmojiBinHeader *)emoji_bin;\n");
     fprintf(fh, "  const EmojiBinEntry *entries = (const EmojiBinEntry *)(emoji_bin + sizeof(EmojiBinHeader));\n");
-    fprintf(fh, "  const char *strings = (const char *)(emoji_bin + sizeof(EmojiBinHeader) + hdr->count * sizeof(EmojiBinEntry));\n\n");
+    fprintf(
+        fh,
+        "  const char *strings = (const char *)(emoji_bin + sizeof(EmojiBinHeader) + hdr->count * sizeof(EmojiBinEntry));\n\n");
     fprintf(fh, "  size_t low = 0;\n");
     fprintf(fh, "  size_t high = hdr->count;\n\n");
     fprintf(fh, "  while (low < high) {\n");
