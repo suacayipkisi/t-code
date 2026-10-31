@@ -176,6 +176,173 @@ void go_back(App *t)
   place_free(place);
 }
 
+/* Ctrl held: what Ctrl+click would go to is underlined --------------------------------------- */
+
+#define LINK_TAG "tcode-link"
+#define SEMANTIC_PREFIX "semantic-" /* semantic.c's token tags */
+
+typedef struct {
+  Tab *tab;
+  double x, y; /* the pointer, in the view's coordinates */
+  gboolean inside, ctrl;
+  GtkTextMark *from, *to; /* the underlined text; NULL when none */
+  GdkCursor *cursor;      /* the view's own, while the pointer is a hand */
+} Link;
+
+/* The text Ctrl+click on at would go from: the server's colored token there, or with a server that
+ * colors nothing, the name there outside comments and strings. FALSE: nothing. */
+static gboolean link_range(Tab *tab, const GtkTextIter *at, gboolean tokens, GtkTextIter *start, GtkTextIter *end)
+{
+  GSList *tags = gtk_text_iter_get_tags(at);
+  GtkTextTag *token = NULL;
+  gunichar c = gtk_text_iter_get_char(at);
+
+  for (GSList *each = tags; each && !token; each = each->next) {
+    char *name = NULL;
+    g_object_get(each->data, "name", &name, NULL);
+    if (name && g_str_has_prefix(name, SEMANTIC_PREFIX))
+      token = each->data;
+    g_free(name);
+  }
+  g_slist_free(tags);
+  *start = *end = *at;
+  if (token) {
+    if (!gtk_text_iter_starts_tag(start, token))
+      gtk_text_iter_backward_to_tag_toggle(start, token);
+    gtk_text_iter_forward_to_tag_toggle(end, token);
+    return TRUE;
+  }
+  if (tokens || !(g_unichar_isalnum(c) || c == '_') ||
+      gtk_source_buffer_iter_has_context_class(tab->buffer, at, "comment") ||
+      gtk_source_buffer_iter_has_context_class(tab->buffer, at, "string"))
+    return FALSE;
+  while (!gtk_text_iter_starts_line(start)) {
+    gtk_text_iter_backward_char(start);
+    c = gtk_text_iter_get_char(start);
+    if (!(g_unichar_isalnum(c) || c == '_')) {
+      gtk_text_iter_forward_char(start);
+      break;
+    }
+  }
+  for (c = gtk_text_iter_get_char(end); g_unichar_isalnum(c) || c == '_'; c = gtk_text_iter_get_char(end))
+    gtk_text_iter_forward_char(end);
+  return !g_unichar_isdigit(gtk_text_iter_get_char(start)); /* a number goes nowhere */
+}
+
+static void link_clear(Link *l)
+{
+  GtkTextIter start, end;
+
+  if (!l->from)
+    return;
+  if (!gtk_text_mark_get_deleted(l->from)) {
+    GtkTextBuffer *buffer = gtk_text_mark_get_buffer(l->from);
+    gtk_text_buffer_get_iter_at_mark(buffer, &start, l->from);
+    gtk_text_buffer_get_iter_at_mark(buffer, &end, l->to);
+    gtk_text_buffer_remove_tag_by_name(buffer, LINK_TAG, &start, &end);
+    gtk_text_buffer_delete_mark(buffer, l->from);
+    gtk_text_buffer_delete_mark(buffer, l->to);
+  }
+  g_clear_object(&l->from);
+  g_clear_object(&l->to);
+}
+
+/* Underlines what Ctrl+click on at would go from (at NULL: nothing). */
+static void link_at(Link *l, const GtkTextIter *at)
+{
+  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(l->tab->buffer);
+  GtkTextIter start, end, old;
+  gboolean found = at && link_range(l->tab, at, lsp_capability(l->tab, "semanticTokensProvider") != NULL, &start, &end);
+
+  if (found && l->from) { /* the same text: nothing to do */
+    gtk_text_buffer_get_iter_at_mark(buffer, &old, l->from);
+    if (gtk_text_iter_equal(&old, &start)) {
+      gtk_text_buffer_get_iter_at_mark(buffer, &old, l->to);
+      if (gtk_text_iter_equal(&old, &end))
+        return;
+    }
+  }
+  link_clear(l);
+  if (found) {
+    GtkTextTagTable *table = gtk_text_buffer_get_tag_table(buffer);
+    GtkTextTag *tag = gtk_text_tag_table_lookup(table, LINK_TAG);
+    if (!tag)
+      tag = gtk_text_buffer_create_tag(buffer, LINK_TAG, "underline", PANGO_UNDERLINE_SINGLE, NULL);
+    gtk_text_tag_set_priority(tag, gtk_text_tag_table_get_size(table) - 1); /* over the problems' squiggles */
+    gtk_text_buffer_apply_tag(buffer, tag, &start, &end);
+    l->from = g_object_ref(gtk_text_buffer_create_mark(buffer, NULL, &start, TRUE));
+    l->to = g_object_ref(gtk_text_buffer_create_mark(buffer, NULL, &end, FALSE));
+  }
+  if (found && !l->cursor) {
+    GdkCursor *own = gtk_widget_get_cursor(GTK_WIDGET(l->tab->source));
+    l->cursor = own ? g_object_ref(own) : gdk_cursor_new_from_name("text", NULL);
+    gtk_widget_set_cursor_from_name(GTK_WIDGET(l->tab->source), "pointer");
+  } else if (!found && l->cursor) {
+    gtk_widget_set_cursor(GTK_WIDGET(l->tab->source), l->cursor);
+    g_clear_object(&l->cursor);
+  }
+}
+
+/* The pointer or Ctrl changed: the underline follows. */
+static void link_update(Link *l)
+{
+  GtkTextView *view = GTK_TEXT_VIEW(l->tab->source);
+  GtkTextIter at;
+  int bx, by;
+  gboolean over = FALSE;
+
+  if (l->inside && l->ctrl && lsp_has(l->tab)) {
+    gtk_text_view_window_to_buffer_coords(view, GTK_TEXT_WINDOW_WIDGET, (int)l->x, (int)l->y, &bx, &by);
+    over = gtk_text_view_get_iter_at_location(view, &at, bx, by);
+  }
+  link_at(l, over ? &at : NULL);
+}
+
+static void link_on_motion(GtkEventControllerMotion *motion, double x, double y, Link *l)
+{
+  l->inside = TRUE;
+  l->x = x;
+  l->y = y;
+  l->ctrl = (gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(motion)) & GDK_CONTROL_MASK) != 0;
+  link_update(l);
+}
+
+static void link_on_leave(GtkEventControllerMotion *motion G_GNUC_UNUSED, Link *l)
+{
+  l->inside = FALSE;
+  link_update(l);
+}
+
+static gboolean link_on_modifiers(GtkEventControllerKey *key G_GNUC_UNUSED, GdkModifierType state, Link *l)
+{
+  l->ctrl = (state & GDK_CONTROL_MASK) != 0;
+  link_update(l);
+  return FALSE;
+}
+
+static void link_free(Link *l)
+{
+  link_clear(l);
+  g_clear_object(&l->cursor);
+  g_free(l);
+}
+
+static void link_attach(Tab *tab)
+{
+  Link *l = g_new0(Link, 1);
+  GtkEventController *motion = gtk_event_controller_motion_new(), *key = gtk_event_controller_key_new();
+
+  l->tab = tab;
+  g_signal_connect(motion, "enter", G_CALLBACK(link_on_motion), l);
+  g_signal_connect(motion, "motion", G_CALLBACK(link_on_motion), l);
+  g_signal_connect(motion, "leave", G_CALLBACK(link_on_leave), l);
+  g_signal_connect(key, "modifiers", G_CALLBACK(link_on_modifiers), l);
+  g_object_set_data_full(G_OBJECT(motion), "tcode-link", l, (GDestroyNotify)link_free); /* goes with the view */
+  g_object_set_data(G_OBJECT(tab->source), "tcode-link", l);
+  gtk_widget_add_controller(GTK_WIDGET(tab->source), motion);
+  gtk_widget_add_controller(GTK_WIDGET(tab->source), key);
+}
+
 /* Ctrl+click: the definition of what was clicked. */
 static void on_click(GtkGestureClick *click, int n G_GNUC_UNUSED, double x, double y, Tab *tab)
 {
@@ -190,6 +357,7 @@ static void on_click(GtkGestureClick *click, int n G_GNUC_UNUSED, double x, doub
   gtk_text_view_get_iter_at_location(view, &iter, bx, by);
   gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(tab->buffer), &iter);
   gtk_gesture_set_state(GTK_GESTURE(click), GTK_EVENT_SEQUENCE_CLAIMED); /* no selection starts */
+  link_at(g_object_get_data(G_OBJECT(tab->source), "tcode-link"), NULL);
   go_to_definition(tab);
 }
 
@@ -201,6 +369,7 @@ void navigate_attach(Tab *tab)
   gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
   g_signal_connect(click, "pressed", G_CALLBACK(on_click), tab);
   gtk_widget_add_controller(GTK_WIDGET(tab->source), GTK_EVENT_CONTROLLER(click));
+  link_attach(tab);
 }
 
 /* References -------------------------------------------------------------------------------- */

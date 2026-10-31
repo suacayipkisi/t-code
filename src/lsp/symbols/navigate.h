@@ -9,7 +9,8 @@
 
 #include <json-glib/json-glib.h>
 
-/* Adds Ctrl+click (Go to Definition) to a new editor. */
+/* Adds Ctrl+click (Go to Definition) to a new editor; while Ctrl is held, what it would go from is
+ * underlined. */
 void navigate_attach(Tab *tab);
 
 /* Jumps to the definition of the symbol at the cursor (in another tab when it is elsewhere). */

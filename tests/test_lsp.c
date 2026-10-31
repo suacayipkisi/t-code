@@ -1423,6 +1423,57 @@ static void test_semantic_colors(void)
   free_tab(tab);
 }
 
+/* Ctrl held: the colored token under the pointer is underlined, a keyword or a comment is not, and
+ * letting go takes it off; a server that colors nothing underlines the name there. */
+static void test_ctrl_link(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/link.c", "int f; int v = 7; // x\n");
+  JsonNode *tokens = json_of("{\"data\":[0,4,1,0,0, 0,7,1,1,0]}");
+  GtkTextTagTable *table = gtk_text_buffer_get_tag_table(GTK_TEXT_BUFFER(tab->buffer));
+  Link *l = g_object_get_data(G_OBJECT(tab->source), "tcode-link");
+  GtkTextIter at = iter_at(tab, 0, 4), start, end;
+
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  apply(tab, tokens);
+  link_at(l, &at); /* f */
+  g_assert_nonnull(l->from);
+  gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &start, l->from);
+  gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &end, l->to);
+  g_assert_cmpint(gtk_text_iter_get_offset(&start), ==, 4);
+  g_assert_cmpint(gtk_text_iter_get_offset(&end), ==, 5);
+  g_assert_true(gtk_text_iter_has_tag(&at, gtk_text_tag_table_lookup(table, LINK_TAG)));
+  g_assert_cmpstr(gdk_cursor_get_name(gtk_widget_get_cursor(GTK_WIDGET(tab->source))), ==, "pointer");
+
+  at = iter_at(tab, 0, 1); /* int: no token */
+  link_at(l, &at);
+  g_assert_null(l->from);
+  at = iter_at(tab, 0, 4);
+  g_assert_false(gtk_text_iter_has_tag(&at, gtk_text_tag_table_lookup(table, LINK_TAG)));
+  g_assert_cmpstr(gdk_cursor_get_name(gtk_widget_get_cursor(GTK_WIDGET(tab->source))), !=, "pointer");
+
+  at = iter_at(tab, 0, 11); /* v, then Ctrl let go */
+  link_at(l, &at);
+  g_assert_nonnull(l->from);
+  link_at(l, NULL);
+  g_assert_null(l->from);
+
+  /* Without colors: the name around the pointer, not a comment or a number. */
+  at = iter_at(tab, 0, 2);
+  g_assert_true(link_range(tab, &at, FALSE, &start, &end));
+  g_assert_cmpint(gtk_text_iter_get_offset(&start), ==, 0);
+  g_assert_cmpint(gtk_text_iter_get_offset(&end), ==, 3);
+  g_assert_false(link_range(tab, &at, TRUE, &start, &end));
+  at = iter_at(tab, 0, 15); /* 7 */
+  g_assert_false(link_range(tab, &at, FALSE, &start, &end));
+  gtk_text_buffer_get_bounds(GTK_TEXT_BUFFER(tab->buffer), &start, &end);
+  gtk_source_buffer_ensure_highlight(tab->buffer, &start, &end);
+  at = iter_at(tab, 0, 21); /* x, in the comment */
+  g_assert_false(link_range(tab, &at, FALSE, &start, &end));
+  json_node_unref(tokens);
+  free_tab(tab);
+}
+
 static void test_semantic_timeout_close(void)
 {
   Tab *tab = new_tab("/tmp/t-code-test/semantic-timeout.c", "");
@@ -1656,6 +1707,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/column-in", test_column_in);
   g_test_add_func("/lsp/snippet-text", test_snippet_text);
   g_test_add_func("/lsp/semantic-colors", test_semantic_colors);
+  g_test_add_func("/lsp/ctrl-link", test_ctrl_link);
   g_test_add_func("/lsp/semantic-timeout-close", test_semantic_timeout_close);
   g_test_add_func("/lsp/semantic-delta", test_semantic_delta);
   g_test_add_func("/lsp/problem-end", test_problem_end);

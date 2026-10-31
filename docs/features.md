@@ -15,7 +15,7 @@ the mouse. On top of that:
   (`Tab` to the next one), and the `#include` it needs is added by itself.
 - **Parameter hints**: in a call's arguments, the signature shows above the cursor with the
   argument being typed in bold.
-- **Go to Definition** (`F12`, `Ctrl+Click`) and back (`Alt+←`), **Find All References**
+- **Go to Definition** (`F12`, `Ctrl+Click`; while Ctrl is held, the name under the pointer is underlined) and back (`Alt+←`), **Find All References**
   (`Shift+F12`), **Rename Symbol** (`F2`, in every file), **Format Document** (`Shift+Alt+F`, with
   the project's `.clang-format`), **Go to Symbol in File** (`Ctrl+Shift+.`), **Go to Symbol in
   Workspace** (from the command palette), **Switch Source / Header** (`Alt+O`).
