@@ -392,6 +392,20 @@ static char *snippet_text(const char *snippet)
   return g_string_free(text, FALSE);
 }
 
+/* A snippet that has at least one tab stop ($1, ${1:arg}) that Tab can visit. Ones with focus
+ * position <= 0 (plain text, $0 alone) have no active chunk in GtkSourceView and trigger an
+ * assertion warning if pushed. */
+static gboolean snippet_has_focus(GtkSourceSnippet *snippet)
+{
+  guint n = gtk_source_snippet_get_n_chunks(snippet);
+  for (guint i = 0; i < n; i++) {
+    GtkSourceSnippetChunk *chunk = gtk_source_snippet_get_nth_chunk(snippet, i);
+    if (gtk_source_snippet_chunk_get_focus_position(chunk) > 0)
+      return TRUE;
+  }
+  return FALSE;
+}
+
 /* The proposal goes in for the word typed so far; a function's parameters as a snippet. Its extra
  * edits (an #include) go in too, and for a function the parameter hint opens. */
 static void activate(GtkSourceCompletionProvider *provider, GtkSourceCompletionContext *context,
@@ -401,6 +415,7 @@ static void activate(GtkSourceCompletionProvider *provider, GtkSourceCompletionC
   TcodeProposal *p = TCODE_PROPOSAL(proposal);
   GtkTextBuffer *buffer = GTK_TEXT_BUFFER(self->tab->buffer);
   GtkSourceSnippet *snippet = p->snippet ? gtk_source_snippet_new_parsed(p->text, NULL) : NULL;
+  gboolean use_snippet = snippet && snippet_has_focus(snippet);
   GtkTextMark *from, *to;
   GtkTextIter begin, end;
 
@@ -421,7 +436,7 @@ static void activate(GtkSourceCompletionProvider *provider, GtkSourceCompletionC
   gtk_text_buffer_get_iter_at_mark(buffer, &begin, from);
   gtk_text_buffer_get_iter_at_mark(buffer, &end, to);
   gtk_text_buffer_delete(buffer, &begin, &end);
-  if (snippet) {
+  if (use_snippet) {
     gtk_source_view_push_snippet(self->tab->source, snippet, &begin);
   } else {
     char *text = p->snippet ? snippet_text(p->text) : g_strdup(p->text);

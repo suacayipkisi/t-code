@@ -292,8 +292,15 @@ static const char *const location_pattern = "(?:[A-Za-z0-9_.~+-]*/)*[A-Za-z0-9_.
 /* Where the shell is now (bash reports it on Fedora), or else the project root. */
 static char *shell_directory(App *t)
 {
-  const char *uri = vte_terminal_get_termprop_string(t->shell.term, VTE_TERMPROP_CURRENT_DIRECTORY_URI, NULL);
-  char *dir = uri ? g_filename_from_uri(uri, NULL, NULL) : NULL;
+  GUri *guri = vte_terminal_ref_termprop_uri(t->shell.term, VTE_TERMPROP_CURRENT_DIRECTORY_URI);
+  char *dir = NULL;
+
+  if (guri) {
+    char *uri = g_uri_to_string(guri);
+    dir = uri ? g_filename_from_uri(uri, NULL, NULL) : NULL;
+    g_free(uri);
+    g_uri_unref(guri);
+  }
 
   return dir ? dir : g_strdup(t->project.root);
 }
