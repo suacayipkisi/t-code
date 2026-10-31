@@ -36,6 +36,24 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.4.2" date="2026-10-31">
+      <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.4.2</url>
+      <description>
+        <p>A much fuller Markdown preview, images in tabs, a Hierarchy that follows the cursor, an autosave delay setting and fixes:</p>
+        <ul>
+          <li>Markdown preview: TeX math ($…$, $$…$$ and math blocks), GitHub alerts, :emoji:, footnotes, raw HTML as GitHub shows it, web and SVG images, mermaid diagrams when mmdc is installed</li>
+          <li>Images open in a tab that shows them; PDFs, office documents, archives, audio, video and fonts open in the desktop's default app</li>
+          <li>Hierarchy panel: with Follow on, a click on a function shows its callers or callees by itself</li>
+          <li>While Ctrl is held, the name Ctrl+click goes to is underlined</li>
+          <li>Autosave delay in the Editor settings (milliseconds, 1 second by default)</li>
+          <li>A status bar button shows the text scale when it is not 100%; a click resets it</li>
+          <li>Fix: start-up no longer hangs on a log file of hundreds of MB</li>
+          <li>Fix: lists with an open right-click menu (Source Control, Search, Run and Debug) no longer freeze the window</li>
+          <li>Fix: no crash on an image or link with an empty target in the preview</li>
+          <li>Fix: no VTE or GtkSourceView warnings from the terminal's folder and from completions</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.4.1" date="2026-10-26">
       <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.4.1</url>
       <description>

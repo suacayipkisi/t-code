@@ -2,18 +2,35 @@
 
 A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) and other color themes.
 
-### Jump => [Latest Release v0.4.1](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.1) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md)
+### Jump => [Latest Release v0.4.2](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.2) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md)
 
-![t-code 0.3 in the Dark Classic color theme with the rounded look](docs/dark_classic-rounded.png)
+![t-code 0.4 in the Dark Classic color theme with the rounded look](docs/dark_classic-rounded.png)
 
-<sub>t-code 0.3: Dark Classic, rounded.</sub>
+<sub>t-code 0.4: Dark Classic, rounded.</sub>
 
-**New in 0.4.0:** multiple cursors, replace across the project, snippets, inlay hints, Outline and call / type
+**New in 0.4.2:** a much fuller Markdown preview, images in tabs, a Hierarchy that follows the cursor, an autosave delay setting and fixes.
+
+- Markdown preview: TeX math (`$…$`, `$$…$$` and math blocks), GitHub alerts, `:emoji:`, footnotes, raw HTML as GitHub shows it, web and SVG images, mermaid diagrams when `mmdc` is installed
+- Images open in a tab that shows them; PDFs, office documents, archives, audio, video and fonts open in the desktop's default app
+- Hierarchy panel: with Follow on, a click on a function shows its callers or callees by itself
+- While Ctrl is held, the name Ctrl+click goes to is underlined
+- Autosave delay in the Editor settings (milliseconds, 1 second by default)
+- A status bar button shows the text scale when it is not 100%; a click resets it
+- Fix: start-up no longer hangs on a log file of hundreds of MB
+- Fix: lists with an open right-click menu (Source Control, Search, Run and Debug) no longer freeze the window
+- Fix: no crash on an image or link with an empty target in the preview
+- Fix: no VTE or GtkSourceView warnings from the terminal's folder and from completions
+
+**0.4.0** added multiple cursors, replace across the project, snippets, inlay hints, Outline and call / type
 hierarchy, and in git: branches, pull / fetch, stash, line blame and merge conflict buttons; more
-language servers (JavaScript / TypeScript, JSON, YAML, Markdown, CMake). **0.3.1** added language
-servers for Python, Go and Rust, plugins, the Problems panel, project tasks, crash recovery and Flatpak / Snap / AUR / AppImage packages; **0.3** the debugger, quick
-fixes, folding, sticky scroll and color themes. **Next (0.5):** a test panel and terminals as tabs in
-the shell panel.
+language servers (JavaScript / TypeScript, JSON, YAML, Markdown, CMake). 
+
+**0.3.1** added language servers for Python, Go and Rust, plugins, the Problems panel, project tasks, crash recovery and 
+Flatpak / Snap / AUR / AppImage packages; 
+
+**0.3** the debugger, quick fixes, folding, sticky scroll and color themes. 
+
+**Next (0.5):** a test panel and terminals as tabs in the shell panel.
 
 ## What it has
 
@@ -93,15 +110,15 @@ sudo snap alias t-code-ide t-code    # optional: run it as t-code
 The Snap is strictly confined: it bundles its own compiler, clangd, gdb, CMake and Python, and sees
 the projects in your home folder.
 
-### Packages ([latest release](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.1), x86_64)
+### Packages ([latest release](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.2), x86_64)
 
 ```sh
-sudo dnf install ./t-code-ide-0.4.1-1.fc44.x86_64.rpm        # Fedora 44
-sudo pacman -U t-code-ide-0.4.1-1-x86_64.pkg.tar.zst         # Arch Linux
-sudo apt install ./t-code-ide_0.4.1-1_amd64.deb              # Debian 13
-xbps-rindex -a t-code-ide-0.4.1_1.x86_64.xbps && sudo xbps-install --repository="$PWD" t-code-ide   # Void (or x86_64-musl)
-flatpak install --user ./t-code-0.4.1-x86_64.flatpak         # Flatpak
-sudo snap install --dangerous ./t-code-ide_0.4.1_amd64.snap  # Snap (strict confinement)
+sudo dnf install ./t-code-ide-0.4.2-1.fc44.x86_64.rpm        # Fedora 44
+sudo pacman -U t-code-ide-0.4.2-1-x86_64.pkg.tar.zst         # Arch Linux
+sudo apt install ./t-code-ide_0.4.2-1_amd64.deb              # Debian 13
+xbps-rindex -a t-code-ide-0.4.2_1.x86_64.xbps && sudo xbps-install --repository="$PWD" t-code-ide   # Void (or x86_64-musl)
+flatpak install --user ./t-code-0.4.2-x86_64.flatpak         # Flatpak
+sudo snap install --dangerous ./t-code-ide_0.4.2_amd64.snap  # Snap (strict confinement)
 ```
 
 The package manager pulls in clangd, git and the Cascadia Code font (Void has no Cascadia Code:

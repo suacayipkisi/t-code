@@ -1,5 +1,5 @@
 Name:           t-code-ide
-Version:        0.4.1
+Version:        0.4.2
 Release:        1%{?dist}
 Summary:        Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell
 License:        MIT
@@ -65,6 +65,18 @@ build/test-linediff
 %{_metainfodir}/io.github.suacayipkisi.tcode.metainfo.xml
 
 %changelog
+* Sat Oct 31 2026 suacayipkisi <konuki8523@gmail.com> - 0.4.2-1
+- Markdown preview: TeX math ($…$, $$…$$ and math blocks), GitHub alerts, :emoji:, footnotes, raw HTML as GitHub shows it, web and SVG images, mermaid diagrams when mmdc is installed
+- Images open in a tab that shows them; PDFs, office documents, archives, audio, video and fonts open in the desktop's default app
+- Hierarchy panel: with Follow on, a click on a function shows its callers or callees by itself
+- While Ctrl is held, the name Ctrl+click goes to is underlined
+- Autosave delay in the Editor settings (milliseconds, 1 second by default)
+- A status bar button shows the text scale when it is not 100%%; a click resets it
+- Fix: start-up no longer hangs on a log file of hundreds of MB
+- Fix: lists with an open right-click menu (Source Control, Search, Run and Debug) no longer freeze the window
+- Fix: no crash on an image or link with an empty target in the preview
+- Fix: no VTE or GtkSourceView warnings from the terminal's folder and from completions
+
 * Mon Oct 26 2026 suacayipkisi <konuki8523@gmail.com> - 0.4.1-1
 - Renamed to t-code-ide; new application ID io.github.suacayipkisi.tcode
 - Ships the AppStream metainfo and a man page
