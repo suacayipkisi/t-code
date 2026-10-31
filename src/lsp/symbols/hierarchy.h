@@ -15,6 +15,10 @@ GtkWidget *hierarchy_panel(App *t);
  * (shown). */
 void hierarchy_show(Tab *tab, gboolean types);
 
+/* The cursor rested in tab: with Follow on and the panel shown, the hierarchy of the function (or
+ * type, after "Show Type Hierarchy") there replaces the tree; nothing there leaves it. */
+void hierarchy_cursor_moved(Tab *tab);
+
 /* The title, a note when there is one, then the tree as far as it was asked for, indented two
  * spaces a level (for the tests). */
 char *hierarchy_text(void);

@@ -37,7 +37,8 @@ the mouse. On top of that:
 - **Call and type hierarchy:** `Shift+Alt+H` (or the editor's right-click menu) on a function shows
   who calls it in the **Hierarchy** panel, as a tree that opens further as you go; **Callers** /
   **Callees** switch the direction. "Show Type Hierarchy" does the same for a type's supertypes and
-  subtypes. A row opens its place. clangd, gopls and rust-analyzer offer calls; clangd also types.
+  subtypes. A row opens its place. With **Follow** on (the default) and the panel shown, a click on
+  another function shows its hierarchy by itself. clangd, gopls and rust-analyzer offer calls; clangd also types.
 - **Code folding** (the arrow beside a block, `Ctrl+Shift+[` / `]`) and **sticky scroll**: the
   heads of the function, loop or namespace you are in stay at the top of the editor.
 - **Colors by meaning**: clangd tells functions (yellow), types (teal), macros (blue), constants and

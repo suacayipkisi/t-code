@@ -62,7 +62,14 @@ static struct {
   gboolean types;  /* types: supertypes / subtypes; else callers / callees */
   gboolean going_up;
   guint generation; /* a new tree: older answers are dropped */
+  GtkToggleButton *follow;
+  guint asking, following; /* the latest Shift+Alt+H and cursor prepare requests: older ones are dropped */
+  char *skip_path;         /* where a row just opened its symbol: the cursor resting there is not followed */
+  int skip_line;
+  gint64 skip_until;
 } hier;
+
+#define SKIP_US (2 * G_USEC_PER_SEC) /* a row's file opens and its cursor rests within this */
 
 static TcodeCall *hier_call_new(JsonNode *item)
 {
@@ -190,15 +197,43 @@ void hierarchy_set_up(gboolean up)
 }
 
 typedef struct {
-  guint generation;
+  guint asking;
   gboolean types;
+  char *followed; /* the editor whose cursor was followed; NULL for Shift+Alt+H */
 } HierPrepared;
+
+/* Whether two prepare answers name the same symbol first. */
+static gboolean hier_same_symbol(JsonNode *a, JsonNode *b)
+{
+  JsonArray *x = a && JSON_NODE_HOLDS_ARRAY(a) ? json_node_get_array(a) : NULL;
+  JsonArray *y = b && JSON_NODE_HOLDS_ARRAY(b) ? json_node_get_array(b) : NULL;
+  JsonNode *i, *j;
+
+  if (!x || !y || !json_array_get_length(x) || !json_array_get_length(y))
+    return FALSE;
+  i = json_array_get_element(x, 0);
+  j = json_array_get_element(y, 0);
+  return g_strcmp0(json_string_at(i, "uri"), json_string_at(j, "uri")) == 0 &&
+         json_int_at(i, "selectionRange.start.line", -1) == json_int_at(j, "selectionRange.start.line", -1) &&
+         json_int_at(i, "selectionRange.start.character", -1) == json_int_at(j, "selectionRange.start.character", -1);
+}
 
 static void hier_on_prepared(JsonNode *result, gpointer data)
 {
   HierPrepared *p = data;
+  gboolean found = result && JSON_NODE_HOLDS_ARRAY(result) && json_array_get_length(json_node_get_array(result));
 
-  if (p->generation == hier.generation && hier.roots) {
+  /* Followed: nothing there, or the symbol already shown, leaves the tree as it is. */
+  gboolean take = p->followed ? p->asking == hier.following && found &&
+                                    !(p->types == hier.types && hier_same_symbol(result, hier.items))
+                              : p->asking == hier.asking;
+
+  if (take && hier.roots) {
+    if (p->followed) {
+      g_set_str(&hier.origin, p->followed);
+      hier.generation++;
+      hier.asking++; /* an older Shift+Alt+H's answer */
+    }
     if (hier.items)
       json_node_unref(hier.items);
     hier.items = result ? json_node_copy(result) : NULL;
@@ -209,20 +244,41 @@ static void hier_on_prepared(JsonNode *result, gpointer data)
       hier_note(NULL);
     hier_restart();
   }
+  g_free(p->followed);
   g_free(p);
+}
+
+/* Asks tab's server for the symbol at its cursor; followed: for the cursor resting there. */
+static void hier_prepare(Tab *tab, gboolean types, gboolean followed)
+{
+  GtkTextIter cursor;
+  char *position, *params;
+  HierPrepared *p = g_new0(HierPrepared, 1);
+
+  gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &cursor,
+                                   gtk_text_buffer_get_insert(GTK_TEXT_BUFFER(tab->buffer)));
+  position = lsp_position_params(tab, &cursor);
+  params = g_strdup_printf("{%s}", position);
+  p->asking = followed ? ++hier.following : ++hier.asking;
+  if (!followed)
+    hier.following++; /* an older cursor's answer */
+  p->types = types;
+  p->followed = followed ? g_strdup(tab->path) : NULL;
+  lsp_request(tab, types ? "textDocument/prepareTypeHierarchy" : "textDocument/prepareCallHierarchy", params, NULL,
+              hier_on_prepared, p);
+  g_free(params);
+  g_free(position);
 }
 
 void hierarchy_show(Tab *tab, gboolean types)
 {
-  GtkTextIter cursor;
-  char *position, *params;
-  HierPrepared *p;
-
   if (!hier.roots)
     return;
   show_sidebar_page(tab->app, "hierarchy");
   if (!lsp_has(tab) || !lsp_capability(tab, types ? "typeHierarchyProvider" : "callHierarchyProvider")) {
     hier.generation++;
+    hier.asking++;
+    hier.following++;
     g_list_store_remove_all(hier.roots);
     gtk_label_set_text(hier.title, "");
     hier_note(types ? "The language server has no type hierarchy for this file."
@@ -232,17 +288,27 @@ void hierarchy_show(Tab *tab, gboolean types)
   g_set_str(&hier.origin, tab->path);
   hier.generation++;
   hier_note(types ? "Looking for the type…" : "Looking for the function…");
+  hier_prepare(tab, types, FALSE);
+}
+
+void hierarchy_cursor_moved(Tab *tab)
+{
+  GtkTextIter cursor;
+  gboolean types = hier.types;
+
+  if (!hier.roots || !gtk_toggle_button_get_active(hier.follow) || tab != current_tab(tab->app) ||
+      !panel_shown(tab->app, "hierarchy") || !lsp_has(tab))
+    return;
   gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &cursor,
                                    gtk_text_buffer_get_insert(GTK_TEXT_BUFFER(tab->buffer)));
-  position = lsp_position_params(tab, &cursor);
-  params = g_strdup_printf("{%s}", position);
-  p = g_new0(HierPrepared, 1);
-  p->generation = hier.generation;
-  p->types = types;
-  lsp_request(tab, types ? "textDocument/prepareTypeHierarchy" : "textDocument/prepareCallHierarchy", params, NULL,
-              hier_on_prepared, p);
-  g_free(params);
-  g_free(position);
+  if (hier.skip_path && g_get_monotonic_time() < hier.skip_until && g_strcmp0(hier.skip_path, tab->path) == 0 &&
+      gtk_text_iter_get_line(&cursor) == hier.skip_line) {
+    g_clear_pointer(&hier.skip_path, g_free); /* the row's own symbol: the tree stays */
+    return;
+  }
+  if (!lsp_capability(tab, types ? "typeHierarchyProvider" : "callHierarchyProvider"))
+    return;
+  hier_prepare(tab, types, TRUE);
 }
 
 /* Rows ---------------------------------------------------------------------------------------- */
@@ -287,8 +353,12 @@ static void hier_on_activate(GtkListView *list G_GNUC_UNUSED, guint position, gp
   GtkTreeListRow *row = gtk_tree_list_model_get_row(hier.tree, position);
   TcodeCall *call = row ? gtk_tree_list_row_get_item(row) : NULL;
 
-  if (call && call->path)
+  if (call && call->path) {
+    g_set_str(&hier.skip_path, call->path);
+    hier.skip_line = call->line;
+    hier.skip_until = g_get_monotonic_time() + SKIP_US;
     open_file_at(hier.app, call->path, call->line + 1, call->column + 1);
+  }
   g_clear_object(&call);
   g_clear_object(&row);
 }
@@ -337,6 +407,7 @@ GtkWidget *hierarchy_panel(App *t)
 {
   GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0), *scroll = gtk_scrolled_window_new();
   GtkWidget *directions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkWidget *directions_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
 
   palette_add_css(hierarchy_css);
@@ -350,7 +421,7 @@ GtkWidget *hierarchy_panel(App *t)
   gtk_label_set_ellipsize(hier.title, PANGO_ELLIPSIZE_END);
   gtk_box_append(GTK_BOX(panel), GTK_WIDGET(hier.title));
 
-  gtk_widget_add_css_class(directions, "directions");
+  gtk_widget_add_css_class(directions_row, "directions");
   gtk_widget_add_css_class(directions, "linked");
   hier.up = GTK_TOGGLE_BUTTON(gtk_toggle_button_new_with_label("Callers"));
   hier.down = GTK_TOGGLE_BUTTON(gtk_toggle_button_new_with_label("Callees"));
@@ -360,15 +431,21 @@ GtkWidget *hierarchy_panel(App *t)
   g_signal_connect(hier.down, "toggled", G_CALLBACK(hier_on_direction), NULL);
   gtk_box_append(GTK_BOX(directions), GTK_WIDGET(hier.up));
   gtk_box_append(GTK_BOX(directions), GTK_WIDGET(hier.down));
-  gtk_box_append(GTK_BOX(panel), directions);
+  hier.follow = GTK_TOGGLE_BUTTON(gtk_toggle_button_new_with_label("Follow"));
+  gtk_widget_add_css_class(GTK_WIDGET(hier.follow), "follow");
+  gtk_widget_set_tooltip_text(GTK_WIDGET(hier.follow), "Show the function or type at the cursor once it rests");
+  gtk_toggle_button_set_active(hier.follow, TRUE);
+  gtk_box_append(GTK_BOX(directions_row), GTK_WIDGET(directions));
+  gtk_box_append(GTK_BOX(directions_row), GTK_WIDGET(hier.follow));
+  gtk_box_append(GTK_BOX(panel), directions_row);
 
   hier.note = GTK_LABEL(gtk_label_new(NULL));
   gtk_widget_add_css_class(GTK_WIDGET(hier.note), "note");
   gtk_label_set_wrap(hier.note, TRUE);
   gtk_label_set_xalign(hier.note, 0);
   gtk_box_append(GTK_BOX(panel), GTK_WIDGET(hier.note));
-  hier_note("Shift+Alt+H on a function shows its callers and callees; \"Show Type Hierarchy\" a type's "
-            "supertypes and subtypes.");
+  hier_note("Shift+Alt+H on a function shows its callers and callees, \"Show Type Hierarchy\" a type's "
+            "supertypes and subtypes; with Follow on, the panel shows the function at the cursor by itself.");
 
   hier.roots = g_list_store_new(TCODE_TYPE_CALL);
   hier.tree =

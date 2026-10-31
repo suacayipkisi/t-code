@@ -7,6 +7,7 @@
 #include "editor/editorview.h"
 #include "lsp/client/client.h"
 #include "lsp/json.h"
+#include "lsp/symbols/hierarchy.h"
 #include "lsp/symbols/outline.h"
 
 #define SYMBOLS_MS 500 /* after the last change */
@@ -248,7 +249,7 @@ const char *symbols_kind_mark(int kind)
   }
 }
 
-/* The cursor moved: the breadcrumbs and the outline follow once it rests. */
+/* The cursor moved: the breadcrumbs, the outline and the hierarchy follow once it rests. */
 static gboolean symbols_cursor_rested(gpointer data)
 {
   Symbols *s = data;
@@ -256,6 +257,7 @@ static gboolean symbols_cursor_rested(gpointer data)
   s->cursor_id = 0;
   breadcrumbs_update(s->tab);
   outline_cursor_moved(s->tab);
+  hierarchy_cursor_moved(s->tab);
   return G_SOURCE_REMOVE;
 }
 

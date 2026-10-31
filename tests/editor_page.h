@@ -41,6 +41,7 @@
 #include "lsp/inline/inlay.c"
 #include "lsp/symbols/symbols.c"
 #include "lsp/symbols/navigate.c"
+#include "lsp/symbols/hierarchy.c"
 #include "lsp/inline/semantic.c"
 #include "lsp/inline/signature.c"
 #include "project/langenv.c"
@@ -84,6 +85,8 @@ gboolean disassembly_is(App *t G_GNUC_UNUSED, Tab *tab G_GNUC_UNUSED) { return F
 gboolean disassembly_breakpoint_at(App *t G_GNUC_UNUSED, int line G_GNUC_UNUSED) { return FALSE; }
 void disassembly_toggle_breakpoint(App *t G_GNUC_UNUSED, int line G_GNUC_UNUSED) {}
 void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page G_GNUC_UNUSED) {}
+static gboolean panel_test_shown; /* the Hierarchy panel shows (for its Follow) */
+gboolean panel_shown(App *t G_GNUC_UNUSED, const char *page G_GNUC_UNUSED) { return panel_test_shown; }
 void status_say(App *t G_GNUC_UNUSED, const char *message G_GNUC_UNUSED) {}
 void status_progress_changed(App *t G_GNUC_UNUSED) {}
 void outline_symbols_changed(Tab *tab G_GNUC_UNUSED) {}

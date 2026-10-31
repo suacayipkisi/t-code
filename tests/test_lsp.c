@@ -15,7 +15,6 @@
 
 #include "editor_page.h"
 #include "util.h"
-#include "lsp/symbols/hierarchy.c" /* its panel, against the fake server */
 #include "fake_server.h"
 
 /* Editors ------------------------------------------------------------------------------------ */
@@ -813,6 +812,52 @@ static void test_hierarchy(void)
   text = hierarchy_waiting_for("  parse hier.go:3");
   g_assert_true(g_str_has_prefix(text, "[Supertypes of run]\nrun hier.go:2\n  parse hier.go:3\n"));
   g_free(text);
+
+  /* Follow: the cursor resting on a function shows its callers; nowhere, a row's own symbol, a
+   * hidden panel or Follow off leave the tree. */
+  page_test_tabs[0] = tab;
+  page_test_tab_count = 1;
+  panel_test_shown = TRUE;
+  hierarchy_show(tab, FALSE);
+  g_free(hierarchy_waiting_for("[Callers of run]"));
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(tab->buffer), &iter, 2);
+  gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(tab->buffer), &iter);
+  hierarchy_cursor_moved(tab);
+  text = hierarchy_waiting_for("  run hier.go:2");
+  g_assert_true(g_str_has_prefix(text, "[Callers of parse]\nparse hier.go:3\n  main hier.go:1\n  run hier.go:2\n"));
+  g_free(text);
+
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(tab->buffer), &iter, 3); /* an empty line */
+  gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(tab->buffer), &iter);
+  hierarchy_cursor_moved(tab);
+  for (gint64 until = g_get_monotonic_time() + G_USEC_PER_SEC / 4; g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, FALSE);
+  text = hierarchy_text();
+  g_assert_true(g_str_has_prefix(text, "[Callers of parse]\n"));
+  g_free(text);
+
+  hier_on_activate(NULL, 1, NULL); /* the row of main opens it */
+  g_assert_cmpstr(opened_path, ==, "/tmp/t-code-test/hier.go");
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(tab->buffer), &iter, 0);
+  gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(tab->buffer), &iter);
+  guint asked = hier.following;
+  hierarchy_cursor_moved(tab); /* resting where the row went: not followed */
+  g_assert_cmpuint(hier.following, ==, asked);
+  hierarchy_cursor_moved(tab); /* resting there again: followed */
+  text = hierarchy_waiting_for("[Callers of main]");
+  g_assert_true(g_str_has_prefix(text, "[Callers of main]\nmain hier.go:1\n"));
+  g_free(text);
+
+  asked = hier.following;
+  panel_test_shown = FALSE;
+  hierarchy_cursor_moved(tab);
+  panel_test_shown = TRUE;
+  gtk_toggle_button_set_active(hier.follow, FALSE);
+  hierarchy_cursor_moved(tab);
+  g_assert_cmpuint(hier.following, ==, asked);
+  gtk_toggle_button_set_active(hier.follow, TRUE);
+  panel_test_shown = FALSE;
+  page_test_tab_count = 0;
 
   lsp_open(c); /* the C server here offers no hierarchy */
   g_assert_true(server_agrees(c));
