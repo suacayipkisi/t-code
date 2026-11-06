@@ -135,7 +135,7 @@ static void show_staged(App *t, const Change *c)
 }
 
 /* An unstaged change: the working file next to its staged version when it has staged changes too,
- * else next to the last scm_commit (the same then, and the gutter follows new commits). */
+ * else next to the last commit (the same then, and the gutter follows new commits). */
 static void show_unstaged(App *t, const Change *c)
 {
   char *full = g_build_filename(t->project.git_top, c->path, NULL);

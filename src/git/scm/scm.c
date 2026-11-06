@@ -170,7 +170,7 @@ void scm_update(App *t, const char *out, gsize size)
   if (!out)
     scm_set_note(t->project.git_top ? NULL : "This folder is not in a git repository.", FALSE);
 
-  /* Commits are listed again after a scm_commit, a checkout or another project; outside a
+  /* Commits are listed again after a commit, a checkout or another project; outside a
      * repository (no HEAD) and before the first commit there are none. */
   if (!head || scm.initial || g_strcmp0(head, scm.head) != 0) {
     g_free(scm.head);
@@ -315,7 +315,7 @@ GtkWidget *scm_panel(App *t)
   g_signal_connect(buffer, "changed", G_CALLBACK(scm_on_message_changed), NULL);
   g_signal_connect(keys, "key-pressed", G_CALLBACK(scm_on_message_key), NULL);
   gtk_widget_add_controller(scm.message, keys);
-  scm.placeholder = gtk_label_new("Message (Ctrl+Enter to scm_commit)");
+  scm.placeholder = gtk_label_new("Message (Ctrl+Enter to commit)");
   gtk_widget_add_css_class(scm.placeholder, "placeholder");
   gtk_widget_set_halign(scm.placeholder, GTK_ALIGN_START);
   gtk_widget_set_valign(scm.placeholder, GTK_ALIGN_START);
