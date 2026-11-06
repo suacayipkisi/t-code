@@ -73,9 +73,9 @@ build_artifact="$work/t-code-ide_${version}_amd64.snap"
   cd "$work"
   if [[ "$build_mode" == destructive ]]; then
     SNAPCRAFT_BUILD_INFO=1 sudo --preserve-env=SNAPCRAFT_BUILD_INFO \
-      snapcraft pack "${build_args[@]}" --output "$work/"
+      snapcraft pack "${build_args[@]}" --output .
   else
-    SNAPCRAFT_BUILD_INFO=1 snapcraft pack "${build_args[@]}" --output "$work/"
+    SNAPCRAFT_BUILD_INFO=1 snapcraft pack "${build_args[@]}" --output .
   fi
 )
 [[ -f "$build_artifact" ]] || {
