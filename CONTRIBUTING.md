@@ -29,7 +29,7 @@ T-Code is designed to be a lightweight, ultra-fast, and native C/C++ IDE for Lin
 ### Clear Commit Messages
 * Write clear, descriptive commit messages summarizing what was changed and why (e.g., `feat(plugins): support custom shortcuts`, `fix(lsp): cancel debounce on tab close`).
 
-### AI Usage is Strictly Prohibited
+### AI Usage is Strictly Prohibited For Contributions
 * AI usage is strictly forbidden for contributing anymore. However you can open a discussiın and explain the issue and the 
 way to solve which is found with using AI. You can use AI for asking help and small templates of course.
 

@@ -194,6 +194,11 @@ ASAN_ENV   := G_DEBUG=gc-friendly ASAN_OPTIONS=detect_leaks=1:abort_on_error=0 \
 test-scenarios: all
 	tests/scenarios.sh
 
+# The same on a big repository (tests/big-repo.sh: generated, or BIG_REPO=<path>): how long the window
+# stops in each step; slow, run it by hand.
+test-big: all
+	tests/big-repo.sh $(BIG_REPO)
+
 test-asan: | build
 	mkdir -p build/asan
 	$(CC) $(ASAN_FLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o build/asan/test-log \
@@ -256,4 +261,4 @@ build:
 clean:
 	rm -rf build
 
-.PHONY: all clean test test-asan test-scenarios install FORCE
+.PHONY: all clean test test-asan test-scenarios test-big install FORCE

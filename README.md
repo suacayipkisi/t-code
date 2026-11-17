@@ -186,16 +186,22 @@ way to solve which is found with using AI. You can use AI for asking help and te
 
 ## AI Usage in Project  
 
-### Following commit 288f482, the use of AI has been significantly restricted. The use of AI in contributions is prohibited.
-
-Most of the structure and code written with using AI coding agent until commit 288f482. Every single line of code is reviewed or currently 
+Most of the structure and code written with using AI coding agent. Every single line of code is reviewed or currently 
 under review. I did not spend enough time to write just myself because I just want an ide that uses not much ram as 
 immediately as possible, the editor I used was using too much then I got angry and tada... BUT I will review every 
 detail of this project and after than I will continue to add new features as I wish.
 
-Currently project is mostly usable and not problematic. The aim was having an IDE as soon as possible that using low resource and today I have because 
-of that I will stop using AI for vibe coding. Every single line of code is currently under review. Review will finish approximately 
-5-6 weeks later but bugfixes and new features will continue to being added.
+## Why You Use An IDE Instead Of Using Just AI
+
+Of course I use AI to write some parts of the stuff. The main idea is not doing the job, the idea is having fun. Think like 
+that, your friend is playing a game and you alsa want to play it. Other friend says, "Why would you play the game, just watch 
+your friend". And saying that IDE is not necessary is something like that. If I need to write code fast, I probably just use AI. 
+-and you can see this IDE is written with AI coding agent mostly because I want to reach result fast-.
+However, I do not write code for just doing job. I'm writing code as a hobby, thinking and writing code is fun to me. Also I want to 
+learn more and more detail about computers and I want to try how deep can I go. For learning, you need to write code by yourself.
+And you can ask why you are not using other popular IDEs. The main reason is the most important property of this IDE, low 
+resource usage! Especially RAM usage. The second reason is they are not adding the propertiees that I want. I think waiting them 
+to adding new features in their IDE is takes more time than making it myself using AI agent.
 
 ## Performance
 
