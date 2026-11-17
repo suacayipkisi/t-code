@@ -194,6 +194,7 @@ void preview_update_layout(Preview *p, int width)
     preview_size_picture(g_ptr_array_index(p->pictures, i), content_w);
   for (guint i = 0; i < p->tables->len; i++)
     preview_size_table(g_ptr_array_index(p->tables, i), content_w);
+  preview_show_tables_later(p); /* the guessed heights changed */
 }
 
 /* The view subclass that centers content and adapts on any size allocation */
@@ -292,14 +293,29 @@ static void draw_code_spans(GtkTextView *view, Preview *p, GtkSnapshot *snapshot
   GdkRGBA bg = *palette_rgba(PAL_BORDER_STRONG);
 
   bg.alpha = 0.75f;
-  for (guint i = 0; i < p->code_spans->len; i++) {
+  /* The spans are in the order of the text and do not overlap: the first one on screen is found by
+   * halving, not by going through a big file's thousands on every frame. */
+  GtkTextIter top;
+  gtk_text_buffer_get_iter_at_line(p->buffer, &top, first_line);
+  int from = gtk_text_iter_get_offset(&top);
+  guint low = 0, high = p->code_spans->len;
+  while (low < high) {
+    guint middle = low + (high - low) / 2;
+    if (g_array_index(p->code_spans, CodeSpan, middle).end <= from)
+      low = middle + 1;
+    else
+      high = middle;
+  }
+  for (guint i = low; i < p->code_spans->len; i++) {
     const CodeSpan *span = &g_array_index(p->code_spans, CodeSpan, i);
     GtkTextIter iter, end;
     int first, last;
     GdkRectangle row = { 0 }, at;
 
     block_lines(p->buffer, span->start, span->end, &first, &last);
-    if (last < first_line || first > last_line)
+    if (first > last_line)
+      break;
+    if (last < first_line)
       continue;
     gtk_text_buffer_get_iter_at_offset(p->buffer, &iter, span->start);
     gtk_text_buffer_get_iter_at_offset(p->buffer, &end, span->end);

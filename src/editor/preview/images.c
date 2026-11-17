@@ -249,6 +249,92 @@ static GdkPaintable *web_image(Preview *p, const char *url)
   return NULL;
 }
 
+/* A local image decoded in a thread: a big PNG took a quarter of a second, and the preview is shown
+ * again on every save. The texture is kept while the preview is open (until the file changes). */
+typedef struct {
+  Preview *p;
+  char *key, *path;
+} Decode;
+
+static void decode_free(gpointer data)
+{
+  Decode *decode = data;
+
+  g_free(decode->key);
+  g_free(decode->path);
+  g_free(decode);
+}
+
+static void decode_in_thread(GTask *task, gpointer source G_GNUC_UNUSED, gpointer data,
+                             GCancellable *cancel G_GNUC_UNUSED)
+{
+  Decode *decode = data;
+  char *bytes;
+  gsize size;
+  GdkTexture *texture = NULL;
+
+  if (g_file_get_contents(decode->path, &bytes, &size, NULL)) {
+    GBytes *contents = g_bytes_new_take(bytes, size);
+    texture = gdk_texture_new_from_bytes(contents, NULL); /* textures may be made in any thread */
+    g_bytes_unref(contents);
+  }
+  g_task_return_pointer(task, texture, texture ? g_object_unref : NULL);
+}
+
+static void decode_done(GObject *source G_GNUC_UNUSED, GAsyncResult *result, gpointer data G_GNUC_UNUSED)
+{
+  Decode *decode = g_task_get_task_data(G_TASK(result));
+  GError *error = NULL;
+  GdkTexture *texture = g_task_propagate_pointer(G_TASK(result), &error);
+
+  if (!g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) { /* else the preview is gone */
+    Preview *p = decode->p;
+    char *prefix = g_strconcat(decode->path, "\n", NULL);
+    GHashTableIter iter;
+    gpointer key;
+    g_hash_table_iter_init(&iter, p->remote); /* the file as it was before it changed */
+    while (g_hash_table_iter_next(&iter, &key, NULL))
+      if (g_str_has_prefix(key, prefix) && strcmp(key, decode->key) != 0)
+        g_hash_table_iter_remove(&iter);
+    g_free(prefix);
+    g_hash_table_replace(p->remote, g_strdup(decode->key), texture ? (gpointer)texture : FAILED);
+    if (texture)
+      preview_reload_later(p);
+  } else if (texture) {
+    g_object_unref(texture);
+  }
+  g_clear_error(&error);
+}
+
+static GdkPaintable *local_image(Preview *p, const char *path)
+{
+  GStatBuf st;
+  gboolean known;
+  char *lower = g_ascii_strdown(path, -1);
+  gboolean svg = g_str_has_suffix(lower, ".svg") || g_str_has_suffix(lower, ".svgz");
+
+  g_free(lower);
+  if (svg || g_stat(path, &st) != 0) /* drawn by GTK's widgets code: in this thread (and small) */
+    return paintable_from_file(path);
+
+  char *key = g_strdup_printf("%s\n%lld:%lld", path, (long long)st.st_mtime, (long long)st.st_size);
+  GdkPaintable *paintable = remote_lookup(p, key, &known);
+  if (!known) {
+    Decode *decode = g_new0(Decode, 1);
+    GTask *task = g_task_new(NULL, p->cancel, decode_done, NULL);
+    decode->p = p;
+    decode->key = g_strdup(key);
+    decode->path = g_strdup(path);
+    g_task_set_task_data(task, decode, decode_free);
+    g_task_set_return_on_cancel(task, TRUE);
+    g_hash_table_replace(p->remote, g_strdup(key), PENDING);
+    g_task_run_in_thread(task, decode_in_thread);
+    g_object_unref(task);
+  }
+  g_free(key);
+  return paintable;
+}
+
 GdkPaintable *preview_image(Preview *p, const char *dir, const char *src)
 {
   char *path;
@@ -257,7 +343,7 @@ GdkPaintable *preview_image(Preview *p, const char *dir, const char *src)
   if (g_str_has_prefix(src, "https://") || g_str_has_prefix(src, "http://"))
     return web_image(p, src);
   path = preview_local_path(dir, src);
-  paintable = path ? paintable_from_file(path) : NULL;
+  paintable = path ? local_image(p, path) : NULL;
   g_free(path);
   return paintable;
 }

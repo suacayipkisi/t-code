@@ -13,7 +13,8 @@ void preview_table_begin(Render *r)
 {
   r->table = g_new0(PreviewTable, 1);
   r->table->natural = g_array_new(FALSE, TRUE, sizeof(int));
-  r->table->grid = gtk_grid_new();
+  r->table->cells = g_array_new(FALSE, FALSE, sizeof(TableCell));
+  r->table->grid = g_object_ref_sink(gtk_grid_new());
   gtk_widget_add_css_class(r->table->grid, "tcode-preview-table");
   r->row = -1;
 }
@@ -23,8 +24,9 @@ void preview_table_end(Render *r)
   GtkTextIter end;
 
   gtk_text_buffer_get_end_iter(r->p->buffer, &end);
-  gtk_text_view_add_child_at_anchor(r->p->view, r->table->grid,
-                                    gtk_text_buffer_create_child_anchor(r->p->buffer, &end));
+  r->table->anchor = g_object_ref(gtk_text_buffer_create_child_anchor(r->p->buffer, &end));
+  r->table->holder = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  gtk_text_view_add_child_at_anchor(r->p->view, r->table->holder, r->table->anchor);
   g_ptr_array_add(r->p->tables, r->table);
   preview_size_table(g_steal_pointer(&r->table), preview_content_width(r->p));
 }
@@ -57,8 +59,9 @@ static gboolean link_to_span(const GMatchInfo *match, GString *result, gpointer 
   return FALSE;
 }
 
-/* A wrapping label of a cell's markup (or a piece of it, beside images); *width: its width on one line. */
-static GtkWidget *cell_label(Render *r, const char *text, gboolean head, int *width)
+/* A wrapping label of a cell's markup (or a piece of it, beside images); *width, *height: its size on
+ * one line. */
+static GtkWidget *cell_label(Render *r, const char *text, gboolean head, int *width, int *height)
 {
   static const float xalign[] = { 0.0f, 0.0f, 0.5f, 1.0f }; /* MD_ALIGN_DEFAULT .. RIGHT */
   static GRegex *links, *tags;
@@ -83,7 +86,7 @@ static GtkWidget *cell_label(Render *r, const char *text, gboolean head, int *wi
   }
   pango_layout_set_markup(layout, measured, -1);
   g_free(measured);
-  pango_layout_get_pixel_size(layout, width, NULL); /* on one line */
+  pango_layout_get_pixel_size(layout, width, height); /* on one line */
   g_object_unref(layout);
   gtk_label_set_markup(GTK_LABEL(label), markup);
   gtk_label_set_wrap(GTK_LABEL(label), TRUE);
@@ -101,22 +104,23 @@ static GtkWidget *cell_label(Render *r, const char *text, gboolean head, int *wi
 static void flush_piece(Render *r, gboolean head)
 {
   GString *closed = g_string_new(r->markup->str), *reopened = g_string_new(NULL);
-  int width;
+  int width, height;
 
   if (!r->cell_box) {
     r->cell_box = g_object_ref_sink(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4));
-    r->cell_width = 0;
+    r->cell_width = r->cell_height = 0;
   }
   for (guint i = r->closers->len; i-- > 0;)
     g_string_append(closed, g_ptr_array_index(r->closers, i));
   for (guint i = 0; i < r->cell_openers->len; i++)
     g_string_append(reopened, g_ptr_array_index(r->cell_openers, i));
   if (r->markup->len) {
-    GtkWidget *label = cell_label(r, closed->str, head, &width);
+    GtkWidget *label = cell_label(r, closed->str, head, &width, &height);
     gtk_widget_set_hexpand(label, FALSE);
     gtk_label_set_max_width_chars(GTK_LABEL(label), -1);
     gtk_box_append(GTK_BOX(r->cell_box), label);
     r->cell_width += width + 4;
+    r->cell_height = MAX(r->cell_height, height);
   }
   g_string_free(closed, TRUE);
   g_string_free(r->markup, TRUE);
@@ -129,7 +133,7 @@ void preview_cell_end(Render *r, gboolean head)
 {
   GArray *natural = r->table->natural;
   GtkWidget *cell;
-  int width = 0;
+  int width = 0, height = 0;
   gboolean boxed = r->cell_box != NULL;
 
   while (r->cell_html->len) { /* raw HTML elements left open */
@@ -149,9 +153,12 @@ void preview_cell_end(Render *r, gboolean head)
                                 : r->align == MD_ALIGN_RIGHT ? GTK_ALIGN_END
                                                              : GTK_ALIGN_FILL);
     width = r->cell_width;
+    height = r->cell_height;
   } else {
-    cell = cell_label(r, r->markup->str, head, &width);
+    cell = cell_label(r, r->markup->str, head, &width, &height);
   }
+  g_array_append_val(r->table->cells,
+                     ((TableCell){ .column = r->cell, .row = r->row, .width = width, .height = height }));
   gtk_widget_add_css_class(cell, head ? "head" : r->row % 2 ? "odd" : "even");
   if ((guint)r->cell >= natural->len)
     g_array_set_size(natural, r->cell + 1);
@@ -180,6 +187,9 @@ static gboolean cell_image(Render *r, const char *src, int width, const char *ti
   gtk_picture_set_content_fit(GTK_PICTURE(picture), GTK_CONTENT_FIT_SCALE_DOWN); /* a tall row: no larger */
   gtk_box_append(GTK_BOX(r->cell_box), picture);
   r->cell_width += GPOINTER_TO_INT(g_object_get_data(G_OBJECT(picture), "t-code-width")) + 4;
+  int height;
+  gtk_widget_get_size_request(picture, NULL, &height);
+  r->cell_height = MAX(r->cell_height, height);
   g_object_unref(paintable);
   return TRUE;
 }
@@ -328,6 +338,29 @@ void preview_cell_span_end(Render *r)
   }
 }
 
+/* Sizes a table not shown yet (its holder) as the grid will be with these column widths: a cell
+ * wraps into as many lines as its text needs, rows are as tall as their tallest cell. */
+static void guess_size(PreviewTable *table, const int *widths, guint n)
+{
+  int rows = 0, width = 2, height = 2; /* its 1px border */
+
+  for (guint i = 0; i < table->cells->len; i++)
+    rows = MAX(rows, g_array_index(table->cells, TableCell, i).row + 1);
+  int *tallest = g_new0(int, MAX(rows, 1));
+  for (guint i = 0; i < table->cells->len; i++) {
+    const TableCell *cell = &g_array_index(table->cells, TableCell, i);
+    int room = MAX((guint)cell->column < n ? widths[cell->column] - 2 * CELL_PAD : 1, 1);
+    int lines = MAX((cell->width + room - 1) / room, 1);
+    tallest[cell->row] = MAX(tallest[cell->row], lines * cell->height + 2 * CELL_VPAD);
+  }
+  for (int row = 0; row < rows; row++)
+    height += tallest[row];
+  for (guint c = 0; c < n; c++)
+    width += widths[c];
+  gtk_widget_set_size_request(table->holder, width, height);
+  g_free(tallest);
+}
+
 /* Shares width between the columns like a browser: when they all fit, each gets its widest cell;
  * else the columns narrower than an even share keep theirs and the others split the rest, their
  * cells wrapping. */
@@ -360,6 +393,8 @@ void preview_size_table(PreviewTable *table, int width)
     gtk_grid_query_child(GTK_GRID(table->grid), cell, &column, NULL, NULL, NULL);
     gtk_widget_set_size_request(cell, MAX(widths[column], 1), -1); /* its CSS padding included */
   }
+  if (!table->shown)
+    guess_size(table, widths, n);
   g_free(done);
   g_free(widths);
 }
@@ -368,6 +403,55 @@ void preview_table_free(gpointer data)
 {
   PreviewTable *table = data;
 
+  g_clear_object(&table->grid);
+  g_clear_object(&table->anchor);
   g_array_free(table->natural, TRUE);
+  g_array_free(table->cells, TRUE);
   g_free(table);
+}
+
+/* Showing tables ------------------------------------------------------------------------------- */
+
+static void show_table(PreviewTable *table)
+{
+  table->shown = TRUE;
+  gtk_widget_set_size_request(table->holder, -1, -1);
+  gtk_box_append(GTK_BOX(table->holder), table->grid);
+}
+
+void preview_show_tables(Preview *p)
+{
+  GdkRectangle visible, at;
+  GtkTextIter iter;
+
+  gtk_text_view_get_visible_rect(p->view, &visible);
+  if (visible.height <= 0)
+    return;
+  for (guint i = 0; i < p->tables->len; i++) {
+    PreviewTable *table = g_ptr_array_index(p->tables, i);
+    int height;
+    if (table->shown || gtk_text_child_anchor_get_deleted(table->anchor))
+      continue;
+    gtk_text_buffer_get_iter_at_child_anchor(p->buffer, &iter, table->anchor);
+    gtk_text_view_get_iter_location(p->view, &iter, &at);
+    gtk_widget_get_size_request(table->holder, NULL, &height);
+    /* a screen above and below the visible part: there before it is scrolled to */
+    if (at.y + height >= visible.y - visible.height && at.y <= visible.y + 2 * visible.height)
+      show_table(table);
+  }
+}
+
+static gboolean show_tables_now(gpointer data)
+{
+  Preview *p = data;
+
+  p->tables_id = 0;
+  preview_show_tables(p);
+  return G_SOURCE_REMOVE;
+}
+
+void preview_show_tables_later(Preview *p)
+{
+  if (!p->tables_id && p->tables->len)
+    p->tables_id = g_idle_add(show_tables_now, p);
 }

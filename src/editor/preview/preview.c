@@ -297,6 +297,12 @@ static gboolean on_query_tooltip(GtkWidget *view G_GNUC_UNUSED, int x, int y, gb
   return TRUE;
 }
 
+/* Tables come in as they are scrolled near. */
+static void on_scrolled(GtkAdjustment *adjustment G_GNUC_UNUSED, Preview *p)
+{
+  preview_show_tables_later(p);
+}
+
 /* Tabs --------------------------------------------------------------------------------------- */
 
 void preview_free(Preview *p)
@@ -304,6 +310,9 @@ void preview_free(Preview *p)
   g_cancellable_cancel(p->cancel); /* the background fetches: their answers find no preview */
   g_object_unref(p->cancel);
   g_clear_handle_id(&p->reload_id, g_source_remove);
+  g_clear_handle_id(&p->tables_id, g_source_remove);
+  g_signal_handlers_disconnect_by_data(p->scrolling, p);
+  g_object_unref(p->scrolling);
   if (p->monitor) {
     g_file_monitor_cancel(p->monitor);
     g_object_unref(p->monitor);
@@ -393,6 +402,8 @@ void open_preview(App *t, const char *path)
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled), p->image ? GTK_POLICY_AUTOMATIC : GTK_POLICY_EXTERNAL,
                                  GTK_POLICY_AUTOMATIC); /* an image at its size may be wider than the view */
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), GTK_WIDGET(p->view));
+  p->scrolling = g_object_ref(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scrolled)));
+  g_signal_connect(p->scrolling, "value-changed", G_CALLBACK(on_scrolled), p);
   gtk_widget_set_hexpand(scrolled, TRUE);
   gtk_widget_set_vexpand(scrolled, TRUE);
   g_signal_connect(click, "released", G_CALLBACK(on_click), p);

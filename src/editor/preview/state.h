@@ -14,6 +14,7 @@
 #define INDENT 24             /* pixels per list or quote level */
 #define MAX_LEVEL 8
 #define CELL_PAD 10 /* pixels left and right of a table cell's text (its CSS padding) */
+#define CELL_VPAD 6 /* and above and below it */
 #define PRE_PAD 14  /* pixels between a code block's box and its text */
 #define BAR_WIDTH 4 /* a quote's bar left of it */
 
@@ -57,10 +58,24 @@ typedef struct {
   const char *name, *text;
 } PreviewName;
 
-/* A table: a grid of wrapping labels in the text, its columns sized to the view's width. */
+/* A table cell's size on one line, for guessing the table's height before it is shown. */
 typedef struct {
-  GtkWidget *grid;
+  int column, row;
+  int width;  /* its text and pictures on one line, padding left out */
+  int height; /* one line of its text, or its tallest picture */
+} TableCell;
+
+/* A table: a grid of wrapping labels in the text, its columns sized to the view's width. The text
+ * holds an empty box (holder) as tall as the table is guessed to be until it comes near the visible
+ * part (preview_show_tables): GtkTextView measures every widget in the text whenever it is
+ * measured, and a big file's thousands of cells took seconds. */
+typedef struct {
+  GtkWidget *grid;   /* a reference of the table's own */
+  GtkWidget *holder; /* in the text: the grid goes into it when it is shown */
+  GtkTextChildAnchor *anchor;
   GArray *natural; /* int per column: its widest cell on one line, padding included */
+  GArray *cells;   /* TableCell */
+  gboolean shown;
 } PreviewTable;
 
 struct Preview {
@@ -85,6 +100,8 @@ struct Preview {
   int hovered; /* the link under the pointer (its index in links, underlined), or -1 */
   GFileMonitor *monitor;
   guint reload_id;
+  guint tables_id;          /* preview_show_tables_later()'s idle */
+  GtkAdjustment *scrolling; /* the view's vertical one (a reference): its handler goes with the preview */
 };
 
 /* markdown.c: parses the file and appends it to the (empty) buffer: its text, tags, links,
@@ -178,6 +195,8 @@ typedef struct {
   MD_ALIGN align;         /* its column's alignment */
   GString *code;          /* inside a code block: its text */
   char *lang;
+  GtkSourceBuffer *colors; /* where code blocks are highlighted, made for the first one: one per render, as
+                            * a new buffer costs milliseconds (the style scheme's tags) */
   int hidden;              /* inside a shown image: its alt text is not added */
   gboolean html_block;     /* inside an HTML block: its lines flow like a paragraph's */
   GString *html_carry;     /* raw HTML cut inside a tag: the rest comes with the next piece */
@@ -186,6 +205,7 @@ typedef struct {
   char *picture_src;       /* inside <picture>: the image for the theme */
   GtkWidget *cell_box;     /* a table cell with images: its labels and pictures, in a row */
   int cell_width;          /* their width so far */
+  int cell_height;         /* and their height: a line of text, or the tallest picture */
   GPtrArray *cell_html;    /* the HTML elements open in a table cell */
   GPtrArray *cell_openers; /* per span open in a cell, the markup that opened it */
   GString *math;           /* inside a math span: its TeX */
@@ -236,6 +256,9 @@ void preview_cell_end(Render *r, gboolean head);
 /* table.c: shares width out between a table's columns; frees one (Preview's tables). */
 void preview_size_table(PreviewTable *table, int width);
 void preview_table_free(gpointer data);
+/* table.c: shows the tables near the visible part of the text (soon: once for a burst of scrolling). */
+void preview_show_tables(Preview *p);
+void preview_show_tables_later(Preview *p);
 
 /* preview.c: follows a link (an anchor, a file, a web address). */
 void preview_follow(Preview *p, const char *url);

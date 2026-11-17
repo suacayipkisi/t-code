@@ -1708,6 +1708,12 @@ static GtkWidget *find_label_with(GtkWidget *root, const char *needle)
   return NULL;
 }
 
+/* Whether a preview shows a table's grid. */
+static gboolean table_shown(gconstpointer view)
+{
+  return find_widget(GTK_WIDGET(view), GTK_TYPE_GRID, NULL, "tcode-preview-table") != NULL;
+}
+
 /* The preview shows what GitHub shows: every HTML5 entity, :emoji:, raw HTML (formatting, <sub> and <sup>
  * raised, <kbd>, links, anchors, images, comments over several lines left out, GFM's filtered tags as
  * text), footnotes, <details> that a click on their summary opens, math and images in table cells, and a
@@ -1778,6 +1784,7 @@ static void test_preview_github(void)
     g_free(widgets);
   }
   g_assert_cmpint(pictures, ==, 1); /* the SVG drawn (the one in the table is in its grid) */
+  run_until(table_shown, view);     /* a table comes in once the view has its size */
   GtkWidget *grid = find_widget(GTK_WIDGET(view), GTK_TYPE_GRID, NULL, "tcode-preview-table");
   g_assert_nonnull(grid);
   g_assert_nonnull(find_label_with(grid, "<sup>2</sup>")); /* $x^2$ in a cell */
@@ -1814,6 +1821,125 @@ static void test_preview_github(void)
   g_unlink(svg);
   g_free(svg);
   g_free(path);
+}
+
+/* The tables in a preview's text: how many there are, and how many show their grid. */
+static void count_tables(GtkTextBuffer *buffer, int *tables, int *shown)
+{
+  GtkTextIter iter;
+
+  *tables = *shown = 0;
+  for (gtk_text_buffer_get_start_iter(buffer, &iter); !gtk_text_iter_is_end(&iter); gtk_text_iter_forward_char(&iter)) {
+    GtkTextChildAnchor *anchor = gtk_text_iter_get_child_anchor(&iter);
+    guint n = 0;
+    GtkWidget **widgets = anchor ? gtk_text_child_anchor_get_widgets(anchor, &n) : NULL;
+    if (n && GTK_IS_BOX(widgets[0])) {
+      GtkWidget *grid = gtk_widget_get_first_child(widgets[0]);
+      int height;
+      (*tables)++;
+      gtk_widget_get_size_request(widgets[0], NULL, &height);
+      if (grid)
+        (*shown)++;
+      else
+        g_assert_cmpint(height, >, 20); /* as tall as its rows will be */
+    }
+    g_free(widgets);
+  }
+}
+
+static gboolean picture_shown(gconstpointer view)
+{
+  return find_widget(GTK_WIDGET(view), GTK_TYPE_PICTURE, NULL, NULL) != NULL;
+}
+
+static gboolean last_table_shown(gconstpointer buffer)
+{
+  GtkTextIter iter;
+  GtkTextChildAnchor *anchor = NULL;
+
+  for (gtk_text_buffer_get_end_iter((GtkTextBuffer *)buffer, &iter); !anchor && gtk_text_iter_backward_char(&iter);)
+    anchor = gtk_text_iter_get_child_anchor(&iter);
+  guint n = 0;
+  GtkWidget **widgets = anchor ? gtk_text_child_anchor_get_widgets(anchor, &n) : NULL;
+  gboolean shown = n && gtk_widget_get_first_child(widgets[0]);
+  g_free(widgets);
+  return shown;
+}
+
+/* Whether the text at iter has a color of a code block's highlighting. */
+static gboolean colored(const GtkTextIter *iter)
+{
+  GSList *tags = gtk_text_iter_get_tags(iter);
+  gboolean found = FALSE;
+
+  for (GSList *each = tags; each; each = each->next) {
+    gboolean set;
+    char *name;
+    g_object_get(each->data, "foreground-set", &set, "name", &name, NULL);
+    found |= set && !name; /* the copies of the style scheme's colors have no names */
+    g_free(name);
+  }
+  g_slist_free(tags);
+  return found;
+}
+
+/* A big file opens without the window stopping: its hundreds of tables come in as they are scrolled
+ * near (each one waits as an empty box as tall as it will be), a local image is decoded in a thread
+ * (its alt text shows meanwhile), and code blocks of several languages are still colored. */
+static void test_preview_big(void)
+{
+  static const guchar pixel[] = {
+    /* a 1×1 PNG */
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+    0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+    0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff,
+    0x89, 0x99, 0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+  };
+  char *png = g_build_filename(app.project.root, "shot.png", NULL);
+  char *path = g_build_filename(app.project.root, "big.md", NULL);
+  GString *text = g_string_new("![a shot](shot.png)\n\n");
+  int tables, shown;
+
+  g_assert_true(g_file_set_contents(png, (const char *)pixel, sizeof pixel, NULL));
+  for (int i = 0; i < 300; i++) {
+    g_string_append_printf(text, "## Part %d\n\nSome `code` here.\n\n| Key | What |\n|---|---|\n", i);
+    for (int row = 0; row < 6; row++)
+      g_string_append_printf(text, "| `Ctrl+%d` | does thing %d with some longer words |\n", row, row);
+    g_string_append(text, i % 2 ? "\n```python\nwhile True:\n    pass\n```\n\n" : "\n```c\nreturn 0;\n```\n\n");
+  }
+  g_assert_true(g_file_set_contents(path, text->str, -1, NULL));
+  open_preview(&app, path);
+  Tab *tab = current_tab(&app);
+  g_assert_true(tab->kind == TAB_PREVIEW);
+  GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
+  g_assert_false(picture_shown(view)); /* being decoded */
+  run_until(picture_shown, view);
+  g_assert_true(picture_shown(view));
+
+  run_until(table_shown, view);
+  count_tables(buffer, &tables, &shown);
+  g_assert_cmpint(tables, ==, 300);
+  g_assert_cmpint(shown, >, 0);
+  g_assert_cmpint(shown, <, 30); /* the ones near the top */
+  g_assert_false(last_table_shown(buffer));
+
+  GtkAdjustment *adjustment = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(view));
+  gtk_adjustment_set_value(adjustment, gtk_adjustment_get_upper(adjustment));
+  run_until(last_table_shown, buffer);
+  g_assert_true(last_table_shown(buffer));
+
+  GtkTextIter iter = preview_find(buffer, "return 0;");
+  g_assert_true(colored(&iter));
+  iter = preview_find(buffer, "while True:");
+  g_assert_true(colored(&iter));
+
+  remove_tab(tab);
+  g_unlink(path);
+  g_unlink(png);
+  g_string_free(text, TRUE);
+  g_free(path);
+  g_free(png);
 }
 
 /* Images open in a tab that shows them (temporary from a single click, like editors), not as text; an
@@ -2794,6 +2920,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/preview-look", test_preview_look);
   g_test_add_func("/window/preview-math", test_preview_math);
   g_test_add_func("/window/preview-github", test_preview_github);
+  g_test_add_func("/window/preview-big", test_preview_big);
   g_test_add_func("/window/open-images", test_open_images);
   g_test_add_func("/window/run-scripts", test_run_scripts);
   g_test_add_func("/window/run-tests", test_run_tests);

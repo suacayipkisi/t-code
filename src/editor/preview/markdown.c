@@ -387,8 +387,12 @@ static void append_code(Render *r, const char *text, const char *lang)
     preview_append(r, text, -1);
     return;
   }
-  source = gtk_source_buffer_new_with_language(language);
-  gtk_source_buffer_set_style_scheme(source, editor_style_scheme(r->p->tab->app));
+  if (!r->colors) {
+    r->colors = gtk_source_buffer_new(NULL);
+    gtk_source_buffer_set_style_scheme(r->colors, editor_style_scheme(r->p->tab->app));
+  }
+  source = r->colors;
+  gtk_source_buffer_set_language(source, language);
   gtk_text_buffer_set_text(GTK_TEXT_BUFFER(source), text, -1);
   gtk_text_buffer_get_bounds(GTK_TEXT_BUFFER(source), &at, &end);
   gtk_source_buffer_ensure_highlight(source, &at, &end);
@@ -408,7 +412,6 @@ static void append_code(Render *r, const char *text, const char *lang)
     g_free(piece);
     at = next;
   }
-  g_object_unref(source);
 }
 
 /* A code block of a kind GitHub draws (a map, a 3D model, a diagram without mmdc): a line saying so
@@ -998,6 +1001,7 @@ void preview_render(Preview *p)
   if (r.code)
     g_string_free(r.code, TRUE);
   g_free(r.lang);
+  g_clear_object(&r.colors);
   g_free(text);
   g_free(r.dir);
   g_array_free(r.starts, TRUE);
@@ -1016,11 +1020,8 @@ void preview_render(Preview *p)
     g_string_free(r.math, TRUE);
   if (r.markup) /* md4c stopped inside a table */
     g_string_free(r.markup, TRUE);
-  if (r.table) {
-    g_object_ref_sink(r.table->grid);
-    g_object_unref(r.table->grid);
+  if (r.table)
     preview_table_free(r.table);
-  }
   gtk_text_buffer_get_bounds(p->buffer, &start, &end);
   gtk_text_buffer_apply_tag_by_name(p->buffer, "base", &start, &end);
   for (guint i = 0; i < p->details->len; i++)
