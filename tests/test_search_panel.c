@@ -1,12 +1,14 @@
 /* Tests for the Search panel (src/search/search.c) as the user drives it: typing, the options, results
  * grouped by file, folding, opening a result, the result limit and switching projects. Needs a
  * display; skipped without one. */
+#define _DEFAULT_SOURCE
 #include "search/search.h"
 #include "util.h"
 #include "widgets.h"
 
 #include <glib/gstdio.h>
 #include <string.h>
+#include <unistd.h>
 
 /* What the panel opened last (open_file_at stands in for editor.c). */
 static struct {
@@ -140,6 +142,27 @@ static void test_results(void)
   text = text_of(nth_row(2));
   g_assert_cmpstr(text, ==, "▾ b.h sub 3");
   g_free(text);
+}
+
+/* The same with grep (ripgrep missing): grep lists files in folder order, the panel still sorts them. */
+static void test_results_grep(void)
+{
+  char *grep = g_find_program_in_path("grep");
+  char *bin = g_build_filename(tmp, ".bin", NULL);
+  char *link = g_build_filename(bin, "grep", NULL);
+  char *path = g_strdup(g_getenv("PATH"));
+
+  g_mkdir_with_parents(bin, 0755);
+  g_assert_cmpint(symlink(grep, link), ==, 0);
+  g_setenv("PATH", bin, TRUE);
+  test_results();
+  g_setenv("PATH", path, TRUE);
+  g_unlink(link);
+  g_rmdir(bin);
+  g_free(path);
+  g_free(link);
+  g_free(bin);
+  g_free(grep);
 }
 
 static void test_open(void)
@@ -358,6 +381,7 @@ int main(int argc, char **argv)
   gtk_window_present(GTK_WINDOW(window));
 
   g_test_add_func("/search-panel/results", test_results);
+  g_test_add_func("/search-panel/results-grep", test_results_grep);
   g_test_add_func("/search-panel/open", test_open);
   g_test_add_func("/search-panel/fold", test_fold);
   g_test_add_func("/search-panel/options", test_options);

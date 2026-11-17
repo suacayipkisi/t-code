@@ -253,6 +253,21 @@ static void show_preview(void)
   }
 }
 
+/* Where a new file's heading goes: after the last file whose path sorts before it. ripgrep gives the
+ * files in order (the walk from the end stops at once); grep gives them in folder order. */
+static int heading_index(const char *path)
+{
+  for (GtkWidget *row = gtk_widget_get_last_child(GTK_WIDGET(search.list)); row;
+       row = gtk_widget_get_prev_sibling(row)) {
+    const char *relative = g_object_get_data(G_OBJECT(row), "relative");
+    if (relative && strcmp(relative, path) < 0) {
+      GPtrArray *lines = g_object_get_data(G_OBJECT(row), "lines");
+      return gtk_list_box_row_get_index(GTK_LIST_BOX_ROW(row)) + 1 + (int)lines->len;
+    }
+  }
+  return 0;
+}
+
 /* A result: the line with the match marked, under its file's heading. */
 static void add_hit(const SearchHit *hit, gpointer data)
 {
@@ -270,7 +285,7 @@ static void add_hit(const SearchHit *hit, gpointer data)
     search.heading = heading_row(hit->path);
     g_object_set_data_full(G_OBJECT(search.heading), "file", g_build_filename(run->root, hit->path, NULL), g_free);
     g_object_set_data_full(G_OBJECT(search.heading), "relative", g_strdup(hit->path), g_free);
-    gtk_list_box_append(search.list, search.heading);
+    gtk_list_box_insert(search.list, search.heading, heading_index(hit->path));
     search.files++;
   }
   before = search_snippet(hit->text, hit->start, hit->end, &match, &after);
@@ -295,9 +310,9 @@ static void add_hit(const SearchHit *hit, gpointer data)
   g_object_set_data(G_OBJECT(row), "end", GINT_TO_POINTER(hit->end));
   g_object_set_data(G_OBJECT(row), "label", label);
   gtk_widget_set_visible(row, !is_folded(search.heading));
-  gtk_list_box_append(search.list, row);
-
   lines = g_object_get_data(G_OBJECT(search.heading), "lines");
+  gtk_list_box_insert(search.list, row,
+                      gtk_list_box_row_get_index(GTK_LIST_BOX_ROW(search.heading)) + 1 + (int)lines->len);
   g_ptr_array_add(lines, row);
   count = g_strdup_printf("%u", lines->len);
   gtk_label_set_text(g_object_get_data(G_OBJECT(search.heading), "badge"), count);
