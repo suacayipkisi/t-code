@@ -4,6 +4,7 @@
 #define _DEFAULT_SOURCE /* kill(), setpgid() */
 #include "testing/testing.h"
 
+#include "debug/debugger.h"
 #include "editor/editor.h"
 #include "project/langenv.h"
 #include "project/toolchain.h"
@@ -25,6 +26,7 @@ typedef struct {
   char **argv;
   char *report; /* the JUnit file it writes, or NULL */
   gboolean listing;
+  char *debug;      /* a build for debugging the test of this id, or NULL */
   gboolean stopped; /* by Stop: its tests have no result */
   guint generation; /* testing.generation when it was made */
   GSubprocess *proc;
@@ -49,6 +51,8 @@ static struct {
   gboolean listed;          /* for this project */
   char *dir;                /* reports go here */
   guint reports;
+  char *debugged; /* the id of the test last debugged: Restart debugs it again */
+  guint finding;  /* looking for a test's source: its generation */
 } testing;
 
 /* Keys and marks --------------------------------------------------------------------------- */
@@ -185,6 +189,15 @@ char *testing_output_text(void)
 
 static void run_keys(GPtrArray *keys);
 
+/* The debug button on a CTest test's row. */
+static void on_row_debug(GtkButton *button, gpointer data G_GNUC_UNUSED)
+{
+  TestCase *test = find_test(g_object_get_data(G_OBJECT(button), "key"));
+
+  if (test)
+    testing_debug_one(test->id);
+}
+
 /* ▶ on a row: its test, or its group's tests. */
 static void on_row_run(GtkButton *button, gpointer data G_GNUC_UNUSED)
 {
@@ -205,8 +218,21 @@ static void on_row_run(GtkButton *button, gpointer data G_GNUC_UNUSED)
   run_keys(keys);
 }
 
+static GtkWidget *row_button(const char *key, const char *icon, const char *tooltip, GCallback clicked)
+{
+  GtkWidget *button = gtk_button_new_from_icon_name(icon);
+
+  gtk_widget_add_css_class(button, "run");
+  gtk_widget_add_css_class(button, "flat");
+  gtk_widget_set_tooltip_text(button, tooltip);
+  gtk_widget_set_sensitive(button, !testing_busy());
+  g_object_set_data_full(G_OBJECT(button), "key", g_strdup(key), g_free);
+  g_signal_connect(button, "clicked", clicked, NULL);
+  return button;
+}
+
 static GtkWidget *row_new(const char *key, const char *arrow, TestState state, const char *name, const char *dim,
-                          gboolean runs)
+                          gboolean runs, gboolean debugs)
 {
   GtkWidget *row = gtk_list_box_row_new(), *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   GtkWidget *mark = gtk_label_new(state_mark(state)), *label = gtk_label_new(name);
@@ -233,16 +259,11 @@ static GtkWidget *row_new(const char *key, const char *arrow, TestState state, c
     gtk_box_append(GTK_BOX(box), extra);
   }
   gtk_widget_set_hexpand(label, TRUE);
-  if (runs) {
-    GtkWidget *run = gtk_button_new_from_icon_name("media-playback-start-symbolic");
-    gtk_widget_add_css_class(run, "run");
-    gtk_widget_add_css_class(run, "flat");
-    gtk_widget_set_tooltip_text(run, key[0] == 't' ? "Run Test" : "Run Tests");
-    gtk_widget_set_sensitive(run, !testing_busy());
-    g_object_set_data_full(G_OBJECT(run), "key", g_strdup(key), g_free);
-    g_signal_connect(run, "clicked", G_CALLBACK(on_row_run), NULL);
-    gtk_box_append(GTK_BOX(box), run);
-  }
+  if (debugs)
+    gtk_box_append(GTK_BOX(box), row_button(key, "system-run-symbolic", "Debug Test", G_CALLBACK(on_row_debug)));
+  if (runs)
+    gtk_box_append(GTK_BOX(box), row_button(key, "media-playback-start-symbolic",
+                                            key[0] == 't' ? "Run Test" : "Run Tests", G_CALLBACK(on_row_run)));
   gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
   g_object_set_data_full(G_OBJECT(row), "key", g_strdup(key), g_free);
   return row;
@@ -315,7 +336,7 @@ static void rebuild(void)
       continue;
     gboolean closed = g_hash_table_contains(testing.collapsed, gkey);
     GtkWidget *row = row_new(gkey, closed ? "▸" : "▾", group_state(first->kind, first->group), first->group,
-                             several ? test_kind_name(first->kind) : NULL, TRUE);
+                             several ? test_kind_name(first->kind) : NULL, TRUE, FALSE);
     gtk_widget_add_css_class(row, "group");
     gtk_list_box_append(testing.list, row);
     if (g_strcmp0(testing.selected, gkey) == 0)
@@ -325,7 +346,8 @@ static void rebuild(void)
       if (test->kind != first->kind || strcmp(test->group, first->group) != 0)
         continue;
       char *key = test_key(test);
-      GtkWidget *child = row_new(key, NULL, test->state, test->name, NULL, TRUE);
+      GtkWidget *child = row_new(key, NULL, test->state, test->name, NULL, TRUE,
+                                 test->kind == TEST_CTEST && test->command && test->command[0]);
       g_object_set_data_full(G_OBJECT(child), "group", g_strdup(gkey), g_free);
       gtk_list_box_append(testing.list, child);
       if (g_strcmp0(testing.selected, key) == 0)
@@ -338,7 +360,7 @@ static void rebuild(void)
       continue;
     char *key = g_strdup_printf("e%d", kind),
          *name = g_strdup_printf("%s: %s", test_kind_name(kind), testing.errors[kind]);
-    GtkWidget *row = row_new(key, NULL, TEST_UNKNOWN, name, NULL, FALSE);
+    GtkWidget *row = row_new(key, NULL, TEST_UNKNOWN, name, NULL, FALSE, FALSE);
     gtk_widget_add_css_class(row, "error");
     gtk_list_box_append(testing.list, row);
     if (g_strcmp0(testing.selected, key) == 0)
@@ -373,6 +395,17 @@ static void on_row_selected(GtkListBox *list G_GNUC_UNUSED, GtkListBoxRow *row, 
   show_output();
 }
 
+/* A double click on a test goes to its source. */
+static void on_list_pressed(GtkGestureClick *gesture G_GNUC_UNUSED, int presses, double x G_GNUC_UNUSED, double y,
+                            gpointer data G_GNUC_UNUSED)
+{
+  GtkListBoxRow *row = presses == 2 ? gtk_list_box_get_row_at_y(testing.list, (int)y) : NULL;
+  TestCase *test = row ? find_test(g_object_get_data(G_OBJECT(row), "key")) : NULL;
+
+  if (test)
+    testing_open_source(test->id);
+}
+
 /* A click on a group opens or closes it. */
 static void on_row_activated(GtkListBox *list, GtkListBoxRow *row, gpointer data G_GNUC_UNUSED)
 {
@@ -392,6 +425,7 @@ static void on_row_activated(GtkListBox *list, GtkListBoxRow *row, gpointer data
 static void job_free(Job *job)
 {
   g_strfreev(job->argv);
+  g_free(job->debug);
   g_free(job->dir);
   if (job->report)
     g_unlink(job->report);
@@ -486,9 +520,15 @@ static void merge_listing(TestKind kind, GPtrArray *listed)
   testing.tests = merged;
 }
 
+static void debug_built(Job *job, const char *out, gboolean ok, gboolean stopped);
+
 static void job_finished(Job *job, const char *out, gboolean ok, gboolean stopped)
 {
   g_set_str(&testing.logs[job->kind], out);
+  if (job->debug) {
+    debug_built(job, out, ok, stopped);
+    return;
+  }
   if (job->listing) {
     GPtrArray *listed = test_parse_list(job->kind, out);
     g_clear_pointer(&testing.errors[job->kind], g_free);
@@ -709,6 +749,145 @@ gboolean testing_run_one(const char *id)
   return TRUE;
 }
 
+/* Debugging a test ------------------------------------------------------------------------------ */
+
+/* The build for debugging is done: gdb starts on the test's command. */
+static void debug_built(Job *job, const char *out, gboolean ok, gboolean stopped)
+{
+  TestCase *test = find_test_id(job->debug);
+  char *why = NULL;
+
+  if (stopped || !test || !test->command)
+    return;
+  if (!ok)
+    why = g_strdup_printf("The build for debugging failed:\n\n%s", out);
+  else if (!test_is_program(test->command[0]))
+    why = g_strdup_printf("%s is not a program gdb can debug.", test->command[0]);
+  if (why) {
+    g_free(test->output);
+    test->output = why;
+    g_set_str(&testing.selected, NULL);
+    testing_select(test->id);
+    return;
+  }
+  g_set_str(&testing.debugged, test->id);
+  debug_launch_test(testing.app, test->command[0], (const char *const *)test->command + 1,
+                    test->cwd ? test->cwd : job->dir, testing_debug_again);
+}
+
+/* After the save: the build, then gdb (debug_built). */
+static void debug_saved(App *t, gpointer data)
+{
+  char *id = data;
+  TestCase *test = find_test_id(id);
+  const TestSource *source = source_of(TEST_CTEST);
+
+  if (!t->closing && testing.panel && !testing_busy() && test && source && !source->hint) {
+    Job *job = g_new0(Job, 1);
+    job->kind = TEST_CTEST;
+    job->dir = g_strdup(source->dir);
+    job->argv = test_build_argv(source);
+    job->debug = g_strdup(id);
+    job->generation = testing.generation;
+    g_queue_push_tail(&testing.waiting, job);
+    start_next();
+    rebuild();
+  }
+  g_free(id);
+}
+
+gboolean testing_debug_one(const char *id)
+{
+  TestCase *test = find_test_id(id);
+
+  if (!test || test->kind != TEST_CTEST || !test->command || !test->command[0] || testing_busy())
+    return FALSE;
+  if (debug_active(testing.app)) { /* says so */
+    debug_launch_test(testing.app, test->command[0], NULL, NULL, NULL);
+    return FALSE;
+  }
+  save_all(testing.app, debug_saved, g_strdup(id));
+  return TRUE;
+}
+
+void testing_debug_again(App *t G_GNUC_UNUSED)
+{
+  if (testing.debugged)
+    testing_debug_one(testing.debugged);
+}
+
+/* Going to a test's source -------------------------------------------------------------------- */
+
+typedef struct {
+  char *root;
+  TestCase *test;
+  guint generation;
+  char *path; /* the answer */
+  int line;
+} Finding;
+
+static void finding_free(gpointer data)
+{
+  Finding *finding = data;
+
+  g_free(finding->root);
+  test_case_free(finding->test);
+  g_free(finding->path);
+  g_free(finding);
+}
+
+static void find_in_thread(GTask *task, gpointer object G_GNUC_UNUSED, gpointer data,
+                           GCancellable *cancellable G_GNUC_UNUSED)
+{
+  Finding *finding = data;
+
+  finding->path = test_find_source(finding->root, finding->test, &finding->line);
+  g_task_return_boolean(task, TRUE);
+}
+
+static void on_found(GObject *object G_GNUC_UNUSED, GAsyncResult *result, gpointer data G_GNUC_UNUSED)
+{
+  Finding *finding = g_task_get_task_data(G_TASK(result));
+
+  if (testing.finding != finding->generation || !testing.panel || testing.app->closing)
+    return; /* the project changed, or another test was asked for */
+  testing.finding = 0;
+  if (finding->path) {
+    open_file_at(testing.app, finding->path, finding->line, 0);
+  } else {
+    char *note = g_strdup_printf("Could not find where %s is defined.", finding->test->name);
+    gtk_label_set_text(testing.note, note);
+    gtk_widget_set_visible(GTK_WIDGET(testing.note), TRUE);
+    g_free(note);
+  }
+}
+
+static guint finding_generation;
+
+gboolean testing_open_source(const char *id)
+{
+  TestCase *test = find_test_id(id);
+  Finding *finding;
+  GTask *task;
+
+  if (!test || !testing.app->project.root)
+    return FALSE;
+  finding = g_new0(Finding, 1);
+  finding->root = g_strdup(testing.app->project.root);
+  finding->test = test_case_copy(test);
+  finding->generation = testing.finding = ++finding_generation;
+  task = g_task_new(NULL, NULL, on_found, NULL);
+  g_task_set_task_data(task, finding, finding_free);
+  g_task_run_in_thread(task, find_in_thread);
+  g_object_unref(task);
+  return TRUE;
+}
+
+gboolean testing_finding(void)
+{
+  return testing.finding != 0;
+}
+
 gboolean testing_select(const char *id)
 {
   TestCase *test = find_test_id(id);
@@ -766,6 +945,8 @@ static void forget(void)
   }
   g_hash_table_remove_all(testing.collapsed);
   g_clear_pointer(&testing.selected, g_free);
+  g_clear_pointer(&testing.debugged, g_free);
+  testing.finding = 0; /* its answer is dropped */
   testing.listed = FALSE;
 }
 
@@ -897,6 +1078,9 @@ GtkWidget *testing_panel(App *t)
   gtk_list_box_set_filter_func(testing.list, row_shown, NULL, NULL);
   g_signal_connect(testing.list, "row-selected", G_CALLBACK(on_row_selected), NULL);
   g_signal_connect(testing.list, "row-activated", G_CALLBACK(on_row_activated), NULL);
+  GtkGesture *click = gtk_gesture_click_new();
+  g_signal_connect(click, "pressed", G_CALLBACK(on_list_pressed), NULL);
+  gtk_widget_add_controller(GTK_WIDGET(testing.list), GTK_EVENT_CONTROLLER(click));
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(list_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(list_scroll), GTK_WIDGET(testing.list));
   gtk_widget_set_vexpand(list_scroll, TRUE);

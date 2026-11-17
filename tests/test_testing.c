@@ -1,9 +1,10 @@
 /* Tests for the Testing panel (src/testing/testing.c): listing when it shows, Run All, a test's
- * output, Run Failed, listing again after a run, Stop, and a project switch while a run goes on.
- * The framework is a fake "go" on PATH (a shell script answering go test's -list and -json), so no
- * real tool is needed; needs a display. */
+ * output, Run Failed, listing again after a run, Stop, a project switch while a run goes on, debugging
+ * a CTest test and going to a test's source. The frameworks are a fake "go", "cmake" and "ctest" on
+ * PATH (shell scripts answering what the panel asks), so no real tool is needed; needs a display. */
 #include "testing/testing.h"
 
+#include "debug/debugger.h"
 #include "editor/editor.h"
 #include "project/toolchain.h"
 #include "util.h"
@@ -16,7 +17,28 @@ void save_all(App *t, SavedFunc then, gpointer data) { then(t, data); }
 char *toolchain_python(App *t G_GNUC_UNUSED, const char *root G_GNUC_UNUSED) { return NULL; }
 char *toolchain_rust_features(App *t G_GNUC_UNUSED) { return NULL; }
 char *toolchain_rust_target(App *t G_GNUC_UNUSED) { return NULL; }
+gboolean debug_active(App *t G_GNUC_UNUSED) { return FALSE; }
 /* clang-format on */
+
+static char *launched; /* "program|args|cwd" of the last debug_launch_test */
+static char *opened;   /* "path:line" of the last open_file_at */
+
+void debug_launch_test(App *t G_GNUC_UNUSED, const char *program, const char *const *args, const char *cwd,
+                       DebugAgain again)
+{
+  char *joined = args ? g_strjoinv(" ", (char **)args) : g_strdup("");
+
+  g_assert_true(again == testing_debug_again);
+  g_free(launched);
+  launched = g_strdup_printf("%s|%s|%s", program, joined, cwd ? cwd : "");
+  g_free(joined);
+}
+
+void open_file_at(App *t G_GNUC_UNUSED, const char *path, int line, int column G_GNUC_UNUSED)
+{
+  g_free(opened);
+  opened = g_strdup_printf("%s:%d", path, line);
+}
 
 static App app;
 static char *tmp, *project;
@@ -39,6 +61,21 @@ static const char fake_go[] =
     "\"Test\":\"%s\"}\\n' \"$1\" \"$1\" \"$2\" \"$1\";; esac; }\n"
     "emit TestOk pass; emit TestBad fail; [ -f extra ] && emit TestNew pass\n"
     "exit 1\n";
+
+/* The fake ctest lists Math.Adds (a real program, run with GoogleTest's filter) and notelf (this
+ * script); the fake cmake builds, failing while the build folder has a file "broken". %s: the program. */
+static const char fake_ctest[] =
+    "#!/bin/sh\n"
+    "printf '{\"kind\":\"ctestInfo\",\"tests\":[{\"name\":\"Math.Adds\",\"command\":[\"%s\",\"--gtest_filter=Math.Adds\"]},"
+    "{\"name\":\"notelf\",\"command\":[\"%%s\"]}]}' \"$0\"\n";
+static const char fake_cmake[] = "#!/bin/sh\n"
+                                 "[ -f broken ] && { echo 'math.cc:1: error: broken'; exit 1; }\n"
+                                 "echo built; exit 0\n";
+
+static gboolean finding(gconstpointer data G_GNUC_UNUSED)
+{
+  return !testing_finding();
+}
 
 static gboolean idle(gconstpointer data G_GNUC_UNUSED)
 {
@@ -169,6 +206,71 @@ static void test_switch(void)
   g_free(cmake);
 }
 
+static void assert_output_has(const char *id, const char *needle)
+{
+  g_assert_true(testing_select(id));
+  char *output = testing_output_text();
+  if (!strstr(output, needle))
+    g_error("no \"%s\" in:\n%s", needle, output);
+  g_free(output);
+}
+
+/* A CTest test is built, then debugged with its command (the program, GoogleTest's filter) in the build
+ * folder; Restart debugs it again; a failed build or a command that is no program says why; a double
+ * click's job finds TEST(Math, Adds). */
+static void test_debug(void)
+{
+  char *cproject = g_build_filename(tmp, "cproject", NULL), *build = g_build_filename(cproject, "build", NULL);
+  char *program = g_find_program_in_path("true"), *expected, *source;
+
+  g_free(write_at(build, "CTestTestfile.cmake", "", -1, 0));
+  g_free(write_at(build, "CMakeCache.txt", "", -1, 0));
+  source = write_at(cproject, "math_test.cc", "#include <gtest/gtest.h>\nTEST(Math, Adds) {}\n", -1, 0);
+  switch_to(cproject);
+  run_until(idle, NULL);
+  assert_text("Math\n  ○ Adds\nctest\n  ○ notelf\n");
+
+  g_assert_true(testing_debug_one("Math.Adds"));
+  run_until(idle, NULL);
+  expected = g_strdup_printf("%s|--gtest_filter=Math.Adds|%s", program, build);
+  g_assert_cmpstr(launched, ==, expected);
+  g_clear_pointer(&launched, g_free);
+  testing_debug_again(&app);
+  run_until(idle, NULL);
+  g_assert_cmpstr(launched, ==, expected);
+  g_clear_pointer(&launched, g_free);
+
+  g_assert_true(testing_debug_one("notelf"));
+  run_until(idle, NULL);
+  g_assert_null(launched);
+  assert_output_has("notelf", "is not a program gdb can debug");
+
+  g_free(write_at(build, "broken", "", -1, 0));
+  g_assert_true(testing_debug_one("Math.Adds"));
+  run_until(idle, NULL);
+  g_assert_null(launched);
+  assert_output_has("Math.Adds", "The build for debugging failed");
+  assert_output_has("Math.Adds", "error: broken");
+  assert_text("Math\n  ○ Adds\nctest\n  ○ notelf\n"); /* no result: not run */
+
+  g_assert_true(testing_open_source("Math.Adds"));
+  run_until(finding, NULL);
+  char *at = g_strdup_printf("%s:2", source);
+  g_assert_cmpstr(opened, ==, at);
+  g_clear_pointer(&opened, g_free);
+  g_assert_true(testing_open_source("notelf")); /* no definition, no add_test line */
+  run_until(finding, NULL);
+  g_assert_null(opened);
+  g_assert_false(testing_debug_one("nothing"));
+
+  g_free(at);
+  g_free(expected);
+  g_free(source);
+  g_free(program);
+  g_free(build);
+  g_free(cproject);
+}
+
 int main(int argc, char **argv)
 {
   GtkWidget *window;
@@ -180,6 +282,11 @@ int main(int argc, char **argv)
   g_free(write_at(project, "go.mod", "module example.com/m\n", -1, 0));
   char *bin = g_build_filename(tmp, "bin", NULL), *path = g_strconcat(bin, ":", g_getenv("PATH"), NULL);
   g_free(write_at(bin, "go", fake_go, -1, 0755));
+  char *truth = g_find_program_in_path("true"), *ctest = g_strdup_printf(fake_ctest, truth);
+  g_free(write_at(bin, "ctest", ctest, -1, 0755));
+  g_free(write_at(bin, "cmake", fake_cmake, -1, 0755));
+  g_free(ctest);
+  g_free(truth);
   g_setenv("PATH", path, TRUE);
   g_free(path);
   g_free(bin);
@@ -197,6 +304,7 @@ int main(int argc, char **argv)
   g_test_add_func("/testing/list-and-run", test_list_and_run);
   g_test_add_func("/testing/stop", test_stop);
   g_test_add_func("/testing/switch", test_switch);
+  g_test_add_func("/testing/debug", test_debug);
   status = g_test_run();
 
   gtk_window_destroy(GTK_WINDOW(window));

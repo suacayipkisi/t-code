@@ -3,8 +3,14 @@
  */
 #include "testing/frameworks.h"
 
+#include <glib/gstdio.h>
 #include <json-glib/json-glib.h>
+#include <stdio.h>
 #include <string.h>
+
+#define SOURCE_MAX_BYTES (2 * 1024 * 1024) /* bigger files are not where tests are defined */
+#define SOURCE_MAX_FILES 50000             /* read when looking for a test's definition */
+#define SOURCE_MAX_DEPTH 16
 
 void test_case_free(gpointer data)
 {
@@ -16,7 +22,25 @@ void test_case_free(gpointer data)
   g_free(test->group);
   g_free(test->name);
   g_free(test->output);
+  g_strfreev(test->command);
+  g_free(test->cwd);
+  g_free(test->file);
   g_free(test);
+}
+
+TestCase *test_case_copy(const TestCase *test)
+{
+  TestCase *copy = g_new0(TestCase, 1);
+
+  *copy = *test;
+  copy->id = g_strdup(test->id);
+  copy->group = g_strdup(test->group);
+  copy->name = g_strdup(test->name);
+  copy->output = g_strdup(test->output);
+  copy->command = g_strdupv(test->command);
+  copy->cwd = g_strdup(test->cwd);
+  copy->file = g_strdup(test->file);
+  return copy;
 }
 
 void test_source_free(gpointer data)
@@ -305,26 +329,64 @@ static TestCase *test_new(TestKind kind, const char *id, const char *group, cons
   return test;
 }
 
+/* Where CTest's backtrace node index says a test was added (its add_test line). */
+static void ctest_origin(TestCase *test, JsonObject *graph, gint64 index)
+{
+  JsonArray *nodes = json_object_has_member(graph, "nodes") ? json_object_get_array_member(graph, "nodes") : NULL;
+  JsonArray *files = json_object_has_member(graph, "files") ? json_object_get_array_member(graph, "files") : NULL;
+  JsonNode *node;
+  JsonObject *object;
+
+  if (!nodes || !files || index < 0 || index >= json_array_get_length(nodes) ||
+      !JSON_NODE_HOLDS_OBJECT(node = json_array_get_element(nodes, index)))
+    return;
+  object = json_node_get_object(node);
+  gint64 file = json_object_has_member(object, "file") ? json_object_get_int_member(object, "file") : -1;
+  if (file < 0 || file >= json_array_get_length(files))
+    return;
+  test->file = g_strdup(json_array_get_string_element(files, file));
+  test->line = json_object_has_member(object, "line") ? (int)json_object_get_int_member(object, "line") : 0;
+}
+
 /* A test of CTest's: GoogleTest's "Suite.Name" goes under its suite, others under their program. */
-static void add_ctest(GPtrArray *tests, JsonObject *entry)
+static void add_ctest(GPtrArray *tests, JsonObject *entry, JsonObject *graph)
 {
   const char *name = json_object_has_member(entry, "name") ? json_object_get_string_member(entry, "name") : NULL;
   JsonArray *command = json_object_has_member(entry, "command") ? json_object_get_array_member(entry, "command") : NULL;
+  JsonArray *properties =
+      json_object_has_member(entry, "properties") ? json_object_get_array_member(entry, "properties") : NULL;
   const char *dot;
+  TestCase *test;
 
   if (!name || !*name)
     return;
   if ((dot = strchr(name, '.')) && dot != name && dot[1]) {
     char *suite = g_strndup(name, dot - name);
-    g_ptr_array_add(tests, test_new(TEST_CTEST, name, suite, dot + 1));
+    test = test_new(TEST_CTEST, name, suite, dot + 1);
     g_free(suite);
   } else {
     char *program = command && json_array_get_length(command)
                         ? g_path_get_basename(json_array_get_string_element(command, 0))
                         : g_strdup("CTest");
-    g_ptr_array_add(tests, test_new(TEST_CTEST, name, program, name));
+    test = test_new(TEST_CTEST, name, program, name);
     g_free(program);
   }
+  if (command && json_array_get_length(command)) {
+    guint n = json_array_get_length(command);
+    test->command = g_new0(char *, n + 1);
+    for (guint i = 0; i < n; i++)
+      test->command[i] = g_strdup(json_array_get_string_element(command, i));
+  }
+  for (guint i = 0; properties && i < json_array_get_length(properties); i++) {
+    JsonNode *node = json_array_get_element(properties, i);
+    JsonObject *property = JSON_NODE_HOLDS_OBJECT(node) ? json_node_get_object(node) : NULL;
+    if (property && json_object_has_member(property, "name") && json_object_has_member(property, "value") &&
+        g_strcmp0(json_object_get_string_member(property, "name"), "WORKING_DIRECTORY") == 0)
+      g_set_str(&test->cwd, json_object_get_string_member(property, "value"));
+  }
+  if (graph && json_object_has_member(entry, "backtrace"))
+    ctest_origin(test, graph, json_object_get_int_member(entry, "backtrace"));
+  g_ptr_array_add(tests, test);
 }
 
 static void parse_ctest(GPtrArray *tests, const char *out)
@@ -336,10 +398,13 @@ static void parse_ctest(GPtrArray *tests, const char *out)
       JSON_NODE_HOLDS_OBJECT(root)) {
     JsonObject *object = json_node_get_object(root);
     JsonArray *list = json_object_has_member(object, "tests") ? json_object_get_array_member(object, "tests") : NULL;
+    JsonObject *graph = json_object_has_member(object, "backtraceGraph")
+                            ? json_object_get_object_member(object, "backtraceGraph")
+                            : NULL;
     for (guint i = 0; list && i < json_array_get_length(list); i++) {
       JsonNode *entry = json_array_get_element(list, i);
       if (JSON_NODE_HOLDS_OBJECT(entry))
-        add_ctest(tests, json_node_get_object(entry));
+        add_ctest(tests, json_node_get_object(entry), graph);
     }
   }
   g_object_unref(parser);
@@ -353,8 +418,9 @@ static void parse_pytest(GPtrArray *tests, char **lines)
     if (!sep || sep == line || g_ascii_isspace(*line) || memchr(line, ' ', sep - line))
       continue;
     char *file = g_strndup(line, sep - line);
-    g_ptr_array_add(tests, test_new(TEST_PYTEST, line, file, sep + 2));
-    g_free(file);
+    TestCase *test = test_new(TEST_PYTEST, line, file, sep + 2);
+    test->file = file;
+    g_ptr_array_add(tests, test);
   }
 }
 
@@ -710,4 +776,264 @@ guint test_apply_results(TestKind kind, GPtrArray *tests, const char *out, const
   }
   g_hash_table_destroy(results);
   return applied;
+}
+
+/* Debugging ---------------------------------------------------------------------------------- */
+
+char **test_build_argv(const TestSource *source)
+{
+  GPtrArray *argv = argv_new();
+
+  argv_add(argv, "cmake");
+  argv_add(argv, "--build");
+  argv_add(argv, source->dir);
+  return argv_end(argv);
+}
+
+gboolean test_is_program(const char *path)
+{
+  char magic[4] = { 0 };
+  FILE *file;
+  gboolean elf;
+
+  if (!path || !g_path_is_absolute(path) || !g_file_test(path, G_FILE_TEST_IS_EXECUTABLE) ||
+      g_file_test(path, G_FILE_TEST_IS_DIR) || !(file = fopen(path, "rb")))
+    return FALSE;
+  elf = fread(magic, 1, sizeof magic, file) == sizeof magic && memcmp(magic,
+                                                                      "\x7f"
+                                                                      "ELF",
+                                                                      4) == 0;
+  fclose(file);
+  return elf;
+}
+
+/* Where a test is defined -------------------------------------------------------------------- */
+
+/* GoogleTest's suite and test of a CTest name: "Prefix/Suite.Name/0" or "Suite/0.Name" (parameterized
+ * and typed tests) give Suite and Name; FALSE for a name without a dot. */
+static gboolean gtest_parts(const char *id, char **suite, char **name)
+{
+  const char *dot = strchr(id, '.'), *start = id, *end;
+
+  if (!dot || dot == id || !dot[1])
+    return FALSE;
+  for (const char *c = id; c < dot; c++) /* a prefix of instantiation */
+    if (*c == '/' && c + 1 < dot && !g_ascii_isdigit(c[1]))
+      start = c + 1;
+  for (end = start; end < dot && *end != '/'; end++)
+    ;
+  *suite = g_strndup(start, end - start);
+  end = strchr(dot + 1, '/');
+  *name = end ? g_strndup(dot + 1, end - dot - 1) : g_strdup(dot + 1);
+  return **suite && **name;
+}
+
+/* The pattern of the line that defines test, or NULL. */
+static char *definition_pattern(const TestCase *test)
+{
+  char *suite = NULL, *name = NULL, *pattern = NULL;
+  const char *start, *end;
+
+  switch (test->kind) {
+    case TEST_CTEST:
+      if (gtest_parts(test->id, &suite, &name)) {
+        char *s = g_regex_escape_string(suite, -1), *n = g_regex_escape_string(name, -1);
+        pattern = g_strdup_printf("^[ \\t]*(TYPED_)?TEST(_F|_P)?\\s*\\(\\s*%s\\s*,\\s*%s\\s*\\)", s, n);
+        g_free(n);
+        g_free(s);
+      }
+      break;
+    case TEST_PYTEST: /* "file.py::Class::test_a[1]" */
+      start = g_strrstr(test->id, "::");
+      start = start ? start + 2 : test->id;
+      end = strchr(start, '[');
+      name = g_strndup(start, end ? (gsize)(end - start) : strlen(start));
+      break;
+    case TEST_GO: /* "package\tTestName/subtest" */
+      start = strchr(test->id, '\t');
+      start = start ? start + 1 : test->id;
+      end = strchr(start, '/');
+      name = g_strndup(start, end ? (gsize)(end - start) : strlen(start));
+      break;
+    case TEST_CARGO: /* "module::name" */
+      start = g_strrstr(test->id, "::");
+      name = g_strdup(start ? start + 2 : test->id);
+      break;
+    default: break;
+  }
+  if (!pattern && name && *name) {
+    char *n = g_regex_escape_string(name, -1);
+    if (test->kind == TEST_PYTEST)
+      pattern = g_strdup_printf("^[ \\t]*(async\\s+)?def\\s+%s\\s*\\(", n);
+    else if (test->kind == TEST_GO)
+      pattern = g_strdup_printf("^func\\s+%s\\s*\\(", n);
+    else if (test->kind == TEST_CARGO)
+      pattern = g_strdup_printf("^[ \\t]*(pub(\\([^)]*\\))?\\s+)?(async\\s+)?fn\\s+%s\\s*[<(]", n);
+    g_free(n);
+  }
+  g_free(suite);
+  g_free(name);
+  return pattern;
+}
+
+static int line_in(GRegex *regex, const char *text)
+{
+  GMatchInfo *match = NULL;
+  int line = 0, start = 0;
+
+  if (g_regex_match(regex, text, 0, &match) && g_match_info_fetch_pos(match, 0, &start, NULL)) {
+    line = 1;
+    for (const char *c = text; c < text + start; c++)
+      line += *c == '\n';
+  }
+  g_match_info_free(match);
+  return line;
+}
+
+static GRegex *definition_regex(const TestCase *test)
+{
+  char *pattern = definition_pattern(test);
+  GRegex *regex = pattern ? g_regex_new(pattern, G_REGEX_MULTILINE | G_REGEX_RAW, 0, NULL) : NULL;
+
+  g_free(pattern);
+  return regex;
+}
+
+int test_definition_line(const TestCase *test, const char *text)
+{
+  GRegex *regex = definition_regex(test);
+  int line = regex && text ? line_in(regex, text) : 0;
+
+  if (regex)
+    g_regex_unref(regex);
+  return line;
+}
+
+/* Whether a file of this name may define a test of kind. */
+static gboolean source_of_kind(TestKind kind, const char *name)
+{
+  static const char *const cpp[] = { ".cc", ".cpp", ".cxx", ".c++", ".C", ".c", NULL };
+
+  switch (kind) {
+    case TEST_CTEST:
+      for (int i = 0; cpp[i]; i++)
+        if (g_str_has_suffix(name, cpp[i]))
+          return TRUE;
+      return FALSE;
+    case TEST_PYTEST: return g_str_has_suffix(name, ".py");
+    case TEST_GO: return g_str_has_suffix(name, "_test.go");
+    case TEST_CARGO: return g_str_has_suffix(name, ".rs");
+    default: return FALSE;
+  }
+}
+
+/* Folders where no test is defined: hidden ones, dependencies, build output (a CMake build folder). */
+static gboolean skipped_folder(const char *path, const char *name)
+{
+  static const char *const names[] = { "node_modules", "target", "__pycache__", "venv", "vendor", NULL };
+
+  if (name[0] == '.' || g_strv_contains(names, name))
+    return TRUE;
+  char *cache = g_build_filename(path, "CMakeCache.txt", NULL);
+  gboolean build = g_file_test(cache, G_FILE_TEST_EXISTS);
+  g_free(cache);
+  return build;
+}
+
+typedef struct {
+  const TestCase *test;
+  GRegex *regex;
+  const char *root;
+  guint files; /* read so far */
+  char *found; /* the first file defining it */
+  int line;
+  gboolean done; /* go: found in the folder of its package */
+} Search;
+
+/* Whether the folder at path (relative rel) is that of the go package of id ("example.com/m/sub"). */
+static gboolean go_package_folder(const char *id, const char *rel)
+{
+  const char *tab = strchr(id, '\t');
+  char *package = tab ? g_strndup(id, tab - id) : g_strdup(id);
+  gboolean same = *rel ? g_str_has_suffix(package, rel) &&
+                             (strlen(package) == strlen(rel) || package[strlen(package) - strlen(rel) - 1] == '/')
+                       : FALSE;
+
+  g_free(package);
+  return same;
+}
+
+static void search_folder(Search *search, const char *path, int depth)
+{
+  GDir *dir = depth <= SOURCE_MAX_DEPTH ? g_dir_open(path, 0, NULL) : NULL;
+  GPtrArray *names = g_ptr_array_new_with_free_func(g_free);
+  const char *name;
+
+  if (!dir) {
+    g_ptr_array_free(names, TRUE);
+    return;
+  }
+  while ((name = g_dir_read_name(dir)))
+    g_ptr_array_add(names, g_strdup(name));
+  g_dir_close(dir);
+  g_ptr_array_sort_values(names, (GCompareFunc)g_strcmp0); /* the same answer each time */
+  for (guint pass = 0; pass < 2; pass++)                   /* the folder's files, then its folders */
+    for (guint i = 0; i < names->len && !search->done && search->files < SOURCE_MAX_FILES; i++) {
+      char *child = g_build_filename(path, names->pdata[i], NULL);
+      gboolean folder = g_file_test(child, G_FILE_TEST_IS_DIR) && !g_file_test(child, G_FILE_TEST_IS_SYMLINK);
+      if (pass == 0 && !folder && source_of_kind(search->test->kind, names->pdata[i])) {
+        char *text = NULL;
+        gsize size = 0;
+        search->files++;
+        GStatBuf st;
+        if (g_stat(child, &st) == 0 && st.st_size <= SOURCE_MAX_BYTES &&
+            g_file_get_contents(child, &text, &size, NULL)) {
+          int line = line_in(search->regex, text);
+          const char *rel = path + strlen(search->root) + (path[strlen(search->root)] == '/');
+          if (line && search->test->kind == TEST_GO && go_package_folder(search->test->id, rel)) {
+            g_set_str(&search->found, child);
+            search->line = line;
+            search->done = TRUE;
+          } else if (line && !search->found) {
+            search->found = g_strdup(child);
+            search->line = line;
+            search->done = search->test->kind != TEST_GO;
+          }
+        }
+        g_free(text);
+      } else if (pass == 1 && folder && !skipped_folder(child, names->pdata[i])) {
+        search_folder(search, child, depth + 1);
+      }
+      g_free(child);
+    }
+  g_ptr_array_free(names, TRUE);
+}
+
+char *test_find_source(const char *root, const TestCase *test, int *line)
+{
+  Search search = { test, NULL, root, 0, NULL, 0, FALSE };
+  char *listed = NULL;
+
+  *line = 0;
+  if (test->file) /* pytest's file is relative to the project; CTest's add_test absolute */
+    listed = g_path_is_absolute(test->file) ? g_strdup(test->file) : g_build_filename(root, test->file, NULL);
+  if (listed && test->kind == TEST_PYTEST) {
+    char *text = NULL;
+    if (g_file_get_contents(listed, &text, NULL, NULL))
+      *line = test_definition_line(test, text);
+    g_free(text);
+    return listed;
+  }
+  if ((search.regex = definition_regex(test))) {
+    search_folder(&search, root, 0);
+    g_regex_unref(search.regex);
+  }
+  if (search.found) {
+    g_free(listed);
+    *line = search.line;
+    return search.found;
+  }
+  if (listed) /* CTest: where add_test is */
+    *line = test->line;
+  return listed;
 }

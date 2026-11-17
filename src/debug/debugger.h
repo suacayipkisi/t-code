@@ -44,6 +44,14 @@ void debug_select_program(App *t);
  * the program, or the folder of a Makefile, whose program is asked for once. */
 void debug_launch(App *t, const char *path);
 
+/* How Restart starts a session again (builds and launches what it debugged). */
+typedef void (*DebugAgain)(App *t);
+
+/* Debugs program with args (NULL-terminated; NULL: none) in cwd, already built (a test of the Testing
+ * panel's); again: what Restart does instead of F5. Nothing when a session goes on or gdb is missing
+ * (the Debug panel says why). */
+void debug_launch_test(App *t, const char *program, const char *const *args, const char *cwd, DebugAgain again);
+
 /* The build for debugging failed (the control socket's "debug-failed <dir>"). */
 void debug_build_failed(App *t);
 

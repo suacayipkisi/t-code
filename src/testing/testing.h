@@ -1,7 +1,8 @@
 /*
  * The Testing panel: the project's tests (CTest, pytest, go test, cargo test; see frameworks.h) as a
  * tree of groups (a suite, file, package or module) and tests, each with its last result; ▶ on a row
- * runs it, Run All, Run Failed, Stop and Refresh in the header; a selected test's output shows under
+ * runs it (a CTest test also has a debug button: built, then run under gdb), a double click goes to
+ * its source, Run All, Run Failed, Stop and Refresh in the header; a selected test's output shows under
  * the tree. Listing happens only when asked for: the panel shown first, Refresh, after a run (go and
  * cargo compile to list). One command runs at a time, in the background; the list lives in memory and
  * goes with the project.
@@ -36,6 +37,19 @@ char *testing_text(void);
 
 /* The text the output view shows now. */
 char *testing_output_text(void);
+
+/* Builds the CTest project, then debugs the test with id (its command under gdb); FALSE when it is
+ * not a CTest test, a command runs or a debugging session goes on. */
+gboolean testing_debug_one(const char *id);
+
+/* Debugs the test last debugged again (the debugger's Restart). */
+void testing_debug_again(App *t);
+
+/* Opens the file defining the test with id at its line (found in a thread); FALSE when there is none. */
+gboolean testing_open_source(const char *id);
+
+/* Whether a test's source is being looked for. */
+gboolean testing_finding(void);
 
 /* Selects the row of the test with id (shows its output); FALSE when there is none. */
 gboolean testing_select(const char *id);

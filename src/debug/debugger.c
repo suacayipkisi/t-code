@@ -58,6 +58,7 @@ struct Debugger {
   gboolean crashed;    /* it stopped on a crash: its end is that crash's */
   GHashTable *sent;    /* gdb's breakpoint id -> Sent: where it was asked for */
   gboolean restart;    /* build and start again once ended */
+  DebugAgain again;    /* how: NULL for F5's program */
   guint end_id;        /* gdb is killed when it does not end the program in time */
 };
 
@@ -162,6 +163,7 @@ static void finish(Debugger *s)
 {
   App *t = s->app;
   gboolean again = s->restart;
+  DebugAgain how = s->again;
 
   t->debug.session = NULL;
   g_clear_handle_id(&s->end_id, g_source_remove);
@@ -177,8 +179,12 @@ static void finish(Debugger *s)
     disassembly_ended(t);
   }
   update_ui(t, "Not debugging");
-  if (again && !t->closing)
-    debug_start_or_continue(t);
+  if (again && !t->closing) {
+    if (how)
+      how(t);
+    else
+      debug_start_or_continue(t);
+  }
 }
 
 /* gdb did not end the program in time. */
@@ -559,8 +565,8 @@ static void on_launched(gpointer data, JsonNode *body G_GNUC_UNUSED, const char 
   }
 }
 
-/* Starts gdb on program, to run in cwd. */
-static void start(App *t, const char *program, const char *cwd)
+/* Starts gdb on program with args (NULL: none), to run in cwd; again: how Restart starts it again. */
+static void start(App *t, const char *program, const char *const *args, const char *cwd, DebugAgain again)
 {
   char *tty = g_strdup_printf("set inferior-tty %s", ui.tty ? ui.tty : "");
   /* Intel's syntax ("mov eax, 1"), as most teaching material has it */
@@ -571,9 +577,17 @@ static void start(App *t, const char *program, const char *cwd)
   char **env = sanitizer_env(g_get_environ());
   GError *error = NULL;
   Debugger *s = g_new0(Debugger, 1);
-  char *args, *qprogram = json_quote(program), *qcwd = json_quote(cwd);
+  char *launch, *qprogram = json_quote(program), *qcwd = json_quote(cwd);
+  GString *qargs = g_string_new("[");
 
+  for (int i = 0; args && args[i]; i++) {
+    char *quoted = json_quote(args[i]);
+    g_string_append_printf(qargs, "%s%s", i ? "," : "", quoted);
+    g_free(quoted);
+  }
+  g_string_append_c(qargs, ']');
   s->app = t;
+  s->again = again;
   s->state = STARTING;
   s->thread = 1;
   s->sent = g_hash_table_new_full(g_int64_hash, g_int64_equal, g_free, sent_free);
@@ -591,13 +605,14 @@ static void start(App *t, const char *program, const char *cwd)
     t->debug.session = s;
     gboolean inside = g_str_has_prefix(program, t->project.root) && program[strlen(t->project.root)] == '/';
     say(t, FALSE, "▶ %s", inside ? program + strlen(t->project.root) + 1 : program);
-    args = g_strdup_printf("{\"program\":%s,\"cwd\":%s}", qprogram, qcwd);
-    dap_request(s->dap, "launch", args, on_launched, s); /* answered once configurationDone went */
-    g_free(args);
+    launch = g_strdup_printf("{\"program\":%s,\"args\":%s,\"cwd\":%s}", qprogram, qargs->str, qcwd);
+    dap_request(s->dap, "launch", launch, on_launched, s); /* answered once configurationDone went */
+    g_free(launch);
     update_ui(t, "Starting…");
   }
   g_clear_error(&error);
   g_strfreev(env);
+  g_string_free(qargs, TRUE);
   g_free(qcwd);
   g_free(qprogram);
   g_free(tty);
@@ -688,7 +703,7 @@ static void program_choose(App *t, const char *path)
   session_set_project_value(t, "debug-program", path);
   if (ui.cwd && !t->debug.session) { /* a build waits for it */
     char *cwd = g_steal_pointer(&ui.cwd);
-    start(t, path, cwd);
+    start(t, path, NULL, cwd, NULL);
     g_free(cwd);
   }
 }
@@ -735,9 +750,28 @@ void debug_launch(App *t, const char *path)
     return;
   }
   cwd = g_steal_pointer(&ui.cwd);
-  start(t, program, cwd);
+  start(t, program, NULL, cwd, NULL);
   g_free(cwd);
   g_free(program);
+}
+
+void debug_launch_test(App *t, const char *program, const char *const *args, const char *cwd, DebugAgain again)
+{
+  char *gdb;
+
+  if (t->debug.session) {
+    show_sidebar_page(t, "debug");
+    say(t, TRUE, "A debugging session goes on: stop it first (Shift+F5).");
+    return;
+  }
+  if (!(gdb = g_find_program_in_path("gdb"))) {
+    show_sidebar_page(t, "debug");
+    say(t, TRUE, "gdb is not installed: install the package \"gdb\" (dnf, apt, pacman, xbps-install) to debug.");
+    return;
+  }
+  g_free(gdb);
+  g_clear_pointer(&ui.cwd, g_free); /* an F5 build no longer waits */
+  start(t, program, args, cwd, again);
 }
 
 /* The commands ------------------------------------------------------------------------------- */

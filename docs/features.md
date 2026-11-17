@@ -163,7 +163,12 @@ their module). Each test shows its last result: ✓ passed, ✗ failed, - skippe
 command palette). Runs save the changed files first and go on in the background, one at a time; CTest
 builds before it runs. A selected test's output (and why it failed) shows under the tree; a group shows its
 framework's last command output. Tests are listed only when asked for: when the panel first shows,
-on Refresh, and after a run (go and cargo compile to list). The list stays while the project is open.
+on Refresh, and after a run (go and cargo compile to list). The list stays while the project is open. A
+CTest test also has a debug button (shown on hover): the project is built, then gdb runs the test's
+command (a GoogleTest case with its `--gtest_filter`) in the folder CTest would, stopping at your
+breakpoints; Restart builds and debugs that test again. A double click on a test opens its source at
+the line that defines it (`TEST(Suite, Name)`, `def test_…`, `func Test…`, `fn …`; a CTest test
+without one opens its `add_test` line).
 
 **Git.** The editor marks changed lines in the gutter (blue changed, green added, red
 where lines were deleted), following new commits by itself. **Compare with HEAD** (`Ctrl+Alt+D`)

@@ -116,6 +116,152 @@ static void test_sources_found(void)
 
 /* Recorded output ---------------------------------------------------------------------------- */
 
+/* CTest's listing gives what debugging needs: the command, its WORKING_DIRECTORY, the add_test line. */
+static void test_ctest_debug_info(void)
+{
+  static const char list[] =
+      "{\"backtraceGraph\":{\"commands\":[\"add_test\"],\"files\":[\"/p/CMakeLists.txt\"],"
+      "\"nodes\":[{\"file\":0},{\"command\":0,\"file\":0,\"line\":7,\"parent\":0}]},\"kind\":\"ctestInfo\","
+      "\"tests\":[{\"backtrace\":1,\"name\":\"Math.Adds\",\"command\":[\"/p/build/unit\",\"--gtest_filter=Math.Adds\"],"
+      "\"properties\":[{\"name\":\"TIMEOUT\",\"value\":5},{\"name\":\"WORKING_DIRECTORY\",\"value\":\"/p/data\"}]},"
+      "{\"name\":\"bare\"}]}";
+  GPtrArray *tests = test_parse_list(TEST_CTEST, list);
+  TestCase *adds = find(tests, "Math.Adds"), *bare = find(tests, "bare");
+  TestSource source = { TEST_CTEST, "/p/build", NULL };
+  char **argv = test_build_argv(&source);
+
+  g_assert_cmpuint(g_strv_length(adds->command), ==, 2);
+  g_assert_cmpstr(adds->command[1], ==, "--gtest_filter=Math.Adds");
+  g_assert_cmpstr(adds->cwd, ==, "/p/data");
+  g_assert_cmpstr(adds->file, ==, "/p/CMakeLists.txt");
+  g_assert_cmpint(adds->line, ==, 7);
+  TestCase *copy = test_case_copy(adds);
+  g_assert_cmpstr(copy->command[0], ==, "/p/build/unit");
+  g_assert_cmpstr(copy->file, ==, adds->file);
+  test_case_free(copy);
+  g_assert_null(bare->command);
+  g_assert_null(bare->cwd);
+  g_assert_null(bare->file);
+  g_ptr_array_unref(tests);
+  char *joined = g_strjoinv(" ", argv);
+  g_assert_cmpstr(joined, ==, "cmake --build /p/build");
+  g_free(joined);
+  g_strfreev(argv);
+
+  g_assert_false(test_is_program("/p/build/unit"));
+  char *script = path_of("script.sh");
+  g_assert_true(g_file_set_contents(script, "#!/bin/sh\n", -1, NULL));
+  g_chmod(script, 0755);
+  g_assert_false(test_is_program(script)); /* not ELF */
+  g_free(script);
+  char *sh = g_find_program_in_path("sh");
+  g_assert_true(test_is_program(sh));
+  g_free(sh);
+}
+
+/* The line defining a test, in each language. */
+static void test_definition_lines(void)
+{
+  TestCase gtest = { TEST_CTEST, "Math.Adds", "Math", "Adds", 0, NULL, NULL, NULL, NULL, 0 },
+           param = { TEST_CTEST, "Big/Math.Adds/3", "Big/Math", "Adds/3", 0, NULL, NULL, NULL, NULL, 0 },
+           typed = { TEST_CTEST, "Math/0.Adds", "Math/0", "Adds", 0, NULL, NULL, NULL, NULL, 0 },
+           py = { TEST_PYTEST,
+                  "t/test_a.py::TestK::test_two[1]",
+                  "t/test_a.py",
+                  "TestK::test_two[1]",
+                  0,
+                  NULL,
+                  NULL,
+                  NULL,
+                  NULL,
+                  0 },
+           go = { TEST_GO, "example.com/m\tTestAdd/small", "example.com/m", "TestAdd/small", 0, NULL, NULL, NULL, NULL,
+                  0 },
+           rs = { TEST_CARGO, "tests::adds", "tests", "adds", 0, NULL, NULL, NULL, NULL, 0 };
+
+  g_assert_cmpint(test_definition_line(&gtest, "#include <x>\nTEST(Math, AddsMore) {}\n TEST_F( Math ,Adds ) {\n"), ==,
+                  3);
+  g_assert_cmpint(test_definition_line(&param, "\nTEST_P(Math, Adds) {}\n"), ==, 2);
+  g_assert_cmpint(test_definition_line(&typed, "TYPED_TEST(Math, Adds) {}\n"), ==, 1);
+  g_assert_cmpint(test_definition_line(&gtest, "// TEST(Math, Adds)\n"), ==, 0);
+  g_assert_cmpint(
+      test_definition_line(&py, "class TestK:\n    def test_twos(self):\n    async def test_two(self, x):\n"), ==, 3);
+  g_assert_cmpint(
+      test_definition_line(&go, "package m\n\nfunc TestAddAll(t *testing.T) {}\nfunc TestAdd(t *testing.T) {\n"), ==,
+      4);
+  g_assert_cmpint(test_definition_line(&rs, "mod tests {\n    #[test]\n    fn adds() {}\n}\n"), ==, 3);
+  g_assert_cmpint(test_definition_line(&rs, "pub(crate) async fn adds<T>() {}\n"), ==, 1);
+  g_assert_cmpint(test_definition_line(&rs, "fn adds_more() {}\n"), ==, 0);
+}
+
+/* A test's file found in the project: build folders and dependencies skipped; go prefers its package's
+ * folder; pytest's file comes from its id; CTest falls back to add_test. */
+static void test_find_sources(void)
+{
+  TestCase
+      gtest = { TEST_CTEST, "Math.Adds", "Math", "Adds", 0, NULL, NULL, NULL, NULL, 0 },
+      plain = { TEST_CTEST, "plain", "plain", "plain", 0, NULL, NULL, NULL, NULL, 0 },
+      py = { TEST_PYTEST, "tests/test_a.py::test_one", "tests/test_a.py", "test_one", 0, NULL, NULL, NULL, NULL, 0 },
+      go = { TEST_GO, "example.com/m/sub\tTestAdd", "example.com/m/sub", "TestAdd", 0, NULL, NULL, NULL, NULL, 0 },
+      rs = { TEST_CARGO, "tests::adds", "tests", "adds", 0, NULL, NULL, NULL, NULL, 0 };
+  char *found, *expected;
+  int line = -1;
+
+  put("find/build/CMakeCache.txt", "");
+  put("find/build/gen.cc", "TEST(Math, Adds) {}\n");
+  put("find/node_modules/x.py", "def test_one():\n");
+  put("find/.hidden/a.cc", "TEST(Math, Adds) {}\n");
+  put("find/src/math_test.cc", "\n\nTEST(Math, Adds) {}\n");
+  put("find/tests/test_a.py", "import os\n\ndef test_one():\n    pass\n");
+  put("find/a_test.go", "package m\nfunc TestAdd(t *testing.T) {}\n");
+  put("find/sub/b_test.go", "package sub\n\nfunc TestAdd(t *testing.T) {}\n");
+  put("find/target/debug/x.rs", "fn adds() {}\n");
+  put("find/src/lib.rs", "#[cfg(test)]\nmod tests {\n    #[test]\n    fn adds() {}\n}\n");
+  char *root = path_of("find");
+
+  found = test_find_source(root, &gtest, &line);
+  expected = path_of("find/src/math_test.cc");
+  g_assert_cmpstr(found, ==, expected);
+  g_assert_cmpint(line, ==, 3);
+  g_free(expected);
+  g_free(found);
+
+  found = test_find_source(root, &py, &line);
+  expected = path_of("find/tests/test_a.py");
+  py.file = (char *)"tests/test_a.py";
+  g_free(found);
+  found = test_find_source(root, &py, &line);
+  g_assert_cmpstr(found, ==, expected);
+  g_assert_cmpint(line, ==, 3);
+  g_free(expected);
+  g_free(found);
+
+  found = test_find_source(root, &go, &line);
+  expected = path_of("find/sub/b_test.go");
+  g_assert_cmpstr(found, ==, expected);
+  g_assert_cmpint(line, ==, 3);
+  g_free(expected);
+  g_free(found);
+
+  found = test_find_source(root, &rs, &line);
+  expected = path_of("find/src/lib.rs");
+  g_assert_cmpstr(found, ==, expected);
+  g_assert_cmpint(line, ==, 4);
+  g_free(expected);
+  g_free(found);
+
+  g_assert_null(test_find_source(root, &plain, &line)); /* no add_test known, no pattern */
+  plain.file = (char *)"/p/CMakeLists.txt";
+  plain.line = 9;
+  found = test_find_source(root, &plain, &line);
+  g_assert_cmpstr(found, ==, "/p/CMakeLists.txt");
+  g_assert_cmpint(line, ==, 9);
+  g_free(found);
+  gtest.id = (char *)"Math.Missing";
+  g_assert_null(test_find_source(root, &gtest, &line));
+  g_free(root);
+}
+
 static void test_ctest_recorded(void)
 {
   static const char list[] = "{\"kind\":\"ctestInfo\",\"tests\":[{\"name\":\"ok\",\"command\":[\"/p/build/ok\"]},"
@@ -227,8 +373,8 @@ static void test_commands(void)
 {
   TestSource ctest = { TEST_CTEST, "/p/build", NULL }, go = { TEST_GO, "/p", NULL }, cargo = { TEST_CARGO, "/p", NULL };
   GPtrArray *tests = g_ptr_array_new();
-  TestCase a = { TEST_CTEST, "Math.Adds(1)", "Math", "Adds(1)", 0, NULL },
-           b = { TEST_CTEST, "ok", "ok", "ok", 0, NULL };
+  TestCase a = { TEST_CTEST, "Math.Adds(1)", "Math", "Adds(1)", 0, NULL, NULL, NULL, NULL, 0 },
+           b = { TEST_CTEST, "ok", "ok", "ok", 0, NULL, NULL, NULL, NULL, 0 };
   char **argv;
 
   g_ptr_array_add(tests, &a);
@@ -242,9 +388,9 @@ static void test_commands(void)
   g_assert_null(argv[6]);
   g_strfreev(argv);
 
-  TestCase c = { TEST_GO, "m/a\tTestA", "m/a", "TestA", 0, NULL },
-           d = { TEST_GO, "m/a\tTestB", "m/a", "TestB", 0, NULL },
-           e = { TEST_GO, "m/b\tTestC", "m/b", "TestC", 0, NULL };
+  TestCase c = { TEST_GO, "m/a\tTestA", "m/a", "TestA", 0, NULL, NULL, NULL, NULL, 0 },
+           d = { TEST_GO, "m/a\tTestB", "m/a", "TestB", 0, NULL, NULL, NULL, NULL, 0 },
+           e = { TEST_GO, "m/b\tTestC", "m/b", "TestC", 0, NULL, NULL, NULL, NULL, 0 };
   g_ptr_array_set_size(tests, 0);
   g_ptr_array_add(tests, &c);
   g_ptr_array_add(tests, &d);
@@ -255,7 +401,7 @@ static void test_commands(void)
   g_free(joined);
   g_strfreev(argv);
 
-  TestCase f = { TEST_CARGO, "tests::ok", "tests", "ok", 0, NULL };
+  TestCase f = { TEST_CARGO, "tests::ok", "tests", "ok", 0, NULL, NULL, NULL, NULL, 0 };
   g_ptr_array_set_size(tests, 0);
   g_ptr_array_add(tests, &f);
   argv = test_run_argv(&cargo, NULL, " --features 'a b'", tests, NULL);
@@ -334,6 +480,15 @@ static void test_ctest_real(void)
   g_ptr_array_unref(tests);
   tests = list_and_run(source, NULL, NULL);
   assert_state(tests, "ok", TEST_PASSED, "fine");
+  /* what debugging it needs: the program (built now), where add_test is */
+  TestCase *ok = find(tests, "ok");
+  char *program = path_of("c/build/ok"), *lists = path_of("c/CMakeLists.txt");
+  g_assert_cmpstr(ok->command[0], ==, program);
+  g_assert_true(test_is_program(ok->command[0]));
+  g_assert_cmpstr(ok->file, ==, lists);
+  g_assert_cmpint(ok->line, ==, 6);
+  g_free(lists);
+  g_free(program);
   g_ptr_array_unref(tests);
   g_ptr_array_unref(sources);
   g_free(build);
@@ -422,6 +577,9 @@ int main(int argc, char **argv)
   g_setenv("CARGO_TARGET_DIR", tmp, TRUE); /* not in the test's folder: removed with it anyway */
   g_test_add_func("/frameworks/sources", test_sources_found);
   g_test_add_func("/frameworks/ctest-recorded", test_ctest_recorded);
+  g_test_add_func("/frameworks/ctest-debug-info", test_ctest_debug_info);
+  g_test_add_func("/frameworks/definition-lines", test_definition_lines);
+  g_test_add_func("/frameworks/find-source", test_find_sources);
   g_test_add_func("/frameworks/pytest-recorded", test_pytest_recorded);
   g_test_add_func("/frameworks/go-recorded", test_go_recorded);
   g_test_add_func("/frameworks/cargo-recorded", test_cargo_recorded);

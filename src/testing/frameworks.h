@@ -19,6 +19,11 @@ typedef struct {
   char *name;      /* its own row */
   TestState state; /* TEST_UNKNOWN until it ran */
   char *output;    /* the last run's: its output and why it failed, or NULL */
+  char **command;  /* CTest's: the command it runs (what gdb debugs), or NULL */
+  char *cwd;       /* CTest's: where it runs (its WORKING_DIRECTORY), or NULL: the build folder */
+  char *file;      /* where the listing says it is defined (CTest's add_test, pytest's file: relative to the
+                      project), or NULL */
+  int line;        /* in file (1-based), 0: unknown */
 } TestCase;
 
 /* A framework found in a project. */
@@ -54,6 +59,22 @@ char **test_run_argv(const TestSource *source, const char *python, const char *c
  * command's output, report the report file's text (NULL: none). Returns how many got a result. */
 guint test_apply_results(TestKind kind, GPtrArray *tests, const char *out, const char *report);
 
-/* Frees a TestCase / TestSource. */
+/* The command that builds a CTest project before gdb debugs one of its tests. */
+char **test_build_argv(const TestSource *source);
+
+/* Whether path is a program gdb can debug (an ELF file). */
+gboolean test_is_program(const char *path);
+
+/* The line (1-based) of text, a source file's, where test is defined (GoogleTest's TEST(Suite, Name),
+ * pytest's def, go's func, Rust's fn), 0: none. */
+int test_definition_line(const TestCase *test, const char *text);
+
+/* Where test is defined in the project at root: the file (absolute; g_free) and *line (0: unknown), or
+ * NULL. Reads the source files of its language when the listing did not say: slow on a big project,
+ * call it in a thread. */
+char *test_find_source(const char *root, const TestCase *test, int *line);
+
+/* Copies / frees a TestCase; frees a TestSource. */
+TestCase *test_case_copy(const TestCase *test);
 void test_case_free(gpointer test);
 void test_source_free(gpointer source);

@@ -2694,6 +2694,65 @@ static void test_debugging(void)
   g_free(gcc);
 }
 
+static int debugged_again;
+
+static void debug_again(App *t G_GNUC_UNUSED)
+{
+  debugged_again++;
+}
+
+/* A test's program runs under gdb with its arguments, in the folder given; Restart asks the test's own
+ * way of starting again instead of F5's build. */
+static void test_debugging_arguments(void)
+{
+  static const char source[] = "#include <string.h>\n"                                /* 1 */
+                               "int main(int argc, char **argv)\n"                    /* 2 */
+                               "{\n"                                                  /* 3 */
+                               "  int chosen = 0;\n"                                  /* 4 */
+                               "  if (argc > 1 && strcmp(argv[1], \"--yes\") == 0)\n" /* 5 */
+                               "    chosen = 1;\n"                                    /* 6 */
+                               "  return !chosen;\n"                                  /* 7 */
+                               "}\n";                                                 /* 8 */
+  char *gdb = g_find_program_in_path("gdb"), *gcc = g_find_program_in_path("gcc");
+
+  if (!gdb || !gcc) {
+    g_test_skip("no gdb or gcc");
+    g_free(gdb);
+    g_free(gcc);
+    return;
+  }
+  char *path = g_build_filename(app.project.root, "args.c", NULL),
+       *exe = g_build_filename(app.project.root, "args", NULL);
+  const char *cc[] = { "gcc", "-g", "-O0", "-o", exe, path, NULL };
+  const char *args[] = { "--yes", NULL };
+  int status = -1;
+  g_assert_true(g_file_set_contents(path, source, -1, NULL));
+  g_assert_true(g_spawn_sync(NULL, (char **)cc, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, &status, NULL));
+  g_assert_cmpint(status, ==, 0);
+
+  open_file(&app, path);
+  run_until(has_tab, path);
+  Tab *tab = find_tab(&app, TAB_EDITOR, path);
+  while (tab->view->loading)
+    g_main_context_iteration(NULL, FALSE);
+  breakpoint_toggle(tab, 5); /* line 6: only with --yes */
+
+  debugged_again = 0;
+  debug_launch_test(&app, exe, args, app.project.root, debug_again);
+  g_assert_true(debug_active(&app));
+  wait_stop(6);
+  debug_restart(&app);
+  wait_end();
+  g_assert_cmpint(debugged_again, ==, 1);
+
+  breakpoints_remove_all(&app);
+  close_everything();
+  g_free(exe);
+  g_free(path);
+  g_free(gdb);
+  g_free(gcc);
+}
+
 /* A breakpoint on a line without code moves to the line gdb stops at; a condition set while paused
  * stops only when it is true; a watch expression is evaluated at each pause. */
 static void test_debugging_conditions(void)
@@ -2929,6 +2988,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/run-tests", test_run_tests);
   g_test_add_func("/window/run-projects", test_run_projects);
   g_test_add_func("/window/debugging", test_debugging);
+  g_test_add_func("/window/debugging-arguments", test_debugging_arguments);
   g_test_add_func("/window/debugging-conditions", test_debugging_conditions);
   g_test_add_func("/window/disassembly", test_disassembly);
 
