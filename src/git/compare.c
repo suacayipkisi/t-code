@@ -429,12 +429,12 @@ void compare_revisions(App *t, const char *old_rev, const char *old_rel, const c
   const char *old_short[6] = { NULL }, *old_show[3] = { NULL }, *new_short[6] = { NULL }, *new_show[3] = { NULL };
   char *old_spec, *new_spec;
 
-  if (!t->project.git_top) {
+  if (!t->project.scm_top) {
     show_message(t, "Nothing to compare", "This folder is not in a git repository.");
     return;
   }
   r = g_new0(Revisions, 1);
-  r->top = g_strdup(t->project.git_top);
+  r->top = g_strdup(t->project.scm_top);
   if (old_rev && old_rel)
     r->old = (Side){ g_strdup(old_rev), g_strdup(old_rel) };
   if (new_rev && new_rel)

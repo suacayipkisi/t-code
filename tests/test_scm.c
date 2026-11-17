@@ -7,6 +7,7 @@
 #include "editor/editor.h"
 #include "editor/tabs.h"
 #include "git/compare.h"
+#include "git/scm/state.h"
 #include "popups/picker.h"
 #include "util.h"
 
@@ -134,7 +135,7 @@ static GtkListBox *list(int index)
   g_ptr_array_add(queue, app.scm);
   for (guint i = 0; i < queue->len && n < 3; i++) {
     GtkWidget *w = queue->pdata[i];
-    if (GTK_IS_LIST_BOX(w))
+    if (GTK_IS_LIST_BOX(w) && strcmp(gtk_widget_get_name(w), "repositories") != 0)
       found[n++] = w;
     else
       for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c))
@@ -672,6 +673,123 @@ static void test_stash(void)
   g_free(dir);
 }
 
+/* The rows of Repositories: each one's name, and the current one's. */
+static int repo_rows(char **current)
+{
+  GtkWidget *list = NULL;
+  int n = 0;
+  GPtrArray *queue = g_ptr_array_new();
+
+  g_ptr_array_add(queue, app.scm);
+  for (guint i = 0; i < queue->len && !list; i++) {
+    GtkWidget *w = queue->pdata[i];
+    if (GTK_IS_LIST_BOX(w) && strcmp(gtk_widget_get_name(w), "repositories") == 0)
+      list = w;
+    for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c))
+      g_ptr_array_add(queue, c);
+  }
+  g_ptr_array_free(queue, TRUE);
+  g_assert_nonnull(list);
+  if (!gtk_widget_get_visible(gtk_widget_get_parent(list)))
+    return 0;
+  for (GtkWidget *row = gtk_widget_get_first_child(list); row; row = gtk_widget_get_next_sibling(row), n++)
+    if (current && gtk_widget_has_css_class(row, "current"))
+      *current = g_object_get_data(G_OBJECT(row), "top");
+  return n;
+}
+
+static void wait_repo_rows(int count)
+{
+  for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+       repo_rows(NULL) != count && g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, FALSE);
+  g_assert_cmpint(repo_rows(NULL), ==, count);
+}
+
+static void commit_all(const char *dir)
+{
+  git(dir, (const char *[]){ "add", "-A", NULL });
+  git(dir, (const char *[]){ "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "first", NULL });
+}
+
+/* Clones nested in the project's repository show in Repositories (also an ignored one; a submodule
+ * does not), apart from
+ * the project's own changes; a click shows one in the panel, and staging works in it. */
+static void test_nested_repos(void)
+{
+  char *top = make_dir("nested", "top.txt"), *lib = make_dir("nested-lib", "lib.txt");
+  char *inner = g_build_filename(top, "inner", NULL), *inner_file = g_build_filename(inner, "in.txt", NULL);
+  char *current = NULL, *staged;
+
+  char *kept = g_build_filename(top, "kept", NULL), *ignore = g_build_filename(top, ".gitignore", NULL);
+
+  git(lib, (const char *[]){ "init", "-q", NULL });
+  commit_all(lib);
+  g_file_set_contents(ignore, "kept/\n", -1, NULL);
+  git(top, (const char *[]){ "init", "-q", NULL });
+  commit_all(top);
+  g_mkdir_with_parents(kept, 0755);
+  git(kept, (const char *[]){ "init", "-q", NULL }); /* a clone the project's .gitignore leaves out */
+  git(top, (const char *[]){ "-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, "sub", NULL });
+  git(top, (const char *[]){ "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "sub", NULL });
+  g_mkdir_with_parents(inner, 0755);
+  g_file_set_contents(inner_file, "one\n", -1, NULL);
+  git(inner, (const char *[]){ "init", "-q", NULL });
+  commit_all(inner);
+  g_file_set_contents(inner_file, "two\n", -1, NULL);
+
+  open_project_at(top);
+  wait_repo_rows(3); /* the project's own, inner and kept, not sub */
+  repo_rows(&current);
+  g_assert_cmpstr(current, ==, top);
+  wait_for(2, 2);
+  g_assert_cmpint(rows(1), ==, 0); /* inner/ is no change of the project's own */
+
+  git_select_repo(&app, inner);
+  g_assert_cmpstr(app.project.scm_top, ==, inner);
+  wait_for(1, 1); /* in.txt changed */
+  wait_for(2, 1);
+  repo_rows(&current);
+  g_assert_cmpstr(current, ==, inner);
+  scm_stage("in.txt");
+  wait_for(0, 1);
+  staged = git_out(inner, (const char *[]){ "diff", "--cached", "--name-only", NULL });
+  g_assert_cmpstr(staged, ==, "in.txt\n");
+  g_free(staged);
+
+  git_select_repo(&app, top);
+  wait_for(2, 2);
+  g_assert_cmpint(rows(0), ==, 0);
+
+  /* A folder that is no repository, with repositories in it: they show, the first one in the panel. */
+  char *folder = g_build_filename(tmp, "folder-of-repos", NULL), *one = g_build_filename(folder, "one", NULL),
+       *two = g_build_filename(folder, "two", NULL), *file = g_build_filename(one, "f.txt", NULL);
+  g_mkdir_with_parents(one, 0755);
+  g_mkdir_with_parents(two, 0755);
+  g_file_set_contents(file, "f\n", -1, NULL);
+  git(one, (const char *[]){ "init", "-q", NULL });
+  git(two, (const char *[]){ "init", "-q", NULL });
+  open_project_at(folder);
+  wait_repo_rows(2);
+  g_assert_cmpstr(app.project.scm_top, ==, one);
+  wait_for(1, 1); /* f.txt, untracked */
+
+  open_project_at(no_git);
+  run_for(800);
+  g_assert_cmpint(repo_rows(NULL), ==, 0);
+  g_assert_null(app.project.scm_top);
+  g_free(file);
+  g_free(two);
+  g_free(one);
+  g_free(folder);
+  g_free(inner_file);
+  g_free(inner);
+  g_free(ignore);
+  g_free(kept);
+  g_free(lib);
+  g_free(top);
+}
+
 int main(int argc, char **argv)
 {
   int status;
@@ -716,6 +834,7 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/stage-hunk", test_stage_hunk);
   g_test_add_func("/scm/branches", test_branches);
   g_test_add_func("/scm/stash", test_stash);
+  g_test_add_func("/scm/nested-repos", test_nested_repos);
   status = g_test_run();
 
   app.closing = TRUE;

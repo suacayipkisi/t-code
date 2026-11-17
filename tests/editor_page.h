@@ -133,6 +133,12 @@ void open_file(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void run_command(App *t G_GNUC_UNUSED, const char *name G_GNUC_UNUSED) {}
 void save_editor(Tab *tab G_GNUC_UNUSED) {}
 void refresh_branch(App *t G_GNUC_UNUSED) {}
+/* The repository line blame looks in (gitstatus.c finds the project's ones); the tests set it. */
+static const char *page_git_repo;
+const char *git_repo_of(const char *path)
+{
+  return page_git_repo && path && g_str_has_prefix(path, page_git_repo) ? page_git_repo : NULL;
+}
 void picker_open(App *t G_GNUC_UNUSED, const char *placeholder G_GNUC_UNUSED, PickerQuery query, PickerChoose choose)
 {
   picker_test_query = query;

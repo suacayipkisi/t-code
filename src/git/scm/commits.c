@@ -371,7 +371,7 @@ static void open_commit_file(gpointer data)
 static void open_commit_file_now(gpointer data)
 {
   const char *path = g_object_get_data(G_OBJECT(data), "file-new");
-  char *full = path && scm.app->project.git_top ? g_build_filename(scm.app->project.git_top, path, NULL) : NULL;
+  char *full = path && scm.app->project.scm_top ? g_build_filename(scm.app->project.scm_top, path, NULL) : NULL;
 
   if (full && g_file_test(full, G_FILE_TEST_IS_REGULAR))
     open_file(scm.app, full);

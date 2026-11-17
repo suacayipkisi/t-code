@@ -1005,7 +1005,7 @@ static void test_line_blame(void)
   git_in(dir, (const char *const[]){ "add", "a.c", NULL });
   git_in(dir, (const char *const[]){ "commit", "-q", "-m", "First commit", NULL });
   app.settings.line_blame = TRUE;
-  app.project.git_top = dir;
+  page_git_repo = dir;
   tab = new_tab("int a;\nint b;\n");
   g_set_str(&tab->path, path);
   cursor_at(tab, 1, 0);
@@ -1027,7 +1027,7 @@ static void test_line_blame(void)
   blame_apply_setting(tab);
   free_tab(tab); /* while it is asked about: the answer is dropped */
   run_for(600);
-  app.project.git_top = NULL;
+  page_git_repo = NULL;
   app.settings.line_blame = FALSE;
   g_unlink(path);
   g_free(path);

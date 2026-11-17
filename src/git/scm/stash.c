@@ -78,7 +78,7 @@ static void stash_choose(App *t, const char *payload)
 
 void scm_stash(void)
 {
-  if (!scm.app || !scm.app->project.git_top)
+  if (!scm.app || !scm.app->project.scm_top)
     return;
   picker_open(scm.app, "Message for the stash (optional)", stash_query, stash_choose);
 }
@@ -153,7 +153,7 @@ void scm_pick_stash(StashAction action)
   static const char *const prompts[] = { "Pick a stash to pop", "Pick a stash to apply", "Pick a stash to drop" };
   const char *args[] = { "stash", "list", "--format=%gd%x09%cr%x09%gs", NULL };
 
-  if (!scm.app || !scm.app->project.git_top)
+  if (!scm.app || !scm.app->project.scm_top)
     return;
   stash_action = action;
   g_clear_pointer(&stashes, g_ptr_array_unref);

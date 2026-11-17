@@ -4,6 +4,7 @@
 #include "editor/decor/blame.h"
 
 #include "editor/editorview.h"
+#include "git/gitstatus.h"
 #include "window/palette.h"
 
 #include <string.h>
@@ -31,10 +32,8 @@ typedef struct {
 
 static gboolean blame_wanted(Blame *b)
 {
-  const char *top = b->tab->app->project.git_top;
-
-  return b->tab->app->settings.line_blame && !b->tab->view->readonly && b->tab->path && top &&
-         g_str_has_prefix(b->tab->path, top) && b->tab->path[strlen(top)] == '/';
+  return b->tab->app->settings.line_blame && !b->tab->view->readonly && b->tab->path &&
+         git_repo_of(b->tab->path); /* in the project's repository or one nested in it */
 }
 
 static void blame_clear(Blame *b)

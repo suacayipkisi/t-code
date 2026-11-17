@@ -40,7 +40,7 @@ static void on_remote_done(gboolean ok, const char *out G_GNUC_UNUSED, const cha
 
 static void run_remote(const char *const *args, const char *running, const RemoteNotes *notes)
 {
-  if (!scm.app || !scm.app->project.git_top)
+  if (!scm.app || !scm.app->project.scm_top)
     return;
   scm_set_note(running, FALSE);
   scm_run_git(args, NULL, FALSE, on_remote_done, (gpointer)notes);
@@ -228,7 +228,7 @@ static void branches_choose(App *t, const char *payload)
 
 void scm_switch_branch(void)
 {
-  if (!scm.app || !scm.app->project.git_top) {
+  if (!scm.app || !scm.app->project.scm_top) {
     if (scm.app)
       status_say(scm.app, "This folder is not in a git repository");
     return;
@@ -240,7 +240,7 @@ void scm_switch_branch(void)
 
 void scm_create_branch(void)
 {
-  if (!scm.app || !scm.app->project.git_top)
+  if (!scm.app || !scm.app->project.scm_top)
     return;
   branch_new_only = TRUE;
   read_branches(); /* to say when the name is taken */

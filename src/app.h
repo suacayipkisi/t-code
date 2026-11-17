@@ -132,6 +132,7 @@ struct App {
   struct {
     char *root;
     char *git_top; /* the work tree root of root's repository; NULL outside one */
+    char *scm_top; /* the repository Source Control shows: git_top or one nested in the project (gitstatus.c) */
     struct {
       gboolean tabs;
       int width; /* 0: none chosen */

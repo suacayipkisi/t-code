@@ -20,6 +20,8 @@ typedef struct {
   GtkWidget *commit, *pull, *push;
   GtkLabel *note; /* the last error or result */
   GtkListBox *staged_list, *changes_list, *commits_list;
+  GtkListBox *repos_list; /* Repositories: shown when the project holds more than one */
+  GtkWidget *repos_box;
   GtkLabel *staged_title, *changes_title;
   GtkWidget *staged_box, *changes_box, *commits_box;
   gboolean commits_stale;      /* HEAD moved while Commits was folded: listed once it opens */

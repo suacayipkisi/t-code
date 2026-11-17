@@ -121,9 +121,14 @@ build/test-debug: tests/test_debug.c tests/util.h $(DAP_SRC) src/debug/dap.h src
 	  $(shell pkg-config --libs json-glib-1.0 gio-2.0)
 
 SCM_SRC := $(wildcard src/git/scm/*.c)
-build/test-scm: tests/test_scm.c tests/util.h $(SCM_SRC) src/git/gitstatus.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | build
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_scm.c $(SCM_SRC) src/git/patch.c src/popups/contextmenu.c src/window/palette.c \
+build/test-scm: tests/test_scm.c tests/util.h $(SCM_SRC) src/git/gitstatus.c src/git/repos.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | build
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_scm.c $(SCM_SRC) src/git/repos.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c \
 	  $(shell pkg-config --libs $(PKGS))
+
+# The repositories inside a project (GLib-only), against real ones.
+build/test-repos: tests/test_repos.c tests/util.h src/git/repos.c src/git/repos.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_repos.c src/git/repos.c \
+	  $(shell pkg-config --libs glib-2.0)
 
 build/test-gitpatch: tests/test_gitpatch.c tests/util.h src/git/patch.c src/git/patch.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_gitpatch.c src/git/patch.c \
@@ -160,7 +165,7 @@ build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c sr
 
 
 test: build/test-log build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
-      build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-files build/test-window build/test-about \
+      build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-repos build/test-files build/test-window build/test-about \
       build/test-plugins build/test-update build/test-recovery
 	build/test-searchmatch
 	build/test-log
@@ -175,6 +180,7 @@ test: build/test-log build/test-searchmatch build/test-detect build/test-langenv
 	build/test-editing
 	build/test-scm
 	build/test-gitpatch
+	build/test-repos
 	build/test-files
 	build/test-window
 	build/test-about
@@ -225,6 +231,9 @@ test-asan: | build
 	$(ASAN_ENV) build/asan/test-lspinstall
 	$(ASAN_ENV) build/asan/test-linediff
 	$(ASAN_ENV) build/asan/test-gitpatch
+	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-repos \
+	  tests/test_repos.c src/git/repos.c $(shell pkg-config --libs glib-2.0)
+	$(ASAN_ENV) build/asan/test-repos
 	$(ASAN_ENV) build/asan/test-fileops
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o build/asan/test-debug \
 	  tests/test_debug.c $(DAP_SRC) $(shell pkg-config --libs json-glib-1.0 gio-2.0)

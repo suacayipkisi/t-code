@@ -170,6 +170,13 @@ back to what was typed). Right-click a modified file to stage or unstage an indi
 commits: the pointer on one shows its message, author, date and line counts, and "Open Commit Details"
 shows it with its diff.
 
+**Several repositories.** When the project holds other git repositories (clones in its folders, or a
+folder that is no repository with repositories in it; also ones your `.gitignore` leaves out), Source
+Control lists them under
+**Repositories** with their branch and number of changes; click one to commit, stage, push or switch
+branches in it (the status bar's branch follows). Submodules are not listed: they belong to the
+repository that holds them. Line blame and the diff gutter use each file's own repository.
+
 **Branches, pull and fetch.** Click the branch in the status bar (or "Git: Checkout to…") to switch:
 the list has the local branches by their last commit, then the remote ones you have no branch of
 (picking one makes a local branch tracking it); type a name that is no branch to create it ("Git:

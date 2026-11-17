@@ -12,9 +12,14 @@
 /* Creates the panel. */
 GtkWidget *scm_panel(App *t);
 
-/* Fills the panel from the output of "git status --porcelain=v2 --branch -z --untracked-files=all"
+/* Fills the panel from the output of "git status --porcelain=v2 --branch -z --untracked-files=all
+ * --ignored=matching" (ignored files and nested repositories are not changes)
  * (size bytes; out NULL: not a repository, or git failed). gitstatus.c calls it with each answer. */
 void scm_update(App *t, const char *out, gsize size);
+
+/* The project's repositories (git_repos()) or one's branch or change count changed: Repositories is
+ * listed again (shown only for more than one; a click shows that one in the panel). */
+void scm_repos_changed(App *t);
 
 /* Whether the Commits section is open (not folded), and opening or folding it (the session keeps it). */
 gboolean scm_commits_shown(void);

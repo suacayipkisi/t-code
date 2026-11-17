@@ -76,7 +76,7 @@ static void on_hunk_applied(gboolean ok, const char *out G_GNUC_UNUSED, const ch
 {
   HunkChoice *choice = data;
 
-  if (!scm.app->closing && g_strcmp0(scm.app->project.git_top, choice->request->root) == 0) {
+  if (!scm.app->closing && g_strcmp0(scm.app->project.scm_top, choice->request->root) == 0) {
     if (!ok)
       scm_set_note(*err ? err : (choice->request->staged ? "Could not unstage this hunk" : "Could not stage this hunk"),
                    TRUE);
@@ -147,7 +147,7 @@ static void hunk_choose(App *t, const char *payload)
   if (!choice)
     return;
   if (!g_ascii_string_to_unsigned(payload, 10, 0, choice->patches->len - 1, &chosen, NULL) || t->closing ||
-      g_strcmp0(t->project.git_top, choice->request->root) != 0) {
+      g_strcmp0(t->project.scm_top, choice->request->root) != 0) {
     hunk_choice_free(choice);
     return;
   }
@@ -168,7 +168,7 @@ static void on_hunks_read(gboolean ok, const char *out, const char *err, gpointe
   GPtrArray *patches;
   char *name, *title;
 
-  if (scm.app->closing || g_strcmp0(scm.app->project.git_top, request->root) != 0) {
+  if (scm.app->closing || g_strcmp0(scm.app->project.scm_top, request->root) != 0) {
     hunk_request_free(request);
     return;
   }
@@ -211,7 +211,7 @@ static void on_saved_for_stage_hunk(App *t, gpointer data)
 {
   HunkRequest *request = data;
 
-  if (!t->closing && g_strcmp0(t->project.git_top, request->root) == 0)
+  if (!t->closing && g_strcmp0(t->project.scm_top, request->root) == 0)
     read_hunks(request);
   else
     hunk_request_free(request);
@@ -222,7 +222,7 @@ void scm_choose_hunk(const char *path, gboolean staged)
   HunkRequest *request = g_new0(HunkRequest, 1);
 
   request->path = g_strdup(path);
-  request->root = g_strdup(scm.app->project.git_top);
+  request->root = g_strdup(scm.app->project.scm_top);
   request->staged = staged;
   if (staged)
     read_hunks(request);
@@ -271,7 +271,7 @@ static void on_discard_answer(GObject *dialog, GAsyncResult *result, gpointer da
   if (gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, NULL) == 1) {
     if (d->untracked) {
       /* Never in git: to the trash, where it can still be found. */
-      char *full = g_build_filename(scm.app->project.git_top, d->path, NULL);
+      char *full = g_build_filename(scm.app->project.scm_top, d->path, NULL);
       GFile *file = g_file_new_for_path(full);
       GError *error = NULL;
       if (!g_file_trash(file, NULL, &error)) {
@@ -288,7 +288,7 @@ static void on_discard_answer(GObject *dialog, GAsyncResult *result, gpointer da
     } else {
       const char *args[] = { "restore", "--", d->path, NULL };
       scm_set_note(NULL, FALSE);
-      scm_run_git(args, NULL, FALSE, on_discarded, g_build_filename(scm.app->project.git_top, d->path, NULL));
+      scm_run_git(args, NULL, FALSE, on_discarded, g_build_filename(scm.app->project.scm_top, d->path, NULL));
     }
   }
   g_free(d->path);

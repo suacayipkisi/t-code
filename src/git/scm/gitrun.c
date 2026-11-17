@@ -11,6 +11,7 @@
 
 typedef struct {
   char **argv; /* git and its arguments */
+  char *dir;   /* the work tree it runs in: the shown repository when it was asked for */
   char *input; /* for its stdin, or NULL */
   GitDone done;
   gpointer data;
@@ -24,6 +25,7 @@ static void git_call_free(GitCall *call)
   if (call->drop)
     call->drop(call->data);
   g_strfreev(call->argv);
+  g_free(call->dir);
   g_free(call->input);
   g_free(call);
 }
@@ -37,7 +39,7 @@ static void start_waiting(void)
   GitCall *call;
 
   while (!scm.busy && (call = g_queue_pop_head(&scm.waiting)))
-    if (!scm.app->closing && scm.app->project.git_top)
+    if (!scm.app->closing && g_strcmp0(scm.app->project.scm_top, call->dir) == 0)
       start_git(call);
     else
       git_call_free(call);
@@ -54,14 +56,13 @@ static void on_git_done(GObject *source, GAsyncResult *result, gpointer user)
 
   if (!call->quiet)
     scm.busy = FALSE;
-  if (scm.app && !scm.app->closing) {
-    if (call->done) {
-      call->drop = NULL; /* the callback now owns data */
-      call->done(ok, out ? out : "", err ? g_strstrip(err) : "", call->data);
-    }
-    if (!call->quiet)
-      refresh_branch(scm.app);
+  /* Another repository is shown meanwhile: its answer would fill the panel with the wrong one. */
+  if (scm.app && !scm.app->closing && call->done && g_strcmp0(scm.app->project.scm_top, call->dir) == 0) {
+    call->drop = NULL; /* the callback now owns data */
+    call->done(ok, out ? out : "", err ? g_strstrip(err) : "", call->data);
   }
+  if (scm.app && !scm.app->closing && !call->quiet)
+    refresh_branch(scm.app);
   if (!call->quiet)
     start_waiting(); /* unless done started the next step already (a commit after staging) */
   g_free(out);
@@ -78,7 +79,7 @@ static gboolean start_git(GitCall *call)
 
   launcher = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE |
                                        (call->input ? G_SUBPROCESS_FLAGS_STDIN_PIPE : 0));
-  g_subprocess_launcher_set_cwd(launcher, scm.app->project.git_top);
+  g_subprocess_launcher_set_cwd(launcher, call->dir);
   /* No terminal to answer a password prompt in: fail instead of waiting forever. */
   g_subprocess_launcher_setenv(launcher, "GIT_TERMINAL_PROMPT", "0", TRUE);
   /* Nor an editor for a pull's merge message: git's own one is taken. */
@@ -106,7 +107,7 @@ void scm_run_git_owned(const char *const *args, const char *input, gboolean quie
   GPtrArray *argv = g_ptr_array_new();
   GitCall *call;
 
-  if (!scm.app->project.git_top) {
+  if (!scm.app->project.scm_top) {
     if (drop)
       drop(data);
     g_ptr_array_free(argv, TRUE);
@@ -118,6 +119,7 @@ void scm_run_git_owned(const char *const *args, const char *input, gboolean quie
   g_ptr_array_add(argv, NULL);
   call = g_new0(GitCall, 1);
   call->argv = (char **)g_ptr_array_free(argv, FALSE);
+  call->dir = g_strdup(scm.app->project.scm_top);
   call->input = g_strdup(input);
   call->done = done;
   call->data = data;

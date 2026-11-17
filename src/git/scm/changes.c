@@ -138,7 +138,7 @@ static void show_staged(App *t, const Change *c)
  * else next to the last commit (the same then, and the gutter follows new commits). */
 static void show_unstaged(App *t, const Change *c)
 {
-  char *full = g_build_filename(t->project.git_top, c->path, NULL);
+  char *full = g_build_filename(t->project.scm_top, c->path, NULL);
 
   if (c->code == 'D')
     compare_revisions(t, INDEX_REV, c->path, NULL, NULL); /* only the staged version is left */
@@ -156,7 +156,7 @@ void scm_on_change_activated(GtkListBox *list, GtkListBoxRow *row, gpointer data
 {
   Change *c = g_object_get_data(G_OBJECT(row), "change");
 
-  if (!c || !scm.app->project.git_top)
+  if (!c || !scm.app->project.scm_top)
     return;
   if (list == scm.staged_list)
     show_staged(scm.app, c);
@@ -181,14 +181,14 @@ static void menu_change_free(MenuChange *m)
 /* The file's whole path, or NULL outside a repository. */
 static char *change_full_path(const Change *c)
 {
-  return scm.app->project.git_top ? g_build_filename(scm.app->project.git_top, c->path, NULL) : NULL;
+  return scm.app->project.scm_top ? g_build_filename(scm.app->project.scm_top, c->path, NULL) : NULL;
 }
 
 static void menu_open_changes(gpointer data)
 {
   MenuChange *m = data;
 
-  if (!scm.app->project.git_top)
+  if (!scm.app->project.scm_top)
     return;
   if (m->staged)
     show_staged(scm.app, &m->change);

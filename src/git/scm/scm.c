@@ -4,6 +4,9 @@
  *   Staged Changes and Changes: click a file to see its changes side by side; + stages, − unstages,
  *     ↶ discards (after asking) (changes.c, staging.c)
  *   Commits (commits.c)
+ * Above them, when the project holds more than one repository (clones nested in it, also in ignored
+ * folders, but not submodules),
+ * Repositories: a click on one shows it in the rest of the panel.
  * This file holds its state, builds it and fills it from the git status that gitstatus.c runs
  * anyway (scm_update); git commands run in the background (gitrun.c), and the git directory monitor
  * in gitstatus.c refreshes everything afterwards.
@@ -46,7 +49,10 @@ static const char *const css =
     ".tcode-scm .code-M { color: var(--tc-git-modified); } .tcode-scm .code-A, .tcode-scm .code-U { color: var(--tc-git-untracked); }"
     ".tcode-scm .code-D { color: var(--tc-git-deleted); } .tcode-scm .code-R, .tcode-scm .code-C { color: var(--tc-git-untracked); }"
     ".tcode-scm .code-x { color: var(--tc-git-conflict); }"
-    ".tcode-scm .file-row { padding-left: 34px; }";
+    ".tcode-scm .file-row { padding-left: 34px; }"
+    ".tcode-scm .repo-row { padding-left: 6px; }"
+    ".tcode-scm .repo-row.current { background: var(--tc-selection); }"
+    ".tcode-scm .repo-row .count { color: var(--tc-fg-dim); font-size: 0.9em; }";
 
 /* Frees one entry of scm.staged / scm.changes. */
 static void change_free(Change *c)
@@ -133,7 +139,7 @@ void scm_update(App *t, const char *out, gsize size)
       scm.upstream = g_strdup(record + 18);
     } else if (g_str_has_prefix(record, "# branch.ab ")) {
       sscanf(record + 12, "+%d -%d", &scm.ahead, &scm.behind);
-    } else if (record[0] == '?' && len > 2) {
+    } else if (record[0] == '?' && len > 2 && record[len - 1] != '/') { /* "dir/": a nested repository */
       add_change(scm.changes, record + 2, NULL, 'U');
     } else if ((record[0] == '1' || record[0] == '2' || record[0] == 'u') && len > 4) {
       /* "1 XY sub mH mI mW hH hI path", "2 ... Xscore path\0orig", "u XY sub m1 m2 m3 mW h1 h2 h3 path" */
@@ -168,7 +174,7 @@ void scm_update(App *t, const char *out, gsize size)
   gtk_widget_set_sensitive(scm.push, out != NULL && !scm.initial);
   gtk_widget_set_sensitive(scm.pull, out != NULL && scm.upstream != NULL);
   if (!out)
-    scm_set_note(t->project.git_top ? NULL : "This folder is not in a git repository.", FALSE);
+    scm_set_note(t->project.scm_top ? NULL : "This folder is not in a git repository.", FALSE);
 
   /* Commits are listed again after a commit, a checkout or another project; outside a
      * repository (no HEAD) and before the first commit there are none. */
@@ -209,6 +215,63 @@ static void show_changes(App *t)
                                              : g_strdup("SOURCE CONTROL");
   gtk_stack_page_set_title(gtk_stack_get_page(t->dock.scm_stack, t->scm), title);
   g_free(title);
+}
+
+/* Repositories ------------------------------------------------------------------------------- */
+
+/* A repository's name in the list: its path in the project ("libs/foo"), or its folder's name for the
+ * project's own. */
+static char *repo_name(App *t, const char *top)
+{
+  gsize len = strlen(t->project.root);
+
+  if (strncmp(top, t->project.root, len) == 0 && top[len] == '/')
+    return g_strdup(top + len + 1);
+  return g_path_get_basename(top);
+}
+
+static void on_repo_activated(GtkListBox *list G_GNUC_UNUSED, GtkListBoxRow *row, gpointer data G_GNUC_UNUSED)
+{
+  git_select_repo(scm.app, g_object_get_data(G_OBJECT(row), "top"));
+}
+
+void scm_repos_changed(App *t)
+{
+  const GPtrArray *repos = git_repos();
+
+  if (!scm.app || t->closing)
+    return;
+  context_menu_clear_list(scm.repos_list);
+  gtk_widget_set_visible(scm.repos_box, repos->len > 1);
+  if (repos->len < 2)
+    return;
+  for (guint i = 0; i < repos->len; i++) {
+    const GitRepo *r = repos->pdata[i];
+    GtkWidget *row = gtk_list_box_row_new(), *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    char *name = repo_name(t, r->top), *count = r->changes ? g_strdup_printf("%d", r->changes) : g_strdup("");
+    GtkWidget *label = gtk_label_new(name), *branch = gtk_label_new(r->branch ? r->branch : "");
+    GtkWidget *changes = gtk_label_new(count);
+
+    gtk_label_set_xalign(GTK_LABEL(label), 0);
+    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_START);
+    gtk_widget_set_hexpand(label, TRUE);
+    gtk_widget_add_css_class(branch, "dim");
+    gtk_label_set_ellipsize(GTK_LABEL(branch), PANGO_ELLIPSIZE_END);
+    gtk_label_set_max_width_chars(GTK_LABEL(branch), 18);
+    gtk_widget_add_css_class(changes, "count");
+    gtk_box_append(GTK_BOX(box), label);
+    gtk_box_append(GTK_BOX(box), branch);
+    gtk_box_append(GTK_BOX(box), changes);
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
+    gtk_widget_add_css_class(row, "repo-row");
+    if (g_strcmp0(r->top, t->project.scm_top) == 0)
+      gtk_widget_add_css_class(row, "current");
+    gtk_widget_set_tooltip_text(row, r->top);
+    g_object_set_data_full(G_OBJECT(row), "top", g_strdup(r->top), g_free);
+    gtk_list_box_append(scm.repos_list, row);
+    g_free(name);
+    g_free(count);
+  }
 }
 
 /* Building the panel ------------------------------------------------------------------------- */
@@ -303,6 +366,13 @@ GtkWidget *scm_panel(App *t)
   gtk_widget_add_css_class(panel, "tcode-scm");
 
   gtk_widget_set_margin_top(content, 8);
+
+  scm.repos_box = section(NULL, "REPOSITORIES", &scm.repos_list, NULL, 0);
+  gtk_widget_set_name(GTK_WIDGET(scm.repos_list), "repositories");
+  gtk_list_box_set_activate_on_single_click(scm.repos_list, TRUE);
+  g_signal_connect(scm.repos_list, "row-activated", G_CALLBACK(on_repo_activated), NULL);
+  gtk_widget_set_visible(scm.repos_box, FALSE);
+  gtk_box_append(GTK_BOX(content), scm.repos_box);
 
   /* The commit message, with a hint while it is empty. */
   scm.message = gtk_text_view_new();

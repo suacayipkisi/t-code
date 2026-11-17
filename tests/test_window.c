@@ -258,6 +258,7 @@ static void test_comparison_one_tab(void)
   }
   g_assert_true(g_file_set_contents(path, "one\nTWO\n", -1, NULL));
   app.project.git_top = g_canonicalize_filename(app.project.root, NULL);
+  g_set_str(&app.project.scm_top, app.project.git_top);
 
   open_temporary("tracked.txt");
   compare_with_head(&app, path);
@@ -309,6 +310,7 @@ static void test_comparisons_in_a_row(void)
   }
   g_set_str(&app.project.git_top, NULL);
   app.project.git_top = g_canonicalize_filename(app.project.root, NULL);
+  g_set_str(&app.project.scm_top, app.project.git_top);
   for (size_t i = 0; i < G_N_ELEMENTS(names); i++)
     g_assert_true(g_file_set_contents(paths[i], "one\nchanged\n", -1, NULL));
 
@@ -2190,6 +2192,7 @@ static void test_comparison_first_change(void)
     return;
   }
   app.project.git_top = g_canonicalize_filename(app.project.root, NULL);
+  g_set_str(&app.project.scm_top, app.project.git_top);
   char *changed = g_strstr_len(text->str, -1, "line 60\n");
   memcpy(changed, "LINE", 4); /* line 60 differs */
   g_assert_true(g_file_set_contents(path, text->str, -1, NULL));
