@@ -17,6 +17,7 @@
 #include "lsp/client/client.h"
 #include "project/session.h"
 #include "search/search.h"
+#include "testing/testing.h"
 #include "window/statusbar.h"
 #include "window/terminal.h"
 
@@ -137,6 +138,7 @@ static void switch_project(App *t, const char *root)
   restart_shell_pane(t);
   scm_reset();
   search_reset();
+  testing_reset(t);
   watch_git(t); /* t->project.git_top for the Files panel's git colors */
   files_set_root(t);
 

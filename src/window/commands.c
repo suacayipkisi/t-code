@@ -23,6 +23,7 @@
 #include "lsp/inline/completion.h"
 #include "git/scm/scm.h"
 #include "lsp/symbols/hierarchy.h"
+#include "testing/testing.h"
 #include "lsp/symbols/navigate.h"
 #include "lsp/inline/signature.h"
 #include "git/compare.h"
@@ -95,6 +96,11 @@ static void git_stash_apply(App *t G_GNUC_UNUSED) { scm_pick_stash(STASH_APPLY);
 static void git_stash_drop(App *t G_GNUC_UNUSED) { scm_pick_stash(STASH_DROP); }
 static void show_outline_cmd(App *t) { toggle_panel(t, "outline"); }
 static void show_hierarchy_cmd(App *t) { toggle_panel(t, "hierarchy"); }
+static void show_testing_cmd(App *t) { toggle_panel(t, "testing"); }
+static void run_all_tests(App *t) { show_sidebar_page(t, "testing"); testing_run_all(t); }
+static void run_failed_tests(App *t) { show_sidebar_page(t, "testing"); testing_run_failed(t); }
+static void refresh_tests(App *t) { show_sidebar_page(t, "testing"); testing_refresh(t); }
+static void stop_tests(App *t G_GNUC_UNUSED) { testing_stop(); }
 /* clang-format on */
 
 /* "Help: Open Log File": t-code's warnings (application/log.h), in an editor. */
@@ -324,6 +330,10 @@ static const Command commands[] = {
   { "Trigger Parameter Hints", "<Control><Shift>space", "Ctrl+Shift+Space", parameter_hints, TRUE, FALSE, FALSE },
   { "Build", "<Control><Shift>b", "Ctrl+Shift+B", build, FALSE, FALSE, FALSE },
   { "Test", NULL, NULL, test_project, FALSE, FALSE, FALSE },
+  { "Test: Run All Tests", NULL, NULL, run_all_tests, FALSE, FALSE, FALSE },
+  { "Test: Run Failed Tests", NULL, NULL, run_failed_tests, FALSE, FALSE, FALSE },
+  { "Test: Refresh Tests", NULL, NULL, refresh_tests, FALSE, FALSE, FALSE },
+  { "Test: Stop", NULL, NULL, stop_tests, FALSE, FALSE, FALSE },
   { "Python: Select Interpreter…", NULL, NULL, toolchain_pick_python, FALSE, FALSE, FALSE },
   { "Rust: Select Features…", NULL, NULL, toolchain_pick_features, FALSE, FALSE, FALSE },
   { "Rust: Select Target…", NULL, NULL, toolchain_pick_target, FALSE, FALSE, FALSE },
@@ -340,6 +350,7 @@ static const Command commands[] = {
   { "View: Toggle Problems", "<Control><Shift>m", "Ctrl+Shift+M", show_problems_cmd, FALSE, FALSE, FALSE },
   { "View: Toggle Outline", NULL, NULL, show_outline_cmd, FALSE, FALSE, FALSE },
   { "View: Toggle Hierarchy", NULL, NULL, show_hierarchy_cmd, FALSE, FALSE, FALSE },
+  { "View: Toggle Testing", NULL, NULL, show_testing_cmd, FALSE, FALSE, FALSE },
   { "Debug: Add to Watch", NULL, NULL, add_to_watch, TRUE, FALSE, FALSE },
   { "Debug: Open Disassembly View", NULL, NULL, disassembly_open, FALSE, FALSE, FALSE },
   { "Debug: Remove All Breakpoints", NULL, NULL, breakpoints_remove_all, FALSE, FALSE, FALSE },

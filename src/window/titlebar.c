@@ -98,10 +98,17 @@ static void add_submenu(GMenu *bar, const char *label, GMenu *menu)
 /* Files, T-Code, Settings, Panels (checked while they show), About and Help. */
 static GMenu *menu_bar_model(App *t)
 {
-  static const char *const labels[PANELS] = { "Files",         "Source Control", "Search",  "Terminal", "Debug",
-                                              "Run and Debug", "Problems",       "Outline", "Hierarchy" };
-  static const char *const accels[PANELS] = { "<Alt>1", "<Control><Shift>g", "<Control><Shift>f", "<Control>j",
-                                              NULL,     "<Control><Shift>d", "<Control><Shift>m", NULL,
+  static const char *const labels[PANELS] = { "Files",         "Source Control", "Search",  "Terminal",  "Debug",
+                                              "Run and Debug", "Problems",       "Outline", "Hierarchy", "Testing" };
+  static const char *const accels[PANELS] = { "<Alt>1",
+                                              "<Control><Shift>g",
+                                              "<Control><Shift>f",
+                                              "<Control>j",
+                                              NULL,
+                                              "<Control><Shift>d",
+                                              "<Control><Shift>m",
+                                              NULL,
+                                              NULL,
                                               NULL };
   GMenu *bar = g_menu_new(), *menu = g_menu_new(), *section = g_menu_new();
 

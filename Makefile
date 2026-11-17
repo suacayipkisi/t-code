@@ -130,6 +130,16 @@ build/test-repos: tests/test_repos.c tests/util.h src/git/repos.c src/git/repos.
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_repos.c src/git/repos.c \
 	  $(shell pkg-config --libs glib-2.0)
 
+# The Testing panel's frameworks (GLib-only): recorded output, then real projects (each skipped without its tool).
+build/test-frameworks: tests/test_frameworks.c src/testing/frameworks.c src/testing/frameworks.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0) -o $@ tests/test_frameworks.c src/testing/frameworks.c \
+	  $(shell pkg-config --libs json-glib-1.0)
+
+# The Testing panel, against a fake go.
+TESTING_SRC := src/testing/testing.c src/testing/frameworks.c src/project/langenv.c src/window/palette.c
+build/test-testing: tests/test_testing.c tests/util.h $(TESTING_SRC) $(APP_HDR) | build
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_testing.c $(TESTING_SRC) $(shell pkg-config --libs $(PKGS))
+
 build/test-gitpatch: tests/test_gitpatch.c tests/util.h src/git/patch.c src/git/patch.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_gitpatch.c src/git/patch.c \
 	  $(shell pkg-config --libs glib-2.0)
@@ -165,7 +175,7 @@ build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c sr
 
 
 test: build/test-log build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
-      build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-repos build/test-files build/test-window build/test-about \
+      build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-repos build/test-frameworks build/test-testing build/test-files build/test-window build/test-about \
       build/test-plugins build/test-update build/test-recovery
 	build/test-searchmatch
 	build/test-log
@@ -181,6 +191,8 @@ test: build/test-log build/test-searchmatch build/test-detect build/test-langenv
 	build/test-scm
 	build/test-gitpatch
 	build/test-repos
+	build/test-frameworks
+	build/test-testing
 	build/test-files
 	build/test-window
 	build/test-about
@@ -234,6 +246,9 @@ test-asan: | build
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-repos \
 	  tests/test_repos.c src/git/repos.c $(shell pkg-config --libs glib-2.0)
 	$(ASAN_ENV) build/asan/test-repos
+	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags json-glib-1.0) -o build/asan/test-frameworks \
+	  tests/test_frameworks.c src/testing/frameworks.c $(shell pkg-config --libs json-glib-1.0)
+	$(ASAN_ENV) build/asan/test-frameworks
 	$(ASAN_ENV) build/asan/test-fileops
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o build/asan/test-debug \
 	  tests/test_debug.c $(DAP_SRC) $(shell pkg-config --libs json-glib-1.0 gio-2.0)

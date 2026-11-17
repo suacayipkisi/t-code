@@ -15,9 +15,9 @@
 
 static void queue_panel_checks(App *t);
 
-const char *const panel_names[PANELS] = { "files", "scm",      "search",  "shell",    "debug",
-                                          "run",   "problems", "outline", "hierarchy" };
-const int panel_default_docks[PANELS] = { 0, 0, 0, 4, 4, 0, 4, 0, 0 };
+const char *const panel_names[PANELS] = { "files", "scm",      "search",  "shell",     "debug",
+                                          "run",   "problems", "outline", "hierarchy", "testing" };
+const int panel_default_docks[PANELS] = { 0, 0, 0, 4, 4, 0, 4, 0, 0, 0 };
 
 const char *panel_icon(const char *page)
 {
@@ -37,6 +37,8 @@ const char *panel_icon(const char *page)
     return "view-list-symbolic";
   if (strcmp(page, "hierarchy") == 0)
     return "format-indent-more-symbolic";
+  if (strcmp(page, "testing") == 0)
+    return "object-select-symbolic";
   return "utilities-terminal-symbolic";
 }
 

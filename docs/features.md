@@ -153,6 +153,18 @@ picked interpreter or its venv.
 Gradle or `pytest` in a Python project. Output stays in the integrated shell; Ctrl-click a
 `file:line:column` location to open the failing source.
 
+**Testing panel.** The **Testing** panel (Panels menu, or "View: Toggle Testing") lists the
+project's tests as a tree: CTest's (a CMake build folder: `build/` or another one in the project
+folder; GoogleTest cases through `gtest_discover_tests` come under their suite), pytest's (under
+their file, with the project's Python), `go test`'s (under their package) and `cargo test`'s (under
+their module). Each test shows its last result: ✓ passed, ✗ failed, - skipped, ○ not run. ▶ on a row
+(shown on hover) runs that test or group; the header has Run All, Run Failed, Stop and Refresh (also
+"Test: Run All Tests", "Test: Run Failed Tests", "Test: Refresh Tests" and "Test: Stop" in the
+command palette). Runs save the changed files first and go on in the background, one at a time; CTest
+builds before it runs. A selected test's output (and why it failed) shows under the tree; a group shows its
+framework's last command output. Tests are listed only when asked for: when the panel first shows,
+on Refresh, and after a run (go and cargo compile to list). The list stays while the project is open.
+
 **Git.** The editor marks changed lines in the gutter (blue changed, green added, red
 where lines were deleted), following new commits by itself. **Compare with HEAD** (`Ctrl+Alt+D`)
 and **File History** (`Ctrl+Alt+H`, pick a commit) open one tab ("file ↔ commit") with the file
