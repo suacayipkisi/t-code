@@ -497,12 +497,49 @@ static void tcode_completion_init(TcodeCompletion *self)
   self->shown = g_list_store_new(TCODE_TYPE_PROPOSAL);
 }
 
+/* Enter with the list open starts a new line: the list is closed before the view sees the key (on
+ * the view's parent, as the list's own key handler on the view comes first there). Tab takes the
+ * proposal (the list's own key, left as it is: a snippet being filled in takes it first). */
+static gboolean on_list_enter(GtkEventControllerKey *keys G_GNUC_UNUSED, guint key, guint code G_GNUC_UNUSED,
+                              GdkModifierType state, Tab *tab)
+{
+  GtkSourceCompletion *completion = gtk_source_view_get_completion(tab->source);
+
+  if ((key == GDK_KEY_Return || key == GDK_KEY_KP_Enter || key == GDK_KEY_ISO_Enter) &&
+      !(state & (GDK_SHIFT_MASK | GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) &&
+      g_object_get_data(G_OBJECT(completion), "t-code-shown"))
+    gtk_source_completion_hide(completion);
+  return FALSE; /* the view gets it: a new line */
+}
+
+/* Whether the list is open: GtkSourceCompletion does not tell, its signals do. */
+static void on_list_shown(GtkSourceCompletion *completion, Tab *tab)
+{
+  GtkWidget *parent = gtk_widget_get_parent(GTK_WIDGET(tab->source));
+
+  g_object_set_data(G_OBJECT(completion), "t-code-shown", GINT_TO_POINTER(TRUE));
+  if (parent && !g_object_get_data(G_OBJECT(parent), "t-code-enter")) { /* the first time: the page is built */
+    GtkEventController *keys = gtk_event_controller_key_new();
+    gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+    g_signal_connect(keys, "key-pressed", G_CALLBACK(on_list_enter), tab);
+    gtk_widget_add_controller(parent, keys);
+    g_object_set_data(G_OBJECT(parent), "t-code-enter", keys);
+  }
+}
+
+static void on_list_hidden(GtkSourceCompletion *completion)
+{
+  g_object_set_data(G_OBJECT(completion), "t-code-shown", NULL);
+}
+
 void completion_attach(Tab *tab)
 {
   TcodeCompletion *provider = g_object_new(TCODE_TYPE_COMPLETION, NULL);
   GtkSourceCompletion *completion = gtk_source_view_get_completion(tab->source);
 
   provider->tab = tab;
+  g_signal_connect(completion, "show", G_CALLBACK(on_list_shown), tab);
+  g_signal_connect(completion, "hide", G_CALLBACK(on_list_hidden), NULL);
   g_object_set(completion, "page-size", 12, "select-on-show", TRUE, "show-icons", TRUE, "remember-info-visibility",
                TRUE, NULL);
   gtk_source_completion_add_provider(completion, GTK_SOURCE_COMPLETION_PROVIDER(provider));

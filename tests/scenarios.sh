@@ -173,6 +173,38 @@ check "Ctrl+, opens Settings and Escape closes it" \
   test "$settings" -gt "$(xdotool search --onlyvisible --pid "$tcode" | wc -l)"
 xdotool windowfocus --sync "$window"
 
+# Completion (clangd): Enter starts a new line even with the list open, Tab takes the proposal.
+if command -v clangd >/dev/null; then
+  send "open $project/main.c"
+  eventually current_is "$project/main.c"
+  send "replace-all int alphabetical_order;
+int f(void)
+{
+  return alph"
+  sleep 3
+  keys ctrl+End ctrl+space
+  sleep 2
+  keys Return
+  text=$(send get-text)
+  check "Enter with completions shown starts a new line" \
+    test "${text%%$'\n'*}" != "" -a "${text/return alph$'\n'/}" != "$text"
+  type_text "alph"
+  keys ctrl+space
+  sleep 2
+  keys Tab
+  text=$(send get-text)
+  check "  ... and Tab takes the completion" test "${text##*$'\n'}" == "  alphabetical_order"
+  send "replace-all #include \"util.h\"
+
+int main(void)
+{
+  return twice(1);
+}
+"
+  send save
+  eventually file_has "$project/main.c" "twice(1)"
+fi
+
 # Git: stash a change through the palette, then pop it back.
 send "open $project/main.c"
 eventually current_is "$project/main.c"

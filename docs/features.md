@@ -11,8 +11,9 @@ the mouse. On top of that:
   pointer on them shows the message, and on a symbol its type and signature. The status bar counts
   them, and a strip right of the minimap marks where they are in the whole file (click to go there).
 - **Completion while typing** (and after `.`, `->`, `::`, or on `Ctrl+Space`): the list shows each
-  symbol's kind, its parameters and type; a function goes in with its parameters as placeholders
-  (`Tab` to the next one), and the `#include` it needs is added by itself.
+  symbol's kind, its parameters and type; `Tab` takes the proposal (`Enter` starts a new line and
+  closes the list); a function goes in with its parameters as placeholders (`Tab` to the next one),
+  and the `#include` it needs is added by itself.
 - **Parameter hints**: in a call's arguments, the signature shows above the cursor with the
   argument being typed in bold.
 - **Go to Definition** (`F12`, `Ctrl+Click`; while Ctrl is held, the name under the pointer is underlined) and back (`Alt+←`), **Find All References**

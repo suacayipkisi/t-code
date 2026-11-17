@@ -1,7 +1,8 @@
 /*
  * Completion while typing: GtkSourceView shows the list when a word
- * is typed (or after ".", "->", "::"), and on Ctrl+Space; the language server fills it. A picked
- * function comes in as a snippet: Tab goes from one argument to the next.
+ * is typed (or after ".", "->", "::"), and on Ctrl+Space; the language server fills it. Tab takes
+ * the proposal, Enter starts a new line. A picked function comes in as a snippet: Tab goes from one
+ * argument to the next.
  */
 #pragma once
 
