@@ -377,7 +377,7 @@ void show_settings(App *t)
           color_themes());
   add_row(GTK_GRID(grid), &row, "Theme", "Rounded panels on a darker frame, or flat ones with lines between", theme);
   add_row(GTK_GRID(grid), &row, "Editor font", "Editors and the terminal", font_for(&t->settings.font));
-  add_row(GTK_GRID(grid), &row, "Files panel font", "File icons need a Nerd Font installed",
+  add_row(GTK_GRID(grid), &row, "Files panel font", "The names in the Files panel and Open Tabs",
           font_for(&t->settings.files_font));
   add_row(GTK_GRID(grid), &row, "Text size (%)", "Also Ctrl+= and Ctrl+-",
           spin_for(50, 300, 10, t->settings.font_scale * 100, G_CALLBACK(on_text_size)));

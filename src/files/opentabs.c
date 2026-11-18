@@ -88,17 +88,6 @@ static void on_row_menu(GtkWidget *row, double x, double y, gpointer data G_GNUC
     tab_menu(tab, row, x, y);
 }
 
-/* A label with text in color (Pango markup). */
-static GtkWidget *colored(const char *text, const char *color)
-{
-  GtkWidget *label = gtk_label_new(NULL);
-  char *markup = g_markup_printf_escaped("<span foreground=\"%s\">%s</span>", color, text);
-
-  gtk_label_set_markup(GTK_LABEL(label), markup);
-  g_free(markup);
-  return label;
-}
-
 /* A tab's row: its file's icon, its name as its tab shows it, its folder (relative to the project),
  * and ● (unsaved) or × to close. */
 static GtkWidget *tab_row(Tab *tab)
@@ -118,7 +107,7 @@ static GtkWidget *tab_row(Tab *tab)
   if (strncmp(dir, t->project.root, root) == 0 && (dir[root] == '/' || !dir[root]))
     relative = dir[root] ? dir + root + 1 : "";
   where = gtk_label_new(relative);
-  gtk_box_append(GTK_BOX(box), colored(icon->glyph, icon->color));
+  gtk_box_append(GTK_BOX(box), gtk_image_new_from_icon_name(icon->name[palette_light()]));
   gtk_label_set_xalign(GTK_LABEL(name), 0);
   gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
   if (tab->temporary)

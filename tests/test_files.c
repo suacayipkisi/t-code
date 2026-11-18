@@ -38,6 +38,7 @@ void open_to_side(App *t G_GNUC_UNUSED, const char *path)
 void open_preview(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void open_in_new_window(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 GtkWidget *open_tabs_new(App *t G_GNUC_UNUSED) { return gtk_box_new(GTK_ORIENTATION_VERTICAL, 0); }
+void open_tabs_changed(App *t G_GNUC_UNUSED) {}
 gboolean is_markdown(const char *path) { return g_str_has_suffix(path, ".md"); }
 gboolean has_preview(const char *path) { return is_markdown(path) || g_str_has_suffix(path, ".svg"); }
 void compare_with_head(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
@@ -449,6 +450,34 @@ static void test_problems(void)
   forget_project();
 }
 
+/* A row shows its kind's SVG icon from the resources (the dark one under a dark theme), faded while cut. */
+static void test_icons(void)
+{
+  GtkIconTheme *theme = gtk_icon_theme_get_for_display(gdk_display_get_default());
+  FileRow r = { .icon = gtk_image_new(), .name = gtk_label_new(NULL), .badge = gtk_label_new(NULL) };
+
+  g_object_ref_sink(r.icon);
+  g_object_ref_sink(r.name);
+  g_object_ref_sink(r.badge);
+  g_assert_true(gtk_icon_theme_has_icon(theme, "tcode-file-c"));
+  g_assert_true(gtk_icon_theme_has_icon(theme, "tcode-file-c-light"));
+  g_assert_true(gtk_icon_theme_has_icon(theme, "tcode-file-folder-open"));
+  r.path = g_strdup("/p/main.c");
+  files_paint(&r);
+  g_assert_cmpstr(gtk_image_get_icon_name(GTK_IMAGE(r.icon)), ==, "tcode-file-c");
+  g_assert_cmpfloat(gtk_widget_get_opacity(r.icon), ==, 1);
+  files.clip = r.path;
+  files.clip_cut = TRUE;
+  files_paint(&r);
+  g_assert_cmpfloat(gtk_widget_get_opacity(r.icon), <, 1);
+  files.clip = NULL;
+  files.clip_cut = FALSE;
+  g_free(r.path);
+  g_object_unref(r.icon);
+  g_object_unref(r.name);
+  g_object_unref(r.badge);
+}
+
 int main(int argc, char **argv)
 {
   gtk_test_init(&argc, &argv, NULL);
@@ -470,5 +499,6 @@ int main(int argc, char **argv)
   g_test_add_func("/files/dotfiles", test_dotfiles);
   g_test_add_func("/files/git", test_git);
   g_test_add_func("/files/problems", test_problems);
+  g_test_add_func("/files/icons", test_icons);
   return g_test_run();
 }

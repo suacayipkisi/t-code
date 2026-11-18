@@ -129,7 +129,7 @@ static const char *name_color(const char *path, char state)
   }
 }
 
-/* Icon, name in its problems' or git color (dimmed when cut) and the git letter of a file. */
+/* Icon (faded when cut), name in its problems' or git color (dimmed when cut) and the git letter of a file. */
 void files_paint(FileRow *r)
 {
   const char *name = strrchr(r->path, '/') + 1;
@@ -139,7 +139,8 @@ void files_paint(FileRow *r)
   const FileIcon *icon = file_icon(name, r->dir, open);
   const char *badge = r->dir ? NULL : git_marks_badge(state);
 
-  set_colored(r->icon, icon->glyph, cut ? palette_hex(PAL_FG_FAINT) : icon->color);
+  gtk_image_set_from_icon_name(GTK_IMAGE(r->icon), icon->name[palette_light()]);
+  gtk_widget_set_opacity(r->icon, cut ? 0.45 : 1);
   set_colored(r->name, name, cut ? palette_hex(PAL_FG_FAINT) : name_color(r->path, state));
   gtk_widget_set_visible(r->badge, badge != NULL);
   if (badge)
@@ -388,6 +389,7 @@ static const char *const css =
 
 GtkWidget *files_panel(App *t)
 {
+  static gboolean icons_added;
   GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
   GtkWidget *scroll = gtk_scrolled_window_new();
   GtkEventController *keys = gtk_event_controller_key_new();
@@ -396,6 +398,10 @@ GtkWidget *files_panel(App *t)
 
   files.app = t;
   files.show_hidden = TRUE;
+  if (!icons_added) { /* once: every window's panel shares the display's icon theme */
+    gtk_icon_theme_add_resource_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), FILE_ICONS_RESOURCE);
+    icons_added = TRUE;
+  }
   files.expanded = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   files.rows = g_ptr_array_new();
   files.problems = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
@@ -533,9 +539,10 @@ void files_problems_changed(App *t)
     files.problems_idle = g_idle_add(problems_now, NULL);
 }
 
-void files_restyle(App *t G_GNUC_UNUSED)
+void files_restyle(App *t)
 {
   files_paint_all();
+  open_tabs_changed(t); /* a light theme has its own icons */
 }
 
 void files_stop(App *t G_GNUC_UNUSED)

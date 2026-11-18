@@ -262,7 +262,7 @@ void session_save_settings(App *t)
   g_key_file_set_string(kf, "settings", "font", t->settings.font);
   explain(kf, "font", " Editors and the terminal: a font name and size, like Cascadia Code 11");
   g_key_file_set_string(kf, "settings", "file-manager-font", t->settings.files_font);
-  explain(kf, "file-manager-font", " The Files panel (its file icons need a Nerd Font)");
+  explain(kf, "file-manager-font", " The Files panel");
   store_to(kf, path);
   g_key_file_set_double(session, "window", "font-scale", t->settings.font_scale);
   g_key_file_set_double(session, "window", "preview-scale", t->settings.preview_scale);

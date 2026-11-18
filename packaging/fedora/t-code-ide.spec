@@ -22,6 +22,7 @@ Requires:       clang-tools-extra
 Requires:       git-core
 Requires:       cascadia-code-fonts
 Requires:       hicolor-icon-theme
+Requires:       librsvg2
 Recommends:     ripgrep
 Recommends:     gdb
 # The package was called t-code before 0.4.1.

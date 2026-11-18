@@ -3,19 +3,37 @@
 
 #include <string.h>
 
-static const FileIcon icon_folder = { "", "#dcb67a" }, icon_folder_open = { "", "#dcb67a" },
-                      icon_file = { "", "#969696" }, icon_c = { "", "#599eff" }, icon_cpp = { "", "#f34b7d" },
-                      icon_h = { "", "#a074c4" }, icon_make = { "", "#6d8086" },
-                      icon_config = { "", "#6d8086" }, icon_markdown = { "", "#42a5f5" },
-                      icon_json = { "", "#cbcb41" }, icon_shell = { "", "#89e051" },
-                      icon_python = { "", "#ffbc03" }, icon_lua = { "", "#51a0cf" },
-                      icon_js = { "", "#cbcb41" }, icon_ts = { "", "#519aba" }, icon_html = { "", "#e44d26" },
-                      icon_css = { "", "#42a5f5" }, icon_rust = { "", "#dea584" }, icon_go = { "", "#519aba" },
-                      icon_java = { "", "#cc3e44" }, icon_image = { "", "#a074c4" },
-                      icon_archive = { "", "#eca517" }, icon_pdf = { "", "#e6463c" },
-                      icon_text = { "", "#89e051" }, icon_binary = { "", "#969696" },
-                      icon_git = { "", "#f14c28" }, icon_license = { "", "#cbcb41" },
-                      icon_lock = { "", "#bbbbbb" };
+/* An icon called tcode-file-<file> (dark) and tcode-file-<file>-light: assets/icons/{dark,light}/<file>.svg. */
+#define ICON(var, file) static const FileIcon icon_##var = { { "tcode-file-" file, "tcode-file-" file "-light" } }
+
+ICON(folder, "folder");
+ICON(folder_open, "folder-open");
+ICON(file, "file");
+ICON(c, "c");
+ICON(cpp, "cpp");
+ICON(h, "h");
+ICON(make, "make");
+ICON(config, "config");
+ICON(markdown, "markdown");
+ICON(json, "json");
+ICON(shell, "shell");
+ICON(python, "python");
+ICON(lua, "lua");
+ICON(js, "js");
+ICON(ts, "ts");
+ICON(html, "html");
+ICON(css, "css");
+ICON(rust, "rust");
+ICON(go, "go");
+ICON(java, "java");
+ICON(image, "image");
+ICON(archive, "archive");
+ICON(pdf, "pdf");
+ICON(text, "text");
+ICON(binary, "binary");
+ICON(git, "git");
+ICON(license, "license");
+ICON(lock, "lock");
 
 /* clang-format off */
 static const struct { const char *name; const FileIcon *icon; } icon_names[] = {

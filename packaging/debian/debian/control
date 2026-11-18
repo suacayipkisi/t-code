@@ -19,7 +19,8 @@ Depends: ${shlibs:Depends},
          clangd,
          git,
          fonts-cascadia-code,
-         hicolor-icon-theme
+         hicolor-icon-theme,
+         librsvg2-common
 Breaks: t-code (<< 0.4.1)
 Replaces: t-code (<< 0.4.1)
 Recommends: ripgrep,

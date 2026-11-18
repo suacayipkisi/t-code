@@ -16,6 +16,7 @@ pkgbase = t-code-ide
 	depends = git
 	depends = ttf-cascadia-code
 	depends = hicolor-icon-theme
+	depends = librsvg
 	optdepends = ripgrep: faster Search panel (falls back to grep)
 	optdepends = gdb: the debugger (F5)
 	conflicts = t-code

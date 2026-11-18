@@ -7,7 +7,7 @@ arch=('x86_64')
 url='https://github.com/suacayipkisi/t-code'
 license=('MIT')
 depends=('glib2' 'gtk4' 'gtksourceview5' 'json-glib' 'vte4' 'md4c' 'clang' 'git'
-         'ttf-cascadia-code' 'hicolor-icon-theme')
+         'ttf-cascadia-code' 'hicolor-icon-theme' 'librsvg')
 makedepends=('pkgconf')
 conflicts=('t-code')
 optdepends=('ripgrep: faster Search panel (falls back to grep)'

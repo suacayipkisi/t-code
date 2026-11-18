@@ -32,7 +32,7 @@ big one, it is about clangd on that system (step 3).
   (`tools/proc-report.sh`).
 * **Which files were open while idle?** A session that restores 25 tabs is not an empty start; the
   servers only know the tabs that were shown.
-* **Fonts:** the editor's Cascadia Code and the Files panel's Nerd Font icons go through
+* **Fonts:** the editor's Cascadia Code and the Files panel's font go through
   fontconfig's caches; a system with an unusual or very large font setup shows a bigger window.
   Compare once with a plain monospace font picked in Settings.
 

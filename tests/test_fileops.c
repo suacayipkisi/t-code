@@ -398,19 +398,31 @@ static void test_icons(void)
   g_assert_true(file_icon("a.c", TRUE, FALSE) == file_icon("src", TRUE, FALSE)); /* a folder named a.c */
 }
 
-/* No glyph from the Material Design range Nerd Fonts 3 dropped (U+F500..U+FD46): fontconfig would
- * draw it from some other font (LICENSE showed a Tibetan letter). */
-static void test_icon_glyphs(void)
+/* Every icon has its SVG for dark and for light themes (the Makefile builds them into the binary
+ * under these names). */
+static void test_icon_files(void)
 {
   const char *const names[] = { "LICENSE", "a.c",  "a.cpp",      "a.h",    "Makefile", ".clang-format", "a.md",
                                 "a.json",  "a.sh", "a.py",       "a.lua",  "a.js",     "a.ts",          "a.html",
                                 "a.css",   "a.rs", "a.go",       "a.java", "a.png",    "a.zip",         "a.pdf",
                                 "a.txt",   "a.o",  ".gitignore", "a.lock", "x" };
+  const FileIcon *icons[G_N_ELEMENTS(names) + 2];
 
-  for (size_t i = 0; i < G_N_ELEMENTS(names); i++) {
-    gunichar c = g_utf8_get_char(file_icon(names[i], FALSE, FALSE)->glyph);
-    g_assert_false(c >= 0xF500 && c <= 0xFD46);
-  }
+  for (size_t i = 0; i < G_N_ELEMENTS(names); i++)
+    icons[i] = file_icon(names[i], FALSE, FALSE);
+  icons[G_N_ELEMENTS(names)] = file_icon("src", TRUE, FALSE);
+  icons[G_N_ELEMENTS(names) + 1] = file_icon("src", TRUE, TRUE);
+  for (size_t i = 0; i < G_N_ELEMENTS(icons); i++)
+    for (int light = 0; light < 2; light++) {
+      const char *name = icons[i]->name[light];
+      g_assert_true(g_str_has_prefix(name, "tcode-file-"));
+      g_assert_true(g_str_has_suffix(name, "-light") == light);
+      char *kind = g_strndup(name + strlen("tcode-file-"), strlen(name) - strlen("tcode-file-") - (light ? 6 : 0));
+      char *path = g_strdup_printf("assets/icons/%s/%s.svg", light ? "light" : "dark", kind);
+      g_assert_true(g_file_test(path, G_FILE_TEST_IS_REGULAR));
+      g_free(path);
+      g_free(kind);
+    }
 }
 
 int main(int argc, char **argv)
@@ -431,6 +443,6 @@ int main(int argc, char **argv)
   g_test_add_func("/gitmarks/states", test_git_marks);
   g_test_add_func("/gitmarks/deleted-folder", test_git_deleted_folder);
   g_test_add_func("/icons/lookup", test_icons);
-  g_test_add_func("/icons/glyphs", test_icon_glyphs);
+  g_test_add_func("/icons/files", test_icon_files);
   return g_test_run();
 }

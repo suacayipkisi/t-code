@@ -120,10 +120,10 @@ void files_setup_row(GtkSignalListItemFactory *factory G_GNUC_UNUSED, GtkListIte
   GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_FILE, GDK_ACTION_COPY | GDK_ACTION_MOVE);
 
   r->expander = gtk_tree_expander_new();
-  r->icon = gtk_label_new(NULL);
+  r->icon = gtk_image_new();
   r->name = gtk_label_new(NULL);
   r->badge = gtk_label_new(NULL);
-  gtk_widget_add_css_class(r->icon, "icon");
+  gtk_image_set_pixel_size(GTK_IMAGE(r->icon), 16);
   gtk_widget_add_css_class(r->badge, "badge");
   gtk_label_set_xalign(GTK_LABEL(r->name), 0);
   gtk_label_set_ellipsize(GTK_LABEL(r->name), PANGO_ELLIPSIZE_END);

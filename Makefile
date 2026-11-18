@@ -35,6 +35,7 @@ endif
 
 APP_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(APP_SRC))
 APP_DEP := $(APP_OBJ:.o=.d)
+APP_OBJ += $(OBJ_DIR)/resources.o
 
 # Rewritten only when the defines change (a new commit changes the dev version): the objects rebuild then.
 $(OBJ_DIR)/defines: FORCE | build
@@ -50,6 +51,23 @@ $(APP_BIN): $(APP_OBJ) Makefile | build
 	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) $(shell pkg-config --libs $(PKGS))
 
 -include $(APP_DEP)
+
+# The file icons (assets/icons/{dark,light}/<kind>.svg) built into the binary as resources, laid out
+# for the icon theme: scalable/apps/tcode-file-<kind>.svg and tcode-file-<kind>-light.svg
+# (src/files/icons.h). They stay SVG: the icon theme draws them at each size and scale.
+ICON_SVG := $(wildcard assets/icons/dark/*.svg assets/icons/light/*.svg)
+build/resources.xml: $(ICON_SVG) Makefile | build
+	@( echo '<?xml version="1.0" encoding="UTF-8"?>'; \
+	   echo '<gresources><gresource prefix="/io/github/suacayipkisi/tcode/icons">'; \
+	   for f in $(ICON_SVG); do n=$$(basename $$f .svg); case $$f in */light/*) n=$$n-light;; esac; \
+	     echo "<file alias=\"scalable/apps/tcode-file-$$n.svg\">$$f</file>"; done; \
+	   echo '</gresource></gresources>' ) > $@
+build/resources.c: build/resources.xml $(ICON_SVG)
+	glib-compile-resources --sourcedir=. --generate-source --target=$@ $<
+$(OBJ_DIR)/resources.o: build/resources.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(APP_CFLAGS) -c -o $@ $<
+
 # LICENSE as a C string for the About window (src/dialogs/about.c).
 build/license.h: LICENSE | build
 	sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/"&\\n"/' $< > $@
@@ -150,14 +168,14 @@ build/test-fileops: tests/test_fileops.c tests/util.h $(FILES_GIO) $(FILES_GIO:.
 	  $(shell pkg-config --libs gio-2.0)
 
 # The Files panel; tests/test_files.c includes src/files/files.c, rows.c and actions.c for their static functions.
-build/test-files: tests/test_files.c tests/util.h $(wildcard src/files/*.c) src/window/palette.c $(APP_HDR) | build
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_files.c $(FILES_GIO) src/window/palette.c \
+build/test-files: tests/test_files.c tests/util.h $(wildcard src/files/*.c) src/window/palette.c build/resources.c $(APP_HDR) | build
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_files.c $(FILES_GIO) src/window/palette.c build/resources.c \
 	  $(shell pkg-config --libs $(PKGS))
 
 # A whole window (every module but main.c): how tabs open and close.
-build/test-window: tests/test_window.c tests/util.h tests/widgets.h tests/broadway.h $(APP_SRC) $(APP_HDR) build/license.h | build
+build/test-window: tests/test_window.c tests/util.h tests/widgets.h tests/broadway.h $(APP_SRC) $(APP_HDR) build/license.h build/resources.c | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_window.c \
-	  $(filter-out src/main.c,$(APP_SRC)) $(shell pkg-config --libs $(PKGS))
+	  $(filter-out src/main.c,$(APP_SRC)) build/resources.c $(shell pkg-config --libs $(PKGS))
 
 build/test-about: tests/test_about.c tests/util.h src/dialogs/about.c $(APP_HDR) build/license.h | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_about.c \
