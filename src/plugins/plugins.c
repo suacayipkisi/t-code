@@ -1,7 +1,8 @@
 /*
  * Plugins (see plugins.h; the manifest and the protocol are docs/plugins.md's): finding them, their
- * commands in the palette and on keys, starting their programs.
+ * commands in the palette and on keys, starting and stopping their programs.
  */
+#define _DEFAULT_SOURCE /* kill(), setpgid() */
 #include "plugins/plugins.h"
 
 #include "application/identity.h"
@@ -11,6 +12,8 @@
 
 #include <gio/gio.h>
 #include <json-glib/json-glib.h>
+#include <signal.h>
+#include <unistd.h>
 
 #include "window/commands.h"
 
@@ -36,6 +39,7 @@ static void plugin_free(Plugin *plugin)
   g_free(plugin->dir);
   g_free(plugin->executable);
   g_free(plugin->token);
+  g_queue_clear_full(&plugin->output, g_free);
   if (plugin->commands)
     g_ptr_array_free(plugin->commands, TRUE);
   g_free(plugin);
@@ -156,14 +160,16 @@ static void command_keys(PluginCommand *cmd, const char *keys, const char *trigg
 }
 
 /* The plugin plugin.json (obj) describes, or NULL: a warning says what is wrong with a broken one; one
- * with the id of a plugin found before is left out quietly. A plugin without commands needs no
- * program. */
+ * with the id of a plugin found before is left out quietly. A plugin without commands or "start"
+ * needs no program. */
 static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, const char *dir_name)
 {
   const char *name = string_member(obj, "name"), *id = string_member(obj, "id");
   JsonNode *commands = json_object_get_member(obj, "commands");
   JsonArray *list = commands && JSON_NODE_HOLDS_ARRAY(commands) ? json_node_get_array(commands) : NULL;
   int api = plugin_api(obj);
+  PluginPermissions permissions;
+  gboolean starts = FALSE;
   char *executable = NULL;
 
   if (!name || !*name) {
@@ -183,7 +189,16 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
     id = dir_name;
   if (plugin_find(t, id))
     return NULL;
-  if (list && json_array_get_length(list) > 0 &&
+  permissions = plugin_permissions(obj, name);
+  if (json_object_has_member(obj, "start")) {
+    if (g_strcmp0(string_member(obj, "start"), "project") != 0)
+      g_warning("Plugin %s: \"start\" can only be \"project\"; left out", name);
+    else if (api > 0 && !(permissions & PLUGIN_START))
+      g_warning("Plugin %s: \"start\" needs \"start\" in \"permissions\": it runs only from its commands", name);
+    else
+      starts = TRUE;
+  }
+  if (((list && json_array_get_length(list) > 0) || starts) &&
       !(executable = plugin_executable(plugin_dir, dir_name, string_member(obj, "executable")))) {
     g_warning("Plugin %s (%s): no executable found in %s", name, id, plugin_dir);
     return NULL;
@@ -197,7 +212,8 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
   p->dir = g_strdup(plugin_dir);
   p->executable = executable;
   p->api = api;
-  p->permissions = plugin_permissions(obj, name);
+  p->permissions = permissions;
+  p->starts = starts;
   p->token = g_uuid_string_random();
   p->commands = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_command_free);
   for (guint i = 0; list && i < json_array_get_length(list); i++) {
@@ -287,19 +303,20 @@ void plugins_init(App *t)
   }
 }
 
+static void unload(App *t, gboolean quitting);
+
 void plugins_stop(App *t)
 {
-  if (t->plugins) {
-    g_ptr_array_free(t->plugins, TRUE);
-    t->plugins = NULL;
-  }
+  unload(t, TRUE);
 }
 
+/* Their start programs restart too: they get new tokens. */
 void plugins_reload(App *t)
 {
-  plugins_stop(t);
+  unload(t, FALSE);
   plugins_init(t);
   refresh_shortcuts(t);
+  plugins_start_project(t);
   status_say(t, "Plugins reloaded");
 }
 
@@ -425,99 +442,281 @@ void plugins_add_shortcuts(GtkShortcutController *controller, App *t)
   g_hash_table_destroy(seen);
 }
 
-typedef struct {
-  App *app;
-  char *plugin_name;
-} PluginRunContext;
+/* Running their programs ---------------------------------------------------------------------- */
 
-static void on_plugin_finished(GObject *source, GAsyncResult *result, gpointer user_data)
+enum {
+  STOP_MS = 2000, /* a stopped program gets SIGTERM, then SIGKILL after this */
+  QUIT_MS = 1000, /* the same while t-code quits: it waits this long */
+};
+
+struct PluginRun {
+  App *app; /* NULL once its plugins were unloaded */
+  char *plugin_id, *name;
+  GSubprocess *proc;
+  pid_t pid;             /* its process group: a script's children go with it */
+  GDataInputStream *out; /* its stdout and stderr */
+  GCancellable *cancel;  /* reading them */
+  gboolean start;        /* a plugin's start program (else one command's run) */
+  gboolean stopping;     /* t-code stopped it: its end is no failure */
+  gboolean ended;
+  guint kill_id; /* SIGKILL when SIGTERM was not enough */
+  int refs;      /* the output reader and the wait */
+};
+
+static GList *runs; /* PluginRun *: every program started and not ended */
+
+static void run_unref(PluginRun *run)
 {
-  GSubprocess *proc = G_SUBPROCESS(source);
-  PluginRunContext *ctx = user_data;
+  if (--run->refs > 0)
+    return;
+  runs = g_list_remove(runs, run);
+  g_clear_handle_id(&run->kill_id, g_source_remove);
+  g_object_unref(run->out);
+  g_object_unref(run->cancel);
+  g_object_unref(run->proc);
+  g_free(run->plugin_id);
+  g_free(run->name);
+  g_free(run);
+}
+
+/* Kept for the Plugins window, and on t-code's stderr like before. */
+static void keep_line(PluginRun *run, const char *line)
+{
+  Plugin *p = run->app ? plugin_find(run->app, run->plugin_id) : NULL;
+
+  g_printerr("%s: %s\n", run->plugin_id, line);
+  if (!p)
+    return;
+  g_queue_push_tail(&p->output, g_strdup(line));
+  while (p->output.length > PLUGIN_OUTPUT_LINES)
+    g_free(g_queue_pop_head(&p->output));
+}
+
+static void on_output_line(GObject *source, GAsyncResult *result, gpointer data)
+{
+  PluginRun *run = data;
+  char *line = g_data_input_stream_read_line_finish(G_DATA_INPUT_STREAM(source), result, NULL, NULL);
+  char *text;
+
+  if (!line) { /* the end, or unloaded */
+    run_unref(run);
+    return;
+  }
+  text = g_utf8_make_valid(line, -1);
+  keep_line(run, text);
+  g_free(text);
+  g_free(line);
+  g_data_input_stream_read_line_async(run->out, G_PRIORITY_DEFAULT, run->cancel, on_output_line, run);
+}
+
+static void on_run_ended(GObject *source G_GNUC_UNUSED, GAsyncResult *result, gpointer data)
+{
+  PluginRun *run = data;
+  gboolean waited = g_subprocess_wait_finish(run->proc, result, NULL);
+  gboolean ok = waited && g_subprocess_get_successful(run->proc);
+  Plugin *p = run->app ? plugin_find(run->app, run->plugin_id) : NULL;
+
+  run->ended = TRUE;
+  g_clear_handle_id(&run->kill_id, g_source_remove);
+  if (p && p->running == run) {
+    p->running = NULL;
+    p->state = ok ? PLUGIN_STOPPED : PLUGIN_FAILED;
+  }
+  if (!ok && !run->stopping && run->app) {
+    if (waited && g_subprocess_get_if_exited(run->proc))
+      g_warning("Plugin '%s' exited with status %d", run->name, g_subprocess_get_exit_status(run->proc));
+    else if (waited)
+      g_warning("Plugin '%s' was ended by signal %d", run->name, g_subprocess_get_term_sig(run->proc));
+    char *message = g_strdup_printf("Plugin %s failed", run->name);
+    status_say(run->app, message);
+    g_free(message);
+  }
+  run_unref(run);
+}
+
+static void child_setup(gpointer data G_GNUC_UNUSED)
+{
+  setpgid(0, 0);
+}
+
+/* Starts p's program for command_id with the plugin's environment (docs/plugins.md, "How a plugin
+ * runs"), without waiting for it; NULL when it cannot start (the status bar says so). */
+static PluginRun *launch(App *t, Plugin *p, const char *command_id, gboolean start)
+{
+  GSubprocessLauncher *launcher =
+      g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_MERGE);
+  Tab *tab = current_tab(t);
+  const char *active_file = (tab && tab->kind == TAB_EDITOR && tab->path) ? tab->path : "";
+  char *api = g_strdup_printf("tapi_%d", TAPI_LATEST); /* what the socket speaks */
+  char **env = g_get_environ();
   GError *error = NULL;
 
-  if (!g_subprocess_wait_finish(proc, result, &error)) {
-    g_warning("Plugin '%s' execution error: %s", ctx->plugin_name, error ? error->message : "unknown");
-    char *msg = g_strdup_printf("Plugin %s failed", ctx->plugin_name);
-    status_say(ctx->app, msg);
-    g_free(msg);
-    g_clear_error(&error);
-  } else if (!g_subprocess_get_successful(proc)) {
-    int status = g_subprocess_get_exit_status(proc);
-    g_warning("Plugin '%s' exited with error status %d", ctx->plugin_name, status);
-    char *msg = g_strdup_printf("Plugin %s failed", ctx->plugin_name);
-    status_say(ctx->app, msg);
-    g_free(msg);
+  if (t->paths.socket)
+    env = g_environ_setenv(env, "TCODE_SOCKET", t->paths.socket, TRUE);
+  env = g_environ_setenv(env, "TCODE_PLUGIN_ID", p->id, TRUE);
+  env = g_environ_setenv(env, "TCODE_API", api, TRUE);
+  env = g_environ_setenv(env, "TCODE_PLUGIN_TOKEN", p->token, TRUE);
+  env = g_environ_setenv(env, "TCODE_COMMAND_ID", command_id, TRUE);
+  env = g_environ_setenv(env, "TCODE_ACTIVE_FILE", active_file, TRUE);
+  env = g_environ_setenv(env, "TCODE_PROJECT_ROOT", t->project.root ? t->project.root : "", TRUE);
+  g_subprocess_launcher_set_environ(launcher, env);
+  g_subprocess_launcher_set_cwd(launcher, p->dir);
+  g_subprocess_launcher_set_child_setup(launcher, child_setup, NULL, NULL);
+  g_strfreev(env);
+  g_free(api);
+
+  const char *argv[] = { p->executable, command_id, active_file, NULL };
+  GSubprocess *proc = g_subprocess_launcher_spawnv(launcher, argv, &error);
+  g_object_unref(launcher);
+  if (!proc) {
+    g_warning("Plugin '%s' launch failed: %s", p->name, error->message);
+    char *message = g_strdup_printf("Plugin %s failed to launch", p->name);
+    status_say(t, message);
+    g_free(message);
+    g_error_free(error);
+    return NULL;
   }
 
-  g_free(ctx->plugin_name);
-  g_free(ctx);
-  g_object_unref(proc);
+  PluginRun *run = g_new0(PluginRun, 1);
+  run->app = t;
+  run->plugin_id = g_strdup(p->id);
+  run->name = g_strdup(p->name);
+  run->proc = proc;
+  run->pid = (pid_t)atoi(g_subprocess_get_identifier(proc));
+  run->out = g_data_input_stream_new(g_subprocess_get_stdout_pipe(proc));
+  g_data_input_stream_set_newline_type(run->out, G_DATA_STREAM_NEWLINE_TYPE_ANY);
+  run->cancel = g_cancellable_new();
+  run->start = start;
+  run->refs = 2;
+  runs = g_list_prepend(runs, run);
+  g_data_input_stream_read_line_async(run->out, G_PRIORITY_DEFAULT, run->cancel, on_output_line, run);
+  g_subprocess_wait_async(proc, NULL, on_run_ended, run);
+  return run;
+}
+
+/* A signal for the program and whatever it started. */
+static void signal_run(PluginRun *run, int sig)
+{
+  if (kill(-run->pid, sig) < 0)
+    kill(run->pid, sig);
+}
+
+static gboolean kill_late(gpointer data)
+{
+  PluginRun *run = data;
+
+  run->kill_id = 0;
+  signal_run(run, SIGKILL);
+  return G_SOURCE_REMOVE;
+}
+
+static void stop_run(PluginRun *run)
+{
+  if (run->stopping || run->ended)
+    return;
+  run->stopping = TRUE;
+  signal_run(run, SIGTERM);
+  run->kill_id = g_timeout_add(STOP_MS, kill_late, run);
+}
+
+/* Whether the process is gone or only waits to be reaped (no main loop runs while t-code quits). */
+static gboolean process_ended(pid_t pid)
+{
+  char path[64], *stat = NULL;
+  gboolean ended;
+
+  snprintf(path, sizeof path, "/proc/%d/stat", (int)pid);
+  if (!g_file_get_contents(path, &stat, NULL, NULL))
+    return TRUE;
+  const char *paren = strrchr(stat, ')'); /* the name in parentheses may hold anything */
+  ended = paren && paren[1] == ' ' && paren[2] == 'Z';
+  g_free(stat);
+  return ended;
+}
+
+/* t's plugins go: their start programs are stopped and nothing reads the programs' output any more.
+ * Quitting, the stopped programs get QUIT_MS to go, then SIGKILL. */
+static void unload(App *t, gboolean quitting)
+{
+  for (GList *l = runs; l; l = l->next) {
+    PluginRun *run = l->data;
+    if (run->app != t)
+      continue;
+    if (run->start)
+      stop_run(run);
+    g_cancellable_cancel(run->cancel);
+    run->app = NULL;
+  }
+  if (t->plugins) {
+    g_ptr_array_free(t->plugins, TRUE);
+    t->plugins = NULL;
+  }
+  if (!quitting)
+    return;
+  for (gint64 until = g_get_monotonic_time() + QUIT_MS * 1000;; g_usleep(10000)) {
+    gboolean left = FALSE;
+    for (GList *l = runs; l; l = l->next) {
+      PluginRun *run = l->data;
+      left |= run->stopping && !run->ended && !process_ended(run->pid);
+    }
+    if (!left || g_get_monotonic_time() > until)
+      break;
+  }
+  for (GList *l = runs; l; l = l->next) {
+    PluginRun *run = l->data;
+    if (run->stopping && !run->ended && !process_ended(run->pid))
+      signal_run(run, SIGKILL);
+  }
+}
+
+gboolean plugin_start(App *t, Plugin *p)
+{
+  if (!p->running && p->starts && p->executable) {
+    p->running = launch(t, p, "start", TRUE);
+    p->state = p->running ? PLUGIN_RUNNING : PLUGIN_FAILED;
+  }
+  return p->running != NULL;
+}
+
+void plugin_stop(Plugin *p)
+{
+  if (!p->running)
+    return;
+  stop_run(p->running);
+  p->running = NULL;
+  p->state = PLUGIN_STOPPED;
+}
+
+void plugins_start_project(App *t)
+{
+  if (!t->project.root || strcmp(t->project.root, g_get_home_dir()) == 0) /* home: no folder open */
+    return;
+  for (guint i = 0; t->plugins && i < t->plugins->len; i++)
+    plugin_start(t, g_ptr_array_index(t->plugins, i));
+}
+
+void plugins_stop_project(App *t)
+{
+  for (guint i = 0; t->plugins && i < t->plugins->len; i++)
+    plugin_stop(g_ptr_array_index(t->plugins, i));
 }
 
 void plugin_run_command(App *t, const char *plugin_id, const char *command_id)
 {
   Plugin *p = plugin_find(t, plugin_id);
+  gboolean found = FALSE;
+
   if (!p) {
     g_warning("Plugin '%s' not found", plugin_id);
     return;
   }
-
-  gboolean cmd_found = FALSE;
-  for (guint i = 0; i < p->commands->len; i++) {
-    PluginCommand *cmd = g_ptr_array_index(p->commands, i);
-    if (g_strcmp0(cmd->id, command_id) == 0) {
-      cmd_found = TRUE;
-      break;
-    }
-  }
-  if (!cmd_found) {
+  for (guint i = 0; i < p->commands->len && !found; i++)
+    found = g_strcmp0(((PluginCommand *)g_ptr_array_index(p->commands, i))->id, command_id) == 0;
+  if (!found) {
     g_warning("Plugin '%s': command '%s' not found", plugin_id, command_id);
     return;
   }
-
-  GSubprocessLauncher *launcher = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_NONE);
-  g_subprocess_launcher_set_cwd(launcher, p->dir);
-
-  char **env = g_get_environ();
-  if (t->paths.socket)
-    env = g_environ_setenv(env, "TCODE_SOCKET", t->paths.socket, TRUE);
-  env = g_environ_setenv(env, "TCODE_PLUGIN_ID", plugin_id, TRUE);
-  char *api = g_strdup_printf("tapi_%d", TAPI_LATEST); /* what the socket speaks */
-  env = g_environ_setenv(env, "TCODE_API", api, TRUE);
-  g_free(api);
-  env = g_environ_setenv(env, "TCODE_PLUGIN_TOKEN", p->token, TRUE);
-  env = g_environ_setenv(env, "TCODE_COMMAND_ID", command_id, TRUE);
-
-  Tab *tab = current_tab(t);
-  const char *active_file = (tab && tab->kind == TAB_EDITOR && tab->path) ? tab->path : "";
-  env = g_environ_setenv(env, "TCODE_ACTIVE_FILE", active_file, TRUE);
-
-  const char *project_root = t->project.root ? t->project.root : "";
-  env = g_environ_setenv(env, "TCODE_PROJECT_ROOT", project_root, TRUE);
-
-  g_subprocess_launcher_set_environ(launcher, env);
-  g_strfreev(env);
-
-  const char *argv[] = { p->executable, command_id, active_file, NULL };
-  GError *error = NULL;
-  GSubprocess *proc = g_subprocess_launcher_spawnv(launcher, argv, &error);
-  g_object_unref(launcher);
-
-  if (!proc) {
-    g_warning("Plugin '%s' launch failed: %s", p->name, error ? error->message : "unknown error");
-    char *msg = g_strdup_printf("Plugin %s failed to launch", p->name);
-    status_say(t, msg);
-    g_free(msg);
-    g_clear_error(&error);
-    return;
-  }
-
-  PluginRunContext *ctx = g_new0(PluginRunContext, 1);
-  ctx->app = t;
-  ctx->plugin_name = g_strdup(p->name);
-
-  g_subprocess_wait_async(proc, NULL, on_plugin_finished, ctx);
+  launch(t, p, command_id, FALSE);
 }
 
 void open_plugins_folder(App *t)

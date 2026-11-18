@@ -124,7 +124,7 @@ found wins:
 | `description` | string | no | One sentence. |
 | `executable` | string | no | The program to run, relative to the plugin's folder or absolute. Without it, t-code looks for an executable `run.sh`, `plugin` or a file named like the folder. Only needed when the plugin has commands. |
 | `commands` | list | no | The commands the plugin adds (below). A plugin without commands needs no program. |
-| `start` | string | no, **(planned)** | `"project"`: start the plugin when a project opens and stop it when the project closes, for plugins that listen to events. Without it, the plugin runs only when one of its commands is run. |
+| `start` | string | no | `"project"`: start the plugin when a project opens and stop it when the project closes, for plugins that listen to events. Needs the `start` permission. Without it, the plugin runs only when one of its commands is run. |
 | `permissions` | list | no | What the plugin does: `"edit"`, `"terminal"`, `"network"`, `"start"`. See [Permissions](#permissions). |
 | `run` | object | no, **(planned)** | File extensions that Run (`F5` / Run button) hands to a plugin command, e.g. `{ ".m": "matlab.run" }`. |
 | `lsp` | list | no, **(planned)** | Language servers the plugin adds: extensions, argv, root markers. |
@@ -170,12 +170,25 @@ program.
 
 3. The program talks to t-code over the socket, then exits. Or it keeps a `subscribe` connection
    open and reacts to events.
-4. Its stdout and stderr go to t-code's own stdout and stderr. **(planned)** The Plugins window
-   shows them per plugin. When it exits with a non-zero status, the status bar says
-   "Plugin <name> failed".
+4. Its stdout and stderr are read line by line: t-code keeps the last 200 lines per plugin (the
+   Plugins window **(planned)** shows them) and copies them to its own stderr as `<id>: <line>`.
+   When it exits with a non-zero status, the status bar says "Plugin <name> failed".
 
-**(planned)** With `"start": "project"`, t-code starts the program when a project opens, with the
-command id `start`, and stops it (SIGTERM, then SIGKILL) when the project closes or t-code quits.
+### Starting with the project
+
+With `"start": "project"` (and `"start"` in `permissions`), t-code starts the program when a project
+opens, with the command id `start` (`$1` and `$TCODE_COMMAND_ID`), the same environment as above and no
+waiting. It is the place for a plugin that keeps a `subscribe` connection open.
+
+- **Once per project:** opening another folder stops it and starts it again for the new one
+  (`$TCODE_PROJECT_ROOT` changes). Without a folder open (t-code started in the home folder) it does
+  not start. **Plugins: Reload Installed Plugins** restarts it with a new token.
+- **Stopping:** t-code sends SIGTERM to the program's process group (a script's children go with
+  it), then SIGKILL 2 seconds later if it is still there. When t-code quits it waits 1 second before
+  SIGKILL. Exit on SIGTERM, or when the socket connection closes.
+- **No restarts:** a start program that exits by itself is not started again. Exiting with status 0
+  counts as done; anything else marks the plugin as failed and the status bar says so.
+- A program that only runs commands does not need `start`: commands work whether it runs or not.
 
 ---
 
@@ -439,7 +452,7 @@ A plugin declares what it does:
 | `edit` | Changes buffers (`insert`, `append`, `replace-all`, `edit`). | Yes: without it, those requests answer `error not-permitted`. |
 | `terminal` | Opens terminal tabs and starts programs in them. | Yes, for `terminal-open`. |
 | `network` | Uses the network. | No: a declaration, checked by review. |
-| `start` | Starts with the project (`"start"`). | **(planned)** Yes. |
+| `start` | Starts with the project (`"start"`). | Yes: without it, `"start"` is left out with a warning. |
 
 - **Who is checked:** permissions apply to connections that said hello with the plugin's token. A
   plugin could skip the token and act as a script. Enforcement catches honest mistakes; trust comes

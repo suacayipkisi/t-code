@@ -6,6 +6,11 @@
 
 static char *tmp_dir;
 
+static gboolean runs_empty(gpointer data G_GNUC_UNUSED)
+{
+  return runs == NULL;
+}
+
 /* clang-format off */
 Tab *current_tab(App *t G_GNUC_UNUSED) { return NULL; }
 void status_say(App *t G_GNUC_UNUSED, const char *message G_GNUC_UNUSED) {}
@@ -193,6 +198,48 @@ static void test_invalid_plugins(void)
   g_free(scan_path);
 }
 
+/* Spins the main loop until done(data) or ms pass; whether done. */
+static gboolean spin_until(gboolean (*done)(gpointer), gpointer data, int ms)
+{
+  gint64 until = g_get_monotonic_time() + ms * 1000;
+
+  while (!done(data) && g_get_monotonic_time() < until) {
+    g_main_context_iteration(NULL, FALSE);
+    g_usleep(5000);
+  }
+  return done(data);
+}
+
+/* Whether a plugin printed a line holding text. */
+static gboolean printed(Plugin *p, const char *text)
+{
+  for (GList *l = p->output.head; l; l = l->next)
+    if (strstr(l->data, text))
+      return TRUE;
+  return FALSE;
+}
+
+typedef struct {
+  Plugin *plugin;
+  const char *text;
+} Printed;
+
+static gboolean has_printed(gpointer data)
+{
+  Printed *w = data;
+  return printed(w->plugin, w->text);
+}
+
+static gboolean not_running(gpointer data)
+{
+  return ((Plugin *)data)->state != PLUGIN_RUNNING || !((Plugin *)data)->running;
+}
+
+static gboolean run_gone(gpointer data)
+{
+  return process_ended(GPOINTER_TO_INT(data));
+}
+
 /* A command runs the plugin's program with the socket, plugin, command and project in its environment. */
 static void test_run_command(void)
 {
@@ -207,6 +254,7 @@ static void test_run_command(void)
                                  "echo \"API=$TCODE_API\" >> \"%s\"\n"
                                  "echo \"TOKEN=$TCODE_PLUGIN_TOKEN\" >> \"%s\"\n"
                                  "echo \"ROOT=$TCODE_PROJECT_ROOT\" >> \"%s\"\n"
+                                 "echo printed\n"
                                  "exit 0\n",
                                  out_path, out_path, out_path, out_path, out_path, out_path);
 
@@ -244,6 +292,8 @@ static void test_run_command(void)
   g_assert_nonnull(strstr(contents, token));
   g_free(token);
   g_assert_nonnull(strstr(contents, "ROOT=/home/user/project"));
+  g_assert_true(spin_until(has_printed, &(Printed){ plugin_find(&app, "runner"), "printed" }, 3000));
+  g_assert_true(spin_until(runs_empty, NULL, 3000)); /* it ended and its output was read to the end */
 
   g_free(contents);
   g_free(out_path);
@@ -252,6 +302,131 @@ static void test_run_command(void)
   g_free(app.project.root);
   plugins_stop(&app);
 }
+/* A plugin with "start": "project" runs while a project is open: with command id "start", its output
+ * kept, stopped (SIGTERM) when the project closes and on quit. None starts without a project. */
+static void test_start_project(void)
+{
+  App app = { 0 };
+  char *scan_path = g_build_filename(tmp_dir, "start", NULL);
+
+  write_file("start/listener/plugin.json",
+             "{\"name\": \"Listener\", \"api\": \"tapi_1\", \"start\": \"project\", \"permissions\": [\"start\"]}",
+             0644);
+  write_file("start/listener/run.sh",
+             "#!/bin/sh\n"
+             "trap 'echo \"bye from $TCODE_COMMAND_ID\"; exit 0' TERM\n"
+             "echo \"hello from $1\"\n"
+             "echo oops >&2\n"
+             "while :; do sleep 0.05; done\n",
+             0755);
+  app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
+  plugins_scan_dir(&app, scan_path);
+  Plugin *p = plugin_find(&app, "listener");
+  g_assert_nonnull(p);
+  g_assert_true(p->starts);
+  g_assert_nonnull(p->executable); /* "start" needs a program, even without commands */
+
+  app.project.root = g_strdup(g_get_home_dir()); /* no folder open */
+  plugins_start_project(&app);
+  g_assert_null(p->running);
+  g_assert_cmpint(p->state, ==, PLUGIN_IDLE);
+
+  g_set_str(&app.project.root, tmp_dir);
+  plugins_start_project(&app);
+  g_assert_nonnull(p->running);
+  g_assert_cmpint(p->state, ==, PLUGIN_RUNNING);
+  plugins_start_project(&app); /* once only */
+  g_assert_cmpuint(g_list_length(runs), ==, 1);
+  g_assert_true(spin_until(has_printed, &(Printed){ p, "oops" }, 3000));
+  g_assert_true(printed(p, "hello from start")); /* stderr too, in order */
+
+  plugins_stop_project(&app);
+  g_assert_cmpint(p->state, ==, PLUGIN_STOPPED);
+  g_assert_true(spin_until(has_printed, &(Printed){ p, "bye from start" }, 3000));
+  g_assert_true(spin_until(runs_empty, NULL, 3000));
+
+  /* t-code quits: the program goes before plugins_stop returns. */
+  g_assert_true(plugin_start(&app, p));
+  pid_t pid = p->running->pid;
+  g_assert_true(spin_until(has_printed, &(Printed){ p, "hello" }, 3000));
+  plugins_stop(&app);
+  g_assert_true(process_ended(pid));
+  g_assert_true(spin_until(runs_empty, NULL, 3000));
+
+  g_free(app.project.root);
+  g_free(scan_path);
+}
+
+/* One that does not go on SIGTERM is killed STOP_MS later; one that exits with an error failed. */
+static void test_start_stubborn(void)
+{
+  App app = { 0 };
+  char *scan_path = g_build_filename(tmp_dir, "stubborn", NULL);
+
+  write_file("stubborn/deaf/plugin.json", "{\"name\": \"Deaf\", \"start\": \"project\"}", 0644);
+  write_file("stubborn/deaf/run.sh", "#!/bin/sh\ntrap '' TERM\necho up\nwhile :; do sleep 0.05; done\n", 0755);
+  write_file("stubborn/broken/plugin.json", "{\"name\": \"Broken\", \"start\": \"project\"}", 0644);
+  write_file("stubborn/broken/run.sh", "#!/bin/sh\necho nope\nexit 3\n", 0755);
+  app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
+  plugins_scan_dir(&app, scan_path);
+  app.project.root = g_strdup(tmp_dir);
+
+  Plugin *deaf = plugin_find(&app, "deaf"), *broken = plugin_find(&app, "broken");
+  g_assert_true(deaf->starts); /* a plugin from before versions: "start" is not checked */
+  g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "Plugin 'Broken' exited with status 3");
+  plugins_start_project(&app);
+  g_assert_true(spin_until(not_running, broken, 3000));
+  g_test_assert_expected_messages();
+  g_assert_cmpint(broken->state, ==, PLUGIN_FAILED);
+  g_assert_true(printed(broken, "nope"));
+
+  g_assert_true(spin_until(has_printed, &(Printed){ deaf, "up" }, 3000));
+  pid_t pid = deaf->running->pid;
+  plugin_stop(deaf);
+  g_assert_false(spin_until(run_gone, GINT_TO_POINTER(pid), STOP_MS / 2));
+  g_assert_true(spin_until(run_gone, GINT_TO_POINTER(pid), STOP_MS * 2));
+  g_assert_true(spin_until(runs_empty, NULL, 3000));
+
+  plugins_stop(&app);
+  g_free(app.project.root);
+  g_free(scan_path);
+}
+
+/* "start" is "project" only, and a tapi_1 plugin asks for the "start" permission. */
+static void test_start_manifest(void)
+{
+  App app = { 0 };
+  char *scan_path = g_build_filename(tmp_dir, "start-manifest", NULL);
+
+  write_file("start-manifest/unasked/plugin.json",
+             "{\"name\": \"Unasked\", \"api\": \"tapi_1\", \"start\": \"project\"}", 0644);
+  write_file("start-manifest/unasked/run.sh", "#!/bin/sh\n", 0755);
+  write_file("start-manifest/always/plugin.json", "{\"name\": \"Always\", \"start\": \"always\"}", 0644);
+  write_file("start-manifest/no-program/plugin.json",
+             "{\"name\": \"No Program\", \"api\": \"tapi_1\", \"start\": \"project\", \"permissions\": [\"start\"]}",
+             0644);
+  app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
+  /* One at a time: a folder's order is the file system's. */
+  const char *plugins[][2] = {
+    { "always", "*\"start\" can only be \"project\"*" },
+    { "no-program", "*No Program*no executable*" },
+    { "unasked", "*Unasked*needs \"start\" in \"permissions\"*" },
+  };
+  for (guint i = 0; i < G_N_ELEMENTS(plugins); i++) {
+    char *dir = g_build_filename(scan_path, plugins[i][0], NULL);
+    g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, plugins[i][1]);
+    load_plugin_from_dir(&app, dir, plugins[i][0]);
+    g_test_assert_expected_messages();
+    g_free(dir);
+  }
+
+  g_assert_false(plugin_find(&app, "unasked")->starts);
+  g_assert_false(plugin_find(&app, "always")->starts);
+  g_assert_null(plugin_find(&app, "no-program"));
+  plugins_stop(&app);
+  g_free(scan_path);
+}
+
 static void test_palette_query(void)
 {
   App app = { 0 };
@@ -316,6 +491,9 @@ int main(int argc, char **argv)
   g_test_add_func("/plugins/invalid-plugins", test_invalid_plugins);
   g_test_add_func("/plugins/tapi-manifest", test_tapi_manifest);
   g_test_add_func("/plugins/run-command", test_run_command);
+  g_test_add_func("/plugins/start-project", test_start_project);
+  g_test_add_func("/plugins/start-stubborn", test_start_stubborn);
+  g_test_add_func("/plugins/start-manifest", test_start_manifest);
   g_test_add_func("/plugins/palette-query", test_palette_query);
   g_test_add_func("/plugins/user-config-directory", test_user_config_directory);
 

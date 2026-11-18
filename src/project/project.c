@@ -16,6 +16,7 @@
 #include "git/scm/scm.h"
 #include "ipc/socket.h"
 #include "lsp/client/client.h"
+#include "plugins/plugins.h"
 #include "project/session.h"
 #include "search/search.h"
 #include "testing/testing.h"
@@ -124,6 +125,7 @@ static void switch_project(App *t, const char *root)
     return;
   session_save(t);
   debug_end(t); /* the program is the old project's */
+  plugins_stop_project(t);
   close_all_tabs(t);
   set_split(t, FALSE);
   lsp_stop(t); /* stop every server for the old project before loading the new one */
@@ -149,6 +151,7 @@ static void switch_project(App *t, const char *root)
   if (!current_tab(t))
     files_focus(t);
   socket_project_changed(t);
+  plugins_start_project(t);
 }
 
 void open_project(App *t, const char *root)

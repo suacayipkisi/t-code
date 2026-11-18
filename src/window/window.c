@@ -200,6 +200,7 @@ void build_window(App *t, GtkApplication *app)
   rebuild_recent_menu(t);
   start_shell_pane(t);
   start_status_updates(t);
+  plugins_start_project(t);
   gtk_window_present(t->window);
   files_focus(t);
   updates_start(t); /* the release check (Settings' "Check for updates") starts from here */

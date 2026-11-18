@@ -2,13 +2,26 @@
  * Plugins (docs/plugins.md): programs t-code starts, found in the user's, the system's and the source
  * tree's plugins/ folders by their plugin.json. Their commands show in the command palette and may
  * have keys; a command starts the plugin's program without waiting for it, with $TCODE_SOCKET,
- * $TCODE_API and the rest in its environment.
+ * $TCODE_API and the rest in its environment. A plugin with "start": "project" runs while a project
+ * is open. The last lines its programs print are kept for the Plugins window.
  */
 #pragma once
 
 #include "app.h"
 
 typedef struct Plugin Plugin;
+typedef struct PluginRun PluginRun; /* a running program of a plugin (plugins.c) */
+
+/* What a plugin's "start" program did last. */
+typedef enum {
+  PLUGIN_IDLE,    /* not started (or no "start") */
+  PLUGIN_RUNNING, /* started, still running */
+  PLUGIN_STOPPED, /* stopped by t-code (the project closed, Stop), or it exited with status 0 */
+  PLUGIN_FAILED,  /* it exited with an error or a signal t-code did not send */
+} PluginState;
+
+/* The lines of output kept per plugin. */
+#define PLUGIN_OUTPUT_LINES 200
 
 /* What a plugin's manifest says it does ("permissions"): edit and terminal are enforced on its
  * socket connections, network is only declared, start lets it start with the project. */
@@ -38,6 +51,10 @@ typedef struct Plugin {
   PluginPermissions permissions;
   char *token;         /* $TCODE_PLUGIN_TOKEN: its program says "hello tapi_1 <token>" to be known as it */
   GPtrArray *commands; /* PluginCommand * */
+  gboolean starts;     /* "start": "project": runs while a project is open */
+  PluginState state;
+  PluginRun *running; /* its start program while it runs */
+  GQueue output;      /* char *: the last PLUGIN_OUTPUT_LINES lines its programs printed (stdout, stderr) */
 } Plugin;
 
 /* The plugin with that id, or the one $TCODE_PLUGIN_TOKEN token was given to; NULL when none. */
@@ -50,8 +67,19 @@ void plugins_init(App *t);
 /* Reloads all plugins. */
 void plugins_reload(App *t);
 
-/* Frees all loaded plugins and commands. */
+/* Frees all loaded plugins and commands. Their start programs get SIGTERM, and SIGKILL when they are
+ * still there a second later (t-code is quitting: this waits for them). */
 void plugins_stop(App *t);
+
+/* The project opened: every enabled plugin with "start": "project" starts, with command id "start".
+ * Nothing starts without a project (the home folder). */
+void plugins_start_project(App *t);
+/* The project closes: those programs get SIGTERM, and SIGKILL when they are still there 2 s later. */
+void plugins_stop_project(App *t);
+
+/* One plugin's start program (the Plugins window's Start / Stop). plugin_start says whether it runs. */
+gboolean plugin_start(App *t, Plugin *p);
+void plugin_stop(Plugin *p);
 
 /* Scans a directory for plugins and adds them to t->plugins. */
 void plugins_scan_dir(App *t, const char *dir_path);
