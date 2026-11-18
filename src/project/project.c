@@ -131,11 +131,11 @@ static void switch_project(App *t, const char *root)
 #endif
 
   g_set_str(&t->project.root, root);
+  restart_shell_pane(t); /* before session_load_project opens the terminals the new project kept */
   session_load_project(t);
   update_title(t);
   session_add_recent(t);
   rebuild_recent_menu(t);
-  restart_shell_pane(t);
   scm_reset();
   search_reset();
   testing_reset(t);

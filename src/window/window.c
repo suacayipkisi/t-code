@@ -32,11 +32,7 @@ void set_font_scale(App *t, double scale)
   t->settings.font_scale = CLAMP(scale, 0.5, 3.0);
   if (fabs(t->settings.font_scale - 1.0) < 0.005)
     t->settings.font_scale = 1.0;
-  vte_terminal_set_font_scale(t->shell.term, t->settings.font_scale);
-  if (t->debug.term)
-    vte_terminal_set_font_scale(t->debug.term, t->settings.font_scale);
-  editor_view_set_font(t);
-  files_apply_font(t);
+  apply_fonts(t); /* the terminals, the editors and the Files panel at the new size */
   status_show_font_scale(t);
 }
 

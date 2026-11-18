@@ -417,13 +417,11 @@ void docks_create(App *t)
 
   t->scm = clip_box(scm_panel(t), TRUE);
   t->dock.scm_stack = t->dock.stacks[0];
-  gtk_widget_add_css_class(GTK_WIDGET(t->shell.term), "tcode-shell");
-  vte_terminal_set_clear_background(t->shell.term, FALSE);
 
   add_dock_panel(t, 0, clip_box(files_panel(t), TRUE), "files", "Files (Alt+1)");
   add_dock_panel(t, 0, t->scm, "scm", "SOURCE CONTROL");
   add_dock_panel(t, 0, clip_box(search_panel(t), TRUE), "search", "Search (Ctrl+Shift+F)");
-  add_dock_panel(t, 4, GTK_WIDGET(t->shell.term), "shell", "Terminal (Alt+3 / Ctrl+J)");
+  add_dock_panel(t, 4, t->shell.panel, "shell", "Terminal (Alt+3 / Ctrl+J)");
   add_dock_panel(t, 4, debug_panel(t), "debug", "Debug (F5)");
   add_dock_panel(t, 0, clip_box(debug_view(t), TRUE), "run", "Run and Debug (Ctrl+Shift+D)");
   t->problems = problems_panel(t);

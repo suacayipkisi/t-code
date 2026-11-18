@@ -30,7 +30,7 @@ static void on_toggle_right(App *t)
 
 static void on_toggle_bottom(App *t)
 {
-  toggle_pane(t, side_has_pages(t, 1) ? t->layout.bottom : GTK_WIDGET(t->shell.term));
+  toggle_pane(t, side_has_pages(t, 1) ? t->layout.bottom : t->shell.panel);
 }
 
 /* win.panel-<name> (the Panels menu): shows or hides that panel. */

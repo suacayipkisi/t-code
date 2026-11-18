@@ -37,6 +37,7 @@
 #include "plugins/plugins.h"
 #include "window/secondwindow.h"
 #include "window/statusbar.h"
+#include "window/terminal.h"
 #include "window/window.h"
 #include "window/theme.h"
 
@@ -80,7 +81,8 @@ static void zoom_out(App *t) { zoom(t, 1 / 1.1); }
 static void zoom_reset(App *t) { zoom(t, 0); }
 static void check_updates_now(App *t) { updates_check_now(t); }
 static void toggle_files(App *t) { toggle_pane(t, t->layout.left); }
-static void toggle_shell(App *t) { toggle_pane(t, GTK_WIDGET(t->shell.term)); }
+static void toggle_shell(App *t) { toggle_pane(t, t->shell.panel); }
+static void new_terminal_cmd(App *t) { open_shell(t, NULL); }
 static void show_scm(App *t) { show_sidebar_page(t, "scm"); }
 static void show_search(App *t) { show_sidebar_page(t, "search"); }
 static void show_run(App *t) { show_sidebar_page(t, "run"); }
@@ -123,8 +125,8 @@ static void focus_fm(App *t)
 /* Alt+3: the shell, showing it. */
 static void focus_shell(App *t)
 {
-  set_pane_visible(t, GTK_WIDGET(t->shell.term), TRUE);
-  gtk_widget_grab_focus(GTK_WIDGET(t->shell.term));
+  set_pane_visible(t, t->shell.panel, TRUE);
+  gtk_widget_grab_focus(GTK_WIDGET(current_shell(t)));
 }
 
 /* Ctrl+\: split the editor area, or join it again. */
@@ -381,6 +383,10 @@ static const Command commands[] = {
   { "Focus Shell", "<Alt>3", "Alt+3", focus_shell, FALSE, FALSE, FALSE },
   { "Toggle Sidebar", "<Control>b", "Ctrl+B", toggle_files, FALSE, FALSE, FALSE },
   { "Toggle Shell", "<Control>j", "Ctrl+J", toggle_shell, FALSE, FALSE, FALSE },
+  { "Terminal: New Terminal", "<Control><Shift>grave|<Control><Shift>asciitilde|<Control><Shift>t",
+    "Ctrl+Shift+`, Ctrl+Shift+T", new_terminal_cmd, FALSE, FALSE, FALSE },
+  { "Terminal: Close Terminal", NULL, NULL, close_current_shell, FALSE, FALSE, FALSE },
+  { "Terminal: Rename Terminal…", NULL, NULL, rename_current_shell, FALSE, FALSE, FALSE },
   { "Source Control", "<Control><Shift>g", "Ctrl+Shift+G", show_scm, FALSE, FALSE, FALSE },
   { "Toggle Code Coloring", "F7", "F7", toggle_syntax, FALSE, TRUE, FALSE },
   { "Restart Language Servers", NULL, NULL, lsp_restart, FALSE, FALSE, FALSE },

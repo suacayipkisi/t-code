@@ -33,6 +33,7 @@
 #include "window/commands.h"
 #include "window/secondwindow.h"
 #include "window/statusbar.h"
+#include "window/terminal.h"
 #include "window/palette.h"
 #include "window/docks/docks.h"
 #include "window/theme.h"
@@ -2261,6 +2262,90 @@ static void test_own_icons(void)
   g_assert_true(controls_owned(NULL));
 }
 
+/* The first terminal tab's folder (shell_folders lists the others) is where dir is. */
+static gboolean second_shell_in(gconstpointer dir)
+{
+  char **names = NULL, **folders = shell_folders(&app, &names);
+  gboolean in = folders[0] && strcmp(folders[0], dir) == 0;
+
+  g_strfreev(names);
+  g_strfreev(folders);
+  return in;
+}
+
+static gboolean shells_are(gconstpointer n)
+{
+  return shell_count(&app) == GPOINTER_TO_INT(n);
+}
+
+/* Terminal tabs: + opens a shell in a folder, named after the lowest free number; a tab renames
+ * from its entry; × and exit close it but the first one stays; Build goes to the first, the
+ * session keeps the others' folders and names, and a project switch closes them. */
+static void test_terminal_tabs(void)
+{
+  char *made = g_dir_make_tmp("t-code-terminal-XXXXXX", NULL), *dir = realpath(made, NULL);
+  char **names = NULL, **folders;
+  VteTerminal *second, *third;
+  GtkWidget *entry;
+
+  g_assert_cmpint(shell_count(&app), ==, 1);
+  g_assert_true(current_shell(&app) == app.shell.term);
+  second = open_shell(&app, dir);
+  g_assert_cmpint(shell_count(&app), ==, 2);
+  g_assert_true(current_shell(&app) == second);
+  g_assert_cmpstr(shell_name(second), ==, "Terminal 2");
+  run_until(second_shell_in, dir);
+  g_assert_true(second_shell_in(dir));
+
+  rename_current_shell(&app);
+  entry = find_widget(app.shell.panel, GTK_TYPE_ENTRY, NULL, NULL);
+  g_assert_nonnull(entry);
+  g_assert_cmpstr(gtk_editable_get_text(GTK_EDITABLE(entry)), ==, "Terminal 2");
+  gtk_editable_set_text(GTK_EDITABLE(entry), "  Server ");
+  g_signal_emit_by_name(entry, "activate");
+  g_assert_cmpstr(shell_name(second), ==, "Server");
+  shell_rename(second, "   "); /* blank: kept */
+  g_assert_cmpstr(shell_name(second), ==, "Server");
+
+  run_command(&app, "Terminal: New Terminal");
+  third = current_shell(&app);
+  g_assert_cmpint(shell_count(&app), ==, 3);
+  g_assert_cmpstr(shell_name(third), ==, "Terminal 2"); /* free again since the rename */
+  close_current_shell(&app);
+  g_assert_cmpint(shell_count(&app), ==, 2);
+
+  /* Build types into the first tab and shows it; the first one does not close. */
+  run_in_shell(&app, " true");
+  g_assert_true(current_shell(&app) == app.shell.term);
+  close_current_shell(&app);
+  g_assert_cmpint(shell_count(&app), ==, 2);
+
+  folders = shell_folders(&app, &names);
+  g_assert_cmpstr(folders[0], ==, dir);
+  g_assert_cmpstr(names[0], ==, "Server");
+  g_assert_null(folders[1]);
+
+  /* exit in its shell closes the tab. */
+  vte_terminal_feed_child(second, " exit\r", -1);
+  run_until(shells_are, GINT_TO_POINTER(1));
+  g_assert_cmpint(shell_count(&app), ==, 1);
+
+  /* What the session kept comes back behind the current tab; a project switch closes it. */
+  shell_restore(&app, folders, names);
+  g_assert_cmpint(shell_count(&app), ==, 2);
+  g_assert_true(current_shell(&app) == app.shell.term);
+  g_assert_cmpstr(shell_name(VTE_TERMINAL(gtk_notebook_get_nth_page(app.shell.tabs, 1))), ==, "Server");
+  run_until(second_shell_in, dir);
+  restart_shell_pane(&app);
+  g_assert_cmpint(shell_count(&app), ==, 1);
+
+  g_strfreev(names);
+  g_strfreev(folders);
+  g_rmdir(made);
+  free(dir);
+  g_free(made);
+}
+
 /* Each panel has an item in the Panels menu, checked while the panel shows: choosing it hides a
  * shown panel and brings a hidden one back from wherever it is, also from a side squeezed to
  * nothing (a size saved on a bigger screen), which Ctrl+J then shows too instead of hiding it.
@@ -2947,6 +3032,25 @@ static void test_disassembly(void)
   g_free(gcc);
 }
 
+/* GTK 4.24 under Broadway warns about its own frame timings now and then (no t-code code in the
+ * stack): that one is only printed; every other warning still fails the test. */
+static GLogWriterOutput log_writer(GLogLevelFlags level, const GLogField *fields, gsize n, gpointer data)
+{
+  const char *domain = NULL, *message = NULL;
+
+  for (gsize i = 0; i < n; i++) {
+    if (strcmp(fields[i].key, "GLIB_DOMAIN") == 0)
+      domain = fields[i].value;
+    else if (strcmp(fields[i].key, "MESSAGE") == 0)
+      message = fields[i].value;
+  }
+  if (g_strcmp0(domain, "Gdk") == 0 && message && strstr(message, "gdk_frame_timings_submitted")) {
+    g_printerr("# ignored: Gdk-WARNING: %s\n", message);
+    return G_LOG_WRITER_HANDLED;
+  }
+  return g_log_writer_default(level, fields, n, data);
+}
+
 int main(int argc, char **argv)
 {
   char *home = g_dir_make_tmp("t-code-window-XXXXXX", NULL);
@@ -2956,6 +3060,7 @@ int main(int argc, char **argv)
 
   char *cache = g_build_filename(home, "cache", NULL);
 
+  g_log_set_writer_func(log_writer, NULL, NULL);
   g_setenv("XDG_CONFIG_HOME", config, TRUE); /* not the real session.ini */
   g_setenv("XDG_CACHE_HOME", cache, TRUE);   /* nor the real recovery journals */
   g_free(cache);
@@ -2982,6 +3087,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/settings-pages", test_settings_pages);
   g_test_add_func("/window/panel-menu", test_panel_buttons);
   g_test_add_func("/window/own-icons", test_own_icons);
+  g_test_add_func("/window/terminal-tabs", test_terminal_tabs);
   g_test_add_func("/window/temporary-tabs", test_temporary);
   g_test_add_func("/window/temporary-per-group", test_temporary_per_group);
   g_test_add_func("/window/opens-at-left-edge", test_opens_at_left_edge);

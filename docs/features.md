@@ -252,6 +252,12 @@ Switching remembers and closes the current project's tabs, shows the new folder 
 panel, restarts the shell there, and brings back that folder's tabs from last time. t-code also remembers
 the window size, pane sizes, hidden panes and text size (in `~/.config/t-code/session.ini`).
 
+**Terminals.** The Terminal panel holds the shells as tabs: `+` (or `Ctrl+Shift+T`, ``Ctrl+Shift+` ``)
+opens another one, its `×` or `exit` closes it, a double click on a tab renames it ("Terminal: Rename
+Terminal…" too). The first tab is always there and Build, Run and Test type into it; "Open in
+Terminal" and the `terminal` socket command go to the tab showing. Each project keeps its other
+tabs, with their folders and names, for the next time.
+
 **Search** (`Ctrl+Shift+F`), a tab next to Files and Source Control: results
 come as you type, grouped by file with the matches marked. **Aa**, **ab** and **.\*** next to the
 text turn on Match Case, Match Whole Word and regular expressions; **⋯** shows "files to include"
@@ -331,10 +337,12 @@ palette) finds any command by name.
 | anywhere    | `Ctrl+PageDown` / `Ctrl+PageUp`, `Alt+.` / `Alt+,` | next / previous tab           |
 | anywhere    | `Alt+1` / `Alt+2` / `Alt+3`            | Files / editor / shell                    |
 | anywhere    | `Ctrl+B` / `Ctrl+J`                    | hide / show the Files panel / the shell   |
+| anywhere    | `Ctrl+Shift+T`, ``Ctrl+Shift+` ``      | a new terminal tab                        |
 | anywhere    | `F7`                                   | code coloring on / off (all tabs)         |
 | anywhere    | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`         | bigger / smaller / normal text (in a preview tab: the previews' text only) |
 | shell       | `Ctrl+Click` on `file.c:12:5`          | open the file at that line (compiler messages) |
 | tab         | left click / middle click / `×`        | switch to / close / close                 |
+| terminal tab | double click / `×`                    | rename / close                            |
 | tab         | double click                           | keep a temporary (italic) tab             |
 | files       | click, `Enter`, `l`                    | open or close a folder, or open the file in a temporary tab (italic; the next click replaces it) |
 | files       | double click / middle click            | open the file for good / to the side      |

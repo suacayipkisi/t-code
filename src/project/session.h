@@ -3,8 +3,8 @@
  *   [window]            size, pane sizes, which panes are shown, text size
  *   [recent]            the last opened project folders
  *   [project <sha1>]    per project folder: the open tabs of both groups and the active ones, the
- *                       indentation chosen for it in the status bar, its breakpoints and the
- *                       program it debugs
+ *                       indentation chosen for it in the status bar, its breakpoints, the
+ *                       program it debugs and its terminal tabs after the first (folder, name)
  * and the settings, in ~/.config/t-code/settings.ini.
  */
 #pragma once
@@ -27,7 +27,7 @@ void session_apply_window(App *t);
 
 /* Reads what the current project keeps besides its tabs: the indentation chosen for it into
  * t->project.indent (none: width 0), its breakpoints into t->debug.breakpoints, its watch expressions
- * into the Run and Debug panel. */
+ * into the Run and Debug panel; its terminal tabs open again. */
 void session_load_project(App *t);
 
 /* Writes t->project.indent for the current project (width 0 forgets it). */

@@ -107,9 +107,10 @@ struct App {
 
   /* shell */
   struct {
-    VteTerminal *term;
-    GPid pid;
-  } shell; /* the shell pane (window/terminal.c) */
+    GtkWidget *panel;  /* the Terminal panel: the terminals as tabs */
+    GtkNotebook *tabs; /* one page per terminal, the first one always there */
+    VteTerminal *term; /* the first terminal: Build and Run type into it */
+  } shell;             /* the shell pane (window/terminal.c) */
 
   GtkWidget *scm;
   GtkWidget *files; /* the Files panel (files/files.c) */

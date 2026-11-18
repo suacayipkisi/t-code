@@ -365,6 +365,11 @@ void session_load_project(App *t)
   char *message = g_key_file_get_string(kf, group, "commit-message", NULL);
   scm_set_message(message); /* none: the last project's goes */
   g_free(message);
+  char **terminals = g_key_file_get_string_list(kf, group, "terminals", NULL, NULL);
+  char **names = g_key_file_get_string_list(kf, group, "terminal-names", NULL, NULL);
+  shell_restore(t, terminals, names);
+  g_strfreev(names);
+  g_strfreev(terminals);
   g_free(group);
   g_key_file_free(kf);
 }
@@ -582,6 +587,16 @@ void session_save(App *t)
   else
     g_key_file_remove_key(kf, group, "watch", NULL);
   g_strfreev(watches);
+  char **names = NULL, **terminals = shell_folders(t, &names);
+  if (*terminals) { /* the terminal tabs after the first one */
+    g_key_file_set_string_list(kf, group, "terminals", (const char *const *)terminals, g_strv_length(terminals));
+    g_key_file_set_string_list(kf, group, "terminal-names", (const char *const *)names, g_strv_length(names));
+  } else {
+    g_key_file_remove_key(kf, group, "terminals", NULL);
+    g_key_file_remove_key(kf, group, "terminal-names", NULL);
+  }
+  g_strfreev(names);
+  g_strfreev(terminals);
 
   store(kf);
   g_free(group);

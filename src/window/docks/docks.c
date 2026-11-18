@@ -7,6 +7,7 @@
 #include "files/files.h"
 #include "lsp/problems.h"
 #include "search/search.h"
+#include "window/terminal.h"
 #include "window/window.h"
 
 #include <string.h>
@@ -66,7 +67,7 @@ static void focus_panel(App *t, const char *page)
   else if (strcmp(page, "scm") == 0)
     gtk_widget_grab_focus(t->scm);
   else if (strcmp(page, "shell") == 0)
-    gtk_widget_grab_focus(GTK_WIDGET(t->shell.term));
+    gtk_widget_grab_focus(GTK_WIDGET(current_shell(t)));
   else if (strcmp(page, "problems") == 0)
     problems_focus(t);
 }
@@ -283,7 +284,7 @@ static void show_side(App *t, int side, gboolean visible)
 
 void set_pane_visible(App *t, GtkWidget *pane, gboolean visible)
 {
-  if (pane == GTK_WIDGET(t->shell.term)) {
+  if (pane == t->shell.panel) {
     if (visible)
       show_sidebar_page(t, "shell");
     else
@@ -326,8 +327,8 @@ void show_sidebar_page(App *t, const char *page)
 
 void toggle_pane(App *t, GtkWidget *pane)
 {
-  if (pane == GTK_WIDGET(t->shell.term) || (pane == t->layout.left && !side_has_pages(t, 0))) {
-    const char *name = (pane == GTK_WIDGET(t->shell.term)) ? "shell" : "files";
+  if (pane == t->shell.panel || (pane == t->layout.left && !side_has_pages(t, 0))) {
+    const char *name = (pane == t->shell.panel) ? "shell" : "files";
     int d = panel_dock(t, name);
     if (d < 0)
       return;
