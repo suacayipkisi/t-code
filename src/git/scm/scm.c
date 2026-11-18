@@ -96,7 +96,9 @@ static void update_buttons(void)
 {
   char *text;
 
-  if (!scm.upstream)
+  if (scm_kind() != VCS_GIT)
+    text = g_strdup("Push");
+  else if (!scm.upstream)
     text = g_strdup("Publish Branch");
   else if (scm.behind)
     text = g_strdup_printf("Push ↑%d ↓%d", scm.ahead, scm.behind);
@@ -160,8 +162,8 @@ void scm_update(App *t, const char *out, gsize size)
         char x = record[2], y = record[3];
         if (x != '.')
           add_change(scm.staged, path, orig, x == 'T' ? 'M' : x);
-        if (y != '.')
-          add_change(scm.changes, path, NULL, y == 'T' ? 'M' : y);
+        if (y != '.') /* hg and svn: renames are unstaged too */
+          add_change(scm.changes, path, scm_kind() != VCS_GIT ? orig : NULL, y == 'T' ? 'M' : y);
       }
       g_free(orig);
     }
@@ -173,8 +175,12 @@ void scm_update(App *t, const char *out, gsize size)
   gtk_widget_set_sensitive(scm.commit, out != NULL);
   gtk_widget_set_sensitive(scm.push, out != NULL && !scm.initial);
   gtk_widget_set_sensitive(scm.pull, out != NULL && scm.upstream != NULL);
+  /* svn commits go to the server: nothing to push, and Pull is svn update. */
+  gtk_widget_set_visible(scm.push, scm_kind() != VCS_SVN);
+  gtk_button_set_label(GTK_BUTTON(scm.pull), scm_kind() == VCS_SVN ? "Update" : "Pull");
+  gtk_widget_set_visible(scm.init_box, !t->project.scm_top && git_repos()->len == 0);
   if (!out)
-    scm_set_note(t->project.scm_top ? NULL : "This folder is not in a git repository.", FALSE);
+    scm_set_note(t->project.scm_top ? NULL : "This folder is not in a repository.", FALSE);
 
   /* Commits are listed again after a commit, a checkout or another project; outside a
      * repository (no HEAD) and before the first commit there are none. */
@@ -232,7 +238,8 @@ static char *repo_name(App *t, const char *top)
 
 static void on_repo_activated(GtkListBox *list G_GNUC_UNUSED, GtkListBoxRow *row, gpointer data G_GNUC_UNUSED)
 {
-  git_select_repo(scm.app, g_object_get_data(G_OBJECT(row), "top"));
+  git_select_repo(scm.app, g_object_get_data(G_OBJECT(row), "top"),
+                  GPOINTER_TO_INT(g_object_get_data(G_OBJECT(row), "kind")));
 }
 
 void scm_repos_changed(App *t)
@@ -245,6 +252,9 @@ void scm_repos_changed(App *t)
   gtk_widget_set_visible(scm.repos_box, repos->len > 1);
   if (repos->len < 2)
     return;
+  gboolean kinds = FALSE; /* not all git: each row says which it is */
+  for (guint i = 0; i < repos->len; i++)
+    kinds |= ((const GitRepo *)repos->pdata[i])->kind != VCS_GIT;
   for (guint i = 0; i < repos->len; i++) {
     const GitRepo *r = repos->pdata[i];
     GtkWidget *row = gtk_list_box_row_new(), *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -260,18 +270,97 @@ void scm_repos_changed(App *t)
     gtk_label_set_max_width_chars(GTK_LABEL(branch), 18);
     gtk_widget_add_css_class(changes, "count");
     gtk_box_append(GTK_BOX(box), label);
+    if (kinds) {
+      GtkWidget *kind = gtk_label_new(vcs_title(r->kind));
+      gtk_widget_add_css_class(kind, "dim");
+      gtk_box_append(GTK_BOX(box), kind);
+    }
     gtk_box_append(GTK_BOX(box), branch);
     gtk_box_append(GTK_BOX(box), changes);
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
     gtk_widget_add_css_class(row, "repo-row");
-    if (g_strcmp0(r->top, t->project.scm_top) == 0)
+    if (g_strcmp0(r->top, t->project.scm_top) == 0 && r->kind == t->project.scm_kind)
       gtk_widget_add_css_class(row, "current");
-    gtk_widget_set_tooltip_text(row, r->top);
+    char *tip = g_strdup_printf("%s (%s)", r->top, vcs_title(r->kind));
+    gtk_widget_set_tooltip_text(row, tip);
+    g_free(tip);
     g_object_set_data_full(G_OBJECT(row), "top", g_strdup(r->top), g_free);
+    g_object_set_data(G_OBJECT(row), "kind", GINT_TO_POINTER(r->kind));
     gtk_list_box_append(scm.repos_list, row);
     g_free(name);
     g_free(count);
   }
+}
+
+/* A new repository ---------------------------------------------------------------------------- */
+
+static void on_init_done(GObject *source, GAsyncResult *result, gpointer data)
+{
+  App *t = data;
+  char *err = NULL;
+  GError *error = NULL;
+  gboolean ok = g_subprocess_communicate_utf8_finish(G_SUBPROCESS(source), result, NULL, &err, &error) &&
+                g_subprocess_get_successful(G_SUBPROCESS(source));
+
+  if (t->closing || g_strcmp0(g_object_get_data(source, "root"), t->project.root) != 0) {
+    /* another project opened meanwhile */
+  } else if (ok) {
+    scm_set_note(NULL, FALSE);
+    watch_git(t);
+  } else {
+    scm_set_note(error ? error->message : err && *g_strstrip(err) ? err : "Could not create the repository", TRUE);
+  }
+  g_clear_error(&error);
+  g_free(err);
+}
+
+void scm_init_repository(VcsKind kind)
+{
+  App *t = scm.app;
+  GError *error = NULL;
+  GSubprocessLauncher *launcher =
+      g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_PIPE);
+  GSubprocess *proc;
+
+  g_subprocess_launcher_set_cwd(launcher, t->project.root);
+  proc = g_subprocess_launcher_spawn(launcher, &error, vcs_program(kind), "init", NULL);
+  g_object_unref(launcher);
+  if (!proc) {
+    char *note = g_strdup_printf("%s is not installed (%s).", vcs_title(kind), error->message);
+    scm_set_note(note, TRUE);
+    g_free(note);
+    g_error_free(error);
+    return;
+  }
+  g_object_set_data_full(G_OBJECT(proc), "root", g_strdup(t->project.root), g_free);
+  g_subprocess_communicate_utf8_async(proc, NULL, NULL, on_init_done, t);
+  g_object_unref(proc);
+}
+
+static void on_init_clicked(void)
+{
+  scm_init_repository(gtk_drop_down_get_selected(scm.init_kind) == 1 ? VCS_HG : VCS_GIT);
+}
+
+/* "Initialize Repository" with Git or Mercurial to choose, shown outside any repository. */
+static GtkWidget *init_box(void)
+{
+  static const char *const kinds[] = { "Git", "Mercurial", NULL };
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  GtkWidget *button = gtk_button_new_with_label("Initialize Repository");
+
+  scm.init_kind = GTK_DROP_DOWN(gtk_drop_down_new_from_strings(kinds));
+  gtk_widget_set_tooltip_text(GTK_WIDGET(scm.init_kind),
+                              "Which version control the new repository uses (Subversion needs a server: check out "
+                              "from it in a terminal)");
+  gtk_widget_add_css_class(button, "primary");
+  gtk_widget_set_hexpand(button, TRUE);
+  g_signal_connect_swapped(button, "clicked", G_CALLBACK(on_init_clicked), NULL);
+  gtk_widget_add_css_class(box, "actions");
+  gtk_box_append(GTK_BOX(box), button);
+  gtk_box_append(GTK_BOX(box), GTK_WIDGET(scm.init_kind));
+  gtk_widget_set_visible(box, FALSE);
+  return box;
 }
 
 /* Building the panel ------------------------------------------------------------------------- */
@@ -412,6 +501,9 @@ GtkWidget *scm_panel(App *t)
   gtk_box_append(GTK_BOX(actions), scm.pull);
   gtk_box_append(GTK_BOX(actions), scm.push);
   gtk_box_append(GTK_BOX(content), actions);
+
+  scm.init_box = init_box();
+  gtk_box_append(GTK_BOX(content), scm.init_box);
 
   scm.note = GTK_LABEL(gtk_label_new(NULL));
   gtk_widget_add_css_class(GTK_WIDGET(scm.note), "note");

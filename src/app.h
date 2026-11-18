@@ -23,6 +23,8 @@
 #include <gtksourceview/gtksource.h>
 #include <vte/vte.h>
 
+#include "git/vcs.h"
+
 typedef struct App App;
 typedef struct Preview Preview;       /* editor/preview.c */
 typedef struct Picker Picker;         /* popups/picker.c */
@@ -133,8 +135,10 @@ struct App {
   /* project */
   struct {
     char *root;
-    char *git_top; /* the work tree root of root's repository; NULL outside one */
-    char *scm_top; /* the repository Source Control shows: git_top or one nested in the project (gitstatus.c) */
+    char *repo_top;    /* the work tree root of root's repository; NULL outside one */
+    VcsKind repo_kind; /* and its kind (git, hg, svn; several may hold root: gitstatus.c chooses) */
+    char *scm_top;     /* the repository Source Control shows: repo_top or one nested in the project (gitstatus.c) */
+    VcsKind scm_kind;  /* and its kind */
     struct {
       gboolean tabs;
       int width; /* 0: none chosen */

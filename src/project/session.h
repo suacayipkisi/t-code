@@ -27,7 +27,8 @@ void session_apply_window(App *t);
 
 /* Reads what the current project keeps besides its tabs: the indentation chosen for it into
  * t->project.indent (none: width 0), its breakpoints into t->debug.breakpoints, its watch expressions
- * into the Run and Debug panel; its terminal tabs open again. */
+ * into the Run and Debug panel, which of several repositories holding it is its own (git, hg, svn:
+ * gitstatus.h); its terminal tabs open again. */
 void session_load_project(App *t);
 
 /* Writes t->project.indent for the current project (width 0 forgets it). */

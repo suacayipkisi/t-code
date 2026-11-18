@@ -3,6 +3,8 @@
  */
 #include "git/repos.h"
 
+#include "git/vcs.h"
+
 #include <string.h>
 
 static int compare_paths(gconstpointer a, gconstpointer b)
@@ -56,7 +58,7 @@ static void find_in(const char *dir, int depth, guint max, GPtrArray *repos)
     char *path = g_build_filename(dir, name, NULL);
     if (g_file_test(path, G_FILE_TEST_IS_DIR) && !g_file_test(path, G_FILE_TEST_IS_SYMLINK)) {
       char *git = g_build_filename(path, ".git", NULL);
-      if (g_file_test(git, G_FILE_TEST_EXISTS))
+      if (g_file_test(git, G_FILE_TEST_EXISTS) || vcs_mark_in(path))
         g_ptr_array_add(repos, g_steal_pointer(&path));
       else if (depth > 1)
         find_in(path, depth - 1, max, repos);

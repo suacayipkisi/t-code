@@ -319,10 +319,14 @@ static void on_git_status(GObject *source, GAsyncResult *result, gpointer data G
   }
   g_clear_object(&files.git_cancel);
   g_clear_pointer(&files.marks, g_hash_table_unref);
-  if (out && g_subprocess_get_successful(G_SUBPROCESS(source)) && files.app->project.git_top) {
-    gsize len;
+  if (out && g_subprocess_get_successful(G_SUBPROCESS(source)) && files.app->project.repo_top) {
+    gsize len, git_len;
     const char *text = g_bytes_get_data(out, &len);
-    files.marks = git_marks_parse(files.app->project.git_top, text, len);
+    VcsKind kind = GPOINTER_TO_INT(g_object_get_data(source, "kind"));
+    /* hg's and svn's status in git's short format first */
+    char *git = kind == VCS_HG || kind == VCS_SVN ? vcs_git_status(kind, text, len, NULL, NULL, TRUE, &git_len) : NULL;
+    files.marks = git_marks_parse(files.app->project.repo_top, git ? git : text, git ? git_len : len);
+    g_free(git);
   }
   if (out)
     g_bytes_unref(out);
@@ -340,13 +344,29 @@ static gboolean read_git(gpointer data G_GNUC_UNUSED)
   files.git_timer = 0;
   g_cancellable_cancel(files.git_cancel);
   g_clear_object(&files.git_cancel);
-  if (!t->project.git_top) {
+  if (!t->project.repo_top) {
     g_clear_pointer(&files.marks, g_hash_table_unref);
     files_paint_all();
     return G_SOURCE_REMOVE;
   }
-  git = g_subprocess_newv(argv, G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL);
+  if (t->project.repo_kind != VCS_HG && t->project.repo_kind != VCS_SVN) {
+    git = g_subprocess_newv(argv, G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL);
+  } else { /* hg, svn: their status in the repository's top */
+    GSubprocessLauncher *launcher =
+        g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
+    GPtrArray *args = g_ptr_array_new();
+    g_ptr_array_add(args, (gpointer)vcs_program(t->project.repo_kind));
+    for (const char *const *a = vcs_status_args(t->project.repo_kind); *a; a++)
+      g_ptr_array_add(args, (gpointer)*a);
+    g_ptr_array_add(args, NULL);
+    g_subprocess_launcher_set_cwd(launcher, t->project.repo_top);
+    g_subprocess_launcher_setenv(launcher, "HGPLAIN", "1", TRUE);
+    git = g_subprocess_launcher_spawnv(launcher, (const char *const *)args->pdata, NULL);
+    g_ptr_array_free(args, TRUE);
+    g_object_unref(launcher);
+  }
   if (git) {
+    g_object_set_data(G_OBJECT(git), "kind", GINT_TO_POINTER(t->project.repo_kind));
     files.git_cancel = g_cancellable_new();
     g_subprocess_communicate_async(git, NULL, files.git_cancel, on_git_status, NULL);
     g_object_unref(git);

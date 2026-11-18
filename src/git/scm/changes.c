@@ -151,6 +151,20 @@ static void show_unstaged(App *t, const Change *c)
   g_free(full);
 }
 
+/* hg / svn (no index: a staged file is the working file): next to the last commit's version. */
+static void show_working(App *t, const Change *c)
+{
+  char *full = g_build_filename(t->project.scm_top, c->path, NULL);
+
+  if (c->code == 'D')
+    compare_revisions(t, "HEAD", c->path, NULL, NULL); /* only the old version is left */
+  else if (c->code == 'M')
+    compare_with_head(t, full);
+  else
+    open_file(t, full); /* new, renamed, unknown, conflicted */
+  g_free(full);
+}
+
 /* A file in Staged Changes or Changes was clicked: show its changes side by side. */
 void scm_on_change_activated(GtkListBox *list, GtkListBoxRow *row, gpointer data G_GNUC_UNUSED)
 {
@@ -158,7 +172,9 @@ void scm_on_change_activated(GtkListBox *list, GtkListBoxRow *row, gpointer data
 
   if (!c || !scm.app->project.scm_top)
     return;
-  if (list == scm.staged_list)
+  if (scm_kind() != VCS_GIT)
+    show_working(scm.app, c);
+  else if (list == scm.staged_list)
     show_staged(scm.app, c);
   else
     show_unstaged(scm.app, c);
@@ -252,11 +268,11 @@ void scm_on_changes_menu(GtkWidget *list, double x, double y, gpointer data G_GN
   items[n++] = (MenuItem){ NULL, NULL };
   if (m->staged) {
     items[n++] = (MenuItem){ "Unstage Changes", menu_unstage };
-    if (c->code == 'M')
+    if (c->code == 'M' && scm_kind() == VCS_GIT)
       items[n++] = (MenuItem){ "Unstage Hunk…", menu_unstage_hunk };
   } else {
     items[n++] = (MenuItem){ "Stage Changes", menu_stage };
-    if (c->code == 'M')
+    if (c->code == 'M' && scm_kind() == VCS_GIT)
       items[n++] = (MenuItem){ "Stage Hunk…", menu_stage_hunk };
     items[n++] = (MenuItem){ "Discard Changes…", menu_discard };
   }

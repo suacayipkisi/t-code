@@ -11,6 +11,7 @@
 #include "debug/disassembly.h"
 #include "dialogs/settings.h"
 #include "editor/gutter/breakpoints.h"
+#include "editor/gutter/diffgutter.h"
 #include "editor/editorview.h"
 #include "editor/preview/preview.h"
 #include "editor/recovery.h"
@@ -259,8 +260,8 @@ static void test_comparison_one_tab(void)
     return;
   }
   g_assert_true(g_file_set_contents(path, "one\nTWO\n", -1, NULL));
-  app.project.git_top = g_canonicalize_filename(app.project.root, NULL);
-  g_set_str(&app.project.scm_top, app.project.git_top);
+  app.project.repo_top = g_canonicalize_filename(app.project.root, NULL);
+  g_set_str(&app.project.scm_top, app.project.repo_top);
 
   open_temporary("tracked.txt");
   compare_with_head(&app, path);
@@ -292,6 +293,60 @@ static void test_comparison_one_tab(void)
   g_free(path);
 }
 
+static gboolean second_line_marked(gconstpointer tab)
+{
+  PalColor color;
+  return diff_gutter_mark((Tab *)tab, 1, &color);
+}
+
+/* A file in a Mercurial repository: its gutter marks what changed since the last commit (hg cat), and
+ * Compare with HEAD shows that version next to it, named by its short hash. */
+static void test_hg_comparison(void)
+{
+  char *hg = g_find_program_in_path("hg");
+  char *dir = g_build_filename(app.project.root, "hg-project", NULL), *path = g_build_filename(dir, "h.txt", NULL);
+  int status = 0;
+
+  if (!hg) {
+    g_test_skip("no hg");
+    g_free(path);
+    g_free(dir);
+    return;
+  }
+  g_mkdir_with_parents(dir, 0755);
+  g_assert_true(g_file_set_contents(path, "one\ntwo\n", -1, NULL));
+  const char *init[] = { hg, "init", NULL }, *commit[] = { hg, "commit", "-A", "-m", "one", "-u", "t", NULL };
+  g_assert_true(g_spawn_sync(dir, (char **)init, NULL, G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL, NULL,
+                             NULL, NULL, NULL, &status, NULL));
+  g_assert_true(g_spawn_sync(dir, (char **)commit, NULL, G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL, NULL,
+                             NULL, NULL, NULL, &status, NULL));
+  g_assert_true(g_spawn_check_wait_status(status, NULL));
+  g_assert_true(g_file_set_contents(path, "one\nTWO\n", -1, NULL));
+
+  open_file(&app, path);
+  Tab *tab = tab_nth(&app, 0);
+  run_until(second_line_marked, tab);
+  g_assert_true(second_line_marked(tab));
+
+  compare_with_head(&app, path);
+  run_until(compared, path);
+  Tab *old = old_version_of(path);
+  g_assert_nonnull(old);
+  char *text = NULL;
+  g_assert_true(g_file_get_contents(old->path, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, "one\ntwo\n");
+  const char *label = gtk_label_get_text(tab_nth(&app, 0)->label);
+  g_assert_true(g_str_has_prefix(label, "h.txt ↔ "));
+  g_assert_cmpuint(strlen(label + strlen("h.txt ↔ ")), ==, 12);
+  quit_editor(tab_nth(&app, 0));
+  run_for(50);
+  assert_tabs("");
+  g_free(text);
+  g_free(hg);
+  g_free(path);
+  g_free(dir);
+}
+
 /* Clicking changed files one after the other in Source Control: each one opens with its old version
  * in its tab, every time. */
 static void test_comparisons_in_a_row(void)
@@ -310,9 +365,9 @@ static void test_comparisons_in_a_row(void)
     g_test_skip("no git");
     return;
   }
-  g_set_str(&app.project.git_top, NULL);
-  app.project.git_top = g_canonicalize_filename(app.project.root, NULL);
-  g_set_str(&app.project.scm_top, app.project.git_top);
+  g_set_str(&app.project.repo_top, NULL);
+  app.project.repo_top = g_canonicalize_filename(app.project.root, NULL);
+  g_set_str(&app.project.scm_top, app.project.repo_top);
   for (size_t i = 0; i < G_N_ELEMENTS(names); i++)
     g_assert_true(g_file_set_contents(paths[i], "one\nchanged\n", -1, NULL));
 
@@ -2193,8 +2248,8 @@ static void test_comparison_first_change(void)
     g_free(path);
     return;
   }
-  app.project.git_top = g_canonicalize_filename(app.project.root, NULL);
-  g_set_str(&app.project.scm_top, app.project.git_top);
+  app.project.repo_top = g_canonicalize_filename(app.project.root, NULL);
+  g_set_str(&app.project.scm_top, app.project.repo_top);
   char *changed = g_strstr_len(text->str, -1, "line 60\n");
   memcpy(changed, "LINE", 4); /* line 60 differs */
   g_assert_true(g_file_set_contents(path, text->str, -1, NULL));
@@ -3092,6 +3147,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/temporary-per-group", test_temporary_per_group);
   g_test_add_func("/window/opens-at-left-edge", test_opens_at_left_edge);
   g_test_add_func("/window/comparison-one-tab", test_comparison_one_tab);
+  g_test_add_func("/window/hg-comparison", test_hg_comparison);
   g_test_add_func("/window/comparison-first-change", test_comparison_first_change);
   g_test_add_func("/window/comparisons-in-a-row", test_comparisons_in_a_row);
   g_test_add_func("/window/save-conflict", test_save_conflict);

@@ -181,7 +181,7 @@ static void forget_project(void)
 {
   g_assert_true(files_delete(app.project.root, NULL));
   g_clear_pointer(&app.project.root, g_free);
-  g_clear_pointer(&app.project.git_top, g_free);
+  g_clear_pointer(&app.project.repo_top, g_free);
   g_clear_pointer(&opened, g_free);
 }
 
@@ -389,13 +389,13 @@ static void test_git(void)
     forget_project();
     return;
   }
-  app.project.git_top = g_canonicalize_filename(app.project.root, NULL);
+  app.project.repo_top = g_canonicalize_filename(app.project.root, NULL);
   files_git_changed(&app);
   g_assert_true(wait_for(marks_read));
-  path = g_build_filename(app.project.git_top, "src", NULL);
+  path = g_build_filename(app.project.repo_top, "src", NULL);
   g_assert_cmpint(git_marks_state(files.marks, path), ==, 'U');
   g_free(path);
-  path = g_build_filename(app.project.git_top, "build/main.o", NULL);
+  path = g_build_filename(app.project.repo_top, "build/main.o", NULL);
   g_assert_cmpint(git_marks_state(files.marks, path), ==, 'I');
   g_free(path);
   forget_project();

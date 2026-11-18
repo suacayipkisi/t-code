@@ -199,6 +199,19 @@ Control lists them under
 branches in it (the status bar's branch follows). Submodules are not listed: they belong to the
 repository that holds them. Line blame and the diff gutter use each file's own repository.
 
+**Mercurial and Subversion.** A Mercurial repository or a Subversion working copy works like a git
+one (`hg` or `svn` on your `PATH`): the Files panel's colors, the diff gutter, line blame (as saved:
+nothing shows while the file has unsaved edits), Compare with HEAD, File History, and Source Control
+with its changes, Commits and a commit's files. Neither has git's staging area: **+** puts a file in
+Staged Changes (a new file is added with `hg add` / `svn add`), and Commit takes the staged files, or
+every change when none are staged. Mercurial has Pull (`hg pull --update`) and Push; for Subversion
+the Pull button is **Update** (`svn update`) and there is no Push (a commit goes to the server).
+Branches, stash and staging hunks are git's only for now. When several repositories hold the project
+folder (an svn checkout inside a git repository, or hg-git's `.git` next to `.hg`), Repositories lists
+each with its kind and the nearest is used; click another to make it the project's own (the Files
+panel and the gutters follow it, and the project remembers it). In a folder that is no repository,
+Source Control offers **Initialize Repository** with Git or Mercurial to choose.
+
 **Branches, pull and fetch.** Click the branch in the status bar (or "Git: Checkout to…") to switch:
 the list has the local branches by their last commit, then the remote ones you have no branch of
 (picking one makes a local branch tracking it); type a name that is no branch to create it ("Git:

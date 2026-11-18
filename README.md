@@ -48,7 +48,7 @@ the Problems panel at the bottom. Every panel can be dragged to another dock.
   Maven, Gradle, Python and scripts; or your own [project tasks](docs/tasks.md).
 - **Git**: Source Control panel (commit, push, pull, stage hunks), branches, stash, line blame,
   merge conflict buttons, compare with HEAD or a commit from the file's history, git colors in the
-  Files panel.
+  Files panel. Mercurial and Subversion repositories work too (changes, commits, gutter, blame, history).
 - **Search and replace** across files (ripgrep), a split editor, a second window, a native Markdown preview,
   crash recovery, autosave, [plugins](docs/plugins.md), color themes and Settings.
 

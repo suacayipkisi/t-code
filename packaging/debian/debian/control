@@ -25,6 +25,8 @@ Breaks: t-code (<< 0.4.1)
 Replaces: t-code (<< 0.4.1)
 Recommends: ripgrep,
             gdb
+Suggests: mercurial,
+          subversion
 Description: lightweight C/C++ IDE
  t-code is a lightweight C/C++ IDE in a GTK4 window: a project file tree,
  GtkSourceView editor tabs sharing one clangd (diagnostics, completion,

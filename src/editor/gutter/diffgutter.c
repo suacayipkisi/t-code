@@ -180,11 +180,13 @@ static void on_shown(GObject *source, GAsyncResult *result, gpointer data)
   g_free(loading);
 }
 
-/* Reads the base again: git show in the background, or the file. */
+/* Reads the base again: git show (hg cat, svn cat: the file's repository's, vcs.h) in the background,
+ * or the file. */
 static void load_base(DiffGutter *g)
 {
-  char *dir, *name, *spec;
+  char *dir, *name, **args;
   GSubprocess *process;
+  VcsKind kind;
 
   if (g->loading) {
     g->loading->gutter = NULL;
@@ -201,22 +203,38 @@ static void load_base(DiffGutter *g)
     return;
   }
   dir = g_path_get_dirname(g->tab->path);
+  kind = vcs_kind_of(dir, NULL);
+  if (kind == VCS_NONE) { /* in no repository: nothing to compare with */
+    g_free(dir);
+    set_base(g, NULL);
+    return;
+  }
   name = g_path_get_basename(g->tab->path);
-  spec = g_strconcat(g->kind == BASE_HEAD ? "HEAD" : g->value, ":./", name, NULL);
-  process = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL, "git", "-C", dir,
-                             "show", spec, NULL);
+  args = vcs_cat_args(kind, g->kind == BASE_HEAD ? "HEAD" : g->value, name, NULL);
+  GSubprocessLauncher *launcher =
+      g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
+  GPtrArray *argv = g_ptr_array_new();
+  g_ptr_array_add(argv, (gpointer)vcs_program(kind));
+  for (int i = 0; args[i]; i++)
+    g_ptr_array_add(argv, args[i]);
+  g_ptr_array_add(argv, NULL);
+  g_subprocess_launcher_set_cwd(launcher, dir);
+  g_subprocess_launcher_setenv(launcher, "HGPLAIN", "1", TRUE);
+  process = g_subprocess_launcher_spawnv(launcher, (const char *const *)argv->pdata, NULL);
+  g_ptr_array_free(argv, TRUE);
+  g_object_unref(launcher);
+  g_strfreev(args);
   if (process) {
     g->loading = g_new0(Loading, 1);
     g->loading->gutter = g;
     g_subprocess_communicate_utf8_async(process, NULL, NULL, on_shown, g->loading);
     g_object_unref(process);
   }
-  g_free(spec);
   g_free(name);
   g_free(dir);
 }
 
-/* Reads the base again, now or (git show, for a tab not shown: a restored session would start one
+/* Reads the base again, now or (git show and the others, for a tab not shown: a restored session would start one
  * git per tab) once the tab is shown. */
 static void load_base_when_shown(DiffGutter *g)
 {

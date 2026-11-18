@@ -97,6 +97,8 @@ parts:
       - clang-format
       - clang-tidy
       - git
+      - mercurial
+      - subversion
       - openssh-client
       - ca-certificates
       - curl

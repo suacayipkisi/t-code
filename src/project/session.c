@@ -18,6 +18,7 @@
 #include "editor/preview/preview.h"
 #include "editor/tabs.h"
 #include "files/opentabs.h"
+#include "git/gitstatus.h"
 #include "git/scm/scm.h"
 #include "window/palette.h"
 #include "window/secondwindow.h"
@@ -362,6 +363,9 @@ void session_load_project(App *t)
   char **watches = g_key_file_get_string_list(kf, group, "watch", NULL, NULL);
   debug_view_set_watches(watches);
   g_strfreev(watches);
+  char *vcs = g_key_file_get_string(kf, group, "vcs", NULL);
+  git_set_chosen_kind(vcs_kind_named(vcs)); /* several repositories hold the project: the one chosen */
+  g_free(vcs);
   char *message = g_key_file_get_string(kf, group, "commit-message", NULL);
   scm_set_message(message); /* none: the last project's goes */
   g_free(message);
@@ -543,6 +547,10 @@ void session_save(App *t)
   g_key_file_set_boolean(kf, "window", "open-tabs", open_tabs_shown());
 
   g_key_file_set_string(kf, group, "root", t->project.root);
+  if (git_chosen_kind() != VCS_NONE)
+    g_key_file_set_string(kf, group, "vcs", vcs_program(git_chosen_kind()));
+  else
+    g_key_file_remove_key(kf, group, "vcs", NULL);
   char *message = scm_message(); /* a commit message not committed yet comes back with the project */
   if (*message)
     g_key_file_set_string(kf, group, "commit-message", message);

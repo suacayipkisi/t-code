@@ -139,7 +139,7 @@ static void switch_project(App *t, const char *root)
   scm_reset();
   search_reset();
   testing_reset(t);
-  watch_git(t); /* t->project.git_top for the Files panel's git colors */
+  watch_git(t); /* t->project.repo_top for the Files panel's git colors */
   files_set_root(t);
 
   session_restore_tabs(t);

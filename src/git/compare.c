@@ -1,5 +1,5 @@
 /*
- * Comparing a file with an older version from git, side by side in one tab:
+ * Comparing a file with an older version from git (or hg, svn: vcs.h), side by side in one tab:
  *   left   the working file; its gutter marks what changed since that version
  *   right  the old version, read-only; its gutter marks what changed since then
  * Ctrl+Alt+D compares with the last commit (HEAD); Ctrl+Alt+H lists the file's commits to pick
@@ -11,6 +11,7 @@
 #include "editor/gutter/diffgutter.h"
 #include "editor/editor.h"
 #include "editor/tabs.h"
+#include "git/gitstatus.h"
 #include "popups/picker.h"
 
 #include <glib/gstdio.h>
@@ -28,7 +29,7 @@ const char *comparable_path(App *t)
   return tab->compare.with ? tab->compare.with : tab->path;
 }
 
-/* A message box over the window ("No git history", "Nothing to compare with"). */
+/* A message box over the window ("No history", "Nothing to compare with"). */
 static void show_message(App *t, const char *message, const char *detail)
 {
   GtkAlertDialog *dialog = gtk_alert_dialog_new("%s", message);
@@ -47,6 +48,7 @@ typedef void (*GitDone)(App *t, char **outs, gpointer data);
 typedef struct {
   App *t;
   char *dir;
+  VcsKind kind;        /* whose commands they are: git's run as git -C dir, others in dir */
   GPtrArray *commands; /* GStrv each; an empty one is skipped */
   guint next;
   char **outs;
@@ -78,14 +80,16 @@ static void run_next(GitRun *r)
     if (!args[0])
       continue;
     GPtrArray *argv = g_ptr_array_new();
-    g_ptr_array_add(argv, "git");
-    g_ptr_array_add(argv, "-C");
-    g_ptr_array_add(argv, r->dir);
+    GSubprocessLauncher *launcher =
+        g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
+    g_ptr_array_add(argv, (gpointer)vcs_program(r->kind));
     for (int i = 0; args[i]; i++)
       g_ptr_array_add(argv, args[i]);
     g_ptr_array_add(argv, NULL);
-    GSubprocess *proc = g_subprocess_newv((const char *const *)argv->pdata,
-                                          G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL);
+    g_subprocess_launcher_set_cwd(launcher, r->dir);
+    g_subprocess_launcher_setenv(launcher, "HGPLAIN", "1", TRUE);
+    GSubprocess *proc = g_subprocess_launcher_spawnv(launcher, (const char *const *)argv->pdata, NULL);
+    g_object_unref(launcher);
     g_ptr_array_free(argv, TRUE);
     if (proc) {
       g_subprocess_communicate_utf8_async(proc, NULL, NULL, on_git_out, r);
@@ -105,15 +109,16 @@ static void run_next(GitRun *r)
   g_free(r);
 }
 
-/* Runs git in dir with each NULL-ended argument list in turn (an empty one is skipped), without
- * waiting for it: a long history or a big file never stops the window. Then done(t, outputs, data).
- * The lists end with a NULL too. */
-static void git_run(App *t, const char *dir, GitDone done, gpointer data, GDestroyNotify free_data, ...)
+/* Runs kind's program (git, hg, svn) in dir with each NULL-ended argument list in turn (an empty
+ * one is skipped), without waiting for it: a long history or a big file never stops the window.
+ * Then done(t, outputs, data). The lists end with a NULL too. */
+static void git_run(App *t, VcsKind kind, const char *dir, GitDone done, gpointer data, GDestroyNotify free_data, ...)
 {
   GitRun *r = g_new0(GitRun, 1);
   va_list ap;
 
   r->t = t;
+  r->kind = kind;
   r->dir = g_strdup(dir);
   r->commands = g_ptr_array_new_with_free_func((GDestroyNotify)g_strfreev);
   r->done = done;
@@ -133,7 +138,7 @@ static void git_run(App *t, const char *dir, GitDone done, gpointer data, GDestr
  * tree (or the project, or else by its full path), so two files with one name never share it. */
 static char *temp_path(App *t, const char *folder, const char *path)
 {
-  GFile *top = g_file_new_for_path(t->project.git_top ? t->project.git_top : t->project.root),
+  GFile *top = g_file_new_for_path(t->project.repo_top ? t->project.repo_top : t->project.root),
         *file = g_file_new_for_path(path);
   char *relative = g_file_get_relative_path(top, file);
   char *result = g_build_filename(t->paths.temp, folder, relative ? relative : path, NULL);
@@ -277,16 +282,36 @@ static void compare_working(App *t, const char *path, const char *old_path, cons
   show_side_by_side(work, old);
 }
 
-/* git answered compare_with(): outs = { the commit, the file in it }; data is the file's path. */
+/* What compare_with() asked about: the file, its repository's kind and the version. */
+typedef struct {
+  char *path, *rev;
+  VcsKind kind;
+} Asked;
+
+static void asked_free(Asked *a)
+{
+  g_free(a->path);
+  g_free(a->rev);
+  g_free(a);
+}
+
+/* The repository answered compare_with(): outs = { the commit (svn: the revision, or that it exists),
+ * the file in it }. */
 static void compared_with(App *t, char **outs, gpointer data)
 {
-  const char *path = data;
+  const Asked *asked = data;
+  const char *path = asked->path;
   char *name = g_path_get_basename(path);
 
   if (!outs[0]) {
-    show_message(t, "No git history", "This file is not in a git repository with commits.");
+    show_message(t, "No history", "This file is not in a repository with commits.");
   } else {
-    char *commit = g_strstrip(outs[0]), *short_commit = g_strndup(commit, 7);
+    /* svn names a version by its number (r5); hg's short hash has 12 characters, git's 7. */
+    char *commit = asked->kind == VCS_SVN && g_strcmp0(asked->rev, "HEAD") != 0 ? g_strdup(asked->rev)
+                                                                                : g_strdup(g_strstrip(outs[0]));
+    char *short_commit = asked->kind == VCS_SVN  ? g_strconcat("r", commit, NULL)
+                         : asked->kind == VCS_HG ? g_strndup(commit, 12)
+                                                 : g_strndup(commit, 7);
     if (!outs[1]) {
       char *detail = g_strdup_printf("%s is not in commit %s (it may be new).", name, short_commit);
       show_message(t, "Nothing to compare with", detail);
@@ -297,6 +322,7 @@ static void compared_with(App *t, char **outs, gpointer data)
       g_free(old_path);
     }
     g_free(short_commit);
+    g_free(commit);
   }
   g_free(name);
 }
@@ -307,12 +333,17 @@ static void compare_with(App *t, const char *path, const char *rev)
 {
   char *dir = g_path_get_dirname(path);
   char *name = g_path_get_basename(path);
-  char *spec = g_strconcat(rev, ":./", name, NULL);
+  Asked *asked = g_new0(Asked, 1);
 
-  git_run(t, dir, compared_with, g_strdup(path), g_free,
-          (const char *const[]){ "rev-parse", "--verify", "--quiet", rev, NULL },
-          (const char *const[]){ "show", spec, NULL }, NULL);
-  g_free(spec);
+  asked->path = g_strdup(path);
+  asked->rev = g_strdup(rev);
+  asked->kind = vcs_kind_of(dir, NULL);
+  if (asked->kind == VCS_NONE)
+    asked->kind = VCS_GIT; /* git says there is no repository */
+  char **id = vcs_id_args(asked->kind, rev, FALSE, name), **cat = vcs_cat_args(asked->kind, rev, name, NULL);
+  git_run(t, asked->kind, dir, compared_with, asked, (GDestroyNotify)asked_free, id, cat, NULL);
+  g_strfreev(cat);
+  g_strfreev(id);
   g_free(name);
   g_free(dir);
 }
@@ -343,7 +374,8 @@ void compare_with_index(App *t, const char *path)
   char *name = g_path_get_basename(path);
   char *spec = g_strconcat(":./", name, NULL);
 
-  git_run(t, dir, compared_with_index, g_strdup(path), g_free, (const char *const[]){ "show", spec, NULL }, NULL);
+  git_run(t, VCS_GIT, dir, compared_with_index, g_strdup(path), g_free, (const char *const[]){ "show", spec, NULL },
+          NULL);
   g_free(spec);
   g_free(name);
   g_free(dir);
@@ -372,6 +404,7 @@ typedef struct {
 
 typedef struct {
   char *top; /* the work tree it was asked in */
+  VcsKind kind;
   Side old, new;
 } Revisions;
 
@@ -388,33 +421,43 @@ static void revisions_free(gpointer data)
 }
 
 /* Writes side's file from git's outs = { short commit, content } under the temp folder; returns its
- * path, and the short commit (or "Index") in *label. NULL when git has no such version. */
-static char *write_revision(App *t, const Side *side, char **outs, char **label)
+ * path, and the short commit (or "Index") in *label. NULL when the repository has no such version. */
+static char *write_revision(App *t, VcsKind kind, const Side *side, char **outs, char **label)
 {
   gboolean index = side->rev && strcmp(side->rev, INDEX_REV) == 0;
   char *path;
 
-  if (!side->rev || !outs[1] || (!index && !outs[0]))
+  if (!side->rev || !outs[1] || (!index && !outs[0] && kind != VCS_SVN))
     return NULL;
-  *label = index ? g_strdup("Index") : g_strdup(g_strstrip(outs[0]));
+  if (kind == VCS_SVN) { /* r5: the revision is its own name */
+    char *rev = vcs_rev(kind, side->rev);
+    *label = g_strconcat("r", rev, NULL);
+    g_free(rev);
+  } else {
+    *label = index ? g_strdup("Index") : g_strdup(g_strstrip(outs[0]));
+  }
   path = g_build_filename(t->paths.temp, index ? "index" : *label, side->rel, NULL);
   store(path, outs[1]);
   return path;
 }
 
-/* The two git commands that read one side, left empty (skipped) when it is missing; spec is kept by
- * the caller until they are copied. */
-static void side_commands(const Side *side, const char *short_args[6], const char *show_args[3], char **spec)
+/* The two commands that read one side (its short name, its file), NULL when it is missing; svn
+ * needs no command for the name. */
+static void side_commands(VcsKind kind, const char *url, const Side *side, char ***short_args, char ***show_args)
 {
-  *spec = side->rev ? g_strconcat(side->rev, ":", side->rel, NULL) : NULL;
+  *short_args = *show_args = NULL;
   if (!side->rev)
     return;
-  if (strcmp(side->rev, INDEX_REV) != 0) {
-    const char *args[] = { "rev-parse", "--short", "--verify", "--quiet", side->rev, NULL };
-    memcpy(short_args, args, sizeof args);
+  if (kind != VCS_SVN && strcmp(side->rev, INDEX_REV) != 0)
+    *short_args = vcs_id_args(kind, side->rev, TRUE, side->rel);
+  if (kind == VCS_GIT) { /* by its path in the work tree top, not under the folder it runs in */
+    char *spec = g_strconcat(side->rev, ":", side->rel, NULL);
+    *show_args = g_new0(char *, 3);
+    (*show_args)[0] = g_strdup("show");
+    (*show_args)[1] = spec;
+  } else {
+    *show_args = vcs_cat_args(kind, side->rev, side->rel, url);
   }
-  show_args[0] = "show";
-  show_args[1] = *spec;
 }
 
 static void show_revisions(App *t, char **outs, gpointer data);
@@ -425,25 +468,32 @@ static void show_revisions(App *t, char **outs, gpointer data);
  * deleted): the other one shows alone. */
 void compare_revisions(App *t, const char *old_rev, const char *old_rel, const char *new_rev, const char *new_rel)
 {
+  static const char *const none[] = { NULL };
   Revisions *r;
-  const char *old_short[6] = { NULL }, *old_show[3] = { NULL }, *new_short[6] = { NULL }, *new_show[3] = { NULL };
-  char *old_spec, *new_spec;
+  char **old_short, **old_show, **new_short, **new_show;
+  GitRepo *repo = git_shown_repo(t);
 
   if (!t->project.scm_top) {
-    show_message(t, "Nothing to compare", "This folder is not in a git repository.");
+    show_message(t, "Nothing to compare", "This folder is not in a repository.");
     return;
   }
   r = g_new0(Revisions, 1);
   r->top = g_strdup(t->project.scm_top);
+  r->kind = t->project.scm_kind;
   if (old_rev && old_rel)
     r->old = (Side){ g_strdup(old_rev), g_strdup(old_rel) };
   if (new_rev && new_rel)
     r->new = (Side){ g_strdup(new_rev), g_strdup(new_rel) };
-  side_commands(&r->old, old_short, old_show, &old_spec);
-  side_commands(&r->new, new_short, new_show, &new_spec);
-  git_run(t, r->top, show_revisions, r, revisions_free, old_short, old_show, new_short, new_show, NULL);
-  g_free(old_spec);
-  g_free(new_spec);
+  side_commands(r->kind, repo ? repo->svn_url : NULL, &r->old, &old_short, &old_show);
+  side_commands(r->kind, repo ? repo->svn_url : NULL, &r->new, &new_short, &new_show);
+#define OR_NONE(args) ((args) ? (const char *const *)(args) : none)
+  git_run(t, r->kind, r->top, show_revisions, r, revisions_free, OR_NONE(old_short), OR_NONE(old_show),
+          OR_NONE(new_short), OR_NONE(new_show), NULL);
+#undef OR_NONE
+  g_strfreev(old_short);
+  g_strfreev(old_show);
+  g_strfreev(new_short);
+  g_strfreev(new_show);
 }
 
 /* git answered compare_revisions(): outs = { old short commit, old file, new short commit, new file }. */
@@ -451,13 +501,13 @@ static void show_revisions(App *t, char **outs, gpointer data)
 {
   Revisions *r = data;
   char *old_label = NULL, *new_label = NULL;
-  char *old_path = write_revision(t, &r->old, outs, &old_label);
-  char *new_path = write_revision(t, &r->new, outs + 2, &new_label);
+  char *old_path = write_revision(t, r->kind, &r->old, outs, &old_label);
+  char *new_path = write_revision(t, r->kind, &r->new, outs + 2, &new_label);
   char *working = g_build_filename(r->top, r->new.rel ? r->new.rel : r->old.rel, NULL);
   Tab *left = NULL, *right = NULL;
 
   if (!old_path && !new_path) {
-    show_message(t, "Nothing to compare", "git has no such version of this file.");
+    show_message(t, "Nothing to compare", "The repository has no such version of this file.");
   } else {
     if (new_path)
       left = open_version(t, new_path, new_label, working);
@@ -544,16 +594,17 @@ static void history_choose(App *t, const char *commit)
   compare_with(t, history_path, commit);
 }
 
-/* git answered file_history(): outs = { the log }. */
+/* The repository answered file_history(): outs = { the log }. */
 static void show_history(App *t, char **outs, gpointer data)
 {
-  const char *path = data;
+  const Asked *asked = data;
+  const char *path = asked->path;
   char *name = g_path_get_basename(path);
-  char *out = outs[0];
+  g_autofree char *out = outs[0] ? vcs_git_file_log(asked->kind, outs[0]) : NULL;
   char *title;
 
   if (!out) {
-    show_message(t, "No git history", "This file is not in a git repository with commits.");
+    show_message(t, "No history", "This file is not in a repository with commits.");
     g_free(name);
     return;
   }
@@ -577,11 +628,21 @@ void file_history(App *t, const char *path)
 {
   char *dir = g_path_get_dirname(path);
   char *name = g_path_get_basename(path);
+  Asked *asked = g_new0(Asked, 1);
 
-  git_run(t, dir, show_history, g_strdup(path), g_free,
-          (const char *const[]){ "log", "--follow", "-n", "500", "--date=format:%Y-%m-%d %H:%M",
-                                 "--format=%H%x1f%h%x1f%ad%x1f%an%x1f%s", "--", name, NULL },
-          NULL);
+  asked->path = g_strdup(path);
+  asked->kind = vcs_kind_of(dir, NULL);
+  if (asked->kind == VCS_GIT || asked->kind == VCS_NONE) {
+    asked->kind = VCS_GIT;
+    git_run(t, VCS_GIT, dir, show_history, asked, (GDestroyNotify)asked_free,
+            (const char *const[]){ "log", "--follow", "-n", "500", "--date=format:%Y-%m-%d %H:%M",
+                                   "--format=%H%x1f%h%x1f%ad%x1f%an%x1f%s", "--", name, NULL },
+            NULL);
+  } else {
+    char **args = vcs_file_log_args(asked->kind, 500, name);
+    git_run(t, asked->kind, dir, show_history, asked, (GDestroyNotify)asked_free, args, NULL);
+    g_strfreev(args);
+  }
   g_free(name);
   g_free(dir);
 }

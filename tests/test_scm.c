@@ -165,7 +165,7 @@ static void open_project_at(const char *root)
 {
   g_set_str(&app.project.root, root);
   scm_reset();
-  watch_git(&app); /* git_top, then git status in 300ms */
+  watch_git(&app); /* repo_top, then git status in 300ms */
 }
 
 static void wait_for(int index, int count)
@@ -202,7 +202,7 @@ static void test_no_git(void)
   open_with_commits();
   open_project_at(no_git);
   assert_empty(); /* at once, before git answers */
-  g_assert_null(app.project.git_top);
+  g_assert_null(app.project.repo_top);
   run_for(800);
   assert_empty();
   /* git status runs again every 10 seconds: still nothing. */
@@ -745,7 +745,7 @@ static void test_nested_repos(void)
   wait_for(2, 2);
   g_assert_cmpint(rows(1), ==, 0); /* inner/ is no change of the project's own */
 
-  git_select_repo(&app, inner);
+  git_select_repo(&app, inner, VCS_GIT);
   g_assert_cmpstr(app.project.scm_top, ==, inner);
   wait_for(1, 1); /* in.txt changed */
   wait_for(2, 1);
@@ -757,7 +757,7 @@ static void test_nested_repos(void)
   g_assert_cmpstr(staged, ==, "in.txt\n");
   g_free(staged);
 
-  git_select_repo(&app, top);
+  git_select_repo(&app, top, VCS_GIT);
   wait_for(2, 2);
   g_assert_cmpint(rows(0), ==, 0);
 
@@ -790,11 +790,205 @@ static void test_nested_repos(void)
   g_free(top);
 }
 
+/* Mercurial and Subversion ---------------------------------------------------------------------- */
+
+static gboolean have(const char *program)
+{
+  char *path = g_find_program_in_path(program);
+  g_free(path);
+  return path != NULL;
+}
+
+/* Runs program in dir with args; the test fails when it does. */
+static void tool(const char *dir, const char *program, const char *const *args)
+{
+  GPtrArray *argv = g_ptr_array_new();
+  int status;
+
+  g_ptr_array_add(argv, (gpointer)program);
+  for (int i = 0; args[i]; i++)
+    g_ptr_array_add(argv, (gpointer)args[i]);
+  g_ptr_array_add(argv, NULL);
+  g_assert_true(g_spawn_sync(dir, (char **)argv->pdata, NULL,
+                             G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL,
+                             NULL, NULL, &status, NULL));
+  g_assert_true(g_spawn_check_wait_status(status, NULL));
+  g_ptr_array_free(argv, TRUE);
+}
+
+static GtkWidget *panel_button(const char *label)
+{
+  GPtrArray *queue = g_ptr_array_new();
+  GtkWidget *found = NULL;
+
+  g_ptr_array_add(queue, app.scm);
+  for (guint i = 0; i < queue->len && !found; i++) {
+    GtkWidget *w = queue->pdata[i];
+    if (GTK_IS_BUTTON(w) && g_strcmp0(gtk_button_get_label(GTK_BUTTON(w)), label) == 0)
+      found = w;
+    for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c))
+      g_ptr_array_add(queue, c);
+  }
+  g_ptr_array_free(queue, TRUE);
+  return found;
+}
+
+/* A Mercurial repository: its changes, staging (an unknown file is added), committing the staged
+ * file and then everything, the Commits list and a commit's files. */
+static void test_hg(void)
+{
+  if (!have("hg")) {
+    g_test_skip("no hg");
+    return;
+  }
+  char *top = make_dir("hg", "a.txt"), *a = g_build_filename(top, "a.txt", NULL),
+       *b = g_build_filename(top, "b.txt", NULL);
+  tool(top, "hg", (const char *[]){ "init", NULL });
+  tool(top, "hg", (const char *[]){ "commit", "-A", "-m", "first", NULL });
+  g_file_set_contents(a, "two\n", -1, NULL);
+  g_file_set_contents(b, "new\n", -1, NULL);
+
+  open_project_at(top);
+  wait_for(2, 1);
+  wait_for(1, 2); /* a.txt changed, b.txt unknown */
+  g_assert_cmpint(app.project.repo_kind, ==, VCS_HG);
+  g_assert_cmpstr(app.project.repo_top, ==, top);
+  g_assert_cmpstr(tab_title(), ==, "SOURCE CONTROL  2");
+  g_assert_true(gtk_widget_get_visible(panel_button("Push")));
+  g_assert_nonnull(panel_button("Pull"));
+
+  scm_stage("a.txt");
+  wait_for(0, 1);
+  g_assert_cmpint(rows(1), ==, 1);
+  scm_set_message("Change a");
+  scm_commit();
+  wait_for(2, 2);
+  wait_for(0, 0);
+  g_assert_cmpint(rows(1), ==, 1); /* b.txt was not staged: it stays */
+
+  scm_stage("b.txt"); /* hg add */
+  wait_for(0, 1);
+  GitRepo *r = git_shown_repo(&app);
+  g_assert_true(g_hash_table_contains(r->staged, "b.txt"));
+  scm_unstage(g_ptr_array_index(scm.staged, 0));
+  wait_for(1, 1); /* still added, but not staged */
+  g_assert_cmpint(rows(0), ==, 0);
+  scm_set_message("Everything");
+  scm_commit(); /* nothing staged: every change */
+  wait_for(2, 3);
+  wait_for(1, 0);
+
+  /* A commit's files under it. */
+  GtkListBoxRow *last = gtk_list_box_get_row_at_index(list(2), 0);
+  g_signal_emit_by_name(list(2), "row-activated", last);
+  wait_for(2, 4);
+  g_free(b);
+  g_free(a);
+  g_free(top);
+}
+
+/* A Subversion working copy: no Push, Update for Pull; a commit of the staged file and of everything
+ * (a new folder added on the way). */
+static void test_svn(void)
+{
+  if (!have("svn") || !have("svnadmin")) {
+    g_test_skip("no svn");
+    return;
+  }
+  char *repo = g_build_filename(tmp, "svnrepo", NULL), *top = g_build_filename(tmp, "svn", NULL);
+  char *url = g_strconcat("file://", repo, "/trunk", NULL), *a = g_build_filename(top, "a.txt", NULL);
+  char *n = g_build_filename(top, "d", "n.txt", NULL), *d = g_build_filename(top, "d", NULL);
+  tool(tmp, "svnadmin", (const char *[]){ "create", repo, NULL });
+  tool(tmp, "svn", (const char *[]){ "mkdir", "-q", "-m", "init", url, NULL });
+  tool(tmp, "svn", (const char *[]){ "checkout", "-q", url, top, NULL });
+  g_file_set_contents(a, "one\n", -1, NULL);
+  tool(top, "svn", (const char *[]){ "add", "-q", "a.txt", NULL });
+  tool(top, "svn", (const char *[]){ "commit", "-q", "-m", "first", NULL });
+  tool(top, "svn", (const char *[]){ "update", "-q", NULL });
+  g_file_set_contents(a, "two\n", -1, NULL);
+  g_mkdir_with_parents(d, 0755);
+  g_file_set_contents(n, "new\n", -1, NULL);
+
+  open_project_at(top);
+  wait_for(2, 2); /* init, first */
+  wait_for(1, 2); /* a.txt changed, d unknown */
+  g_assert_cmpint(app.project.repo_kind, ==, VCS_SVN);
+  g_assert_false(gtk_widget_get_visible(panel_button("Push")));
+  g_assert_nonnull(panel_button("Update"));
+
+  scm_stage("a.txt");
+  wait_for(0, 1);
+  scm_set_message("Change a");
+  scm_commit();
+  wait_for(0, 0);
+  wait_for(1, 1);
+  scm_set_message("Everything");
+  scm_commit(); /* svn add of d, then the commit */
+  wait_for(1, 0);
+  tool(top, "svn", (const char *[]){ "update", "-q", NULL });
+  refresh_branch(&app);
+  wait_for(2, 4);
+  g_free(d);
+  g_free(n);
+  g_free(a);
+  g_free(url);
+  g_free(top);
+  g_free(repo);
+}
+
+/* A folder that is a git and a Mercurial repository (hg-git): both show, git is the project's own
+ * until Mercurial is chosen. A folder in none offers to make one, of the kind picked. */
+static void test_choice(void)
+{
+  if (!have("hg")) {
+    g_test_skip("no hg");
+    return;
+  }
+  char *top = make_dir("both", "x.txt"), *current = NULL;
+  git(top, (const char *[]){ "init", "-q", NULL });
+  tool(top, "hg", (const char *[]){ "init", NULL });
+
+  git_set_chosen_kind(VCS_NONE);
+  open_project_at(top);
+  wait_repo_rows(2);
+  g_assert_cmpint(app.project.repo_kind, ==, VCS_GIT);
+  git_select_repo(&app, top, VCS_HG);
+  g_assert_cmpint(app.project.repo_kind, ==, VCS_HG);
+  g_assert_cmpint(app.project.scm_kind, ==, VCS_HG);
+  g_assert_cmpint(git_chosen_kind(), ==, VCS_HG);
+  repo_rows(&current);
+  g_assert_cmpstr(current, ==, top);
+  /* The choice comes back with the project (session.c sets it before watch_git). */
+  open_project_at(no_git);
+  run_for(500);
+  open_project_at(top);
+  wait_repo_rows(2);
+  g_assert_cmpint(app.project.repo_kind, ==, VCS_HG);
+  git_set_chosen_kind(VCS_NONE);
+
+  char *empty = make_dir("empty", "e.txt"), *hg = g_build_filename(empty, ".hg", NULL);
+  open_project_at(empty);
+  run_for(500);
+  g_assert_true(gtk_widget_get_visible(scm.init_box));
+  scm_init_repository(VCS_HG);
+  for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+       app.project.repo_kind != VCS_HG && g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, FALSE);
+  g_assert_true(g_file_test(hg, G_FILE_TEST_IS_DIR));
+  g_assert_cmpint(app.project.repo_kind, ==, VCS_HG);
+  wait_for(1, 1); /* e.txt, unknown */
+  g_assert_false(gtk_widget_get_visible(scm.init_box));
+  g_free(hg);
+  g_free(empty);
+  g_free(top);
+}
+
 int main(int argc, char **argv)
 {
   int status;
 
   g_test_init(&argc, &argv, NULL);
+  g_setenv("HGUSER", "t <t@t>", TRUE); /* hg commits without asking who */
   if (!gtk_init_check()) {
     g_test_skip("no display");
     return g_test_run();
@@ -835,6 +1029,9 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/branches", test_branches);
   g_test_add_func("/scm/stash", test_stash);
   g_test_add_func("/scm/nested-repos", test_nested_repos);
+  g_test_add_func("/scm/hg", test_hg);
+  g_test_add_func("/scm/svn", test_svn);
+  g_test_add_func("/scm/choice", test_choice);
   status = g_test_run();
 
   app.closing = TRUE;

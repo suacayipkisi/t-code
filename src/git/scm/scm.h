@@ -21,6 +21,11 @@ void scm_update(App *t, const char *out, gsize size);
  * listed again (shown only for more than one; a click shows that one in the panel). */
 void scm_repos_changed(App *t);
 
+/* Outside any repository the panel offers to make one in the project folder, git or Mercurial (svn
+ * needs a server: svn checkout instead). Runs git init / hg init, then looks for repositories again;
+ * a failure (the program missing) shows in the panel's note. */
+void scm_init_repository(VcsKind kind);
+
 /* Whether the Commits section is open (not folded), and opening or folding it (the session keeps it). */
 gboolean scm_commits_shown(void);
 void scm_show_commits(gboolean shown);

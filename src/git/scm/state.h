@@ -22,6 +22,8 @@ typedef struct {
   GtkListBox *staged_list, *changes_list, *commits_list;
   GtkListBox *repos_list; /* Repositories: shown when the project holds more than one */
   GtkWidget *repos_box;
+  GtkWidget *init_box;    /* outside any repository: Initialize Repository with a choice of kind */
+  GtkDropDown *init_kind; /* Git, Mercurial */
   GtkLabel *staged_title, *changes_title;
   GtkWidget *staged_box, *changes_box, *commits_box;
   gboolean commits_stale;      /* HEAD moved while Commits was folded: listed once it opens */
@@ -48,9 +50,17 @@ extern ScmState scm;
 /* The line under the buttons: the last result ("Committed") or error (in red); NULL hides it. */
 void scm_set_note(const char *text, gboolean error);
 
+/* The shown repository's kind: git, or hg / svn (no index: t-code keeps their staged paths in
+ * gitstatus.c's GitRepo, and their answers are translated into git's formats by vcs.c). */
+static inline VcsKind scm_kind(void)
+{
+  return scm.app ? scm.app->project.scm_kind : VCS_NONE;
+}
+
 typedef void (*GitDone)(gboolean ok, const char *out, const char *err, gpointer data);
 
-/* Runs git in the work tree with args (NULL-terminated); input goes to its stdin. Commands that
+/* Runs the shown repository's program (git, hg or svn: scm_kind()) in its work tree with args
+ * (NULL-terminated, without the program); input goes to its stdin. Commands that
  * change the repository (not quiet) run one after another; quiet ones (background reads) at once.
  * done gets git's output (err stripped) and owns data; drop releases data when done is never
  * called (no repository, git does not start, the window closes). */
@@ -60,6 +70,10 @@ void scm_run_git(const char *const *args, const char *input, gboolean quiet, Git
 /* A command that changes the repository and shows only its failure (failure: the note when git says
  * nothing). */
 void scm_run_simple(const char *const *args, const char *failure);
+
+/* "Git: ..." commands that hg or svn has no answer for yet: the note says so; returns whether it
+ * did (the command stops then). */
+gboolean scm_git_only(const char *what);
 
 /* staging.c: + and − on a file or a section, ↶ (after asking). */
 void scm_stage(const char *path);

@@ -1,6 +1,8 @@
 /*
  * Staging in the Source Control panel (see state.h): a file or everything staged and unstaged,
  * one hunk staged or unstaged through the picker ("Stage Hunk…"), changes discarded after asking.
+ * hg and svn have no index: their staged files are a list t-code keeps (GitRepo.staged), which the
+ * commit takes; a file they do not know yet is added (hg add, svn add) when staged.
  */
 #include "git/scm/scm.h"
 #include "git/scm/state.h"
@@ -15,6 +17,65 @@
 
 /* Staging ------------------------------------------------------------------------------------ */
 
+/* hg / svn: the change at path (and a rename's old path) goes into t-code's staged list. */
+static void stage_in_list(GHashTable *staged, const Change *c)
+{
+  g_hash_table_add(staged, g_strdup(c->path));
+  if (c->old_path)
+    g_hash_table_add(staged, g_strdup(c->old_path));
+}
+
+/* hg / svn: the files added (hg add, svn add) are staged once that worked. data: their paths. */
+static void on_added(gboolean ok, const char *out G_GNUC_UNUSED, const char *err, gpointer data)
+{
+  GPtrArray *paths = data;
+  GitRepo *r = git_shown_repo(scm.app);
+
+  if (!ok)
+    scm_set_note(*err ? err : "Could not add the files", TRUE);
+  for (guint i = 0; ok && r && i < paths->len; i++)
+    g_hash_table_add(r->staged, g_strdup(paths->pdata[i]));
+  g_ptr_array_unref(paths);
+}
+
+/* hg / svn: stages path (NULL: every change); unknown files are added first. */
+static void stage_without_index(const char *path)
+{
+  GitRepo *r = git_shown_repo(scm.app);
+  GPtrArray *unknown = g_ptr_array_new_with_free_func(g_free);
+  GPtrArray *args = g_ptr_array_new();
+
+  if (!r) {
+    g_ptr_array_unref(unknown);
+    g_ptr_array_free(args, TRUE);
+    return;
+  }
+  for (guint i = 0; i < scm.changes->len; i++) {
+    const Change *c = scm.changes->pdata[i];
+    if (path && strcmp(c->path, path) != 0)
+      continue;
+    if (c->code == 'U')
+      g_ptr_array_add(unknown, g_strdup(c->path));
+    else if (c->code != '!')
+      stage_in_list(r->staged, c);
+  }
+  if (unknown->len) {
+    g_ptr_array_add(args, "add");
+    if (scm_kind() == VCS_SVN)
+      g_ptr_array_add(args, "--parents"); /* its folders too */
+    g_ptr_array_add(args, "--");
+    for (guint i = 0; i < unknown->len; i++)
+      g_ptr_array_add(args, unknown->pdata[i]);
+    g_ptr_array_add(args, NULL);
+    scm_set_note(NULL, FALSE);
+    scm_run_git((const char *const *)args->pdata, NULL, FALSE, on_added, g_ptr_array_ref(unknown));
+  } else {
+    refresh_branch(scm.app);
+  }
+  g_ptr_array_free(args, TRUE);
+  g_ptr_array_unref(unknown);
+}
+
 /* git add takes the files from disk: what the editors hold unsaved is saved first. */
 static void on_saved_for_add(App *t, gpointer data)
 {
@@ -22,7 +83,9 @@ static void on_saved_for_add(App *t, gpointer data)
   const char *one[] = { "add", "-A", "--", path, NULL };
   const char *all[] = { "add", "-A", NULL };
 
-  if (!t->closing)
+  if (!t->closing && scm_kind() != VCS_GIT)
+    stage_without_index(path);
+  else if (!t->closing)
     scm_run_simple(path ? one : all, path ? "Could not stage the file" : "Could not stage the changes");
   g_free(path);
 }
@@ -36,6 +99,16 @@ void scm_stage(const char *path)
 /* The − button: takes one file out of the staged changes. */
 void scm_unstage(const Change *c)
 {
+  GitRepo *r = git_shown_repo(scm.app);
+  if (scm_kind() != VCS_GIT) { /* out of t-code's list; an added file stays added */
+    if (r) {
+      g_hash_table_remove(r->staged, c->path);
+      if (c->old_path)
+        g_hash_table_remove(r->staged, c->old_path);
+      refresh_branch(scm.app);
+    }
+    return;
+  }
   /* Before the first commit there is no HEAD to restore from. A rename is staged as its old
      * path's deletion too: both come back. */
   const char *first[] = { "rm", "--cached", "-r", "-q", "--", c->path, NULL };
@@ -219,6 +292,8 @@ static void on_saved_for_stage_hunk(App *t, gpointer data)
 
 void scm_choose_hunk(const char *path, gboolean staged)
 {
+  if (scm_git_only(staged ? "Unstage Hunk" : "Stage Hunk"))
+    return;
   HunkRequest *request = g_new0(HunkRequest, 1);
 
   request->path = g_strdup(path);
@@ -239,13 +314,21 @@ void scm_stage_all(void)
 /* Unstage All. */
 void scm_unstage_all(void)
 {
+  GitRepo *r = git_shown_repo(scm.app);
+  if (scm_kind() != VCS_GIT) {
+    if (r) {
+      g_hash_table_remove_all(r->staged);
+      refresh_branch(scm.app);
+    }
+    return;
+  }
   const char *first[] = { "rm", "--cached", "-r", "-q", ".", NULL };
   const char *args[] = { "reset", "-q", NULL };
   scm_run_simple(scm.initial ? first : args, "Could not unstage the changes");
 }
 
 typedef struct {
-  char *path;
+  char *path, *old_path;
   gboolean untracked;
 } Discard;
 
@@ -286,12 +369,19 @@ static void on_discard_answer(GObject *dialog, GAsyncResult *result, gpointer da
       g_free(full);
       refresh_branch(scm.app);
     } else {
-      const char *args[] = { "restore", "--", d->path, NULL };
+      /* hg and svn put the last commit's version back (a rename's old path with it). */
+      const char *git[] = { "restore", "--", d->path, NULL };
+      const char *hg[] = { "revert", "--no-backup", "--", d->path, d->old_path, NULL };
+      const char *svn[] = { "revert", "--", d->path, d->old_path, NULL };
       scm_set_note(NULL, FALSE);
-      scm_run_git(args, NULL, FALSE, on_discarded, g_build_filename(scm.app->project.scm_top, d->path, NULL));
+      scm_run_git(scm_kind() == VCS_HG    ? hg
+                  : scm_kind() == VCS_SVN ? svn
+                                          : git,
+                  NULL, FALSE, on_discarded, g_build_filename(scm.app->project.scm_top, d->path, NULL));
     }
   }
   g_free(d->path);
+  g_free(d->old_path);
   g_free(d);
 }
 
@@ -303,9 +393,11 @@ void scm_discard(const Change *c)
   const char *buttons[] = { "Cancel", "Discard", NULL };
 
   d->path = g_strdup(c->path);
+  d->old_path = g_strdup(c->old_path);
   d->untracked = c->code == 'U';
-  gtk_alert_dialog_set_detail(dialog, d->untracked ? "The file is not in git; it goes to the trash."
-                                                   : "Its unstaged changes are lost.");
+  gtk_alert_dialog_set_detail(dialog, d->untracked ? "The file is not in the repository; it goes to the trash."
+                                      : scm_kind() != VCS_GIT ? "Its changes are lost."
+                                                              : "Its unstaged changes are lost.");
   gtk_alert_dialog_set_buttons(dialog, buttons);
   gtk_alert_dialog_set_cancel_button(dialog, 0);
   gtk_alert_dialog_set_default_button(dialog, 0);

@@ -162,7 +162,7 @@ static void app_free(App *t)
   g_free(t->paths.icons);
   g_free(t->paths.temp);
   g_free(t->debug.disassembly);
-  g_free(t->project.git_top);
+  g_free(t->project.repo_top);
   g_free(t->project.scm_top);
   g_free(t->project.root);
   g_free(t->settings.font);

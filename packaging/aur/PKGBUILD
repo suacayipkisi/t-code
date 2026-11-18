@@ -16,7 +16,9 @@ depends=('glib2' 'gtk4' 'gtksourceview5' 'json-glib' 'vte4' 'md4c' 'clang' 'git'
 makedepends=('pkgconf')
 conflicts=('t-code')
 optdepends=('ripgrep: faster Search panel (falls back to grep)'
-            'gdb: the debugger (F5)')
+            'gdb: the debugger (F5)'
+            'mercurial: Source Control in Mercurial repositories'
+            'subversion: Source Control in Subversion working copies')
 source=("t-code-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('88fb28513761ec18e3855fed89c63bbc526b96004872720978812d3ce521919c')
 

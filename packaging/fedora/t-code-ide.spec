@@ -25,6 +25,8 @@ Requires:       hicolor-icon-theme
 Requires:       librsvg2
 Recommends:     ripgrep
 Recommends:     gdb
+Suggests:       mercurial
+Suggests:       subversion
 # The package was called t-code before 0.4.1.
 Obsoletes:      t-code < 0.4.1-1
 Provides:       t-code = %{version}-%{release}

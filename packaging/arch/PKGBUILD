@@ -11,7 +11,9 @@ depends=('glib2' 'gtk4' 'gtksourceview5' 'json-glib' 'vte4' 'md4c' 'clang' 'git'
 makedepends=('pkgconf')
 conflicts=('t-code')
 optdepends=('ripgrep: faster Search panel (falls back to grep)'
-            'gdb: the debugger (F5)')
+            'gdb: the debugger (F5)'
+            'mercurial: Source Control in Mercurial repositories'
+            'subversion: Source Control in Subversion working copies')
 # packaging/build.sh makes this tarball from the working tree
 source=("t-code-$pkgver.tar.gz")
 sha256sums=('SKIP')

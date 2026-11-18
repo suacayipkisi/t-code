@@ -8,6 +8,9 @@
 
 #include "editor/editor.h"
 #include "editor/tabs.h"
+#include "git/gitstatus.h"
+
+#include <string.h>
 
 /* Commit and push ---------------------------------------------------------------------------- */
 
@@ -47,9 +50,11 @@ void scm_forget_history(void)
 static void step_history(int step);
 
 /* data: the HEAD it was asked for (a later HEAD asks again). */
-static void on_history(gboolean ok G_GNUC_UNUSED, const char *out, const char *err G_GNUC_UNUSED, gpointer data)
+static void on_history(gboolean ok G_GNUC_UNUSED, const char *git_out, const char *err G_GNUC_UNUSED, gpointer data)
 {
   int pending = scm.pending;
+  g_autofree char *translated = git_out && scm_kind() != VCS_GIT ? vcs_git_messages(scm_kind(), git_out) : NULL;
+  const char *out = translated ? translated : git_out;
   gboolean stale = g_strcmp0(data, scm.head) != 0 || !scm.history_asked || scm.history;
 
   g_free(data);
@@ -80,8 +85,10 @@ static void step_history(int step)
     const char *args[] = { "log", "-n", "200", "--format=%B%x1e", NULL };
     scm.pending = step;
     if (!scm.history_asked && scm.head) {
+      char **other = scm_kind() != VCS_GIT ? vcs_messages_args(scm_kind(), 200) : NULL;
       scm.history_asked = TRUE;
-      scm_run_git_owned(args, NULL, TRUE, on_history, g_strdup(scm.head), g_free);
+      scm_run_git_owned(other ? (const char *const *)other : args, NULL, TRUE, on_history, g_strdup(scm.head), g_free);
+      g_strfreev(other);
     }
     return;
   }
@@ -128,13 +135,99 @@ static void on_staged_all(gboolean ok, const char *out G_GNUC_UNUSED, const char
   g_free(data);
 }
 
+/* hg / svn, with nothing staged: svn's unknown files were added (svn add --force), now everything
+ * is committed. */
+static void on_svn_added_all(gboolean ok, const char *out G_GNUC_UNUSED, const char *err, gpointer data)
+{
+  const char *args[] = { "commit", "--non-interactive", "-F", "-", NULL };
+
+  if (!ok)
+    scm_set_note(*err ? err : "Could not add the new files", TRUE);
+  else
+    scm_run_git(args, data, FALSE, on_committed, NULL);
+  g_free(data);
+}
+
+/* Whether path is a folder svn is to add (an added parent of a staged file goes with it, or the
+ * commit fails). */
+static gboolean is_added(const char *path)
+{
+  for (guint i = 0; i < scm.changes->len; i++) {
+    const Change *c = scm.changes->pdata[i];
+    if (c->code == 'A' && strcmp(c->path, path) == 0)
+      return TRUE;
+  }
+  for (guint i = 0; i < scm.staged->len; i++) {
+    const Change *c = scm.staged->pdata[i];
+    if (c->code == 'A' && strcmp(c->path, path) == 0)
+      return TRUE;
+  }
+  return FALSE;
+}
+
+/* hg / svn: commits the staged files (with a rename's old path), or with none staged every change
+ * (hg commit -A takes unknown and missing files too; svn adds the unknown ones first). */
+static void commit_without_index(char *message)
+{
+  GPtrArray *args = g_ptr_array_new_with_free_func(g_free);
+  gboolean svn = scm_kind() == VCS_SVN;
+  GHashTable *seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
+  if (scm.staged->len == 0 && svn) {
+    const char *add[] = { "add", "--force", "--parents", "--non-interactive", "--", ".", NULL };
+    scm_run_git(add, NULL, FALSE, on_svn_added_all, g_strdup(message));
+    g_ptr_array_unref(args);
+    g_hash_table_unref(seen);
+    return;
+  }
+  g_ptr_array_add(args, g_strdup("commit"));
+  g_ptr_array_add(args, g_strdup(svn ? "--non-interactive" : "-A"));
+  g_ptr_array_add(args, g_strdup(svn ? "-F" : "-l")); /* the message from stdin */
+  g_ptr_array_add(args, g_strdup("-"));
+  if (scm.staged->len) {
+    if (!svn)
+      g_free(g_ptr_array_steal_index(args, 1)); /* only the staged files, not every unknown one */
+    g_ptr_array_add(args, g_strdup("--"));
+    for (guint i = 0; i < scm.staged->len; i++) {
+      const Change *c = scm.staged->pdata[i];
+      const char *paths[] = { c->path, c->old_path };
+      for (int k = 0; k < 2; k++) {
+        if (!paths[k] || g_hash_table_contains(seen, paths[k]))
+          continue;
+        g_hash_table_add(seen, g_strdup(paths[k]));
+        g_ptr_array_add(args, g_strdup(paths[k]));
+        if (!svn)
+          continue;
+        /* svn: a new folder holding it goes in the commit too. */
+        char *up = g_path_get_dirname(paths[k]);
+        while (strcmp(up, ".") != 0) {
+          char *next = g_path_get_dirname(up);
+          if (is_added(up) && !g_hash_table_contains(seen, up)) {
+            g_hash_table_add(seen, g_strdup(up));
+            g_ptr_array_add(args, g_strdup(up));
+          }
+          g_free(up);
+          up = next;
+        }
+        g_free(up);
+      }
+    }
+  }
+  g_ptr_array_add(args, NULL);
+  scm_run_git((const char *const *)args->pdata, message, FALSE, on_committed, NULL);
+  g_hash_table_unref(seen);
+  g_ptr_array_unref(args);
+}
+
 /* The editors are saved: scm_commit (with nothing staged, everything is staged first). */
 static void on_saved_for_commit(App *t, gpointer data)
 {
   char *message = data;
 
   scm.committing = FALSE;
-  if (!t->closing) {
+  if (!t->closing && scm_kind() != VCS_GIT) {
+    commit_without_index(message);
+  } else if (!t->closing) {
     if (scm.staged->len == 0) {
       const char *add[] = { "add", "-A", NULL };
       scm_run_git(add, NULL, FALSE, on_staged_all, g_strdup(message));

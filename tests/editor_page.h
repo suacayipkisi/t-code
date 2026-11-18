@@ -12,6 +12,7 @@
 #include "editor/gutter/breakpoints.c"
 #include "editor/decor/sticky.c"
 #include "git/linediff.c"
+#include "git/vcs.c"
 #include "editor/editing/editing.c"
 #include "editor/editorview.c"
 #include "editor/recovery.c"

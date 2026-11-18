@@ -91,7 +91,7 @@ build/compile_commands.json: Makefile $(APP_SRC) $(TEST_SRC) $(TOOL_SRC) | build
 	       "$$sep" "$(CURDIR)" "$$f" "$(CFLAGS)" "$$f"; sep=,; done; \
 	   printf '\n]\n' ) > $@
 
-# Tests: searchmatch.c, editor/text/detect.c, git/linediff.c and files/{fileops,folder,gitmarks}.c alone (GLib); the Search
+# Tests: searchmatch.c, editor/text/detect.c, git/linediff.c, git/vcs.c and files/{fileops,folder,gitmarks}.c alone (GLib); the Search
 # panel, editing, Source Control, the Files panel and About in a window (they need a display for some or all of
 # their tests).
 build/test-searchmatch: tests/test_searchmatch.c tests/util.h src/search/searchmatch.c src/search/searchmatch.h | build
@@ -126,7 +126,7 @@ build/test-detect: tests/test_detect.c tests/util.h src/editor/text/detect.c src
 # tests/editor_page.h, to reach their static functions. test-lsp runs itself with --fake-server as
 # the language server.
 PAGE_SRC := $(filter-out src/editor/tabs.c src/editor/editor.c $(wildcard src/editor/preview/*.c),$(wildcard src/editor/*.c src/editor/*/*.c)) \
-            $(wildcard src/lsp/*.c src/lsp/*/*.c) src/git/linediff.c src/window/palette.c src/project/langenv.c tests/editor_page.h
+            $(wildcard src/lsp/*.c src/lsp/*/*.c) src/git/linediff.c src/git/vcs.c src/window/palette.c src/project/langenv.c tests/editor_page.h
 build/test-editing: tests/test_editing.c tests/util.h tests/broadway.h $(PAGE_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_editing.c $(shell pkg-config --libs $(PKGS))
 
@@ -144,14 +144,20 @@ build/test-debug: tests/test_debug.c tests/util.h $(DAP_SRC) src/debug/dap.h src
 	  $(shell pkg-config --libs json-glib-1.0 gio-2.0)
 
 SCM_SRC := $(wildcard src/git/scm/*.c)
-build/test-scm: tests/test_scm.c tests/util.h $(SCM_SRC) src/git/gitstatus.c src/git/repos.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | build
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_scm.c $(SCM_SRC) src/git/repos.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c \
+build/test-scm: tests/test_scm.c tests/util.h $(SCM_SRC) src/git/gitstatus.c src/git/repos.c src/git/vcs.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | build
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_scm.c $(SCM_SRC) src/git/repos.c src/git/vcs.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c \
 	  $(shell pkg-config --libs $(PKGS))
 
 # The repositories inside a project (GLib-only), against real ones.
-build/test-repos: tests/test_repos.c tests/util.h src/git/repos.c src/git/repos.h | build
-	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_repos.c src/git/repos.c \
+build/test-repos: tests/test_repos.c tests/util.h src/git/repos.c src/git/repos.h src/git/vcs.c src/git/vcs.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_repos.c src/git/repos.c src/git/vcs.c \
 	  $(shell pkg-config --libs glib-2.0)
+
+# Mercurial and Subversion in git's formats (GLib-only): recorded answers, then real repositories
+# (skipped without hg or svn).
+build/test-vcs: tests/test_vcs.c tests/util.h src/git/vcs.c src/git/vcs.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags gio-2.0) -o $@ tests/test_vcs.c src/git/vcs.c \
+	  $(shell pkg-config --libs gio-2.0)
 
 # The Testing panel's frameworks (GLib-only): recorded output, then real projects (each skipped without its tool).
 build/test-frameworks: tests/test_frameworks.c src/testing/frameworks.c src/testing/frameworks.h | build
@@ -173,8 +179,8 @@ build/test-fileops: tests/test_fileops.c tests/util.h $(FILES_GIO) $(FILES_GIO:.
 	  $(shell pkg-config --libs gio-2.0)
 
 # The Files panel; tests/test_files.c includes src/files/files.c, rows.c and actions.c for their static functions.
-build/test-files: tests/test_files.c tests/util.h $(wildcard src/files/*.c) src/window/palette.c build/resources.c $(APP_HDR) | build
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_files.c $(FILES_GIO) src/window/palette.c build/resources.c \
+build/test-files: tests/test_files.c tests/util.h $(wildcard src/files/*.c) src/git/vcs.c src/window/palette.c build/resources.c $(APP_HDR) | build
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_files.c $(FILES_GIO) src/git/vcs.c src/window/palette.c build/resources.c \
 	  $(shell pkg-config --libs $(PKGS))
 
 # A whole window (every module but main.c): how tabs open and close.
@@ -198,7 +204,7 @@ build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c sr
 
 
 test: build/test-log build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
-      build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-repos build/test-frameworks build/test-testing build/test-files build/test-window build/test-about \
+      build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-repos build/test-vcs build/test-frameworks build/test-testing build/test-files build/test-window build/test-about \
       build/test-plugins build/test-update build/test-recovery
 	build/test-searchmatch
 	build/test-log
@@ -214,6 +220,7 @@ test: build/test-log build/test-searchmatch build/test-detect build/test-langenv
 	build/test-scm
 	build/test-gitpatch
 	build/test-repos
+	build/test-vcs
 	build/test-frameworks
 	build/test-testing
 	build/test-files
@@ -267,8 +274,11 @@ test-asan: | build
 	$(ASAN_ENV) build/asan/test-linediff
 	$(ASAN_ENV) build/asan/test-gitpatch
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-repos \
-	  tests/test_repos.c src/git/repos.c $(shell pkg-config --libs glib-2.0)
+	  tests/test_repos.c src/git/repos.c src/git/vcs.c $(shell pkg-config --libs glib-2.0)
 	$(ASAN_ENV) build/asan/test-repos
+	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags gio-2.0) -o build/asan/test-vcs \
+	  tests/test_vcs.c src/git/vcs.c $(shell pkg-config --libs gio-2.0)
+	$(ASAN_ENV) build/asan/test-vcs
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags json-glib-1.0) -o build/asan/test-frameworks \
 	  tests/test_frameworks.c src/testing/frameworks.c $(shell pkg-config --libs json-glib-1.0)
 	$(ASAN_ENV) build/asan/test-frameworks

@@ -53,25 +53,37 @@ void scm_push(void)
   const char *args[] = { "push", NULL };
   const char *first[] = { "push", "-u", "origin", "HEAD", NULL };
 
-  if (!scm.busy)
-    run_remote(scm.upstream ? args : first, "Pushing…", &notes);
+  if (scm_kind() == VCS_SVN) /* the panel hides Push: svn commits go to the server */
+    scm_set_note("Subversion commits go to the server: there is nothing to push.", FALSE);
+  else if (!scm.busy)
+    run_remote(scm.upstream || scm_kind() == VCS_HG ? args : first, "Pushing…", &notes);
 }
 
 /* git pull as the user set it up (merge or rebase, pull.rebase); a merge takes git's own message. */
 void scm_pull(void)
 {
   static const RemoteNotes notes = { "Pulled", "The pull failed" };
+  static const RemoteNotes updated = { "Updated", "The update failed" };
   const char *args[] = { "pull", NULL };
+  const char *hg[] = { "pull", "--update", NULL }; /* the working copy follows */
+  const char *svn[] = { "update", "--non-interactive", NULL };
 
-  run_remote(args, "Pulling…", &notes);
+  if (scm_kind() == VCS_SVN)
+    run_remote(svn, "Updating…", &updated);
+  else
+    run_remote(scm_kind() == VCS_HG ? hg : args, "Pulling…", &notes);
 }
 
 void scm_fetch(void)
 {
   static const RemoteNotes notes = { "Fetched", "The fetch failed" };
   const char *args[] = { "fetch", "--prune", NULL };
+  const char *hg[] = { "pull", NULL }; /* hg pull alone brings the commits without updating to them */
 
-  run_remote(args, "Fetching…", &notes);
+  if (scm_kind() == VCS_SVN)
+    scm_set_note("Subversion has no fetch: Update brings the server's commits.", FALSE);
+  else
+    run_remote(scm_kind() == VCS_HG ? hg : args, "Fetching…", &notes);
 }
 
 /* Branches ----------------------------------------------------------------------------------- */
@@ -228,9 +240,11 @@ static void branches_choose(App *t, const char *payload)
 
 void scm_switch_branch(void)
 {
+  if (scm_git_only("Switching branches"))
+    return;
   if (!scm.app || !scm.app->project.scm_top) {
     if (scm.app)
-      status_say(scm.app, "This folder is not in a git repository");
+      status_say(scm.app, "This folder is not in a repository");
     return;
   }
   branch_new_only = FALSE;
@@ -240,6 +254,8 @@ void scm_switch_branch(void)
 
 void scm_create_branch(void)
 {
+  if (scm_git_only("Creating branches"))
+    return;
   if (!scm.app || !scm.app->project.scm_top)
     return;
   branch_new_only = TRUE;

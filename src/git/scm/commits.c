@@ -8,6 +8,7 @@
 #include "editor/editor.h"
 #include "editor/preview/preview.h"
 #include "git/compare.h"
+#include "git/gitstatus.h"
 #include "git/scm/state.h"
 #include "popups/contextmenu.h"
 #include "window/palette.h"
@@ -55,9 +56,19 @@ static CommitInfo *commit_info_copy(const CommitInfo *c)
 
 /* A commit's files ---------------------------------------------------------------------------- */
 
-static void on_commit_files(gboolean ok, const char *out, const char *err G_GNUC_UNUSED, gpointer data)
+/* svn: the working copy's URL ("^/trunk"), which its commits' paths start with. */
+static const char *svn_url(void)
+{
+  GitRepo *r = git_shown_repo(scm.app);
+  return r ? r->svn_url : NULL;
+}
+
+static void on_commit_files(gboolean ok, const char *git_out, const char *err G_GNUC_UNUSED, gpointer data)
 {
   char *commit = data;
+  g_autofree char *translated =
+      ok && scm_kind() != VCS_GIT ? vcs_git_commit_files(scm_kind(), git_out, svn_url()) : NULL;
+  const char *out = translated ? translated : git_out;
   GtkListBoxRow *after = NULL;
   int n = 0;
 
@@ -134,7 +145,9 @@ static void on_commit_activated(GtkListBox *list G_GNUC_UNUSED, GtkListBoxRow *r
   const char *args[] = { "-c", "core.quotePath=false",       "show",      "--name-status",
                          "-M", "--diff-merges=first-parent", "--format=", commit,
                          NULL };
-  scm_run_git(args, NULL, TRUE, on_commit_files, g_strdup(commit));
+  char **other = scm_kind() != VCS_GIT ? vcs_commit_files_args(scm_kind(), commit) : NULL;
+  scm_run_git(other ? (const char *const *)other : args, NULL, TRUE, on_commit_files, g_strdup(commit));
+  g_strfreev(other);
 }
 
 /* The tooltip ------------------------------------------------------------------------------------ */
@@ -247,10 +260,12 @@ static gboolean on_commit_tooltip(GtkWidget *row, int x G_GNUC_UNUSED, int y G_G
 
 /* What git show gave for a commit: "--numstat" lines, then the patch. Written as Markdown into the
  * temp folder and opened as a preview. */
-static void on_commit_details(gboolean ok, const char *out, const char *err, gpointer data)
+static void on_commit_details(gboolean ok, const char *git_out, const char *err, gpointer data)
 {
   CommitInfo *c = data;
   App *t = scm.app;
+  g_autofree char *translated = ok && scm_kind() != VCS_GIT ? vcs_git_show(git_out) : NULL;
+  const char *out = translated ? translated : git_out;
 
   if (!ok) {
     scm_set_note(*err ? err : "git show failed", TRUE);
@@ -299,7 +314,10 @@ static void on_commit_details(gboolean ok, const char *out, const char *err, gpo
       g_string_append_printf(md, "%s\n", diff[i]);
     g_string_append(md, "````\n");
     if (n > DETAIL_DIFF_LINES)
-      g_string_append_printf(md, "\n*The diff goes on: `git show %s` shows all of it.*\n", c->short_hash);
+      g_string_append_printf(md, "\n*The diff goes on: `%s` shows all of it.*\n",
+                             scm_kind() == VCS_GIT  ? "git show"
+                             : scm_kind() == VCS_HG ? "hg diff -c"
+                                                    : "svn diff -c");
     g_strfreev(diff);
   }
 
@@ -332,8 +350,10 @@ static void open_commit_details(gpointer data)
                          "--patch",
                          c->hash,
                          NULL };
+  char **other = scm_kind() != VCS_GIT ? vcs_show_args(scm_kind(), c->hash) : NULL;
 
-  scm_run_git(args, NULL, TRUE, on_commit_details, commit_info_copy(c));
+  scm_run_git(other ? (const char *const *)other : args, NULL, TRUE, on_commit_details, commit_info_copy(c));
+  g_strfreev(other);
 }
 
 void scm_open_commit_details(int n)
@@ -437,10 +457,12 @@ static GtkWidget *commit_row(CommitInfo *c)
 
 /* data: the HEAD the log was asked for. A log that comes after another project opened, or after
  * HEAD moved again, is not shown. */
-static void on_log(gboolean ok, const char *out, const char *err G_GNUC_UNUSED, gpointer data)
+static void on_log(gboolean ok, const char *git_out, const char *err G_GNUC_UNUSED, gpointer data)
 {
   char **records;
   gboolean stale = g_strcmp0(data, scm.head) != 0;
+  g_autofree char *translated = ok && scm_kind() != VCS_GIT ? vcs_git_log(scm_kind(), git_out) : NULL;
+  const char *out = translated ? translated : git_out;
 
   g_free(data);
   if (stale)
@@ -482,8 +504,10 @@ void commits_load(void)
                          "--date=format:%Y-%m-%d %H:%M", /* the same in every locale */
                          "--format=%x1e%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%ar%x1f%ad%x1f%D%x1f%B%x1d",
                          NULL };
+  char **other = scm_kind() != VCS_GIT ? vcs_log_args(scm_kind(), 100) : NULL;
 
-  scm_run_git(args, NULL, TRUE, on_log, g_strdup(scm.head));
+  scm_run_git(other ? (const char *const *)other : args, NULL, TRUE, on_log, g_strdup(scm.head));
+  g_strfreev(other);
 }
 
 void commits_attach(void)

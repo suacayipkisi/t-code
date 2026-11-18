@@ -16,7 +16,7 @@
 GPtrArray *git_nested_repos(const char *top, const char *out, gsize size);
 
 /* The repositories under root (not root itself) at most depth folders down, max of them at most:
- * folders holding a .git (folder or file), not looked into further (their own nested ones come from
+ * folders holding a .git (folder or file), a .hg or a .svn (vcs.h), not looked into further (their own nested ones come from
  * their git status). Folders starting with a dot, node_modules and symbolic links are skipped. Blocks:
  * call it in a thread. Returns absolute work tree tops, sorted (char *, freed with the array). */
 GPtrArray *git_find_repos(const char *root, int depth, guint max);

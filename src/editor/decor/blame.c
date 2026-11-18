@@ -28,6 +28,7 @@ typedef struct {
   GCancellable *cancel;
   guint changes; /* the text it is about (tab->view->changes) */
   int line;
+  VcsKind kind; /* git blames that line; hg and svn the whole file */
 } BlameAsking;
 
 static gboolean blame_wanted(Blame *b)
@@ -103,8 +104,13 @@ static void on_blamed(GObject *source, GAsyncResult *result, gpointer data)
     Blame *b = asking->blame;
     g_clear_object(&b->asking);
     if (ok && g_subprocess_get_successful(G_SUBPROCESS(source)) && asking->changes == b->tab->view->changes) {
+      if (asking->kind != VCS_GIT) { /* the whole file's blame from hg or svn: its line in git's form */
+        char *line = vcs_git_blame(asking->kind, out, asking->line);
+        g_free(out);
+        out = line;
+      }
       b->line = asking->line;
-      b->text = blame_line_text(out);
+      b->text = out ? blame_line_text(out) : NULL;
       gtk_widget_queue_draw(GTK_WIDGET(b->tab->source));
     }
   }
@@ -126,11 +132,27 @@ static gboolean blame_rested(gpointer data)
   int line = gtk_text_iter_get_line(&cursor);
   char *range = g_strdup_printf("%d,%d", line + 1, line + 1), *name = g_path_get_basename(b->tab->path);
   char *folder = g_path_get_dirname(b->tab->path);
+  VcsKind kind = vcs_kind_of(folder, NULL);
   GSubprocessLauncher *launcher = g_subprocess_launcher_new(
       G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
   g_subprocess_launcher_set_cwd(launcher, folder);
-  git = g_subprocess_launcher_spawn(launcher, NULL, "git", "blame", "--porcelain", "-L", range, "--contents", "-", "--",
-                                    name, NULL);
+  g_subprocess_launcher_setenv(launcher, "HGPLAIN", "1", TRUE);
+  if (kind == VCS_HG || kind == VCS_SVN) {
+    /* They blame the file as saved: with unsaved edits its lines would be off, so nothing shows. */
+    char **args = gtk_text_buffer_get_modified(b->buffer) ? NULL : vcs_blame_args(kind, name);
+    GPtrArray *argv = g_ptr_array_new();
+    g_ptr_array_add(argv, (gpointer)vcs_program(kind));
+    for (int i = 0; args && args[i]; i++)
+      g_ptr_array_add(argv, args[i]);
+    g_ptr_array_add(argv, NULL);
+    git = args ? g_subprocess_launcher_spawnv(launcher, (const char *const *)argv->pdata, NULL) : NULL;
+    g_ptr_array_free(argv, TRUE);
+    g_strfreev(args);
+  } else {
+    kind = VCS_GIT;
+    git = g_subprocess_launcher_spawn(launcher, NULL, "git", "blame", "--porcelain", "-L", range, "--contents", "-",
+                                      "--", name, NULL);
+  }
   if (git) {
     BlameAsking *asking = g_new0(BlameAsking, 1);
     char *text;
@@ -141,7 +163,8 @@ static gboolean blame_rested(gpointer data)
     asking->cancel = g_object_ref(b->asking);
     asking->changes = b->tab->view->changes;
     asking->line = line;
-    g_subprocess_communicate_utf8_async(git, text, b->asking, on_blamed, asking);
+    asking->kind = kind;
+    g_subprocess_communicate_utf8_async(git, kind == VCS_GIT ? text : NULL, b->asking, on_blamed, asking);
     g_free(text);
     g_object_unref(git);
   }

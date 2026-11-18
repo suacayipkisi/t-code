@@ -311,7 +311,7 @@ void files_show_menu(const char *path, double x, double y)
     else
       add_section(menu, (const char *const[]){ "Open", "open", "Open to the Side", "open-side", "Open in New Window",
                                                "open-window", NULL });
-    if (files.app->project.git_top)
+    if (files.app->project.repo_top)
       add_section(menu, (const char *const[]){ "Compare with HEAD", "compare", "File History…", "history", NULL });
   }
   add_section(menu, create);

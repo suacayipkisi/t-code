@@ -1,18 +1,20 @@
 /*
- * git commands for the Source Control panel (see state.h): those that change the repository run one
- * after another (two at once would fight over .git/index.lock), background reads at once; the
+ * git (hg, svn) commands for the Source Control panel (see state.h): those that change the repository
+ * run one after another (two at once would fight over .git/index.lock), background reads at once; the
  * panel's note shows a failure.
  */
 #include "git/scm/state.h"
 
 #include "git/gitstatus.h"
+#include "window/statusbar.h"
 
 /* Running git -------------------------------------------------------------------------------- */
 
 typedef struct {
-  char **argv; /* git and its arguments */
-  char *dir;   /* the work tree it runs in: the shown repository when it was asked for */
-  char *input; /* for its stdin, or NULL */
+  char **argv;  /* the program (git, hg, svn) and its arguments */
+  char *dir;    /* the work tree it runs in: the shown repository when it was asked for */
+  VcsKind kind; /* and its kind (hg-git: one folder, two repositories) */
+  char *input;  /* for its stdin, or NULL */
   GitDone done;
   gpointer data;
   GDestroyNotify drop; /* releases data if the call is canceled or git cannot start */
@@ -32,6 +34,12 @@ static void git_call_free(GitCall *call)
 
 static gboolean start_git(GitCall *call);
 
+/* Whether the repository the call was asked in is still the one shown. */
+static gboolean still_shown(const GitCall *call)
+{
+  return g_strcmp0(scm.app->project.scm_top, call->dir) == 0 && scm.app->project.scm_kind == call->kind;
+}
+
 /* The next command that changes the repository, once none runs: two at once would fight over
  * .git/index.lock. */
 static void start_waiting(void)
@@ -39,7 +47,7 @@ static void start_waiting(void)
   GitCall *call;
 
   while (!scm.busy && (call = g_queue_pop_head(&scm.waiting)))
-    if (!scm.app->closing && g_strcmp0(scm.app->project.scm_top, call->dir) == 0)
+    if (!scm.app->closing && still_shown(call))
       start_git(call);
     else
       git_call_free(call);
@@ -57,7 +65,7 @@ static void on_git_done(GObject *source, GAsyncResult *result, gpointer user)
   if (!call->quiet)
     scm.busy = FALSE;
   /* Another repository is shown meanwhile: its answer would fill the panel with the wrong one. */
-  if (scm.app && !scm.app->closing && call->done && g_strcmp0(scm.app->project.scm_top, call->dir) == 0) {
+  if (scm.app && !scm.app->closing && call->done && still_shown(call)) {
     call->drop = NULL; /* the callback now owns data */
     call->done(ok, out ? out : "", err ? g_strstrip(err) : "", call->data);
   }
@@ -84,6 +92,9 @@ static gboolean start_git(GitCall *call)
   g_subprocess_launcher_setenv(launcher, "GIT_TERMINAL_PROMPT", "0", TRUE);
   /* Nor an editor for a pull's merge message: git's own one is taken. */
   g_subprocess_launcher_setenv(launcher, "GIT_MERGE_AUTOEDIT", "no", TRUE);
+  /* hg's output as documented whatever the user's hgrc says, and no editor for its merges either. */
+  g_subprocess_launcher_setenv(launcher, "HGPLAIN", "1", TRUE);
+  g_subprocess_launcher_setenv(launcher, "HGMERGE", "internal:merge", TRUE);
   proc = g_subprocess_launcher_spawnv(launcher, (const char *const *)call->argv, &error);
   g_object_unref(launcher);
   if (!proc) {
@@ -99,8 +110,8 @@ static gboolean start_git(GitCall *call)
   return TRUE;
 }
 
-/* Runs git in the work tree with args (NULL-terminated); input goes to its stdin. Commands that
- * change the repository (not quiet) run one after another. */
+/* Runs the shown repository's program in its work tree with args (NULL-terminated); input goes to
+ * its stdin. Commands that change the repository (not quiet) run one after another. */
 void scm_run_git_owned(const char *const *args, const char *input, gboolean quiet, GitDone done, gpointer data,
                        GDestroyNotify drop)
 {
@@ -113,13 +124,14 @@ void scm_run_git_owned(const char *const *args, const char *input, gboolean quie
     g_ptr_array_free(argv, TRUE);
     return;
   }
-  g_ptr_array_add(argv, g_strdup("git"));
+  g_ptr_array_add(argv, g_strdup(vcs_program(scm.app->project.scm_kind)));
   for (int i = 0; args[i]; i++)
     g_ptr_array_add(argv, g_strdup(args[i]));
   g_ptr_array_add(argv, NULL);
   call = g_new0(GitCall, 1);
   call->argv = (char **)g_ptr_array_free(argv, FALSE);
   call->dir = g_strdup(scm.app->project.scm_top);
+  call->kind = scm.app->project.scm_kind;
   call->input = g_strdup(input);
   call->done = done;
   call->data = data;
@@ -148,4 +160,15 @@ void scm_run_simple(const char *const *args, const char *failure)
 {
   scm_set_note(NULL, FALSE);
   scm_run_git(args, NULL, FALSE, report_failure, (gpointer)failure);
+}
+
+gboolean scm_git_only(const char *what)
+{
+  if (scm_kind() == VCS_GIT || scm_kind() == VCS_NONE)
+    return FALSE;
+  char *note = g_strdup_printf("%s: not available in %s repositories yet.", what, vcs_title(scm_kind()));
+  scm_set_note(note, TRUE);
+  status_say(scm.app, note); /* the panel may not show (the status bar's branch, a command) */
+  g_free(note);
+  return TRUE;
 }
