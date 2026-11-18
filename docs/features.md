@@ -155,7 +155,9 @@ Gradle or `pytest` in a Python project. Output stays in the integrated shell; Ct
 
 **Testing panel.** The **Testing** panel (Panels menu, or "View: Toggle Testing") lists the
 project's tests as a tree: CTest's (a CMake build folder: `build/` or another one in the project
-folder; GoogleTest cases through `gtest_discover_tests` come under their suite), pytest's (under
+folder; GoogleTest cases come under their suite, whether through `gtest_discover_tests` or from a
+GoogleTest program that CTest runs as one test: its cases are listed with `--gtest_list_tests` and
+run through CTest with GoogleTest's filter), pytest's (under
 their file, with the project's Python), `go test`'s (under their package) and `cargo test`'s (under
 their module). Each test shows its last result: ✓ passed, ✗ failed, - skipped, ○ not run. ▶ on a row
 (shown on hover) runs that test or group; the header has Run All, Run Failed, Stop and Refresh (also
@@ -168,7 +170,10 @@ CTest test also has a debug button (shown on hover): the project is built, then 
 command (a GoogleTest case with its `--gtest_filter`) in the folder CTest would, stopping at your
 breakpoints; Restart builds and debugs that test again. A double click on a test opens its source at
 the line that defines it (`TEST(Suite, Name)`, `def test_…`, `func Test…`, `fn …`; a CTest test
-without one opens its `add_test` line).
+without one opens its `add_test` line). Once the tests are listed, an open file shows ▶ in the gutter
+on each line that defines one (and on a `CMakeLists.txt`'s `add_test` lines), colored by its last
+result: a click runs that test (a pytest class: its tests), a right click offers Run, Debug (a CTest
+test) and Show in Testing.
 
 **Git.** The editor marks changed lines in the gutter (blue changed, green added, red
 where lines were deleted), following new commits by itself. **Compare with HEAD** (`Ctrl+Alt+D`)

@@ -36,6 +36,7 @@ struct EditorView {
   struct Folding *folding;         /* editor/gutter/folding.c */
   struct Sticky *sticky;           /* editor/decor/sticky.c */
   struct Breakpoints *breakpoints; /* editor/gutter/breakpoints.c */
+  struct TestMarks *test_marks;    /* testing/marks.c */
   struct MultiCursor *multi;       /* editor/editing/multicursor.c */
   struct Inlay *inlay;             /* lsp/inline/inlay.c */
   struct Blame *blame;             /* editor/decor/blame.c */

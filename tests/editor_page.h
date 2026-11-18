@@ -81,6 +81,8 @@ static void G_GNUC_UNUSED picker_test_clear_results(void)
 void update_status(App *t G_GNUC_UNUSED) {}
 void debug_breakpoints_changed(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void debug_hover_attach(Tab *tab G_GNUC_UNUSED) {}
+void testing_marks_attach(Tab *tab G_GNUC_UNUSED) {}
+void testing_marks_free(TestMarks *marks G_GNUC_UNUSED) {}
 gboolean disassembly_is(App *t G_GNUC_UNUSED, Tab *tab G_GNUC_UNUSED) { return FALSE; }
 gboolean disassembly_breakpoint_at(App *t G_GNUC_UNUSED, int line G_GNUC_UNUSED) { return FALSE; }
 void disassembly_toggle_breakpoint(App *t G_GNUC_UNUSED, int line G_GNUC_UNUSED) {}

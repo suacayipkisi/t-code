@@ -1,11 +1,12 @@
 /* Tests for the Testing panel (src/testing/testing.c): listing when it shows, Run All, a test's
  * output, Run Failed, listing again after a run, Stop, a project switch while a run goes on, debugging
- * a CTest test and going to a test's source. The frameworks are a fake "go", "cmake" and "ctest" on
+ * a CTest test, going to a test's source, ▶ in an editor's gutter and a GoogleTest program's cases. The frameworks are a fake "go", "cmake" and "ctest" on
  * PATH (shell scripts answering what the panel asks), so no real tool is needed; needs a display. */
 #include "testing/testing.h"
 
 #include "debug/debugger.h"
 #include "editor/editor.h"
+#include "editor/editorview.h"
 #include "project/toolchain.h"
 #include "util.h"
 
@@ -18,6 +19,8 @@ char *toolchain_python(App *t G_GNUC_UNUSED, const char *root G_GNUC_UNUSED) { r
 char *toolchain_rust_features(App *t G_GNUC_UNUSED) { return NULL; }
 char *toolchain_rust_target(App *t G_GNUC_UNUSED) { return NULL; }
 gboolean debug_active(App *t G_GNUC_UNUSED) { return FALSE; }
+static char *shown_page; /* the last show_sidebar_page's */
+void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page) { g_set_str(&shown_page, page); }
 /* clang-format on */
 
 static char *launched; /* "program|args|cwd" of the last debug_launch_test */
@@ -42,6 +45,7 @@ void open_file_at(App *t G_GNUC_UNUSED, const char *path, int line, int column G
 
 static App app;
 static char *tmp, *project;
+static char *real_cmake, *real_ctest; /* the fakes run these in a build folder holding ".real" */
 
 /* The fake go: "go test -list . ./..." lists TestOk and TestBad (and TestNew once the project has a
  * file "extra"); "go test -json [-run <regex> <package>]" passes TestOk, fails TestBad, each saying
@@ -271,6 +275,139 @@ static void test_debug(void)
   g_free(cproject);
 }
 
+static void assert_marks(Tab *tab, const char *expected)
+{
+  char *text = testing_marks_text(tab);
+
+  g_assert_cmpstr(text, ==, expected);
+  g_free(text);
+}
+
+static GtkWidget *test_renderer(Tab *tab)
+{
+  GtkWidget *gutter = GTK_WIDGET(gtk_source_view_get_gutter(tab->source, GTK_TEXT_WINDOW_LEFT));
+
+  for (GtkWidget *child = gtk_widget_get_first_child(gutter); child; child = gtk_widget_get_next_sibling(child))
+    if (strcmp(G_OBJECT_TYPE_NAME(child), "TcodeTestRenderer") == 0)
+      return child;
+  return NULL;
+}
+
+/* ▶ on the lines of an open file defining listed tests, in their results' colors; a click on one runs
+ * its test; an edit moves them; the column hides in a file without tests. */
+static void test_marks(void)
+{
+  EditorView view = { 0 };
+  Tab tab = { 0 };
+  GtkTextIter at;
+  GdkRectangle area = { 0 };
+
+  switch_to(project);
+  run_until(idle, NULL);
+  tab.app = &app;
+  tab.view = &view;
+  tab.path = g_build_filename(project, "a_test.go", NULL);
+  tab.buffer = gtk_source_buffer_new(NULL);
+  tab.source = GTK_SOURCE_VIEW(g_object_ref_sink(gtk_source_view_new_with_buffer(tab.buffer)));
+  gtk_text_buffer_set_text(GTK_TEXT_BUFFER(tab.buffer),
+                           "package m\n\nfunc TestOk(t *testing.T) {}\n\nfunc TestBad(t *testing.T) {}\n", -1);
+  testing_marks_attach(&tab);
+  GtkWidget *renderer = test_renderer(&tab);
+  g_assert_nonnull(renderer);
+  g_assert_false(gtk_widget_get_visible(renderer));
+
+  testing_refresh(&app); /* the list changes: the lines are found */
+  run_until(idle, NULL);
+  assert_marks(&tab, "3 not run example.com/m\tTestOk\n5 not run example.com/m\tTestBad");
+  g_assert_true(gtk_widget_get_visible(renderer));
+
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(tab.buffer), &at, 4);
+  g_assert_true(gtk_source_gutter_renderer_query_activatable(GTK_SOURCE_GUTTER_RENDERER(renderer), &at, &area));
+  gtk_source_gutter_renderer_activate(GTK_SOURCE_GUTTER_RENDERER(renderer), &at, &area, GDK_BUTTON_PRIMARY, 0, 1);
+  g_assert_true(testing_busy());
+  run_until(idle, NULL);
+  char *call = call_from_end(1);
+  g_assert_cmpstr(call, ==, "test -json -run ^(TestBad)$ example.com/m");
+  g_free(call);
+  assert_marks(&tab, "3 not run example.com/m\tTestOk\n5 failed example.com/m\tTestBad");
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(tab.buffer), &at, 1);
+  g_assert_false(gtk_source_gutter_renderer_query_activatable(GTK_SOURCE_GUTTER_RENDERER(renderer), &at, &area));
+
+  gtk_text_buffer_get_start_iter(GTK_TEXT_BUFFER(tab.buffer), &at);
+  gtk_text_buffer_insert(GTK_TEXT_BUFFER(tab.buffer), &at, "// tests\n", -1);
+  run_for(500);
+  assert_marks(&tab, "4 not run example.com/m\tTestOk\n6 failed example.com/m\tTestBad");
+
+  g_set_str(&tab.path, project); /* not a go test file */
+  testing_refresh(&app);
+  run_until(idle, NULL);
+  assert_marks(&tab, "");
+  g_assert_false(gtk_widget_get_visible(renderer));
+
+  testing_marks_free(view.test_marks);
+  g_object_unref(tab.source);
+  g_object_unref(tab.buffer);
+  g_free(tab.path);
+  g_clear_pointer(&shown_page, g_free);
+}
+
+/* A GoogleTest program CTest runs as one test (no gtest_discover_tests): its cases are rows, a run of
+ * one keeps the others' results (and the list made again after it keeps the cases), Run All runs them
+ * all through the program, a case is debugged with its filter. Real CMake, CTest and GoogleTest. */
+static void test_gtest_cases(void)
+{
+  char *header = g_strdup("/usr/include/gtest/gtest.h"), *cxx = g_find_program_in_path("c++");
+  gboolean ready = real_cmake && real_ctest && cxx && g_file_test(header, G_FILE_TEST_EXISTS);
+
+  g_free(cxx);
+  g_free(header);
+  if (!ready) {
+    g_test_skip("needs CMake, a C++ compiler and GoogleTest");
+    return;
+  }
+  char *gproject = g_build_filename(tmp, "gproject", NULL), *build = g_build_filename(gproject, "build", NULL);
+  g_free(
+      write_at(gproject, "CMakeLists.txt",
+               "cmake_minimum_required(VERSION 3.21)\nproject(g CXX)\nenable_testing()\nfind_package(GTest REQUIRED)\n"
+               "add_executable(math math.cc)\ntarget_link_libraries(math GTest::gtest_main)\n"
+               "add_test(NAME math COMMAND math)\n",
+               -1, 0));
+  g_free(write_at(gproject, "math.cc",
+                  "#include <gtest/gtest.h>\nTEST(Math, Adds) { EXPECT_EQ(2, 1 + 1); }\n"
+                  "TEST(Math, Breaks) { EXPECT_EQ(3, 1 + 1) << \"wrong sum\"; }\n",
+                  -1, 0));
+  char *configure[] = { real_cmake, "-S", gproject, "-B", build, NULL },
+       *make[] = { real_cmake, "--build", build, NULL };
+  g_assert_true(g_spawn_sync(tmp, configure, NULL, G_SPAWN_STDOUT_TO_DEV_NULL, NULL, NULL, NULL, NULL, NULL, NULL));
+  g_assert_true(g_spawn_sync(tmp, make, NULL, G_SPAWN_STDOUT_TO_DEV_NULL, NULL, NULL, NULL, NULL, NULL, NULL));
+  g_free(write_at(build, ".real", "", -1, 0));
+
+  switch_to(gproject);
+  run_until(idle, NULL);
+  assert_text("Math\n  ○ Adds\n  ○ Breaks\n");
+
+  g_assert_true(testing_run_one("Math.Breaks"));
+  run_until(idle, NULL);
+  assert_text("Math\n  ○ Adds\n  ✗ Breaks\n");
+  assert_output_has("Math.Breaks", "wrong sum");
+
+  testing_run_all(&app);
+  run_until(idle, NULL);
+  assert_text("Math\n  ✓ Adds\n  ✗ Breaks\n");
+
+  g_assert_true(testing_debug_one("Math.Adds"));
+  run_until(idle, NULL);
+  char *program = g_build_filename(build, "math", NULL),
+       *expected = g_strdup_printf("%s|--gtest_filter=Math.Adds|%s", program, build);
+  g_assert_cmpstr(launched, ==, expected);
+  g_clear_pointer(&launched, g_free);
+
+  g_free(expected);
+  g_free(program);
+  g_free(build);
+  g_free(gproject);
+}
+
 int main(int argc, char **argv)
 {
   GtkWidget *window;
@@ -282,10 +419,18 @@ int main(int argc, char **argv)
   g_free(write_at(project, "go.mod", "module example.com/m\n", -1, 0));
   char *bin = g_build_filename(tmp, "bin", NULL), *path = g_strconcat(bin, ":", g_getenv("PATH"), NULL);
   g_free(write_at(bin, "go", fake_go, -1, 0755));
-  char *truth = g_find_program_in_path("true"), *ctest = g_strdup_printf(fake_ctest, truth);
+  real_cmake = g_find_program_in_path("cmake");
+  real_ctest = g_find_program_in_path("ctest");
+  char *truth = g_find_program_in_path("true"), *body = g_strdup_printf(fake_ctest, truth);
+  char *ctest = g_strdup_printf("#!/bin/sh\n[ -f .real ] && exec '%s' \"$@\"\n%s", real_ctest ? real_ctest : "false",
+                                body + strlen("#!/bin/sh\n"));
+  char *cmake = g_strdup_printf("#!/bin/sh\n[ -f .real ] && exec '%s' \"$@\"\n%s", real_cmake ? real_cmake : "false",
+                                fake_cmake + strlen("#!/bin/sh\n"));
   g_free(write_at(bin, "ctest", ctest, -1, 0755));
-  g_free(write_at(bin, "cmake", fake_cmake, -1, 0755));
+  g_free(write_at(bin, "cmake", cmake, -1, 0755));
+  g_free(cmake);
   g_free(ctest);
+  g_free(body);
   g_free(truth);
   g_setenv("PATH", path, TRUE);
   g_free(path);
@@ -305,6 +450,8 @@ int main(int argc, char **argv)
   g_test_add_func("/testing/stop", test_stop);
   g_test_add_func("/testing/switch", test_switch);
   g_test_add_func("/testing/debug", test_debug);
+  g_test_add_func("/testing/marks", test_marks);
+  g_test_add_func("/testing/gtest-cases", test_gtest_cases);
   status = g_test_run();
 
   gtk_window_destroy(GTK_WINDOW(window));
@@ -313,5 +460,7 @@ int main(int argc, char **argv)
   g_spawn_sync(NULL, rm, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
   g_free(project);
   g_free(tmp);
+  g_free(real_ctest);
+  g_free(real_cmake);
   return status;
 }

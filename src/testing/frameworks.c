@@ -25,6 +25,7 @@ void test_case_free(gpointer data)
   g_strfreev(test->command);
   g_free(test->cwd);
   g_free(test->file);
+  g_free(test->runner);
   g_free(test);
 }
 
@@ -40,6 +41,7 @@ TestCase *test_case_copy(const TestCase *test)
   copy->command = g_strdupv(test->command);
   copy->cwd = g_strdup(test->cwd);
   copy->file = g_strdup(test->file);
+  copy->runner = g_strdup(test->runner);
   return copy;
 }
 
@@ -238,20 +240,40 @@ static void add_escaped(GString *regex, const char *text)
   }
 }
 
-/* "^(a|b)$" for the tests' names (after the tab for go test's "package\tname"). */
+/* "^(a|b)$" for the tests' names (after the tab for go test's "package\tname"; a GoogleTest case's
+ * CTest test: its runner's, once). */
 static char *exact_regex(GPtrArray *tests)
 {
   GString *regex = g_string_new("^(");
+  GHashTable *seen = g_hash_table_new(g_str_hash, g_str_equal);
 
   for (guint i = 0; i < tests->len; i++) {
     const TestCase *test = tests->pdata[i];
-    const char *tab = strchr(test->id, '\t');
-    if (i)
+    const char *tab = strchr(test->id, '\t'), *name = test->runner ? test->runner : tab ? tab + 1 : test->id;
+    if (!g_hash_table_add(seen, (gpointer)name))
+      continue;
+    if (regex->len > 2)
       g_string_append_c(regex, '|');
-    add_escaped(regex, tab ? tab + 1 : test->id);
+    add_escaped(regex, name);
   }
+  g_hash_table_destroy(seen);
   g_string_append(regex, ")$");
   return g_string_free(regex, FALSE);
+}
+
+/* GoogleTest's filter for the cases among tests ("A.B:C.D"), or NULL when there are none. */
+static char *gtest_filter(GPtrArray *tests)
+{
+  GString *filter = NULL;
+
+  for (guint i = 0; tests && i < tests->len; i++) {
+    const TestCase *test = tests->pdata[i];
+    if (!test->runner)
+      continue;
+    filter = filter ? g_string_append_c(filter, ':') : g_string_new(NULL);
+    g_string_append(filter, test->id);
+  }
+  return filter ? g_string_free(filter, FALSE) : NULL;
 }
 
 char **test_run_argv(const TestSource *source, const char *python, const char *cargo_flags, GPtrArray *tests,
@@ -264,12 +286,20 @@ char **test_run_argv(const TestSource *source, const char *python, const char *c
       /* What runs is what is built: build first, as Build would. */
       argv_add(argv, "sh");
       argv_add(argv, "-c");
-      argv_add(argv, "cmake --build \"$1\" && exec ctest --test-dir \"$1\" --output-junit \"$2\" ${3:+-R \"$3\"}");
+      /* GoogleTest programs write their results to report.gtest/ too (a CTest test running many cases);
+       * the cases chosen among those go in its filter */
+      argv_add(argv, "cmake --build \"$1\" && export GTEST_OUTPUT=\"json:$2.gtest/\" && "
+                     "{ [ -z \"$4\" ] || export GTEST_FILTER=\"$4\"; } && "
+                     "exec ctest --test-dir \"$1\" --output-junit \"$2\" ${3:+-R \"$3\"}");
       argv_add(argv, "sh");
       argv_add(argv, source->dir);
       argv_add(argv, report);
-      if (tests)
+      if (tests) {
+        char *filter = gtest_filter(tests);
         g_ptr_array_add(argv, exact_regex(tests));
+        if (filter)
+          g_ptr_array_add(argv, filter);
+      }
       break;
     case TEST_PYTEST: {
       char *junit = g_strconcat("--junitxml=", report, NULL);
@@ -1036,4 +1066,303 @@ char *test_find_source(const char *root, const TestCase *test, int *line)
   if (listed) /* CTest: where add_test is */
     *line = test->line;
   return listed;
+}
+
+/* The lines defining tests in a file ----------------------------------------------------------- */
+
+static void add_key(GHashTable *keys, char *key, guint index)
+{
+  GArray *indices = g_hash_table_lookup(keys, key);
+
+  if (!indices) {
+    indices = g_array_new(FALSE, FALSE, sizeof(guint));
+    g_hash_table_insert(keys, key, indices);
+  } else {
+    g_free(key);
+  }
+  g_array_append_val(indices, index);
+}
+
+/* The go module of the project at root (go.mod's "module" line), or NULL. */
+static char *go_module(const char *root)
+{
+  char *path = g_build_filename(root, "go.mod", NULL), *text = NULL, *module = NULL;
+
+  if (g_file_get_contents(path, &text, NULL, NULL)) {
+    char **lines = g_strsplit(text, "\n", -1);
+    for (int i = 0; lines[i] && !module; i++) {
+      char *line = g_strstrip(lines[i]);
+      if (g_str_has_prefix(line, "module") && g_ascii_isspace(line[6]))
+        module = g_strdup(g_strstrip(line + 7));
+    }
+    g_strfreev(lines);
+  }
+  g_free(text);
+  g_free(path);
+  return module;
+}
+
+/* Adds the names test is defined under in the file rel (relative to the project) to keys, for kind's
+ * definitions in it: GoogleTest's "Suite.Name", pytest's function and class names (when its id is of
+ * this file), go's function (when its package is the file's folder: package), Rust's function. */
+static void add_test_keys(GHashTable *keys, const TestCase *test, guint index, const char *rel, const char *package)
+{
+  char *suite = NULL, *name = NULL;
+  const char *start, *end;
+
+  switch (test->kind) {
+    case TEST_CTEST:
+      if (gtest_parts(test->id, &suite, &name))
+        add_key(keys, g_strdup_printf("%s.%s", suite, name), index);
+      break;
+    case TEST_PYTEST: { /* "file.py::Class::test_a[1]" */
+      char **parts = g_strsplit(test->id, "::", -1);
+      if (parts[0] && strcmp(parts[0], rel) == 0)
+        for (int i = 1; parts[i]; i++) {
+          end = strchr(parts[i], '[');
+          add_key(keys, g_strndup(parts[i], end ? (gsize)(end - parts[i]) : strlen(parts[i])), index);
+        }
+      g_strfreev(parts);
+      break;
+    }
+    case TEST_GO: /* "package\tTestName" */
+      start = strchr(test->id, '\t');
+      if (start && package && strlen(package) == (gsize)(start - test->id) &&
+          strncmp(test->id, package, start - test->id) == 0) {
+        end = strchr(start + 1, '/');
+        add_key(keys, g_strndup(start + 1, end ? (gsize)(end - start - 1) : strlen(start + 1)), index);
+      }
+      break;
+    case TEST_CARGO: /* "module::name" */
+      start = g_strrstr(test->id, "::");
+      add_key(keys, g_strdup(start ? start + 2 : test->id), index);
+      break;
+    default: break;
+  }
+  g_free(suite);
+  g_free(name);
+}
+
+/* The definitions kind's files hold: the names are the pattern's groups (two: "1.2"). */
+static const char *const definition_patterns[TEST_KINDS] = {
+  [TEST_CTEST] = "^[ \\t]*(?:TYPED_)?TEST(?:_F|_P)?\\s*\\(\\s*(\\w+)\\s*,\\s*(\\w+)\\s*\\)",
+  [TEST_PYTEST] = "^[ \\t]*(?:(?:async\\s+)?def|class)\\s+(\\w+)\\s*[(:]",
+  [TEST_GO] = "^func\\s+(\\w+)\\s*\\(",
+  [TEST_CARGO] = "^[ \\t]*(?:pub(?:\\([^)]*\\))?\\s+)?(?:async\\s+)?fn\\s+(\\w+)\\s*[<(]",
+};
+
+/* Adds the lines of text where kind's definitions in keys are. */
+static void add_definitions(GArray *lines, TestKind kind, GHashTable *keys, const char *text)
+{
+  GRegex *regex = g_regex_new(definition_patterns[kind], G_REGEX_MULTILINE | G_REGEX_RAW, 0, NULL);
+  GMatchInfo *match = NULL;
+  const char *counted = text;
+  int line = 1;
+
+  for (g_regex_match(regex, text, 0, &match); g_match_info_matches(match); g_match_info_next(match, NULL)) {
+    int start = 0;
+    char *first = g_match_info_fetch(match, 1), *second = g_match_info_fetch(match, 2), *key;
+    key = second && *second ? g_strdup_printf("%s.%s", first, second) : g_strdup(first);
+    GArray *indices = g_hash_table_lookup(keys, key);
+    g_match_info_fetch_pos(match, 0, &start, NULL);
+    for (; counted < text + start; counted++)
+      line += *counted == '\n';
+    for (guint i = 0; indices && i < indices->len; i++)
+      g_array_append_val(lines, ((TestLine){ line, g_array_index(indices, guint, i) }));
+    g_free(key);
+    g_free(second);
+    g_free(first);
+  }
+  g_match_info_free(match);
+  g_regex_unref(regex);
+}
+
+static int by_line(gconstpointer a, gconstpointer b)
+{
+  const TestLine *x = a, *y = b;
+
+  return x->line != y->line ? (x->line > y->line) - (x->line < y->line) : (x->test > y->test) - (x->test < y->test);
+}
+
+GArray *test_lines(GPtrArray *tests, const char *root, const char *path, const char *text)
+{
+  GArray *lines = g_array_new(FALSE, FALSE, sizeof(TestLine));
+  const char *name = strrchr(path, '/') ? strrchr(path, '/') + 1 : path;
+  gsize root_len = root ? strlen(root) : 0;
+  const char *rel = root && strncmp(path, root, root_len) == 0 && path[root_len] == '/' ? path + root_len + 1 : path;
+  char *package = NULL;
+
+  for (TestKind kind = 0; kind < TEST_KINDS && text; kind++) {
+    GHashTable *keys = NULL;
+    for (guint i = 0; i < tests->len; i++) {
+      const TestCase *test = tests->pdata[i];
+      if (test->kind != kind)
+        continue;
+      if (kind == TEST_CTEST && test->file && test->line > 0 && strcmp(test->file, path) == 0) /* add_test */
+        g_array_append_val(lines, ((TestLine){ test->line, i }));
+      if (!source_of_kind(kind, name))
+        continue;
+      if (kind == TEST_GO && !package && root) {
+        char *module = go_module(root), *folder = g_path_get_dirname(rel);
+        package = !module                    ? g_strdup("")
+                  : strcmp(folder, ".") == 0 ? g_strdup(module)
+                                             : g_strdup_printf("%s/%s", module, folder);
+        g_free(folder);
+        g_free(module);
+      }
+      if (!keys)
+        keys = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)g_array_unref);
+      add_test_keys(keys, test, i, rel, package);
+    }
+    if (keys && g_hash_table_size(keys))
+      add_definitions(lines, kind, keys, text);
+    if (keys)
+      g_hash_table_destroy(keys);
+  }
+  g_free(package);
+  g_array_sort(lines, by_line);
+  return lines;
+}
+
+gboolean test_file_may_define(const char *path)
+{
+  const char *name = strrchr(path, '/') ? strrchr(path, '/') + 1 : path;
+
+  if (strcmp(name, "CMakeLists.txt") == 0)
+    return TRUE;
+  for (TestKind kind = 0; kind < TEST_KINDS; kind++)
+    if (source_of_kind(kind, name))
+      return TRUE;
+  return FALSE;
+}
+
+/* GoogleTest programs that CTest runs as one test ------------------------------------------------ */
+
+char **test_gtest_list_argv(const TestCase *test)
+{
+  GPtrArray *argv;
+
+  if (test->kind != TEST_CTEST || test->runner || !test->command || !test->command[0] ||
+      !test_is_program(test->command[0]))
+    return NULL;
+  for (int i = 1; test->command[i]; i++)
+    if (g_str_has_prefix(test->command[i], "--gtest_"))
+      return NULL; /* gtest_discover_tests' (one case) or the project's own choice */
+  argv = argv_new();
+  argv_add(argv, "sh");
+  argv_add(argv, "-c");
+  /* a program linked with GoogleTest: its help text, its library or its mangled names */
+  argv_add(argv, "grep -qaE 'gtest_list_tests|libgtest|_ZN7testing8internal' \"$1\" && exec \"$@\" --gtest_list_tests");
+  argv_add(argv, "sh");
+  for (int i = 0; test->command[i]; i++)
+    argv_add(argv, test->command[i]);
+  return argv_end(argv);
+}
+
+GPtrArray *test_parse_gtest_list(const TestCase *runner, const char *out)
+{
+  GPtrArray *cases = g_ptr_array_new_with_free_func(test_case_free);
+  char **lines = g_strsplit(out ? out : "", "\n", -1);
+  char *suite = NULL;
+
+  for (int i = 0; lines[i]; i++) {
+    char *line = lines[i], *comment = strstr(line, "  #");
+    if (comment)
+      *comment = '\0';
+    g_strchomp(line);
+    if (!*line)
+      continue;
+    if (!g_ascii_isspace(*line)) { /* "Suite." */
+      g_free(suite);
+      suite = g_str_has_suffix(line, ".") && !strchr(line, ' ') ? g_strndup(line, strlen(line) - 1) : NULL;
+      continue;
+    }
+    char *name = g_strchug(line);
+    if (!suite || !*name || strchr(name, ' '))
+      continue;
+    char *id = g_strdup_printf("%s.%s", suite, name), *filter = g_strconcat("--gtest_filter=", id, NULL);
+    TestCase *test = test_new(TEST_CTEST, id, suite, name);
+    guint n = g_strv_length(runner->command);
+    test->command = g_new0(char *, n + 2);
+    for (guint j = 0; j < n; j++)
+      test->command[j] = g_strdup(runner->command[j]);
+    test->command[n] = filter;
+    test->cwd = g_strdup(runner->cwd);
+    test->file = g_strdup(runner->file);
+    test->line = runner->line;
+    test->runner = g_strdup(runner->id);
+    g_ptr_array_add(cases, test);
+    g_free(id);
+  }
+  g_free(suite);
+  g_strfreev(lines);
+  return cases;
+}
+
+static const char *member_string(JsonObject *object, const char *name)
+{
+  JsonNode *node = json_object_get_member(object, name);
+
+  return node && JSON_NODE_HOLDS_VALUE(node) && json_node_get_value_type(node) == G_TYPE_STRING
+             ? json_node_get_string(node)
+             : NULL;
+}
+
+static JsonArray *member_array(JsonObject *object, const char *name)
+{
+  JsonNode *node = json_object_get_member(object, name);
+
+  return node && JSON_NODE_HOLDS_ARRAY(node) ? json_node_get_array(node) : NULL;
+}
+
+guint test_apply_gtest(GPtrArray *tests, const char *json)
+{
+  JsonParser *parser = json_parser_new();
+  JsonNode *root;
+  guint applied = 0;
+
+  if (!json || !json_parser_load_from_data(parser, json, -1, NULL) || !(root = json_parser_get_root(parser)) ||
+      !JSON_NODE_HOLDS_OBJECT(root)) {
+    g_object_unref(parser);
+    return 0;
+  }
+  JsonArray *suites = member_array(json_node_get_object(root), "testsuites");
+  for (guint s = 0; suites && s < json_array_get_length(suites); s++) {
+    JsonNode *snode = json_array_get_element(suites, s);
+    JsonObject *suite = JSON_NODE_HOLDS_OBJECT(snode) ? json_node_get_object(snode) : NULL;
+    JsonArray *cases = suite ? member_array(suite, "testsuite") : NULL;
+    const char *suite_name = suite ? member_string(suite, "name") : NULL;
+    for (guint c = 0; suite_name && cases && c < json_array_get_length(cases); c++) {
+      JsonNode *cnode = json_array_get_element(cases, c);
+      JsonObject *one = JSON_NODE_HOLDS_OBJECT(cnode) ? json_node_get_object(cnode) : NULL;
+      const char *name = one ? member_string(one, "name") : NULL;
+      if (!name)
+        continue;
+      char *id = g_strdup_printf("%s.%s", suite_name, name);
+      JsonArray *failures = member_array(one, "failures");
+      GString *why = g_string_new(NULL);
+      for (guint f = 0; failures && f < json_array_get_length(failures); f++) {
+        JsonNode *fnode = json_array_get_element(failures, f);
+        const char *text = JSON_NODE_HOLDS_OBJECT(fnode) ? member_string(json_node_get_object(fnode), "failure") : NULL;
+        if (text)
+          g_string_append_printf(why, "%s%s", why->len ? "\n\n" : "", text);
+      }
+      TestState state = failures && json_array_get_length(failures)               ? TEST_FAILED
+                        : g_strcmp0(member_string(one, "result"), "SKIPPED") == 0 ? TEST_SKIPPED
+                                                                                  : TEST_PASSED;
+      for (guint i = 0; i < tests->len; i++) {
+        TestCase *test = tests->pdata[i];
+        if (!test->runner || strcmp(test->id, id) != 0)
+          continue;
+        test->state = state;
+        g_free(test->output);
+        test->output = why->len ? g_strdup(why->str) : NULL;
+        applied++;
+      }
+      g_string_free(why, TRUE);
+      g_free(id);
+    }
+  }
+  g_object_unref(parser);
+  return applied;
 }

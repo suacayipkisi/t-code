@@ -4,6 +4,8 @@
 #define _DEFAULT_SOURCE /* kill(), setpgid() */
 #include "testing/testing.h"
 
+#include "testing/state.h"
+
 #include "debug/debugger.h"
 #include "editor/editor.h"
 #include "project/langenv.h"
@@ -26,9 +28,11 @@ typedef struct {
   char **argv;
   char *report; /* the JUnit file it writes, or NULL */
   gboolean listing;
-  char *debug;      /* a build for debugging the test of this id, or NULL */
-  gboolean stopped; /* by Stop: its tests have no result */
-  guint generation; /* testing.generation when it was made */
+  char *debug;        /* a build for debugging the test of this id, or NULL */
+  GPtrArray *pending; /* a GoogleTest program's listing: CTest's list (TestCase), merged once each is listed */
+  guint expand;       /* ... and the index of the test whose cases it lists */
+  gboolean stopped;   /* by Stop: its tests have no result */
+  guint generation;   /* testing.generation when it was made */
   GSubprocess *proc;
 } Job;
 
@@ -385,6 +389,12 @@ static void rebuild(void)
   gtk_widget_set_visible(GTK_WIDGET(testing.note), empty && !errors);
   update_summary();
   update_buttons();
+  testing_marks_changed();
+}
+
+GPtrArray *testing_list(void)
+{
+  return testing.panel ? testing.tests : NULL;
 }
 
 static void on_row_selected(GtkListBox *list G_GNUC_UNUSED, GtkListBoxRow *row, gpointer data G_GNUC_UNUSED)
@@ -422,11 +432,36 @@ static void on_row_activated(GtkListBox *list, GtkListBoxRow *row, gpointer data
 
 /* Running commands ----------------------------------------------------------------------------- */
 
+/* Removes the folder of a CTest run's GoogleTest reports, reading each into the tests first (read). */
+static void gtest_reports(const char *report, gboolean read)
+{
+  char *folder = g_strconcat(report, ".gtest", NULL);
+  GDir *dir = g_dir_open(folder, 0, NULL);
+  const char *name;
+
+  while (dir && (name = g_dir_read_name(dir))) {
+    char *path = g_build_filename(folder, name, NULL), *json = NULL;
+    if (read && g_file_get_contents(path, &json, NULL, NULL))
+      test_apply_gtest(testing.tests, json);
+    g_free(json);
+    g_unlink(path);
+    g_free(path);
+  }
+  if (dir)
+    g_dir_close(dir);
+  g_rmdir(folder);
+  g_free(folder);
+}
+
 static void job_free(Job *job)
 {
   g_strfreev(job->argv);
   g_free(job->debug);
   g_free(job->dir);
+  if (job->pending)
+    g_ptr_array_unref(job->pending);
+  if (job->report && job->kind == TEST_CTEST)
+    gtest_reports(job->report, FALSE);
   if (job->report)
     g_unlink(job->report);
   g_free(job->report);
@@ -522,8 +557,59 @@ static void merge_listing(TestKind kind, GPtrArray *listed)
 
 static void debug_built(Job *job, const char *out, gboolean ok, gboolean stopped);
 
+/* Lists the GoogleTest cases of the first test of CTest's list from index on that runs a whole
+ * GoogleTest program (next, before what waits); FALSE when none is left. */
+static gboolean list_gtest_cases(GPtrArray *listed, guint from)
+{
+  const TestSource *source = source_of(TEST_CTEST);
+
+  for (guint i = from; source && i < listed->len; i++) {
+    TestCase *test = listed->pdata[i];
+    char **argv = test_gtest_list_argv(test);
+    if (!argv)
+      continue;
+    Job *job = g_new0(Job, 1);
+    job->kind = TEST_CTEST;
+    job->dir = g_strdup(test->cwd ? test->cwd : source->dir);
+    job->argv = argv;
+    job->listing = TRUE;
+    job->pending = g_ptr_array_ref(listed);
+    job->expand = i;
+    job->generation = testing.generation;
+    g_queue_push_head(&testing.waiting, job);
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/* A GoogleTest program's cases listed: they replace its CTest test in the list. */
+static void gtest_listed(Job *job, const char *out, gboolean ok, gboolean stopped)
+{
+  GPtrArray *listed = g_steal_pointer(&job->pending);
+  guint next = job->expand + 1;
+
+  if (ok && job->expand < listed->len) {
+    GPtrArray *cases = test_parse_gtest_list(listed->pdata[job->expand], out);
+    if (cases->len) {
+      g_ptr_array_remove_index(listed, job->expand);
+      for (guint i = 0; i < cases->len; i++)
+        g_ptr_array_insert(listed, job->expand + i, g_steal_pointer(&cases->pdata[i]));
+      next = job->expand + cases->len;
+    }
+    g_ptr_array_unref(cases);
+  }
+  if (stopped || !list_gtest_cases(listed, next))
+    merge_listing(TEST_CTEST, listed);
+  else
+    g_ptr_array_unref(listed); /* the next listing holds it */
+}
+
 static void job_finished(Job *job, const char *out, gboolean ok, gboolean stopped)
 {
+  if (job->pending) {
+    gtest_listed(job, out, ok, stopped);
+    return;
+  }
   g_set_str(&testing.logs[job->kind], out);
   if (job->debug) {
     debug_built(job, out, ok, stopped);
@@ -534,6 +620,10 @@ static void job_finished(Job *job, const char *out, gboolean ok, gboolean stoppe
     g_clear_pointer(&testing.errors[job->kind], g_free);
     if (!listed->len && !ok && !stopped)
       testing.errors[job->kind] = g_strdup("could not list the tests (select for the output)");
+    if (job->kind == TEST_CTEST && !stopped && list_gtest_cases(listed, 0)) {
+      g_ptr_array_unref(listed); /* the GoogleTest listings hold it */
+      return;
+    }
     merge_listing(job->kind, listed);
     return;
   }
@@ -542,6 +632,8 @@ static void job_finished(Job *job, const char *out, gboolean ok, gboolean stoppe
     g_file_get_contents(job->report, &report, NULL, NULL);
   test_apply_results(job->kind, testing.tests, out, report);
   g_free(report);
+  if (job->report && job->kind == TEST_CTEST)
+    gtest_reports(job->report, TRUE);
   /* No result: the build failed, or the command was stopped. */
   for (guint i = 0; i < testing.tests->len; i++) {
     TestCase *test = testing.tests->pdata[i];
@@ -734,6 +826,26 @@ void testing_run_failed(App *t G_GNUC_UNUSED)
     if (((TestCase *)testing.tests->pdata[i])->state == TEST_FAILED)
       g_ptr_array_add(keys, test_key(testing.tests->pdata[i]));
   run_keys(keys);
+}
+
+gboolean testing_run_ids(const char *const *ids)
+{
+  GPtrArray *keys;
+
+  if (testing_busy() || !ids)
+    return FALSE;
+  keys = g_ptr_array_new_with_free_func(g_free);
+  for (int i = 0; ids[i]; i++) {
+    TestCase *test = find_test_id(ids[i]);
+    if (test)
+      g_ptr_array_add(keys, test_key(test));
+  }
+  if (!keys->len) {
+    g_ptr_array_unref(keys);
+    return FALSE;
+  }
+  run_keys(keys);
+  return TRUE;
 }
 
 gboolean testing_run_one(const char *id)
@@ -975,6 +1087,7 @@ static void on_destroy(GtkWidget *panel G_GNUC_UNUSED, gpointer data G_GNUC_UNUS
   forget();
   g_clear_pointer(&testing.tests, g_ptr_array_unref);
   g_clear_pointer(&testing.collapsed, g_hash_table_destroy);
+  testing_marks_changed();
   if (testing.dir) {
     g_rmdir(testing.dir); /* each report is removed with its command */
     g_clear_pointer(&testing.dir, g_free);

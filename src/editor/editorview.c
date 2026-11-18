@@ -30,6 +30,7 @@
 #include "lsp/inline/semantic.h"
 #include "lsp/symbols/symbols.h"
 #include "lsp/inline/signature.h"
+#include "testing/testing.h"
 #include "window/commands.h"
 #include "window/statusbar.h"
 #include "window/terminal.h"
@@ -543,6 +544,7 @@ void editor_view_init(Tab *tab, gboolean readonly)
   diff_gutter_attach(tab);
   folding_attach(tab);
   breakpoints_attach(tab);
+  testing_marks_attach(tab);
   hover_attach(tab);
   debug_hover_attach(tab);
   completion_attach(tab);
@@ -623,6 +625,7 @@ void editor_view_free(EditorView *v)
   diff_gutter_free(v->diff);
   folding_free(v->folding);
   breakpoints_free(v->breakpoints);
+  testing_marks_free(v->test_marks);
   sticky_free(v->sticky);
   g_free(v->closers);
   for (guint i = 0; i < v->next_waiters->len; i++) {

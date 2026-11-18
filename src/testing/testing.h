@@ -56,3 +56,19 @@ gboolean testing_select(const char *id);
 
 /* Runs the test with id (its row's ▶); FALSE when there is none. */
 gboolean testing_run_one(const char *id);
+
+/* Runs the tests with these ids (NULL-terminated; those listed), once the changed editors are saved;
+ * FALSE when none is listed or a command runs. */
+gboolean testing_run_ids(const char *const *ids);
+
+/* ▶ in an editor's gutter (marks.c): on each line defining a listed test (see test_lines), in the color
+ * of its last result; a click runs the line's tests, a right click offers Run, Debug (a CTest test) and
+ * Show in Testing. The column shows only in a file defining listed tests; the lines are found again
+ * after an edit and when the list or a result changes. */
+typedef struct TestMarks TestMarks;
+void testing_marks_attach(Tab *tab);
+void testing_marks_free(TestMarks *marks);
+
+/* tab's ▶, for the tests: a line per ▶, "<line> <state> <id>..." (state: passed, failed, running,
+ * skipped, "not run"). */
+char *testing_marks_text(Tab *tab);

@@ -136,7 +136,7 @@ build/test-frameworks: tests/test_frameworks.c src/testing/frameworks.c src/test
 	  $(shell pkg-config --libs json-glib-1.0)
 
 # The Testing panel, against a fake go.
-TESTING_SRC := src/testing/testing.c src/testing/frameworks.c src/project/langenv.c src/window/palette.c
+TESTING_SRC := src/testing/testing.c src/testing/marks.c src/testing/frameworks.c src/project/langenv.c src/window/palette.c
 build/test-testing: tests/test_testing.c tests/util.h $(TESTING_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_testing.c $(TESTING_SRC) $(shell pkg-config --libs $(PKGS))
 
