@@ -10,6 +10,7 @@
 #include "editor/tabs.h"
 #include "lsp/channel.h"
 #include "lsp/compiledb.h"
+#include "lsp/inline/diagnostics.h"
 #include "lsp/servers.h"
 #include "window/statusbar.h"
 
@@ -321,6 +322,21 @@ void lsp_open_installed(App *t)
       lsp_open(tab);
   }
   update_status(t);
+}
+
+void lsp_reattach(App *t)
+{
+  int n = tab_count(t);
+
+  for (int i = 0; i < n; i++) {
+    Tab *tab = tab_nth(t, i);
+    Doc *doc = tab->kind == TAB_EDITOR ? doc_of(tab) : NULL;
+    if (doc && (!lsp_wants(tab) || doc->lsp->kind != server_kind_for_tab(tab))) {
+      lsp_close(tab);
+      diagnostics_clear(tab);
+    }
+  }
+  lsp_open_installed(t);
 }
 
 /* "rust-analyzer: Indexing 45%" for l, or NULL when it is idle. */

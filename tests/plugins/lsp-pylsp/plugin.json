@@ -1,0 +1,18 @@
+{
+  "api": "tapi_1",
+  "id": "lsp-pylsp",
+  "name": "pylsp (test plugin)",
+  "version": "1.0.0",
+  "description": "The built-in Python server (pylsp) declared through \"lsp\": a test and an example, not shipped.",
+  "lsp": [
+    {
+      "name": "pylsp",
+      "argv": [
+        "pylsp"
+      ],
+      "extensions": [
+        ".py"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "api": "tapi_1",
+  "id": "lsp-vscode-json-language-server",
+  "name": "vscode-json-language-server (test plugin)",
+  "version": "1.0.0",
+  "description": "The built-in JSON server (vscode-json-language-server) declared through \"lsp\": a test and an example, not shipped.",
+  "lsp": [
+    {
+      "name": "vscode-json-language-server",
+      "argv": [
+        "vscode-json-language-server",
+        "--stdio"
+      ],
+      "extensions": [
+        ".json",
+        ".jsonc"
+      ],
+      "language-id": {
+        ".jsonc": "jsonc",
+        ".json": "json"
+      },
+      "options": {
+        "provideFormatter": false,
+        "handledSchemaProtocols": [
+          "file"
+        ]
+      },
+      "settings": {
+        "json": {
+          "validate": {
+            "enable": true
+          },
+          "format": {
+            "enable": false
+          },
+          "schemaDownload": {
+            "enable": false
+          },
+          "schemas": []
+        }
+      }
+    }
+  ]
+}

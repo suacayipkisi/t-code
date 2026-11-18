@@ -1,6 +1,6 @@
 /*
  * The Settings window (Ctrl+, or the gear in the title bar): pages listed on the left (General,
- * Editor, Indentation, Appearance, C / C++, Edit by Hand). Every change applies at once, to the open
+ * Editor, Indentation, Appearance, C / C++, Language Servers, Edit by Hand). Every change applies at once, to the open
  * editors too, and is saved in settings.ini, which can also be edited by hand.
  */
 #include "dialogs/settings.h"
@@ -9,6 +9,7 @@
 #include "editor/editorview.h"
 #include "editor/tabs.h"
 #include "lsp/client/client.h"
+#include "lsp/servers.h"
 #include "project/session.h"
 #include "project/userfiles.h"
 #include "window/terminal.h"
@@ -274,6 +275,19 @@ void settings_changed(App *t, gboolean restart_lsp)
     color_theme_apply(t, t->settings.color_theme);
   if (restart_lsp)
     lsp_restart_clangd(t);
+  lsp_reattach(t); /* a built-in server turned on or off */
+}
+
+/* A built-in language server's switch: off, its editors move to a plugin's server or to none. */
+static void on_server_switch(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data)
+{
+  App *t = app_of(GTK_WIDGET(toggle));
+  guint bit = 1u << GPOINTER_TO_UINT(data);
+
+  t->settings.servers_off =
+      gtk_switch_get_active(toggle) ? t->settings.servers_off & ~bit : t->settings.servers_off | bit;
+  lsp_reattach(t);
+  session_save_settings(t);
 }
 
 /* A page of the window: its grid of rows (its heading in it), scrolling when the window is smaller. */
@@ -391,6 +405,17 @@ void show_settings(App *t)
   add_row(GTK_GRID(grid), &row, "clang-tidy checks",
           "clangd also reports what the project's .clang-tidy asks for (more CPU while typing)",
           setting_switch(&t->settings.clang_tidy, lsp_restart_clangd));
+
+  grid = add_page(GTK_STACK(stack), "servers", "Language Servers", &row);
+  for (int kind = 0; kind < SERVER_NONE; kind++) {
+    GtkWidget *toggle = gtk_switch_new();
+    gtk_switch_set_active(GTK_SWITCH(toggle), server_enabled(t, kind));
+    g_signal_connect(toggle, "notify::active", G_CALLBACK(on_server_switch), GUINT_TO_POINTER(kind));
+    char *note =
+        g_strdup_printf("%s. Off: a plugin's server for these files takes over, if one has any", server_title(kind));
+    add_row(GTK_GRID(grid), &row, server_id(kind), note, toggle);
+    g_free(note);
+  }
 
   grid = add_page(GTK_STACK(stack), "files", "Edit by Hand", &row);
   add_row(GTK_GRID(grid), &row, "Settings file", "settings.ini: these settings, each with a note",

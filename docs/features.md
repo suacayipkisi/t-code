@@ -296,7 +296,8 @@ or 120; 80 by default, 0 turns it off), tab size (2 by default), spaces for Tab,
 format on save (`Ctrl+S` formats C and C++ first; off by default), clang-tidy checks (the project's
 `.clang-tidy`; off by default), checking for updates (the latest release on GitHub against this
 one, asking once when a newer one is out; "Check for Updates Now" from the palette asks at any
-moment), fonts, text size and reopening the last project. Changes apply at
+moment), fonts, text size, reopening the last project, and each built-in language server on or off
+(Language Servers: off, its files go to a plugin's server for them, or to none). Changes apply at
 once, to the open editors too, and are kept in `~/.config/t-code/settings.ini` (a comment over
 each key; a hand edit applies at once).
 

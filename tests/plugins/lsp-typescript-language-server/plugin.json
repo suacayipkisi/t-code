@@ -1,0 +1,44 @@
+{
+  "api": "tapi_1",
+  "id": "lsp-typescript-language-server",
+  "name": "typescript-language-server (test plugin)",
+  "version": "1.0.0",
+  "description": "The built-in TypeScript and JavaScript server (typescript-language-server) declared through \"lsp\": a test and an example, not shipped.",
+  "lsp": [
+    {
+      "name": "typescript-language-server",
+      "argv": [
+        "typescript-language-server",
+        "--stdio"
+      ],
+      "extensions": [
+        ".js",
+        ".mjs",
+        ".cjs",
+        ".jsx",
+        ".ts",
+        ".mts",
+        ".cts",
+        ".tsx"
+      ],
+      "language-id": {
+        ".jsx": "javascriptreact",
+        ".js": "javascript",
+        ".mjs": "javascript",
+        ".cjs": "javascript",
+        ".tsx": "typescriptreact",
+        ".ts": "typescript",
+        ".mts": "typescript",
+        ".cts": "typescript"
+      },
+      "options": {
+        "preferences": {
+          "includeInlayParameterNameHints": "literals",
+          "includeInlayVariableTypeHints": true,
+          "includeInlayFunctionLikeReturnTypeHints": true,
+          "includeInlayEnumMemberValueHints": true
+        }
+      }
+    }
+  ]
+}

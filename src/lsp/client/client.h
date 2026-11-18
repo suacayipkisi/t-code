@@ -62,6 +62,11 @@ char *lsp_progress(App *t);
  * editors that now have one. */
 void lsp_open_installed(App *t);
 
+/* Which server serves which file changed (a built-in one turned on or off in Settings, plugins
+ * reloaded): every editor whose server is no longer its own leaves it (its diagnostics go) and opens
+ * with the right one, or with none. */
+void lsp_reattach(App *t);
+
 /* Requests ----------------------------------------------------------------------------------- */
 
 /* The answer to a request: its "result", or NULL (an error, no server, the editor went, or it was

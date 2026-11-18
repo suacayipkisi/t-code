@@ -191,7 +191,7 @@ build/test-window: tests/test_window.c tests/util.h tests/widgets.h tests/broadw
 build/test-about: tests/test_about.c tests/util.h src/dialogs/about.c $(APP_HDR) build/license.h | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_about.c \
 	  $(shell pkg-config --libs $(PKGS))
-build/test-plugins: tests/test_plugins.c tests/util.h src/plugins/plugins.c src/plugins/plugins.h $(APP_HDR) | build
+build/test-plugins: tests/test_plugins.c tests/util.h src/plugins/plugins.c src/plugins/plugins.h src/lsp/servers.c src/lsp/servers.h $(wildcard tests/plugins/*/plugin.json) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_plugins.c $(shell pkg-config --libs $(PKGS))
 
 build/test-update: tests/test_update.c tests/util.h src/update/update.c src/update/update.h $(APP_HDR) | build

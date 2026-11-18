@@ -1,11 +1,13 @@
 /*
  * The language servers (see servers.h): clangd for C/C++, pylsp for Python, gopls for Go,
  * rust-analyzer for Rust, typescript-language-server for TypeScript and JavaScript, the JSON language
- * server, yaml-language-server, marksman for Markdown and neocmakelsp for CMake.
+ * server, yaml-language-server, marksman for Markdown and neocmakelsp for CMake; and the ones plugins
+ * declare.
  */
 #include "lsp/servers.h"
 
 #include "lsp/json.h"
+#include "plugins/plugins.h"
 #include "project/langenv.h"
 #include "project/toolchain.h"
 
@@ -37,6 +39,116 @@ static const char *const cmake_argv[] = { "neocmakelsp", "stdio", NULL };
 static const char *const fake_argv[] = { SERVER_ARGV NULL };
 #endif
 
+/* clang-format off */
+static const struct {
+  const char *id, *title;
+} builtin[SERVER_NONE] = {
+  [SERVER_CLANGD] = { "clangd", "C and C++" },
+  [SERVER_PYTHON] = { "pylsp", "Python" },
+  [SERVER_GO] = { "gopls", "Go" },
+  [SERVER_RUST] = { "rust-analyzer", "Rust" },
+  [SERVER_TYPESCRIPT] = { "typescript-language-server", "TypeScript and JavaScript" },
+  [SERVER_JSON] = { "vscode-json-language-server", "JSON" },
+  [SERVER_YAML] = { "yaml-language-server", "YAML" },
+  [SERVER_MARKDOWN] = { "marksman", "Markdown" },
+  [SERVER_CMAKE] = { "neocmakelsp", "CMake" },
+};
+/* clang-format on */
+
+const char *server_id(ServerKind kind)
+{
+  return kind < SERVER_NONE ? builtin[kind].id : NULL;
+}
+
+const char *server_title(ServerKind kind)
+{
+  return kind < SERVER_NONE ? builtin[kind].title : NULL;
+}
+
+ServerKind server_by_id(const char *id)
+{
+  for (int kind = 0; id && kind < SERVER_NONE; kind++)
+    if (strcmp(builtin[kind].id, id) == 0)
+      return kind;
+  return SERVER_NONE;
+}
+
+gboolean server_enabled(App *t, ServerKind kind)
+{
+  return kind >= SERVER_NONE || !(t->settings.servers_off & (1u << kind));
+}
+
+/* Plugins' servers ------------------------------------------------------------------------------- */
+
+/* A plugin's server as it was last matched: a copy, so that a plugin reloaded or gone leaves no
+ * dangling pointer behind in a running Lsp. */
+typedef struct {
+  char *key; /* "<plugin id>/<server name>" */
+  char *name, *dir, *language_id, *options, *settings;
+  char **argv, **language_ids;
+} Declared;
+
+static GPtrArray *declared; /* Declared *; the one at i is kind SERVER_PLUGIN + i (never removed) */
+
+static Declared *declared_of(ServerKind kind)
+{
+  guint i = kind - SERVER_PLUGIN;
+
+  return kind >= SERVER_PLUGIN && declared && i < declared->len ? g_ptr_array_index(declared, i) : NULL;
+}
+
+/* The kind for p's server s, its copy brought up to date. */
+static ServerKind declare(Plugin *p, PluginServer *s)
+{
+  char *key = g_strconcat(p->id, "/", s->name, NULL);
+  Declared *d = NULL;
+  guint i;
+
+  if (!declared)
+    declared = g_ptr_array_new();
+  for (i = 0; i < declared->len && !d; i++)
+    if (strcmp(((Declared *)g_ptr_array_index(declared, i))->key, key) == 0)
+      d = g_ptr_array_index(declared, i);
+  if (d) {
+    i--;
+    g_free(key);
+  } else {
+    d = g_new0(Declared, 1);
+    d->key = key;
+    g_ptr_array_add(declared, d);
+  }
+  g_set_str(&d->name, s->name);
+  g_set_str(&d->dir, p->dir);
+  g_set_str(&d->language_id, s->language_id);
+  g_set_str(&d->options, s->options);
+  g_set_str(&d->settings, s->settings);
+  g_strfreev(d->argv);
+  d->argv = g_strdupv(s->argv);
+  g_strfreev(d->language_ids);
+  d->language_ids = g_strdupv(s->language_ids);
+  return SERVER_PLUGIN + i;
+}
+
+/* The first plugin server for path, whose GtkSourceView language is id; SERVER_NONE when none. */
+static ServerKind plugin_kind(App *t, const char *path, const char *id)
+{
+  char *name = path ? g_path_get_basename(path) : NULL;
+  ServerKind kind = SERVER_NONE;
+
+  for (guint i = 0; t && t->plugins && i < t->plugins->len && kind == SERVER_NONE; i++) {
+    Plugin *p = g_ptr_array_index(t->plugins, i);
+    for (guint j = 0; p->servers && j < p->servers->len && kind == SERVER_NONE; j++) {
+      PluginServer *s = g_ptr_array_index(p->servers, j);
+      if (plugin_name_matches(name, s->extensions) || (*id && g_strv_contains((const char *const *)s->languages, id)))
+        kind = declare(p, s);
+    }
+  }
+  g_free(name);
+  return kind;
+}
+
+/* The built-in ones ------------------------------------------------------------------------------ */
+
 static const char *const *server_command(ServerKind kind)
 {
 #ifdef SERVER_ARGV
@@ -60,7 +172,9 @@ static const char *const *server_command(ServerKind kind)
 
 const char *server_name(ServerKind kind)
 {
-  return server_command(kind)[0];
+  Declared *d = declared_of(kind);
+
+  return d ? d->name : server_command(kind)[0];
 }
 
 const char *server_language(ServerKind kind)
@@ -82,7 +196,23 @@ const char *server_language(ServerKind kind)
 const char *server_language_id(ServerKind kind, Tab *tab)
 {
   const char *path = tab->path ? tab->path : "";
+  Declared *d = declared_of(kind);
 
+  if (d && d->language_id)
+    return d->language_id;
+  for (int i = 0; d && d->language_ids[i] && d->language_ids[i + 1]; i += 2) {
+    char *const pattern[] = { d->language_ids[i], NULL };
+    char *name = g_path_get_basename(path);
+    gboolean matches = plugin_name_matches(name, pattern);
+    g_free(name);
+    if (matches)
+      return d->language_ids[i + 1];
+  }
+  if (d) { /* GtkSourceView's id, which is LSP's for most languages; its headers' are C's and C++'s */
+    GtkSourceLanguage *language = gtk_source_buffer_get_language(tab->buffer);
+    const char *id = language ? gtk_source_language_get_id(language) : "plaintext";
+    return strcmp(id, "chdr") == 0 ? "c" : strcmp(id, "cpphdr") == 0 ? "cpp" : id;
+  }
   if (kind == SERVER_CLANGD) {
     const char *source_id = gtk_source_language_get_id(gtk_source_buffer_get_language(tab->buffer));
     return g_str_has_prefix(source_id, "cpp") ? "cpp" : "c";
@@ -112,7 +242,8 @@ static gboolean json_worth_serving(const char *path)
   return g_stat(path, &info) != 0 || info.st_size <= MAX_JSON_BYTES; /* not saved yet: small */
 }
 
-ServerKind server_kind_for_tab(Tab *tab)
+/* The built-in server for tab, on or off. */
+static ServerKind builtin_kind(Tab *tab)
 {
   GtkSourceLanguage *language = tab && tab->kind == TAB_EDITOR ? gtk_source_buffer_get_language(tab->buffer) : NULL;
   const char *id = language ? gtk_source_language_get_id(language) : "";
@@ -141,6 +272,22 @@ ServerKind server_kind_for_tab(Tab *tab)
   return SERVER_NONE;
 }
 
+ServerKind server_kind_for_tab(Tab *tab)
+{
+  ServerKind kind = builtin_kind(tab), plugin;
+  GtkSourceLanguage *language;
+
+  if (!tab || tab->kind != TAB_EDITOR)
+    return kind; /* a Markdown preview has a .md path too */
+  if (kind != SERVER_NONE && !server_enabled(tab->app, kind))
+    kind = SERVER_NONE;
+  language = gtk_source_buffer_get_language(tab->buffer);
+  plugin = plugin_kind(tab->app, tab->path, language ? gtk_source_language_get_id(language) : "");
+  if (plugin == SERVER_NONE)
+    return kind;
+  return kind != SERVER_NONE && server_installed(tab->app, kind) ? kind : plugin;
+}
+
 /* The program ------------------------------------------------------------------------------------ */
 
 #ifndef SERVER_ARGV
@@ -158,18 +305,12 @@ static char *venv_pylsp(App *t)
 }
 #endif
 
-/* Where the server's program is: the project's venv's pylsp, then PATH, then the folders language
- * installers put programs in (pipx, cargo install, go install), which are not on the PATH of a
- * t-code started from the desktop's menu. NULL when it is nowhere (and for the tests' fake server,
- * which runs as it is). */
-static char *server_program(App *t, ServerKind kind)
+/* Where the program name is: PATH, then the folders language installers put programs in (pipx,
+ * cargo install, go install), which are not on the PATH of a t-code started from the desktop's menu.
+ * NULL when it is nowhere. */
+static char *find_program(const char *name)
 {
-#ifdef SERVER_ARGV
-  (void)t, (void)kind;
-  return NULL;
-#else
-  const char *name = server_name(kind);
-  char *path = kind == SERVER_PYTHON ? venv_pylsp(t) : NULL;
+  char *path = g_find_program_in_path(name);
   const char *gopath = g_getenv("GOPATH");
   char **gopaths = gopath && *gopath ? g_strsplit(gopath, ":", 2) : NULL;
   char *folders[] = {
@@ -178,8 +319,6 @@ static char *server_program(App *t, ServerKind kind)
     gopaths ? g_build_filename(gopaths[0], "bin", NULL) : g_build_filename(g_get_home_dir(), "go", "bin", NULL),
   };
 
-  if (!path)
-    path = g_find_program_in_path(name);
   for (size_t i = 0; i < G_N_ELEMENTS(folders); i++) {
     char *candidate = g_build_filename(folders[i], name, NULL);
     if (!path && g_file_test(candidate, G_FILE_TEST_IS_EXECUTABLE))
@@ -189,12 +328,33 @@ static char *server_program(App *t, ServerKind kind)
   }
   g_strfreev(gopaths);
   return path;
+}
+
+/* Where the server's program is: a plugin's relative to its folder or found like the others; the
+ * project's venv's pylsp, else find_program's. NULL when it is nowhere (and for the tests' fake
+ * built-in server, which runs as it is). */
+static char *server_program(App *t, ServerKind kind)
+{
+  Declared *d = declared_of(kind);
+
+  if (d && strchr(d->argv[0], '/'))
+    return g_path_is_absolute(d->argv[0]) ? g_strdup(d->argv[0]) : g_build_filename(d->dir, d->argv[0], NULL);
+  if (d)
+    return find_program(d->argv[0]);
+#ifdef SERVER_ARGV
+  (void)t;
+  return NULL;
+#else
+  char *path = kind == SERVER_PYTHON ? venv_pylsp(t) : NULL;
+
+  return path ? path : find_program(server_name(kind));
 #endif
 }
 
 char **server_argv(App *t, ServerKind kind)
 {
-  const char *const *command = server_command(kind);
+  Declared *d = declared_of(kind);
+  const char *const *command = d ? (const char *const *)d->argv : server_command(kind);
   GPtrArray *argv = g_ptr_array_new();
   char *program = server_program(t, kind);
 
@@ -215,16 +375,18 @@ const char *server_missing(App *t, ServerKind kind)
   (void)t, (void)kind;
   return NULL; /* the fake server is always there */
 #else
-  char *program = kind == SERVER_NONE ? NULL : server_program(t, kind); /* clangd too */
+  char *program = kind >= SERVER_NONE ? NULL : server_program(t, kind); /* clangd too */
   gboolean found = program != NULL;
 
   g_free(program);
-  return found || kind == SERVER_NONE ? NULL : server_name(kind);
+  return found || kind >= SERVER_NONE ? NULL : server_name(kind);
 #endif
 }
 
 gboolean server_installed(App *t, ServerKind kind)
 {
+  if (kind >= SERVER_PLUGIN)
+    return declared_of(kind) != NULL;
 #ifdef SERVER_ARGV
   (void)t;
   return kind != SERVER_NONE;
@@ -239,6 +401,8 @@ gboolean server_installed(App *t, ServerKind kind)
  * inlay hints; neocmakelsp formats and lints; rust-analyzer's Cargo features and target. */
 char *server_options(ServerKind kind, App *t)
 {
+  if (kind >= SERVER_PLUGIN)
+    return declared_of(kind) ? g_strdup(declared_of(kind)->options) : NULL;
   if (kind == SERVER_JSON)
     return g_strdup("{\"provideFormatter\":false,\"handledSchemaProtocols\":[\"file\"]}");
   if (kind == SERVER_GO) /* inlay hints, off unless asked for (it takes them only here) */
@@ -266,6 +430,8 @@ char *server_options(ServerKind kind, App *t)
  * validation, formatting and schemas (the SchemaStore catalog's); pylsp's Python for jedi. */
 char *server_settings(ServerKind kind, App *t)
 {
+  if (kind >= SERVER_PLUGIN)
+    return declared_of(kind) ? g_strdup(declared_of(kind)->settings) : NULL;
   if (kind == SERVER_JSON)
     return g_strdup("{\"json\":{\"validate\":{\"enable\":true},\"format\":{\"enable\":false},"
                     "\"schemaDownload\":{\"enable\":false},\"schemas\":[]}}");

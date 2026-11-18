@@ -1,0 +1,26 @@
+{
+  "api": "tapi_1",
+  "id": "lsp-clangd",
+  "name": "clangd (test plugin)",
+  "version": "1.0.0",
+  "description": "The built-in C and C++ server (clangd) declared through \"lsp\": a test and an example, not shipped.",
+  "lsp": [
+    {
+      "name": "clangd",
+      "argv": [
+        "clangd",
+        "--background-index",
+        "--pch-storage=disk",
+        "-j=2",
+        "--limit-results=50",
+        "--malloc-trim"
+      ],
+      "languages": [
+        "c",
+        "chdr",
+        "cpp",
+        "cpphdr"
+      ]
+    }
+  ]
+}

@@ -3,11 +3,15 @@
  * tree's plugins/ folders by their plugin.json. Their commands show in the command palette and may
  * have keys; a command starts the plugin's program without waiting for it, with $TCODE_SOCKET,
  * $TCODE_API and the rest in its environment. A plugin with "start": "project" runs while a project
- * is open. The last lines its programs print are kept for the Plugins window.
+ * is open. The last lines its programs print are kept for the Plugins window. A plugin may also bring
+ * things without a program: language servers ("lsp", lsp/servers.c runs them), a Run command for
+ * some files ("run"), GtkSourceView language specs and snippets.
  */
 #pragma once
 
 #include "app.h"
+
+#include <string.h>
 
 typedef struct Plugin Plugin;
 typedef struct PluginRun PluginRun; /* a running program of a plugin (plugins.c) */
@@ -40,6 +44,19 @@ typedef struct PluginCommand {
   Plugin *plugin;
 } PluginCommand;
 
+/* A language server a plugin declares ("lsp"): lsp/servers.c gives it a ServerKind of its own when
+ * one of its files opens, and runs it like a built-in one. */
+typedef struct PluginServer {
+  char *name;          /* unique within the plugin; shown in the status bar */
+  char **argv;         /* argv[0]: a program on PATH, or a path relative to the plugin's folder */
+  char **extensions;   /* ".m", or whole file names ("CMakeLists.txt"); may be empty */
+  char **languages;    /* GtkSourceView language ids ("c", "cpphdr"); may be empty, not both */
+  char *language_id;   /* the languageId of its files; NULL: from GtkSourceView's ("c", "cpp", "python") */
+  char **language_ids; /* or by file: pattern, id, pattern, id, ... (".jsx", "javascriptreact"); may be empty */
+  char *options;       /* initializationOptions, JSON; NULL for none */
+  char *settings;      /* workspace settings, JSON; NULL for none */
+} PluginServer;
+
 typedef struct Plugin {
   char *id;
   char *name;
@@ -53,9 +70,24 @@ typedef struct Plugin {
   GPtrArray *commands; /* PluginCommand * */
   gboolean starts;     /* "start": "project": runs while a project is open */
   PluginState state;
-  PluginRun *running; /* its start program while it runs */
-  GQueue output;      /* char *: the last PLUGIN_OUTPUT_LINES lines its programs printed (stdout, stderr) */
+  PluginRun *running;   /* its start program while it runs */
+  GQueue output;        /* char *: the last PLUGIN_OUTPUT_LINES lines its programs printed (stdout, stderr) */
+  GPtrArray *servers;   /* PluginServer *: "lsp" */
+  GHashTable *run;      /* "run": an extension (".m") or a file name -> one of its command ids */
+  char *language_specs; /* "language-specs": a folder of .lang files (absolute), or NULL */
+  char *snippets;       /* "snippets": a folder of .snippets files (absolute), or NULL */
 } Plugin;
+
+/* Whether name (a file's name) is one of patterns: ".ext" matches the end, anything else the whole
+ * name. Inline: lsp/servers.c uses it without the rest of plugins.c. */
+static inline gboolean plugin_name_matches(const char *name, char *const *patterns)
+{
+  for (int i = 0; name && patterns && patterns[i]; i++)
+    if (patterns[i][0] == '.' ? g_str_has_suffix(name, patterns[i]) && strlen(name) > strlen(patterns[i])
+                              : strcmp(name, patterns[i]) == 0)
+      return TRUE;
+  return FALSE;
+}
 
 /* The plugin with that id, or the one $TCODE_PLUGIN_TOKEN token was given to; NULL when none. */
 Plugin *plugin_find(App *t, const char *id);
@@ -92,6 +124,9 @@ gboolean plugins_palette_choose(App *t, const char *payload);
 
 /* Adds manifest shortcuts to a window's shared shortcut controller. */
 void plugins_add_shortcuts(GtkShortcutController *controller, App *t);
+
+/* The plugin command Run (F5) hands file to ("run" in plugin.json), or NULL. */
+PluginCommand *plugins_run_command_for(App *t, const char *file);
 
 /* Runs a plugin command asynchronously in a subprocess. */
 void plugin_run_command(App *t, const char *plugin_id, const char *command_id);

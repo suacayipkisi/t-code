@@ -16,6 +16,7 @@
 #include "editor_page.h"
 #include "util.h"
 #include "fake_server.h"
+#include "plugins/plugins.h"
 
 /* Editors ------------------------------------------------------------------------------------ */
 
@@ -1666,6 +1667,63 @@ static void test_project_switch(void)
   g_free(second);
 }
 
+/* A plugin's server ("lsp" in plugin.json; here the fake one again): with clangd turned off in
+ * Settings, a C file goes to it and it serves like the built-in one; turned on again, lsp_reattach
+ * moves the editor back to clangd. */
+static void test_plugin_server(void)
+{
+  char *argv[] = { "/proc/self/exe", "--fake-server", NULL }, *extensions[] = { ".c", NULL }, *none[] = { NULL };
+  PluginServer server = {
+    .name = "fake-c", .argv = argv, .extensions = extensions, .languages = none, .language_ids = none
+  };
+  GPtrArray *servers = g_ptr_array_new();
+  Plugin plugin = { .id = "fake", .dir = "/tmp", .servers = servers };
+  Tab *tab;
+  Lsp *l;
+  char *name;
+
+  lsp_stop(&app);
+  g_ptr_array_add(servers, &server);
+  app.plugins = g_ptr_array_new();
+  g_ptr_array_add(app.plugins, &plugin);
+  tab = new_tab("/tmp/t-code-test/plugin.c", "int a;\n");
+  page_test_tabs[0] = tab;
+  page_test_tab_count = 1;
+
+  g_assert_cmpint(server_kind_for_tab(tab), ==, SERVER_CLANGD); /* on, the built-in one wins */
+  app.settings.servers_off = 1u << SERVER_CLANGD;
+  g_assert_true(lsp_wants(tab));
+  g_assert_null(lsp_missing_server(tab));
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  l = doc_of(tab)->lsp;
+  g_assert_cmpint(l->kind, >=, SERVER_PLUGIN);
+  g_assert_null(app.lsp); /* clangd's own things (compile databases) stay out of it */
+  g_assert_cmpstr(server_language_id(l->kind, tab), ==, "c");
+  name = progress_text(l); /* "fake-c: starting" or NULL once it is ready */
+  g_assert_true(!name || g_str_has_prefix(name, "fake-c: "));
+  g_free(name);
+
+  app.settings.servers_off = 0;
+  lsp_reattach(&app);
+  g_assert_true(server_agrees(tab));
+  g_assert_cmpint(doc_of(tab)->lsp->kind, ==, SERVER_CLANGD);
+  g_assert_true(app.lsp == doc_of(tab)->lsp);
+
+  app.settings.servers_off = 1u << SERVER_CLANGD;
+  g_ptr_array_set_size(servers, 0); /* the plugin is gone (reloaded without it): no server at all */
+  lsp_reattach(&app);
+  g_assert_false(lsp_has(tab));
+  g_assert_null(tab->view->diagnostics && tab->view->diagnostics->len ? tab->view->diagnostics : NULL);
+
+  app.settings.servers_off = 0;
+  page_test_tab_count = 0;
+  free_tab(tab);
+  lsp_stop(&app);
+  g_clear_pointer(&app.plugins, g_ptr_array_unref);
+  g_ptr_array_unref(servers);
+}
+
 int main(int argc, char **argv)
 {
   if (argc > 1 && strcmp(argv[1], "--fake-server") == 0)
@@ -1684,6 +1742,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/sync-utf16", test_sync_utf16);
   g_test_add_func("/lsp/reload", test_reload);
   g_test_add_func("/lsp/hover", test_hover);
+  g_test_add_func("/lsp/plugin-server", test_plugin_server);
   g_test_add_func("/lsp/hover-fixes", test_hover_fixes);
   g_test_add_func("/lsp/toolchain-options", test_toolchain_options);
   g_test_add_func("/lsp/data-language-settings", test_data_language_settings);

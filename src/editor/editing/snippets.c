@@ -4,6 +4,7 @@
 #include "editor/editing/snippets.h"
 
 #include "application/identity.h"
+#include "plugins/plugins.h"
 
 const char *const snippets_template =
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -29,10 +30,21 @@ char *snippets_user_file(void)
 void snippets_init(App *t)
 {
   char *user = g_build_filename(g_get_user_config_dir(), TCODE_NAME, "snippets", NULL);
-  const char *const path[] = { user, t->paths.snippets, NULL };
+  GPtrArray *path = g_ptr_array_new();
 
+  g_ptr_array_add(path, user);
+  if (t->paths.snippets)
+    g_ptr_array_add(path, t->paths.snippets);
+  for (guint i = 0; t->plugins && i < t->plugins->len; i++) { /* the plugins' "snippets" */
+    Plugin *p = g_ptr_array_index(t->plugins, i);
+    if (p->snippets)
+      g_ptr_array_add(path, p->snippets);
+  }
+  g_ptr_array_add(path, NULL);
   /* Before any editor: the manager reads its files once, the first time a snippet is looked for. */
-  gtk_source_snippet_manager_set_search_path(gtk_source_snippet_manager_get_default(), path);
+  gtk_source_snippet_manager_set_search_path(gtk_source_snippet_manager_get_default(),
+                                             (const char *const *)path->pdata);
+  g_ptr_array_free(path, TRUE);
   g_free(user);
 }
 

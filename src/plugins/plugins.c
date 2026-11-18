@@ -7,6 +7,7 @@
 
 #include "application/identity.h"
 #include "editor/tabs.h"
+#include "lsp/client/client.h"
 #include "popups/picker.h"
 #include "window/statusbar.h"
 
@@ -28,6 +29,19 @@ static void plugin_command_free(PluginCommand *cmd)
   g_free(cmd);
 }
 
+static void plugin_server_free(PluginServer *server)
+{
+  g_free(server->name);
+  g_strfreev(server->argv);
+  g_strfreev(server->extensions);
+  g_strfreev(server->languages);
+  g_free(server->language_id);
+  g_strfreev(server->language_ids);
+  g_free(server->options);
+  g_free(server->settings);
+  g_free(server);
+}
+
 static void plugin_free(Plugin *plugin)
 {
   if (!plugin)
@@ -42,6 +56,11 @@ static void plugin_free(Plugin *plugin)
   g_queue_clear_full(&plugin->output, g_free);
   if (plugin->commands)
     g_ptr_array_free(plugin->commands, TRUE);
+  if (plugin->servers)
+    g_ptr_array_free(plugin->servers, TRUE);
+  g_clear_pointer(&plugin->run, g_hash_table_unref);
+  g_free(plugin->language_specs);
+  g_free(plugin->snippets);
   g_free(plugin);
 }
 
@@ -159,6 +178,178 @@ static void command_keys(PluginCommand *cmd, const char *keys, const char *trigg
   }
 }
 
+/* obj's member name as a NULL-terminated list of non-empty strings (g_strfreev): an empty one when it
+ * is missing, NULL when it is something else. */
+static char **string_list(JsonObject *obj, const char *name)
+{
+  JsonNode *node = json_object_get_member(obj, name);
+  JsonArray *list = node && JSON_NODE_HOLDS_ARRAY(node) ? json_node_get_array(node) : NULL;
+  GPtrArray *strings = g_ptr_array_new();
+
+  if (node && !list) {
+    g_ptr_array_free(strings, TRUE);
+    return NULL;
+  }
+  for (guint i = 0; list && i < json_array_get_length(list); i++) {
+    JsonNode *item = json_array_get_element(list, i);
+    if (!JSON_NODE_HOLDS_VALUE(item) || json_node_get_value_type(item) != G_TYPE_STRING ||
+        !*json_node_get_string(item)) {
+      g_ptr_array_free(strings, TRUE);
+      return NULL;
+    }
+    g_ptr_array_add(strings, g_strdup(json_node_get_string(item)));
+  }
+  g_ptr_array_add(strings, NULL);
+  return (char **)g_ptr_array_free(strings, FALSE);
+}
+
+/* obj's member name, an object, as JSON text; NULL when it is missing. *bad is set when it is there
+ * but not an object. */
+static char *object_text(JsonObject *obj, const char *name, gboolean *bad)
+{
+  JsonNode *node = json_object_get_member(obj, name);
+
+  if (!node)
+    return NULL;
+  if (!JSON_NODE_HOLDS_OBJECT(node)) {
+    *bad = TRUE;
+    return NULL;
+  }
+  return json_to_string(node, FALSE);
+}
+
+/* "language-id" given as an object (file pattern -> id): pattern, id, pattern, id, ... (g_strfreev);
+ * NULL when a value is not a string. */
+static char **language_ids(JsonObject *map)
+{
+  GList *names = json_object_get_members(map);
+  GPtrArray *pairs = g_ptr_array_new();
+
+  for (GList *l = names; l; l = l->next) {
+    const char *id = string_member(map, l->data);
+    if (!id || !*id || !*(const char *)l->data) {
+      g_ptr_array_set_free_func(pairs, g_free);
+      g_ptr_array_free(pairs, TRUE);
+      g_list_free(names);
+      return NULL;
+    }
+    g_ptr_array_add(pairs, g_strdup(l->data));
+    g_ptr_array_add(pairs, g_strdup(id));
+  }
+  g_list_free(names);
+  g_ptr_array_add(pairs, NULL);
+  return (char **)g_ptr_array_free(pairs, FALSE);
+}
+
+/* One entry of "lsp", or NULL with a warning saying what is wrong with it. */
+static PluginServer *plugin_server(JsonObject *obj, const char *plugin)
+{
+  PluginServer *s = g_new0(PluginServer, 1);
+  JsonNode *language_id = json_object_get_member(obj, "language-id");
+  gboolean bad = FALSE;
+  const char *problem = NULL;
+
+  if (language_id && JSON_NODE_HOLDS_OBJECT(language_id))
+    s->language_ids = language_ids(json_node_get_object(language_id));
+  else if (!language_id || string_member(obj, "language-id"))
+    s->language_ids = g_new0(char *, 1);
+
+  s->argv = string_list(obj, "argv");
+  s->extensions = string_list(obj, "extensions");
+  s->languages = string_list(obj, "languages");
+  s->options = object_text(obj, "options", &bad);
+  s->settings = object_text(obj, "settings", &bad);
+  if (!s->argv || !s->argv[0])
+    problem = "needs \"argv\", a list of strings starting with the program";
+  else if (!s->extensions || !s->languages)
+    problem = "\"extensions\" and \"languages\" are lists of strings";
+  else if (!s->extensions[0] && !s->languages[0])
+    problem = "says no files: give it \"extensions\" or \"languages\"";
+  else if (bad)
+    problem = "\"options\" and \"settings\" are JSON objects";
+  else if (!s->language_ids)
+    problem = "\"language-id\" is a string, or an object of strings by file (\".jsx\": \"javascriptreact\")";
+  if (problem) {
+    g_warning("Plugin %s: a language server %s; left out", plugin, problem);
+    plugin_server_free(s);
+    return NULL;
+  }
+  s->name = string_member(obj, "name") && *string_member(obj, "name") ? g_strdup(string_member(obj, "name"))
+                                                                      : g_path_get_basename(s->argv[0]);
+  s->language_id = g_strdup(string_member(obj, "language-id"));
+  return s;
+}
+
+/* "lsp": the language servers the plugin declares, the broken ones left out with a warning. */
+static GPtrArray *plugin_servers(JsonObject *obj, const char *plugin)
+{
+  JsonNode *node = json_object_get_member(obj, "lsp");
+  JsonArray *list = node && JSON_NODE_HOLDS_ARRAY(node) ? json_node_get_array(node) : NULL;
+  GPtrArray *servers = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_server_free);
+
+  if (node && !list)
+    g_warning("Plugin %s: \"lsp\" is not a list; left out", plugin);
+  for (guint i = 0; list && i < json_array_get_length(list); i++) {
+    JsonNode *item = json_array_get_element(list, i);
+    PluginServer *s = JSON_NODE_HOLDS_OBJECT(item) ? plugin_server(json_node_get_object(item), plugin) : NULL;
+    gboolean twice = FALSE;
+    if (!JSON_NODE_HOLDS_OBJECT(item))
+      g_warning("Plugin %s: a language server is not an object; left out", plugin);
+    for (guint j = 0; s && j < servers->len; j++)
+      twice |= strcmp(((PluginServer *)g_ptr_array_index(servers, j))->name, s->name) == 0;
+    if (twice) {
+      g_warning("Plugin %s: two language servers named '%s': the second is left out", plugin, s->name);
+      g_clear_pointer(&s, plugin_server_free);
+    }
+    if (s)
+      g_ptr_array_add(servers, s);
+  }
+  return servers;
+}
+
+/* "run": file extensions (or names) -> the command Run hands them to, one of p's own. */
+static GHashTable *plugin_run(JsonObject *obj, Plugin *p)
+{
+  JsonNode *node = json_object_get_member(obj, "run");
+  JsonObject *map = node && JSON_NODE_HOLDS_OBJECT(node) ? json_node_get_object(node) : NULL;
+  GHashTable *run = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+  GList *names = map ? json_object_get_members(map) : NULL;
+
+  if (node && !map)
+    g_warning("Plugin %s: \"run\" is not an object; left out", p->name);
+  for (GList *l = names; l; l = l->next) {
+    const char *pattern = l->data, *command = string_member(map, pattern);
+    gboolean known = FALSE;
+    for (guint i = 0; command && i < p->commands->len; i++)
+      known |= strcmp(((PluginCommand *)g_ptr_array_index(p->commands, i))->id, command) == 0;
+    if (!*pattern || strchr(pattern, '/') || !known)
+      g_warning("Plugin %s: \"run\" for '%s' does not name one of its commands; left out", p->name, pattern);
+    else
+      g_hash_table_insert(run, g_strdup(pattern), g_strdup(command));
+  }
+  g_list_free(names);
+  return run;
+}
+
+/* A folder member ("language-specs", "snippets"): relative to the plugin's folder, inside it. NULL,
+ * with a warning when it is given but is not such a folder. */
+static char *plugin_folder(JsonObject *obj, const char *member, const char *plugin, const char *plugin_dir)
+{
+  const char *relative = string_member(obj, member);
+  char *path;
+
+  if (!json_object_has_member(obj, member))
+    return NULL;
+  path = relative && *relative && !g_path_is_absolute(relative) && !strstr(relative, "..")
+             ? g_build_filename(plugin_dir, relative, NULL)
+             : NULL;
+  if (!path || !g_file_test(path, G_FILE_TEST_IS_DIR)) {
+    g_warning("Plugin %s: \"%s\" is not a folder inside the plugin's; left out", plugin, member);
+    g_clear_pointer(&path, g_free);
+  }
+  return path;
+}
+
 /* The plugin plugin.json (obj) describes, or NULL: a warning says what is wrong with a broken one; one
  * with the id of a plugin found before is left out quietly. A plugin without commands or "start"
  * needs no program. */
@@ -232,6 +423,10 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
     cmd->plugin = p;
     g_ptr_array_add(p->commands, cmd);
   }
+  p->servers = plugin_servers(obj, name);
+  p->run = plugin_run(obj, p);
+  p->language_specs = plugin_folder(obj, "language-specs", name, plugin_dir);
+  p->snippets = plugin_folder(obj, "snippets", name, plugin_dir);
   return p;
 }
 
@@ -278,6 +473,22 @@ void plugins_scan_dir(App *t, const char *dir_path)
   g_dir_close(dir);
 }
 
+/* The plugins' "language-specs" folders go after GtkSourceView's own (which win on the same id).
+ * Only once, at start-up: GtkSourceView reads its folders once, the first time a language is looked
+ * up, so a reload does not bring new ones. */
+static void add_language_specs(App *t)
+{
+  static gboolean added;
+  GtkSourceLanguageManager *languages = gtk_source_language_manager_get_default();
+
+  for (guint i = 0; !added && i < t->plugins->len; i++) {
+    Plugin *p = g_ptr_array_index(t->plugins, i);
+    if (p->language_specs)
+      gtk_source_language_manager_append_search_path(languages, p->language_specs);
+  }
+  added = TRUE;
+}
+
 void plugins_init(App *t)
 {
   if (!t->plugins)
@@ -301,6 +512,7 @@ void plugins_init(App *t)
     g_free(beside);
     g_free(parent);
   }
+  add_language_specs(t);
 }
 
 static void unload(App *t, gboolean quitting);
@@ -316,6 +528,7 @@ void plugins_reload(App *t)
   unload(t, FALSE);
   plugins_init(t);
   refresh_shortcuts(t);
+  lsp_reattach(t); /* their language servers may have come or gone */
   plugins_start_project(t);
   status_say(t, "Plugins reloaded");
 }
@@ -699,6 +912,27 @@ void plugins_stop_project(App *t)
 {
   for (guint i = 0; t->plugins && i < t->plugins->len; i++)
     plugin_stop(g_ptr_array_index(t->plugins, i));
+}
+
+PluginCommand *plugins_run_command_for(App *t, const char *file)
+{
+  char *name = file ? g_path_get_basename(file) : NULL;
+  PluginCommand *found = NULL;
+
+  for (guint i = 0; name && t->plugins && i < t->plugins->len && !found; i++) {
+    Plugin *p = g_ptr_array_index(t->plugins, i);
+    GHashTableIter iter;
+    gpointer pattern, command;
+    g_hash_table_iter_init(&iter, p->run);
+    while (!found && g_hash_table_iter_next(&iter, &pattern, &command)) {
+      char *const patterns[] = { pattern, NULL };
+      for (guint c = 0; plugin_name_matches(name, patterns) && c < p->commands->len && !found; c++)
+        if (strcmp(((PluginCommand *)g_ptr_array_index(p->commands, c))->id, command) == 0)
+          found = g_ptr_array_index(p->commands, c);
+    }
+  }
+  g_free(name);
+  return found;
 }
 
 void plugin_run_command(App *t, const char *plugin_id, const char *command_id)

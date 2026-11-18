@@ -1,0 +1,18 @@
+{
+  "api": "tapi_1",
+  "id": "lsp-rust-analyzer",
+  "name": "rust-analyzer (test plugin)",
+  "version": "1.0.0",
+  "description": "The built-in Rust server (rust-analyzer) declared through \"lsp\": a test and an example, not shipped.",
+  "lsp": [
+    {
+      "name": "rust-analyzer",
+      "argv": [
+        "rust-analyzer"
+      ],
+      "extensions": [
+        ".rs"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "api": "tapi_1",
+  "id": "lsp-neocmakelsp",
+  "name": "neocmakelsp (test plugin)",
+  "version": "1.0.0",
+  "description": "The built-in CMake server (neocmakelsp) declared through \"lsp\": a test and an example, not shipped.",
+  "lsp": [
+    {
+      "name": "neocmakelsp",
+      "argv": [
+        "neocmakelsp",
+        "stdio"
+      ],
+      "extensions": [
+        "CMakeLists.txt",
+        ".cmake"
+      ],
+      "language-id": "cmake",
+      "options": {
+        "format": {
+          "enable": true
+        },
+        "lint": {
+          "enable": true
+        },
+        "scan_cmake_in_package": false,
+        "semantic_token": false
+      }
+    }
+  ]
+}

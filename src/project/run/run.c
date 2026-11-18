@@ -23,6 +23,7 @@
 
 #include "editor/editor.h"
 #include "editor/tabs.h"
+#include "plugins/plugins.h"
 #include "project/langenv.h"
 #include "project/run/runner.h"
 #include "project/toolchain.h"
@@ -459,10 +460,43 @@ gboolean project_can_debug(App *t)
   return c;
 }
 
+/* The editors are saved: the plugin command ("<plugin id>\n<command id>") runs. */
+static void run_plugin_saved(App *t, gpointer data)
+{
+  char **ids = g_strsplit(data, "\n", 2);
+
+  if (!t->closing)
+    plugin_run_command(t, ids[0], ids[1]);
+  g_strfreev(ids);
+  g_free(data);
+}
+
+/* The plugin command Run hands the current file to ("run" in plugin.json), unless a tasks.json
+ * says what Run does; NULL when none. */
+static PluginCommand *plugin_runs(App *t)
+{
+  static const char *const tasks[] = { ".t-code/tasks.json", "t-code.json", NULL };
+  Tab *tab = current_tab(t);
+  const char *file = tab && tab->kind == TAB_EDITOR ? tab->path : NULL;
+  PluginCommand *command = file ? plugins_run_command_for(t, file) : NULL;
+  char *dir = command ? g_path_get_dirname(file) : NULL, *task = dir ? find_up(dir, tasks) : NULL;
+
+  if (task)
+    command = NULL;
+  g_free(task);
+  g_free(dir);
+  return command;
+}
+
 void build_project(App *t, gboolean run)
 {
+  PluginCommand *command = run ? plugin_runs(t) : NULL;
+
   /* Every changed file is saved first. */
-  save_all(t, run_saved, project_command(t, run));
+  if (command)
+    save_all(t, run_plugin_saved, g_strconcat(command->plugin->id, "\n", command->id, NULL));
+  else
+    save_all(t, run_saved, project_command(t, run));
 }
 
 void run_project_tests(App *t)

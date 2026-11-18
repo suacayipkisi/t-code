@@ -126,10 +126,11 @@ found wins:
 | `commands` | list | no | The commands the plugin adds (below). A plugin without commands needs no program. |
 | `start` | string | no | `"project"`: start the plugin when a project opens and stop it when the project closes, for plugins that listen to events. Needs the `start` permission. Without it, the plugin runs only when one of its commands is run. |
 | `permissions` | list | no | What the plugin does: `"edit"`, `"terminal"`, `"network"`, `"start"`. See [Permissions](#permissions). |
-| `run` | object | no, **(planned)** | File extensions that Run (`F5` / Run button) hands to a plugin command, e.g. `{ ".m": "matlab.run" }`. |
-| `lsp` | list | no, **(planned)** | Language servers the plugin adds: extensions, argv, root markers. |
-| `language-specs` | string | no, **(planned)** | A folder of GtkSourceView `.lang` files. |
-| `snippets`, `styles` | string | no, **(planned)** | Folders of snippets and style schemes. |
+| `run` | object | no | Files that Run (`F5` / Run button) hands to one of the plugin's commands: `{ ".m": "matlab.run" }`. See [Declarations](#declarations-without-a-program). |
+| `lsp` | list | no | Language servers the plugin adds. See [Declarations](#declarations-without-a-program). |
+| `language-specs` | string | no | A folder inside the plugin's with GtkSourceView `.lang` files. |
+| `snippets` | string | no | A folder inside the plugin's with GtkSourceView `.snippets` files. |
+| `styles` | string | no, **(planned)** | A folder of style schemes. |
 | `debuggers` | list | no, **(planned, maybe tapi_2)** | Debug adapters (DAP) the plugin adds: argv, languages, launch template. |
 
 Each command:
@@ -147,7 +148,62 @@ only, without a shortcut.
 
 A plugin that is broken is skipped, with a warning on t-code's stderr. Broken means: no `name`,
 `commands` that is not a list, an `api` this t-code does not speak, or commands but no executable
-program.
+program. A broken `lsp` entry, `run` entry or folder is left out with a warning; the rest of the
+plugin still loads.
+
+### Declarations without a program
+
+`lsp`, `run`, `language-specs` and `snippets` need no program of the plugin's own (only `run` names a
+command, and commands need one). A plugin can be nothing but a `plugin.json` that declares a language
+server:
+
+```json
+{
+  "api": "tapi_1",
+  "name": "MATLAB Language Server",
+  "lsp": [
+    {
+      "argv": ["matlab-language-server", "--stdio"],
+      "extensions": [".m"],
+      "language-id": "matlab"
+    }
+  ]
+}
+```
+
+Each `lsp` entry:
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `argv` | list of strings | yes | The server's command line. `argv[0]` is a program found on `PATH` (and in `~/.local/bin`, `~/.cargo/bin`, `~/go/bin`), or a path relative to the plugin's folder (`bin/server`). The server speaks LSP over stdin / stdout and runs in the project's folder. |
+| `extensions` | list of strings | one of the two | The files it serves: `".m"` matches names ending in it, anything else a whole name (`"CMakeLists.txt"`). |
+| `languages` | list of strings | one of the two | Or by GtkSourceView language id (`"c"`, `"cpphdr"`, `"python"`): also files GtkSourceView recognizes by their content. |
+| `name` | string | no | Unique within the plugin, shown in the status bar ("matlab-ls: starting"). Defaults to `argv[0]`'s file name. |
+| `language-id` | string or object | no | The LSP `languageId` of its files. A string for all of them, or by file: `{ ".jsx": "javascriptreact", ".js": "javascript" }`. Defaults to GtkSourceView's id (`c`, `cpp`, `python`, `rust`), which is the LSP one for most languages. |
+| `options` | object | no | Sent as `initializationOptions`. |
+| `settings` | object | no | Sent with `workspace/didChangeConfiguration` after `initialize`, and when the server asks (`workspace/configuration`). |
+
+- **One server per file.** A built-in server that is on and installed wins; turn it off in Settings →
+  Language Servers to let a plugin's take its files. Where t-code has no built-in server (`.m`,
+  `.tex`, `.lua`), or the built-in one is not installed, the first plugin that declares the file gets
+  it.
+- **Like a built-in one.** A plugin's server gets the same requests as the built-in ones: diagnostics,
+  completion, hover, signature help, inlay hints, semantic tokens, symbols, rename, formatting. It
+  starts with the first of its files, one per project, stops a while after its last file closes,
+  and is restarted after a crash.
+- **Not installed?** t-code does not offer to install a plugin's server: when its program cannot
+  start, t-code's stderr says so and its files have no server. Say how to install it in the plugin's
+  description or README.
+- **Reloading** (Plugins: Reload Installed Plugins) moves the open files to the servers the plugins
+  declare now.
+
+`run` maps files (the same patterns as `extensions`) to one of the plugin's command ids. Run (`F5`,
+the Run button) on such a file saves every editor, then runs that command with the file as `$2`, in
+place of t-code's own runner. A project's `.t-code/tasks.json` still wins: it says what Run does.
+
+`language-specs` and `snippets` name folders inside the plugin's folder. They are read when t-code
+starts (GtkSourceView reads its folders once), so a plugin installed or reloaded later brings them at
+the next start. t-code's own languages and the user's snippets come first.
 
 ---
 
@@ -423,7 +479,7 @@ These limits follow from the process model. They are deliberate, not missing fea
   buffer. In return, a broken plugin cannot break the window.
 - **Not per keystroke.** A socket round trip takes milliseconds. Completion, inline suggestions,
   semantic highlighting and signature help belong in a **language server**, which t-code already
-  speaks. A plugin that wants them ships a language server and declares it in `lsp` **(planned)**.
+  speaks. A plugin that wants them ships a language server and declares it in `lsp`.
 - **No drawing in the editor.** Beyond diagnostics (underlines, gutter marks, Problems), a plugin
   cannot decorate the text: no custom gutter icons, inline widgets or color boxes.
 - **No hooks into deep parts.** Version control systems (git, Mercurial, Subversion; Bazaar later),
@@ -710,12 +766,15 @@ Declarations only: `snippets/` and `styles/*.xml` folders, no program.
 - **Limits:** inline suggestions (ghost text) cannot come through the socket. A plugin that wants
   them ships a language server that answers completion requests, declared in `lsp`.
 
-### Built-in language servers as plugins (planned)
+### Built-in language servers as plugins
 
-The language servers t-code knows (clangd, pylsp, gopls, rust-analyzer, …) can be turned off one by
-one in Settings, and the same servers can come back as plugins with only an `lsp` entry. The
-repository holds such plugins as tests. They show that a plugin's server works exactly like a built-in
-one, and they are working examples for authors.
+The language servers t-code knows (clangd, pylsp, gopls, rust-analyzer, typescript-language-server,
+the JSON and YAML servers, marksman, neocmakelsp) can be turned off one by one in Settings → Language
+Servers (`language-servers-off` in settings.ini). The same servers come back as plugins with only an
+`lsp` entry: `tests/plugins/lsp-<server>/` in the repository holds one per server, with the same
+command line, options and settings. They are tests, not shipped: the test suite turns the built-in
+servers off and checks that each file goes to its plugin's server, started the same way. They are
+also working examples: copy one into `~/.config/t-code/plugins/` to try it.
 
 ---
 

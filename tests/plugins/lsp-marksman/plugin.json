@@ -1,0 +1,21 @@
+{
+  "api": "tapi_1",
+  "id": "lsp-marksman",
+  "name": "marksman (test plugin)",
+  "version": "1.0.0",
+  "description": "The built-in Markdown server (marksman) declared through \"lsp\": a test and an example, not shipped.",
+  "lsp": [
+    {
+      "name": "marksman",
+      "argv": [
+        "marksman",
+        "server"
+      ],
+      "extensions": [
+        ".md",
+        ".markdown"
+      ],
+      "language-id": "markdown"
+    }
+  ]
+}

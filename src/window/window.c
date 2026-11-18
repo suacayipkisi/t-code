@@ -126,9 +126,9 @@ void build_window(App *t, GtkApplication *app)
   watch_user_files(t); /* settings.ini, theme.css and the editor colors, edited by hand */
   gtk_source_init();
   find_files(t);
-  snippets_init(t);
   start_socket(t);
-  plugins_init(t);
+  plugins_init(t); /* before snippets_init and the first editor: their snippets and language specs */
+  snippets_init(t);
   gtk_icon_theme_add_search_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), t->paths.icons);
   gtk_window_set_default_icon_name(TCODE_APP_ID);
 

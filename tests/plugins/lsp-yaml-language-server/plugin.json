@@ -1,0 +1,34 @@
+{
+  "api": "tapi_1",
+  "id": "lsp-yaml-language-server",
+  "name": "yaml-language-server (test plugin)",
+  "version": "1.0.0",
+  "description": "The built-in YAML server (yaml-language-server) declared through \"lsp\": a test and an example, not shipped.",
+  "lsp": [
+    {
+      "name": "yaml-language-server",
+      "argv": [
+        "yaml-language-server",
+        "--stdio"
+      ],
+      "extensions": [
+        ".yaml",
+        ".yml"
+      ],
+      "language-id": "yaml",
+      "settings": {
+        "yaml": {
+          "validate": true,
+          "hover": true,
+          "completion": true,
+          "format": {
+            "enable": true
+          },
+          "schemaStore": {
+            "enable": true
+          }
+        }
+      }
+    }
+  ]
+}

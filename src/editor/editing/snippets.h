@@ -10,8 +10,8 @@
 
 #include "app.h"
 
-/* Where snippets are read from: the user's folder, then t-code's (t->paths.snippets). Before the
- * first editor. */
+/* Where snippets are read from: the user's folder, then t-code's (t->paths.snippets), then the
+ * plugins' ("snippets"; plugins_init first). Before the first editor. */
 void snippets_init(App *t);
 
 /* Snippets in a new editor: Tab after a trigger, and the completion list. */

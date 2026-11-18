@@ -20,6 +20,7 @@
 #include "files/opentabs.h"
 #include "git/gitstatus.h"
 #include "git/scm/scm.h"
+#include "lsp/servers.h"
 #include "window/palette.h"
 #include "window/secondwindow.h"
 #include "window/terminal.h"
@@ -206,6 +207,14 @@ void session_load_settings(App *t)
   else /* a renamed theme's old id */
     g_set_str(&t->settings.color_theme, palette_known_id(t->settings.color_theme));
   t->settings.plain = !get_bool(kf, "settings", "code-coloring", TRUE);
+  char **off = g_key_file_get_string_list(kf, "settings", "language-servers-off", NULL, NULL);
+  t->settings.servers_off = 0;
+  for (int i = 0; off && off[i]; i++) {
+    ServerKind kind = server_by_id(g_strstrip(off[i]));
+    if (kind != SERVER_NONE)
+      t->settings.servers_off |= 1u << kind;
+  }
+  g_strfreev(off);
   g_free(t->settings.font);
   g_free(t->settings.files_font);
   t->settings.font = g_key_file_get_string(kf, "settings", "font", NULL);
@@ -260,6 +269,16 @@ void session_save_settings(App *t)
       g_key_file_set_boolean(kf, "settings", setting->key, *setting_field(t, setting));
     explain(kf, setting->key, setting->comment);
   }
+  GPtrArray *off = g_ptr_array_new();
+  for (int kind = 0; kind < SERVER_NONE; kind++)
+    if (!server_enabled(t, kind))
+      g_ptr_array_add(off, (gpointer)server_id(kind));
+  g_key_file_set_string_list(kf, "settings", "language-servers-off", (const char *const *)off->pdata, off->len);
+  g_ptr_array_free(off, TRUE);
+  explain(kf, "language-servers-off",
+          " Built-in language servers turned off, by name: clangd;pylsp;gopls;rust-analyzer;\n"
+          " typescript-language-server;vscode-json-language-server;yaml-language-server;marksman;neocmakelsp.\n"
+          " A plugin's server for the same files takes their place");
   g_key_file_set_string(kf, "settings", "font", t->settings.font);
   explain(kf, "font", " Editors and the terminal: a font name and size, like Cascadia Code 11");
   g_key_file_set_string(kf, "settings", "file-manager-font", t->settings.files_font);

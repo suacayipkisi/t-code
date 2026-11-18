@@ -1,0 +1,28 @@
+{
+  "api": "tapi_1",
+  "id": "lsp-gopls",
+  "name": "gopls (test plugin)",
+  "version": "1.0.0",
+  "description": "The built-in Go server (gopls) declared through \"lsp\": a test and an example, not shipped.",
+  "lsp": [
+    {
+      "name": "gopls",
+      "argv": [
+        "gopls"
+      ],
+      "extensions": [
+        ".go"
+      ],
+      "options": {
+        "hints": {
+          "assignVariableTypes": true,
+          "compositeLiteralFields": true,
+          "constantValues": true,
+          "functionTypeParameters": true,
+          "parameterNames": true,
+          "rangeVariableTypes": true
+        }
+      }
+    }
+  ]
+}
