@@ -39,3 +39,9 @@ void status_progress_changed(App *t);
 /* Shows a short message in the status bar in the Build / Run label's place (socket "say", plugins,
  * crash recovery) for a few seconds; status updates meanwhile leave it there. */
 void status_say(App *t, const char *message);
+
+/* A plugin's lasting item (socket "status-set"), named key ("<plugin>/<id>"), on the right before the
+ * language servers' progress: set (made the first time), its text (NULL: none), removed. */
+void status_plugin_set(App *t, const char *key, const char *text);
+const char *status_plugin_text(App *t, const char *key);
+void status_plugin_clear(App *t, const char *key);

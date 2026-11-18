@@ -2,8 +2,8 @@
  * The control socket plugins, scripts and tools send requests to (the protocol, tapi_1, is
  * docs/plugins.md's): one per line, or each ended by a NUL byte. A connection that says
  * "hello tapi_1" gets an "ok" / "error <code> <message>" answer to every request; one that does not
- * is answered as before the API had a version. "subscribe" keeps the connection open for
- * did_open/did_save JSON-lines events. Its path is in $TCODE_SOCKET for every program t-code starts.
+ * is answered as before the API had a version. "subscribe" keeps the connection open for JSON-lines
+ * events. Its path is in $TCODE_SOCKET for every program t-code starts.
  */
 #pragma once
 
@@ -11,9 +11,17 @@
 
 /* Listens on $XDG_RUNTIME_DIR/t-code-<pid>.sock (t->paths.socket). */
 void start_socket(App *t);
-/* Sends JSON-lines did_open and did_save events to connected "subscribe" clients. */
+/* Events for "subscribe" clients (one JSON line each; nothing is done when nobody listens): a file
+ * loaded, saved, its tab closed ... */
 void socket_did_open(App *t, const char *path);
 void socket_did_save(App *t, const char *path);
+void socket_did_close(App *t, const char *path);
+/* ... its text changed (sent once typing pauses) ... */
+void socket_did_change(App *t, const char *path);
+/* ... another file became the active tab ("" when the active tab is not an editor) ... */
+void socket_active_changed(App *t, const char *path);
+/* ... another project opened. */
+void socket_project_changed(App *t);
 
 /* Stops listening and removes the socket file. */
 void stop_socket(App *t);

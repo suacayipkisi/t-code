@@ -14,6 +14,7 @@
 #include "files/files.h"
 #include "git/gitstatus.h"
 #include "git/scm/scm.h"
+#include "ipc/socket.h"
 #include "lsp/client/client.h"
 #include "project/session.h"
 #include "search/search.h"
@@ -147,6 +148,7 @@ static void switch_project(App *t, const char *root)
   update_status(t);
   if (!current_tab(t))
     files_focus(t);
+  socket_project_changed(t);
 }
 
 void open_project(App *t, const char *root)

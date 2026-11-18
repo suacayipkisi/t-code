@@ -22,6 +22,8 @@
 #include "git/compare.h"
 #include "git/scm/scm.h"
 #include "ipc/socket.h"
+#include "lsp/inline/diagnostics.h"
+#include "plugins/plugins.h"
 #include "lsp/symbols/navigate.h"
 #include "lsp/symbols/outline.h"
 #include "lsp/symbols/symbols.h"
@@ -682,10 +684,10 @@ static void test_socket_tapi(void)
   g_assert_true(g_str_has_prefix(answer, "error bad-argument "));
   g_free(answer);
   answer = tapi_ask(conn, input, "frobnicate now\n");
-  g_assert_cmpstr(answer, ==, "error unknown-command frobnicate");
+  g_assert_cmpstr(answer, ==, "error unknown-command never heard of frobnicate");
   g_free(answer);
   answer = tapi_ask(conn, input, "debug /bin/true\n"); /* internal: only "_debug", or a legacy connection's "debug" */
-  g_assert_cmpstr(answer, ==, "error unknown-command debug");
+  g_assert_cmpstr(answer, ==, "error unknown-command never heard of debug");
   g_free(answer);
 
   answer = tapi_ask(conn, input, "get-project\n");
@@ -730,21 +732,372 @@ static void test_socket_tapi(void)
   g_free(path);
 }
 
+/* A tapi_1 connection (said hello: hello may be "hello tapi_1 <token>") and its answers. */
+typedef struct {
+  GSocketClient *client;
+  GSocketConnection *conn;
+  GDataInputStream *input;
+} TapiConn;
+
+static TapiConn tapi_connect(const char *hello)
+{
+  GSocketAddress *address = g_unix_socket_address_new(app.paths.socket);
+  TapiConn c = { g_socket_client_new(), NULL, NULL };
+  char *request = g_strdup_printf("%s\n", hello), *answer;
+
+  c.conn = g_socket_client_connect(c.client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
+  g_assert_nonnull(c.conn);
+  c.input = g_data_input_stream_new(g_io_stream_get_input_stream(G_IO_STREAM(c.conn)));
+  answer = tapi_ask(c.conn, c.input, request);
+  g_assert_true(g_str_has_prefix(answer, "ok tapi_1 "));
+  g_free(answer);
+  g_free(request);
+  g_object_unref(address);
+  return c;
+}
+
+/* request's answer line (request without its line break). */
+static char *tapi(TapiConn *c, const char *request)
+{
+  char *line = g_strconcat(request, "\n", NULL), *answer = tapi_ask(c->conn, c->input, line);
+
+  g_free(line);
+  return answer;
+}
+
+/* request must answer expected. */
+static void tapi_expect(TapiConn *c, const char *request, const char *expected)
+{
+  char *answer = tapi(c, request);
+
+  g_assert_cmpstr(answer, ==, expected);
+  g_free(answer);
+}
+
+/* The text after a "ok" line: up to the NUL. */
+static char *tapi_text(TapiConn *c)
+{
+  SocketResponse text = { .delimiter = '\0' };
+
+  g_data_input_stream_read_upto_async(c->input, "", 1, G_PRIORITY_DEFAULT, NULL, socket_response_read, &text);
+  run_until(socket_response_done, &text);
+  g_assert_no_error(text.error);
+  return text.text;
+}
+
+static void tapi_close(TapiConn *c)
+{
+  g_io_stream_close(G_IO_STREAM(c->conn), NULL, NULL);
+  g_object_unref(c->input);
+  g_object_unref(c->conn);
+  g_object_unref(c->client);
+}
+
+/* The active editor through tapi_1: open at a place, the cursor, the selection, edits as one undo
+ * step, a lasting status item, the commit message box. */
+static void test_socket_tapi_editing(void)
+{
+  char *path = file("tapi-edit.txt"), *request, *text;
+  TapiConn c;
+  Tab *tab;
+
+  g_assert_true(g_file_set_contents(path, "alpha\nbeta\ngamma\n", -1, NULL));
+  close_everything();
+  c = tapi_connect("hello tapi_1");
+  tapi_expect(&c, "get-cursor", "error no-editor no editor here, open a file first");
+  request = g_strdup_printf("open %s:2:3", path);
+  tapi_expect(&c, request, "ok");
+  g_free(request);
+  run_until(has_tab, path);
+  tab = find_tab(&app, TAB_EDITOR, path);
+  run_until(loaded, tab);
+  tapi_expect(&c, "get-cursor", "ok 2 3");
+
+  tapi_expect(&c, "set-selection 1 2 2 3", "ok");
+  tapi_expect(&c, "get-selection", "ok");
+  text = tapi_text(&c);
+  g_assert_cmpstr(text, ==, "lpha\nbe");
+  g_free(text);
+  tapi_expect(&c, "get-cursor", "ok 2 3"); /* the cursor at the second place */
+
+  tapi_expect(&c, "set-selection 3 1 3 1", "ok");
+  tapi_expect(&c, "edit [{\"range\":[1,1,1,6],\"text\":\"ALPHA\"},{\"range\":[2,5,2,5],\"text\":\"!\"}]", "ok");
+  tapi_expect(&c, "get-text", "ok");
+  text = tapi_text(&c);
+  g_assert_cmpstr(text, ==, "ALPHA\nbeta!\ngamma\n");
+  g_free(text);
+  tapi_expect(&c, "get-cursor", "ok 3 1"); /* stays */
+  g_assert_true(gtk_text_buffer_get_modified(GTK_TEXT_BUFFER(tab->buffer)));
+  gtk_text_buffer_undo(GTK_TEXT_BUFFER(tab->buffer)); /* one step for both */
+  tapi_expect(&c, "get-text", "ok");
+  text = tapi_text(&c);
+  g_assert_cmpstr(text, ==, "alpha\nbeta\ngamma\n");
+  g_free(text);
+  text = tapi(&c, "edit {\"not\":\"a list\"}");
+  g_assert_true(g_str_has_prefix(text, "error bad-argument "));
+  g_free(text);
+
+  tapi_expect(&c, "status-set count 3 words", "ok");
+  g_assert_cmpstr(status_plugin_text(&app, "socket/count"), ==, "3 words");
+  tapi_expect(&c, "status-set count 4 words", "ok");
+  g_assert_cmpstr(status_plugin_text(&app, "socket/count"), ==, "4 words");
+  tapi_expect(&c, "status-clear count", "ok");
+  g_assert_null(status_plugin_text(&app, "socket/count"));
+
+  tapi_expect(&c, "scm-message feat: from a plugin", "ok");
+  char *message = scm_message();
+  g_assert_cmpstr(message, ==, "feat: from a plugin");
+  g_free(message);
+  scm_set_message(NULL);
+
+  tapi_close(&c);
+  close_everything();
+  g_free(path);
+}
+
+static GtkWidget *focused_entry(void);
+static gboolean entry_focused(gconstpointer data);
+
+/* pick and ask show the picker; the connection's answer waits for the user, and its next requests
+ * wait behind it. Escape answers "error canceled". */
+static void test_socket_tapi_pick(void)
+{
+  TapiConn c = tapi_connect("hello tapi_1");
+  GOutputStream *out = g_io_stream_get_output_stream(G_IO_STREAM(c.conn));
+  const char *pick =
+      "pick {\"title\":\"Board\",\"items\":[\"uno\",{\"label\":\"mega\",\"detail\":\"2560\"}]}\nversion\n";
+  GtkWidget *entry;
+  char *answer;
+
+  close_everything();
+  g_assert_true(g_output_stream_write_all(out, pick, strlen(pick), NULL, NULL, NULL));
+  run_until(entry_focused, NULL);
+  entry = focused_entry();
+  gtk_editable_set_text(GTK_EDITABLE(entry), "meg");
+  run_for(400); /* the search entry waits a moment before it searches */
+  g_signal_emit_by_name(entry, "activate");
+  answer = read_socket_line(c.input);
+  g_assert_cmpstr(answer, ==, "ok 1 mega");
+  g_free(answer);
+  answer = read_socket_line(c.input); /* "version" was answered after the pick, not before */
+  g_assert_true(g_str_has_prefix(answer, "ok tapi_1 t-code "));
+  g_free(answer);
+
+  g_assert_true(g_output_stream_write_all(out, "ask Branch name\n", 16, NULL, NULL, NULL));
+  run_until(entry_focused, NULL);
+  entry = focused_entry();
+  gtk_editable_set_text(GTK_EDITABLE(entry), "feature/x");
+  run_for(400);
+  g_signal_emit_by_name(entry, "activate");
+  answer = read_socket_line(c.input);
+  g_assert_cmpstr(answer, ==, "ok feature/x");
+  g_free(answer);
+
+  g_assert_true(g_output_stream_write_all(out, "ask Anything\n", 13, NULL, NULL, NULL));
+  run_until(entry_focused, NULL);
+  g_signal_emit_by_name(focused_entry(), "stop-search"); /* Escape */
+  answer = read_socket_line(c.input);
+  g_assert_cmpstr(answer, ==, "error canceled the picker closed and nobody picked anything");
+  g_free(answer);
+  tapi_close(&c);
+}
+
+/* A plugin's diagnostics: kept per file (shown once it opens), replaced only by its own next list,
+ * left alone by the language server's, cleared by diagnostics-clear. */
+static void test_socket_tapi_diagnostics(void)
+{
+  char *path = file("tapi-diag.sh"), *request;
+  TapiConn c = tapi_connect("hello tapi_1");
+  GPtrArray *list;
+  Tab *tab;
+
+  close_everything();
+  g_assert_true(g_file_set_contents(path, "echo $1\nls\n", -1, NULL));
+  request = g_strdup_printf("diagnostics-set {\"path\":\"%s\",\"items\":[{\"range\":[1,6,1,8],\"severity\":\"warning\","
+                            "\"message\":\"Double quote to prevent globbing\",\"code\":\"SC2086\","
+                            "\"source\":\"shellcheck\"}]}",
+                            path);
+  tapi_expect(&c, request, "ok"); /* before the file is open */
+  g_free(request);
+  open_file(&app, path);
+  run_until(has_tab, path);
+  tab = find_tab(&app, TAB_EDITOR, path);
+  run_until(loaded, tab);
+  list = diagnostics_of(tab);
+  g_assert_nonnull(list);
+  g_assert_cmpuint(list->len, ==, 1);
+  g_assert_cmpstr(diagnostic_message(g_ptr_array_index(list, 0)), ==,
+                  "Double quote to prevent globbing (shellcheck SC2086)");
+  g_assert_cmpint(diagnostic_severity(g_ptr_array_index(list, 0)), ==, 2);
+  g_assert_cmpint(tab->problems.warnings, ==, 1);
+  int line, column;
+  diagnostic_position(tab, g_ptr_array_index(list, 0), &line, &column);
+  g_assert_cmpint(line, ==, 1);
+  g_assert_cmpint(column, ==, 6);
+
+  diagnostics_show(tab, NULL); /* the language server's empty list leaves the plugin's */
+  g_assert_cmpuint(diagnostics_of(tab)->len, ==, 1);
+
+  request = g_strdup_printf("diagnostics-set {\"path\":\"%s\",\"items\":[{\"range\":[2,1,2,3],\"severity\":\"error\","
+                            "\"message\":\"no\"},{\"range\":[1,1],\"message\":\"start\"}]}",
+                            path);
+  tapi_expect(&c, request, "ok"); /* replaces its own */
+  g_free(request);
+  g_assert_cmpuint(diagnostics_of(tab)->len, ==, 2);
+  g_assert_cmpint(tab->problems.errors, ==, 2);
+  g_assert_cmpint(tab->problems.warnings, ==, 0);
+
+  tapi_expect(&c, "diagnostics-clear", "ok");
+  g_assert_cmpuint(diagnostics_of(tab)->len, ==, 0);
+  g_assert_null(app.plugin_diagnostics ? g_hash_table_lookup(app.plugin_diagnostics, path) : NULL);
+  request = g_strdup("diagnostics-set {\"path\":\"relative.sh\",\"items\":[]}");
+  char *answer = tapi(&c, request);
+  g_assert_true(g_str_has_prefix(answer, "error bad-argument "));
+  g_free(answer);
+  g_free(request);
+  tapi_close(&c);
+  close_everything();
+  g_free(path);
+}
+
+static gboolean terminal_shows(gconstpointer data)
+{
+  const char *const *want = data;
+  VteTerminal *term = shell_at(&app, atoi(want[0]));
+  char *text = term ? vte_terminal_get_text_format(term, VTE_FORMAT_TEXT) : NULL;
+  gboolean found = text && strstr(text, want[1]);
+
+  g_free(text);
+  return found;
+}
+
+static gboolean shells_are(gconstpointer count);
+
+/* A plugin's terminal tab runs its program; it types into it, interrupts it and closes it, and only
+ * it may. Plugins need the "terminal" permission to open one, and "edit" to change the text. */
+static void test_socket_tapi_terminals(void)
+{
+  char *dir = g_build_filename(app.project.root, "tapi-plugins", NULL);
+  char *manifest = g_build_filename(dir, "plain", "plugin.json", NULL);
+  char *run = g_build_filename(dir, "plain", "run.sh", NULL);
+  TapiConn c = tapi_connect("hello tapi_1"), *other;
+  int before = shell_count(&app);
+  char *answer, *id, *request, *hello;
+
+  answer = tapi(&c, "terminal-open Echo -- cat");
+  g_assert_true(g_str_has_prefix(answer, "ok "));
+  id = g_strdup(answer + 3);
+  g_free(answer);
+  g_assert_cmpint(shell_count(&app), ==, before + 1);
+  g_assert_cmpstr(shell_name(shell_at(&app, before)), ==, "Echo");
+
+  request = g_strdup_printf("terminal-send %s marco", id);
+  tapi_expect(&c, request, "ok");
+  g_free(request);
+  char *index = g_strdup_printf("%d", before);
+  const char *want[] = { index, "marco" };
+  run_until(terminal_shows, want);
+
+  /* a plugin (its token) may not touch the socket's tab, nor open one without "terminal" */
+  g_mkdir_with_parents(g_path_get_dirname(manifest), 0755);
+  g_assert_true(g_file_set_contents(manifest,
+                                    "{\"api\":\"tapi_1\",\"name\":\"Plain\",\"executable\":\"run.sh\","
+                                    "\"commands\":[{\"id\":\"go\",\"name\":\"Go\"}]}",
+                                    -1, NULL));
+  g_assert_true(g_file_set_contents(run, "#!/bin/sh\n", -1, NULL));
+  g_chmod(run, 0755);
+  plugins_scan_dir(&app, dir);
+  Plugin *plain = plugin_find(&app, "plain");
+  g_assert_nonnull(plain);
+  hello = g_strdup_printf("hello tapi_1 %s", plain->token);
+  TapiConn plugin = tapi_connect(hello);
+  other = &plugin;
+  request = g_strdup_printf("terminal-close %s", id);
+  tapi_expect(other, request, "error bad-argument no terminal tab with that id is yours");
+  answer = tapi(other, "terminal-open Mine -- cat");
+  g_assert_cmpstr(answer, ==,
+                  "error not-permitted plugin.json does not ask for \"terminal\" (add it to \"permissions\")");
+  g_free(answer);
+  open_file(&app, run);
+  run_until(has_tab, run);
+  run_until(loaded, find_tab(&app, TAB_EDITOR, run));
+  tapi_expect(other, "insert x",
+              "error not-permitted plugin.json does not ask for \"edit\" (add it to \"permissions\")");
+  tapi_expect(other, "get-file", (answer = g_strconcat("ok ", run, NULL)));
+  g_free(answer);
+  plain->permissions = PLUGIN_EDIT;
+  tapi_expect(other, "insert x", "ok");
+  tapi_expect(&c, "hello tapi_1 not-a-token", "error bad-argument never seen that token, were the plugins reloaded?");
+
+  request = g_strdup_printf("terminal-interrupt %s", id);
+  tapi_expect(&c, request, "ok"); /* cat ends: its tab closes */
+  g_free(request);
+  run_until(shells_are, GINT_TO_POINTER(before));
+
+  answer = tapi(&c, "terminal-open Shell");
+  g_free(id);
+  id = g_strdup(answer + 3);
+  g_free(answer);
+  g_assert_cmpint(shell_count(&app), ==, before + 1);
+  request = g_strdup_printf("terminal-close %s", id);
+  tapi_expect(&c, request, "ok");
+  g_free(request);
+  g_assert_cmpint(shell_count(&app), ==, before);
+
+  g_ptr_array_remove(app.plugins, plain);
+  tapi_close(other);
+  tapi_close(&c);
+  close_everything();
+  g_free(hello);
+  g_free(index);
+  g_free(id);
+  g_free(run);
+  g_free(manifest);
+  g_free(dir);
+}
+
 static gboolean no_socket_event_clients(gconstpointer data G_GNUC_UNUSED);
+
+/* The next event called name on a subscribed connection (the others before it are skipped). */
+static char *next_event(GDataInputStream *input, const char *name)
+{
+  char *prefix = g_strdup_printf("{\"event\":\"%s\"", name);
+
+  for (;;) {
+    char *message = read_socket_line(input);
+    if (g_str_has_prefix(message, prefix)) {
+      g_free(prefix);
+      return message;
+    }
+    g_free(message);
+  }
+}
+
+/* An event's line for path, with "by":"plugin" when by_plugin. */
+static char *event_line(const char *name, const char *path, gboolean by_plugin)
+{
+  return g_strdup_printf("{\"event\":\"%s\",\"path\":\"%s\"%s}", name, path, by_plugin ? ",\"by\":\"plugin\"" : "");
+}
+
+/* A subscriber hears a file become active, load, change (once typing pauses), save and close; what a
+ * socket request caused is "by":"plugin". */
 static void test_socket_events(void)
 {
   char *path = file("socket-events.c");
   GSocketClient *client = g_socket_client_new();
   GSocketAddress *address = g_unix_socket_address_new(app.paths.socket);
   GSocketConnection *conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
+  GSocketConnection *plugin = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
+  GDataInputStream *input, *plugin_input;
+  char *message, *expected;
   GOutputStream *out;
-  GDataInputStream *input;
 
   g_assert_nonnull(conn);
   out = g_io_stream_get_output_stream(G_IO_STREAM(conn));
   input = g_data_input_stream_new(g_io_stream_get_input_stream(G_IO_STREAM(conn)));
+  plugin_input = g_data_input_stream_new(g_io_stream_get_input_stream(G_IO_STREAM(plugin)));
   g_assert_true(g_output_stream_write_all(out, "subscribe\n", 10, NULL, NULL, NULL));
-  char *message = read_socket_line(input);
+  message = read_socket_line(input);
   g_assert_cmpstr(message, ==, "{\"event\":\"subscribed\"}");
   g_free(message);
 
@@ -753,22 +1106,60 @@ static void test_socket_events(void)
   Tab *tab = find_tab(&app, TAB_EDITOR, path);
   g_assert_nonnull(tab);
   run_until(loaded, tab);
-  g_assert_false(tab->view->loading);
-  message = read_socket_line(input);
-  char *expected = g_strdup_printf("{\"event\":\"did_open\",\"path\":\"%s\"}", path);
+  message = next_event(input, "active_changed");
+  expected = event_line("active_changed", path, FALSE);
+  g_assert_cmpstr(message, ==, expected);
+  g_free(expected);
+  g_free(message);
+  message = next_event(input, "did_open");
+  expected = event_line("did_open", path, FALSE);
   g_assert_cmpstr(message, ==, expected);
   g_free(expected);
   g_free(message);
 
-  gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(tab->buffer), "edited", -1);
-  save_editor(tab);
+  gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(tab->buffer), "edited", -1); /* typed */
+  message = next_event(input, "did_change");
+  expected = event_line("did_change", path, FALSE);
+  g_assert_cmpstr(message, ==, expected);
+  g_free(expected);
+  g_free(message);
+
+  g_free(tapi_ask(plugin, plugin_input, "hello tapi_1\n"));
+  message = tapi_ask(plugin, plugin_input, "insert !\n"); /* a plugin's edit, then its save */
+  g_assert_cmpstr(message, ==, "ok");
+  g_free(message);
+  message = next_event(input, "did_change");
+  expected = event_line("did_change", path, TRUE);
+  g_assert_cmpstr(message, ==, expected);
+  g_free(expected);
+  g_free(message);
+  message = tapi_ask(plugin, plugin_input, "save\n");
+  g_assert_cmpstr(message, ==, "ok");
+  g_free(message);
+  message = next_event(input, "did_save");
+  expected = event_line("did_save", path, TRUE);
+  g_assert_cmpstr(message, ==, expected);
+  g_free(expected);
+  g_free(message);
+
+  save_editor(tab); /* the user's own save */
   run_until(saved, tab);
-  message = read_socket_line(input);
-  expected = g_strdup_printf("{\"event\":\"did_save\",\"path\":\"%s\"}", path);
+  message = next_event(input, "did_save");
+  expected = event_line("did_save", path, FALSE);
   g_assert_cmpstr(message, ==, expected);
   g_free(expected);
   g_free(message);
 
+  close_everything();
+  message = next_event(input, "did_close");
+  expected = event_line("did_close", path, FALSE);
+  g_assert_cmpstr(message, ==, expected);
+  g_free(expected);
+  g_free(message);
+
+  g_io_stream_close(G_IO_STREAM(plugin), NULL, NULL);
+  g_object_unref(plugin_input);
+  g_object_unref(plugin);
   g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
   g_object_unref(input);
   g_object_unref(conn);
@@ -3248,6 +3639,10 @@ int main(int argc, char **argv)
   g_test_add_func("/window/socket-requests", test_socket_requests);
   g_test_add_func("/window/socket-while-closing", test_socket_while_closing);
   g_test_add_func("/window/socket-tapi", test_socket_tapi);
+  g_test_add_func("/window/socket-tapi-editing", test_socket_tapi_editing);
+  g_test_add_func("/window/socket-tapi-pick", test_socket_tapi_pick);
+  g_test_add_func("/window/socket-tapi-diagnostics", test_socket_tapi_diagnostics);
+  g_test_add_func("/window/socket-tapi-terminals", test_socket_tapi_terminals);
   g_test_add_func("/window/socket-events", test_socket_events);
   g_test_add_func("/window/socket-stalled-subscriber", test_socket_stalled_subscriber);
   g_test_add_func("/window/update-check-now", test_update_check_now);

@@ -1,11 +1,13 @@
 /*
  * Diagnostics in an editor (see diagnostics.h). Each one keeps its range as two marks, so it moves
  * with the text typed before it until the server sends the next list; a tag per severity draws the
- * wave under it.
+ * wave under it. The language server's list and each plugin's (socket "diagnostics-set") replace only
+ * their own; plugins' lists are kept per path, for files opened later too.
  */
 #include "lsp/inline/diagnostics.h"
 
 #include "editor/editorview.h"
+#include "editor/tabs.h"
 #include "lsp/client/client.h"
 #include "window/statusbar.h"
 #include "window/palette.h"
@@ -18,7 +20,8 @@ struct Diagnostic {
   GtkTextMark *start, *end;
   int severity;
   char *message;
-  char *json; /* as the server sent it, for a quick fix request */
+  char *json;  /* as the server sent it, for a quick fix request; NULL for a plugin's */
+  char *owner; /* the plugin that gave it, or NULL: the language server */
 };
 
 /* The error, warning and info colors, from the color theme. */
@@ -48,6 +51,7 @@ static void diagnostic_free(Diagnostic *d)
   }
   g_free(d->message);
   g_free(d->json);
+  g_free(d->owner);
   g_free(d);
 }
 
@@ -85,38 +89,205 @@ static void widen(GtkTextIter *start, GtkTextIter *end)
     gtk_text_iter_backward_char(start);
 }
 
-void diagnostics_show(Tab *tab, JsonNode *list)
+/* Drops the diagnostics owner gave (NULL: the language server's); retag() then draws the rest. */
+static void drop_owned(Tab *tab, const char *owner)
+{
+  GPtrArray *list = tab->view->diagnostics;
+
+  for (guint i = list->len; i-- > 0;)
+    if (g_strcmp0(((Diagnostic *)g_ptr_array_index(list, i))->owner, owner) == 0)
+      g_ptr_array_remove_index(list, i);
+}
+
+/* The waves again for every diagnostic, the counts, and everything that shows them. */
+static void retag(Tab *tab)
 {
   GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
-  JsonArray *array = list && JSON_NODE_HOLDS_ARRAY(list) ? json_node_get_array(list) : NULL;
-  guint n = array ? json_array_get_length(array) : 0;
+  GtkTextIter start, end;
 
-  if (!tab->view->diagnostics)
-    tab->view->diagnostics = g_ptr_array_new_with_free_func((GDestroyNotify)diagnostic_free);
-  remove_all(tab);
+  gtk_text_buffer_get_bounds(buffer, &start, &end);
+  for (int s = SEVERITY_ERROR; s <= SEVERITY_INFO; s++)
+    if (gtk_text_tag_table_lookup(gtk_text_buffer_get_tag_table(buffer), tag_names[s]))
+      gtk_text_buffer_remove_tag(buffer, tag_for(tab, s), &start, &end);
   tab->problems.errors = tab->problems.warnings = 0;
-  for (guint i = 0; i < n; i++) {
-    JsonNode *node = json_array_get_element(array, i);
-    Diagnostic *d = g_new0(Diagnostic, 1);
-    GtkTextIter start, end;
-
-    d->severity = (int)CLAMP(json_int_at(node, "severity", SEVERITY_ERROR), SEVERITY_ERROR, SEVERITY_HINT);
-    d->message = g_strdup(json_string_at(node, "message") ? json_string_at(node, "message") : "");
-    d->json = json_to_string(node, FALSE);
-    lsp_iter_at(tab, json_at(node, "range.start"), &start);
-    lsp_iter_at(tab, json_at(node, "range.end"), &end);
-    widen(&start, &end);
-    d->start = gtk_text_buffer_create_mark(buffer, NULL, &start, TRUE);
-    d->end = gtk_text_buffer_create_mark(buffer, NULL, &end, TRUE); /* text typed right after is not in it */
-    if (d->severity != SEVERITY_HINT)                               /* hints: none */
+  for (guint i = 0; i < tab->view->diagnostics->len; i++) {
+    Diagnostic *d = g_ptr_array_index(tab->view->diagnostics, i);
+    gtk_text_buffer_get_iter_at_mark(buffer, &start, d->start);
+    gtk_text_buffer_get_iter_at_mark(buffer, &end, d->end);
+    if (d->severity != SEVERITY_HINT) /* hints: none */
       gtk_text_buffer_apply_tag(buffer, tag_for(tab, d->severity), &start, &end);
     tab->problems.errors += d->severity == SEVERITY_ERROR;
     tab->problems.warnings += d->severity == SEVERITY_WARNING;
-    g_ptr_array_add(tab->view->diagnostics, d);
   }
   editor_view_show_problems(tab);
   update_status(tab->app);
   problems_update(tab->app);
+}
+
+/* One more diagnostic over start..end (taken: message, json). */
+static void add_one(Tab *tab, GtkTextIter *start, GtkTextIter *end, int severity, char *message, char *json,
+                    const char *owner)
+{
+  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
+  Diagnostic *d = g_new0(Diagnostic, 1);
+
+  widen(start, end);
+  d->severity = severity;
+  d->message = message;
+  d->json = json;
+  d->owner = g_strdup(owner);
+  d->start = gtk_text_buffer_create_mark(buffer, NULL, start, TRUE);
+  d->end = gtk_text_buffer_create_mark(buffer, NULL, end, TRUE); /* text typed right after is not in it */
+  g_ptr_array_add(tab->view->diagnostics, d);
+}
+
+static void ensure_list(Tab *tab)
+{
+  if (!tab->view->diagnostics)
+    tab->view->diagnostics = g_ptr_array_new_with_free_func((GDestroyNotify)diagnostic_free);
+}
+
+void diagnostics_show(Tab *tab, JsonNode *list)
+{
+  JsonArray *array = list && JSON_NODE_HOLDS_ARRAY(list) ? json_node_get_array(list) : NULL;
+  guint n = array ? json_array_get_length(array) : 0;
+
+  ensure_list(tab);
+  drop_owned(tab, NULL);
+  for (guint i = 0; i < n; i++) {
+    JsonNode *node = json_array_get_element(array, i);
+    GtkTextIter start, end;
+
+    lsp_iter_at(tab, json_at(node, "range.start"), &start);
+    lsp_iter_at(tab, json_at(node, "range.end"), &end);
+    add_one(tab, &start, &end, (int)CLAMP(json_int_at(node, "severity", SEVERITY_ERROR), SEVERITY_ERROR, SEVERITY_HINT),
+            g_strdup(json_string_at(node, "message") ? json_string_at(node, "message") : ""),
+            json_to_string(node, FALSE), NULL);
+  }
+  retag(tab);
+}
+
+/* Plugins' diagnostics ------------------------------------------------------------------------ */
+
+/* The place at line and column (1-based, characters), kept inside the text. */
+static void iter_at_place(GtkTextBuffer *buffer, int line, int column, GtkTextIter *iter)
+{
+  if (!gtk_text_buffer_get_iter_at_line(buffer, iter, MAX(line, 1) - 1)) {
+    gtk_text_buffer_get_end_iter(buffer, iter);
+    return;
+  }
+  GtkTextIter line_end = *iter;
+  if (!gtk_text_iter_ends_line(&line_end))
+    gtk_text_iter_forward_to_line_end(&line_end);
+  gtk_text_iter_set_line_offset(iter, CLAMP(column - 1, 0, gtk_text_iter_get_line_offset(&line_end)));
+}
+
+/* An int in a JSON array, or fallback. */
+static int int_in(JsonArray *array, guint index, int fallback)
+{
+  JsonNode *node = array && index < json_array_get_length(array) ? json_array_get_element(array, index) : NULL;
+
+  return node && JSON_NODE_HOLDS_VALUE(node) ? (int)json_node_get_int(node) : fallback;
+}
+
+/* A plugin's list in an open editor, in place of its last one: {"range":[l1,c1,l2,c2],
+ * "severity":"error|warning|info|hint","message":..,"code":..,"source":..}, lines and columns 1-based. */
+static void show_owned(Tab *tab, const char *owner, JsonNode *items)
+{
+  static const char *const severities[] = { NULL, "error", "warning", "info", "hint" };
+  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
+  JsonArray *array = items && JSON_NODE_HOLDS_ARRAY(items) ? json_node_get_array(items) : NULL;
+
+  ensure_list(tab);
+  drop_owned(tab, owner);
+  for (guint i = 0; array && i < json_array_get_length(array); i++) {
+    JsonNode *node = json_array_get_element(array, i);
+    JsonNode *range_node =
+        JSON_NODE_HOLDS_OBJECT(node) ? json_object_get_member(json_node_get_object(node), "range") : NULL;
+    JsonArray *range = range_node && JSON_NODE_HOLDS_ARRAY(range_node) ? json_node_get_array(range_node) : NULL;
+    const char *severity_name = json_string_at(node, "severity"), *message = json_string_at(node, "message");
+    const char *code = json_string_at(node, "code"), *source = json_string_at(node, "source");
+    int severity = SEVERITY_ERROR;
+    GtkTextIter start, end;
+
+    if (!range || !message)
+      continue;
+    for (int s = SEVERITY_ERROR; s <= SEVERITY_HINT; s++)
+      if (g_strcmp0(severity_name, severities[s]) == 0)
+        severity = s;
+    iter_at_place(buffer, int_in(range, 0, 1), int_in(range, 1, 1), &start);
+    iter_at_place(buffer, int_in(range, 2, int_in(range, 0, 1)), int_in(range, 3, int_in(range, 1, 1)), &end);
+    if (gtk_text_iter_compare(&end, &start) < 0)
+      end = start;
+    add_one(tab, &start, &end, severity,
+            g_strdup_printf("%s (%s%s%s)", message, source ? source : owner, code ? " " : "", code ? code : ""), NULL,
+            owner);
+  }
+  retag(tab);
+}
+
+/* The open editor of path that has its text, or NULL. */
+static Tab *loaded_editor(App *t, const char *path)
+{
+  Tab *tab = find_tab(t, TAB_EDITOR, path);
+
+  return tab && tab->view && tab->buffer && !tab->view->loading ? tab : NULL;
+}
+
+void diagnostics_set_owned(App *t, const char *path, const char *owner, JsonNode *items)
+{
+  GHashTable *owners;
+  gboolean empty = !items || !JSON_NODE_HOLDS_ARRAY(items) || json_array_get_length(json_node_get_array(items)) == 0;
+  Tab *tab = loaded_editor(t, path);
+
+  if (!t->plugin_diagnostics)
+    t->plugin_diagnostics = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)g_hash_table_unref);
+  owners = g_hash_table_lookup(t->plugin_diagnostics, path);
+  if (!owners && !empty) {
+    owners = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)json_node_unref);
+    g_hash_table_insert(t->plugin_diagnostics, g_strdup(path), owners);
+  }
+  if (owners && empty)
+    g_hash_table_remove(owners, owner);
+  else if (owners)
+    g_hash_table_insert(owners, g_strdup(owner), json_node_copy(items));
+  if (owners && g_hash_table_size(owners) == 0)
+    g_hash_table_remove(t->plugin_diagnostics, path);
+  if (tab)
+    show_owned(tab, owner, empty ? NULL : items);
+}
+
+void diagnostics_clear_owned(App *t, const char *path, const char *owner)
+{
+  GPtrArray *paths = g_ptr_array_new_with_free_func(g_free);
+  GHashTableIter iter;
+  gpointer key, value;
+
+  if (path)
+    g_ptr_array_add(paths, g_strdup(path));
+  else if (t->plugin_diagnostics) {
+    g_hash_table_iter_init(&iter, t->plugin_diagnostics);
+    while (g_hash_table_iter_next(&iter, &key, &value))
+      if (g_hash_table_contains(value, owner))
+        g_ptr_array_add(paths, g_strdup(key));
+  }
+  for (guint i = 0; i < paths->len; i++)
+    diagnostics_set_owned(t, g_ptr_array_index(paths, i), owner, NULL);
+  g_ptr_array_unref(paths);
+}
+
+void diagnostics_restore(Tab *tab)
+{
+  GHashTable *owners =
+      tab->app->plugin_diagnostics && tab->path ? g_hash_table_lookup(tab->app->plugin_diagnostics, tab->path) : NULL;
+  GHashTableIter iter;
+  gpointer owner, items;
+
+  if (!owners)
+    return;
+  g_hash_table_iter_init(&iter, owners);
+  while (g_hash_table_iter_next(&iter, &owner, &items))
+    show_owned(tab, owner, items);
 }
 
 /* Whether d's range holds iter; start and end are set to it. */
@@ -270,7 +441,7 @@ char *diagnostics_json(Tab *tab, int first, int last)
     Diagnostic *d = g_ptr_array_index(tab->view->diagnostics, i);
     gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &start, d->start);
     gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &end, d->end);
-    if (gtk_text_iter_get_line(&start) <= last && gtk_text_iter_get_line(&end) >= first)
+    if (d->json && gtk_text_iter_get_line(&start) <= last && gtk_text_iter_get_line(&end) >= first)
       g_string_append_printf(list, "%s%s", list->len > 1 ? "," : "", d->json);
   }
   g_string_append_c(list, ']');
@@ -284,7 +455,7 @@ char *diagnostics_json_at(Tab *tab, const GtkTextIter *iter, GtkTextIter *start,
   for (guint i = 0; tab->view->diagnostics && i < tab->view->diagnostics->len; i++) {
     Diagnostic *d = g_ptr_array_index(tab->view->diagnostics, i);
     GtkTextIter from, to;
-    if (!covers(tab, d, iter, &from, &to))
+    if (!d->json || !covers(tab, d, iter, &from, &to)) /* a plugin's: not the server's to fix */
       continue;
     if (list->len == 1 || gtk_text_iter_compare(&from, start) < 0)
       *start = from;

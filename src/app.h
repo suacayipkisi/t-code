@@ -130,6 +130,7 @@ struct App {
     GtkWidget *font_scale;       /* Shows text scale if it's not initial value(1.0), click sets initial value */
     GtkWidget *indent;           /* "Spaces: 4": the current editor's indentation, a click changes it */
     guint say_id;                /* a status_say() message is shown in build's place until this runs */
+    GtkBox *plugins;             /* plugins' lasting items (socket "status-set"), each a label */
   } status;
 
   /* project */
@@ -155,11 +156,12 @@ struct App {
   } paths;
 
   GSocketService *service;
-  GPtrArray *socket_events; /* the control socket's "subscribe" clients (socket.c's Client) */
-  Lsp *lsp;                 /* clangd, retained for its compile-flag status hint */
-  GPtrArray *lsps;          /* lazily started language servers, each idle-stopped after its last file */
-  GPtrArray *plugins;       /* installed plugins (plugins/plugins.h) */
-  GtkWidget *problems;      /* the Problems panel widget (lsp/problems.h) */
+  GHashTable *plugin_diagnostics; /* path → (plugin → JSON list): socket "diagnostics-set" (lsp/inline/diagnostics.c) */
+  GPtrArray *socket_events;       /* the control socket's "subscribe" clients (socket.c's Client) */
+  Lsp *lsp;                       /* clangd, retained for its compile-flag status hint */
+  GPtrArray *lsps;                /* lazily started language servers, each idle-stopped after its last file */
+  GPtrArray *plugins;             /* installed plugins (plugins/plugins.h) */
+  GtkWidget *problems;            /* the Problems panel widget (lsp/problems.h) */
 
   /* debugging */
   struct {

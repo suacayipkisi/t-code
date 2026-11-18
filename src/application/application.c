@@ -116,6 +116,7 @@ static void on_shutdown(GApplication *app G_GNUC_UNUSED, App *t)
   lsp_stop(t);
   remove_temp_dir(t);
   plugins_stop(t);
+  g_clear_pointer(&t->plugin_diagnostics, g_hash_table_unref);
 }
 
 /* SIGTERM / SIGINT: save the session and quit normally, so the socket file is removed. The window
@@ -157,6 +158,7 @@ static void app_free(App *t)
 {
   g_clear_object(&t->service);
   plugins_stop(t);
+  g_clear_pointer(&t->plugin_diagnostics, g_hash_table_unref);
   g_free(t->paths.socket);
   g_free(t->paths.styles);
   g_free(t->paths.icons);

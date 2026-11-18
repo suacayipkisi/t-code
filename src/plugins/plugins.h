@@ -10,6 +10,15 @@
 
 typedef struct Plugin Plugin;
 
+/* What a plugin's manifest says it does ("permissions"): edit and terminal are enforced on its
+ * socket connections, network is only declared, start lets it start with the project. */
+typedef enum {
+  PLUGIN_EDIT = 1 << 0,
+  PLUGIN_TERMINAL = 1 << 1,
+  PLUGIN_NETWORK = 1 << 2,
+  PLUGIN_START = 1 << 3,
+} PluginPermissions;
+
 typedef struct PluginCommand {
   char *id;
   char *name;
@@ -24,10 +33,16 @@ typedef struct Plugin {
   char *version;
   char *description;
   char *dir;
-  char *executable;    /* NULL for a plugin without commands */
-  int api;             /* the "tapi_N" its plugin.json asks for; 0: none (a plugin from before versions) */
+  char *executable; /* NULL for a plugin without commands */
+  int api;          /* the "tapi_N" its plugin.json asks for; 0: none (a plugin from before versions) */
+  PluginPermissions permissions;
+  char *token;         /* $TCODE_PLUGIN_TOKEN: its program says "hello tapi_1 <token>" to be known as it */
   GPtrArray *commands; /* PluginCommand * */
 } Plugin;
+
+/* The plugin with that id, or the one $TCODE_PLUGIN_TOKEN token was given to; NULL when none. */
+Plugin *plugin_find(App *t, const char *id);
+Plugin *plugin_by_token(App *t, const char *token);
 
 /* Discovers plugins from user and system directories and populates t->plugins. */
 void plugins_init(App *t);

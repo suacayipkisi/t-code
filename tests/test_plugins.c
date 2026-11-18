@@ -109,14 +109,17 @@ static void test_tapi_manifest(void)
              "{\"id\": \"l\", \"name\": \"Labeled\", \"keys\": \"Ctrl+Alt+L\"}]}",
              0644);
   write_file("tapi/keyed/run.sh", "#!/bin/sh\nexit 0\n", 0755);
-  write_file("tapi/static-only/plugin.json", "{\"name\": \"Static\", \"api\": \"tapi_1\"}", 0644);
+  write_file("tapi/static-only/plugin.json",
+             "{\"name\": \"Static\", \"api\": \"tapi_1\", \"permissions\": [\"edit\", \"network\", \"bogus\"]}", 0644);
 
   char *scan_path = g_build_filename(tmp_dir, "tapi", NULL);
   app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
+  g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "*unknown permission 'bogus'*");
   plugins_scan_dir(&app, scan_path);
+  g_test_assert_expected_messages();
   g_assert_cmpuint(app.plugins->len, ==, 2);
 
-  Plugin *keyed = find_plugin(&app, "keyed"), *still = find_plugin(&app, "static-only");
+  Plugin *keyed = plugin_find(&app, "keyed"), *still = plugin_find(&app, "static-only");
   g_assert_nonnull(keyed);
   g_assert_cmpint(keyed->api, ==, 1);
   PluginCommand *k = g_ptr_array_index(keyed->commands, 0), *l = g_ptr_array_index(keyed->commands, 1);
@@ -126,6 +129,12 @@ static void test_tapi_manifest(void)
   g_assert_cmpstr(l->keys, ==, "Ctrl+Alt+L");
 
   g_assert_nonnull(still);
+  g_assert_cmpint(still->permissions, ==, PLUGIN_EDIT | PLUGIN_NETWORK);
+  g_assert_cmpint(keyed->permissions, ==, 0);
+  g_assert_nonnull(keyed->token); /* $TCODE_PLUGIN_TOKEN: each its own */
+  g_assert_cmpstr(keyed->token, !=, still->token);
+  g_assert_true(plugin_by_token(&app, still->token) == still);
+  g_assert_null(plugin_by_token(&app, "nope"));
   g_assert_null(still->executable);
   g_assert_cmpuint(still->commands->len, ==, 0);
 
@@ -196,9 +205,10 @@ static void test_run_command(void)
                                  "echo \"PLUGIN=$TCODE_PLUGIN_ID\" >> \"%s\"\n"
                                  "echo \"CMD=$TCODE_COMMAND_ID\" >> \"%s\"\n"
                                  "echo \"API=$TCODE_API\" >> \"%s\"\n"
+                                 "echo \"TOKEN=$TCODE_PLUGIN_TOKEN\" >> \"%s\"\n"
                                  "echo \"ROOT=$TCODE_PROJECT_ROOT\" >> \"%s\"\n"
                                  "exit 0\n",
-                                 out_path, out_path, out_path, out_path, out_path);
+                                 out_path, out_path, out_path, out_path, out_path, out_path);
 
   write_file("exec/runner/plugin.json",
              "{\"name\": \"Runner\", \"commands\": [{\"id\":\"go\",\"name\":\"Run Go\"}], \"executable\":\"run.sh\"}",
@@ -230,6 +240,9 @@ static void test_run_command(void)
   g_assert_nonnull(strstr(contents, "PLUGIN=runner"));
   g_assert_nonnull(strstr(contents, "CMD=go"));
   g_assert_nonnull(strstr(contents, "API=tapi_1"));
+  char *token = g_strdup_printf("TOKEN=%s", plugin_find(&app, "runner")->token);
+  g_assert_nonnull(strstr(contents, token));
+  g_free(token);
   g_assert_nonnull(strstr(contents, "ROOT=/home/user/project"));
 
   g_free(contents);

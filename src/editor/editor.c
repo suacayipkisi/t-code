@@ -167,6 +167,7 @@ static void on_changed(GtkTextBuffer *buffer G_GNUC_UNUSED, Tab *tab)
   if (v->loading)
     return;
   update_position(tab);
+  socket_did_change(tab->app, tab->path);
   if (!v->readonly && !editor_in_conflict(tab))
     recovery_schedule_snapshot(tab);
   if (!tab->app->settings.autosave || v->readonly || editor_in_conflict(tab)) /* the user decides first */
@@ -446,6 +447,7 @@ static void on_loaded(GObject *source, GAsyncResult *result, gpointer data)
       v->next_waiters = g_array_new(FALSE, FALSE, sizeof(SaveWaiter));
       call_waiters(waiting, TRUE);
     }
+    diagnostics_restore(tab); /* plugins' for this file */
     if (ok || g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND))
       socket_did_open(tab->app, tab->path);
     g_free(text);

@@ -125,7 +125,7 @@ found wins:
 | `executable` | string | no | The program to run, relative to the plugin's folder or absolute. Without it, t-code looks for an executable `run.sh`, `plugin` or a file named like the folder. Only needed when the plugin has commands. |
 | `commands` | list | no | The commands the plugin adds (below). A plugin without commands needs no program. |
 | `start` | string | no, **(planned)** | `"project"`: start the plugin when a project opens and stop it when the project closes, for plugins that listen to events. Without it, the plugin runs only when one of its commands is run. |
-| `permissions` | list | no, **(planned)** | What the plugin does: `"edit"`, `"terminal"`, `"network"`, `"start"`. See [Permissions](#permissions-planned). |
+| `permissions` | list | no | What the plugin does: `"edit"`, `"terminal"`, `"network"`, `"start"`. See [Permissions](#permissions). |
 | `run` | object | no, **(planned)** | File extensions that Run (`F5` / Run button) hands to a plugin command, e.g. `{ ".m": "matlab.run" }`. |
 | `lsp` | list | no, **(planned)** | Language servers the plugin adds: extensions, argv, root markers. |
 | `language-specs` | string | no, **(planned)** | A folder of GtkSourceView `.lang` files. |
@@ -163,6 +163,7 @@ program.
    | `TCODE_SOCKET` | The control socket's path. |
    | `TCODE_API` | The newest API version this t-code speaks, e.g. `tapi_1`. |
    | `TCODE_PLUGIN_ID` | The plugin's id. |
+   | `TCODE_PLUGIN_TOKEN` | A secret for `hello tapi_1 <token>`, new each time t-code loads its plugins. |
    | `TCODE_COMMAND_ID` | The command's id (also `$1`). |
    | `TCODE_ACTIVE_FILE` | The active editor's file, or empty (also `$2`). |
    | `TCODE_PROJECT_ROOT` | The project's folder. |
@@ -199,25 +200,39 @@ A connection that sends a NUL byte ends all its requests that way. Paths are alw
 A connection should start with:
 
 ```
-hello tapi_1
+hello tapi_1 <token>
 ```
 
+`<token>` is `$TCODE_PLUGIN_TOKEN` from the plugin's environment. It tells t-code which plugin is
+speaking: the status items, diagnostics and terminal tabs it makes are its own, and its manifest's
+[permissions](#permissions) apply to it. A script or a person (no plugin) says only `hello tapi_1`;
+what it makes belongs to "socket", and no permissions are checked.
+
 t-code answers `ok tapi_1 t-code <version>`. From then on the connection speaks tapi_1, and every
-request gets one answer line. When t-code does not speak the version asked for, it answers
-`error unsupported-api <message>` and the connection stays a legacy one. `hello` without a version
-picks the newest one t-code speaks.
+request gets one answer line. Otherwise:
+
+- `error unsupported-api <message>`: t-code does not speak that version. The connection stays a
+  legacy one.
+- `error bad-argument …`: the token is not one t-code gave out (the plugins were reloaded meanwhile,
+  for example). The connection stays a legacy one.
+
+`hello` without a version picks the newest one t-code speaks.
 
 ### Answers
 
 On a tapi_1 connection, every request gets exactly one answer line, in the order the requests came:
 
 - `ok`: done.
-- `ok <value>`: done, with a one-line value (`get-file`, `get-project`, `version`).
-- `error <code> <message>`: not done. `<code>` is one word a plugin can test. `<message>` is for
-  people.
+- `ok <value>`: done, with a one-line value (`get-file`, `get-cursor`, `pick`, …).
+- `error <code> <message>`: not done. `<code>` is one word a plugin can test, and it is part of
+  the API. `<message>` is for people: it is written casually, sometimes jokingly, and may change in
+  any version. Test the code, show the message.
 
-`get-text` answers `ok`, then the text, then a NUL byte, so text with line breaks, and an empty
-buffer, are both unambiguous.
+`get-text` and `get-selection` answer `ok`, then the text, then a NUL byte, so text with line breaks
+and empty text are both unambiguous.
+
+`pick` and `ask` wait for the user. Until they are answered, t-code reads no further requests from
+that connection, so the answers stay in order.
 
 "Done" means t-code took the request. Some requests finish later: `save` writes the file in the
 background, and `open` loads the file in the background. Listen for `did_save` / `did_open` when the
@@ -227,61 +242,113 @@ Error codes in tapi_1:
 
 | Code | Meaning |
 |---|---|
-| `unknown-command` | No such command (the message is the command). |
-| `bad-argument` | The argument is not usable: not an absolute path, not a folder, not a version. |
+| `unknown-command` | No such command (the message names it). |
+| `bad-argument` | The argument is not usable: not an absolute path, not a folder, bad JSON, no such terminal tab, an unknown token. |
 | `no-editor` | The request needs an editor, and the active tab is not one. |
+| `not-permitted` | The plugin's manifest does not declare the permission the request needs. |
+| `canceled` | The user closed the picker without answering `pick` or `ask` (or another question took the picker). |
 | `unsupported-api` | `hello` named a version this t-code does not speak. |
-| `not-permitted` | **(planned)** The request needs a permission the plugin's manifest does not declare. |
 
 New codes may be added; treat an unknown code as a failure.
 
+### Places, ranges and JSON
+
+- Lines and columns are **1-based**. Columns count characters (not bytes, not UTF-16 units).
+- A place past the end of a line is taken as the line's end, and a line past the end of the file as
+  the file's end.
+- A range is `[line, column, line, column]`: from the first place up to, not including, the second.
+- Requests that take structured arguments take one line of JSON, such as `edit`, `pick` and
+  `diagnostics-set`. Compact JSON has no raw line breaks, so these requests work with line framing.
+
 ### Commands
+
+**Talking to t-code:**
 
 | Command | Argument | Answer | What it does |
 |---|---|---|---|
-| `hello` | `tapi_N` or nothing | `ok tapi_N t-code <version>` | Starts tapi answers (above). |
+| `hello` | `tapi_N [token]` or nothing | `ok tapi_N t-code <version>` | Starts tapi answers and names the plugin (above). |
 | `version` | – | `ok tapi_1 t-code <version>` | The newest API version and t-code's version. Answers legacy connections too. |
+| `subscribe` | – | `ok` | Turns the connection into an event stream (below). |
+
+**The active editor:**
+
+| Command | Argument | Answer | What it does |
+|---|---|---|---|
 | `get-file` | – | `ok <path>` | The active editor's file; empty when the active tab is not an editor. |
 | `get-project` | – | `ok <dir>` | The project's folder. |
-| `get-text` | – | `ok`, then the text and a NUL | The active editor's whole buffer, unsaved edits included. |
-| `insert` | text | `ok` | Inserts text at the cursor. |
-| `append` | text | `ok` | Adds text at the end of the buffer. |
-| `replace-all` | text | `ok` | Replaces the whole buffer. |
+| `get-text` | – | `ok`, then text and NUL | The whole buffer, unsaved edits included (empty without an editor). |
+| `get-cursor` | – | `ok <line> <column>` | The cursor. |
+| `get-selection` | – | `ok`, then text and NUL | The selected text (empty when nothing is selected). |
+| `set-selection` | `<line> <col> <line> <col>` | `ok` | Selects from the first place to the second; the cursor goes to the second. Equal places just move the cursor. |
+| `insert` | text | `ok` | Inserts text at the cursor. Needs `edit`. |
+| `append` | text | `ok` | Adds text at the end of the buffer. Needs `edit`. |
+| `replace-all` | text | `ok` | Replaces the whole buffer. Needs `edit`. |
+| `edit` | `[{"range":[l1,c1,l2,c2],"text":"…"}, …]` | `ok` | Replaces each range with its text, all as one undo step. Ranges are the text's before any edit and must not overlap. The cursor stays where it was. Needs `edit`. |
 | `save` | – | `ok` | Saves the active editor. |
-| `open` | path | `ok` | Opens a file in the active editor group. |
+
+All of these except `get-file`, `get-project` and `get-text` answer `error no-editor` when the active
+tab is not an editor.
+
+**Files and folders** (the argument is an absolute path):
+
+| Command | Argument | Answer | What it does |
+|---|---|---|---|
+| `open` | `path[:line[:column]]` | `ok` | Opens a file in the active editor group, at a place when one is given. A file whose name really ends in `:12` is opened as it is. |
 | `open-side` | path | `ok` | Opens a file in the right editor group. |
 | `open-window` | path | `ok` | Opens a file in the second window. |
 | `preview` | path | `ok` | Opens a Markdown preview tab. |
 | `compare` | path | `ok` | Compares the file with its last commit, side by side. |
 | `history` | path | `ok` | Lets the user pick a commit from the file's history to compare with. |
 | `project` | dir | `ok` | Switches to another project folder. |
-| `terminal` | dir | `ok` | `cd` to the folder in the shell. |
-| `say` | text | `ok` | A short message in the status bar (the next status update replaces it). |
-| `copy` | text | `ok` | Puts text on the clipboard. |
-| `subscribe` | – | `ok` | Turns the connection into an event stream (below). |
+| `terminal` | dir | `ok` | `cd` to the folder in the terminal tab showing now. |
 
-**(planned for tapi_1, before 1.0):**
+**Telling and asking the user:**
 
 | Command | Argument | Answer | What it does |
 |---|---|---|---|
-| `open` | `path:line[:column]` | `ok` | Opens a file at a position. |
-| `get-cursor` | – | `ok <line> <column>` | The cursor (1-based). |
-| `get-selection` | – | `ok`, then text and NUL | The selected text. |
-| `set-selection` | `<line> <col> <line> <col>` | `ok` | Selects a range. |
-| `edit` | JSON: `[{"range":[l1,c1,l2,c2],"text":"…"}]` | `ok` | Applies edits as one undo step, keeping the cursor. Needs `"edit"`. |
-| `status-set` | `<id> <text>` | `ok` | A lasting item in the status bar, owned by the plugin. |
-| `status-clear` | `<id>` | `ok` | Removes it. |
-| `pick` | `<title>`, then lines, then NUL | `ok <chosen line>` or `error canceled` | Shows a list in t-code's picker and answers the line the user chose. |
-| `ask` | `<question>` | `ok <text>` or `error canceled` | Asks for one line of text. |
-| `diagnostics-set` | `<path>`, then JSON, then NUL | `ok` | The plugin's diagnostics for a file: in the Problems panel and underlined in the editor. Replaces the plugin's earlier ones for that file. |
-| `diagnostics-clear` | `[path]` | `ok` | Removes the plugin's diagnostics (for one file, or all). |
-| `terminal-open` | `<title> -- <argv…>` | `ok <terminal id>` | Opens a terminal tab running a program. Needs `"terminal"`. |
-| `terminal-send` | `<terminal id> <text>` | `ok` | Types text into the plugin's own terminal tab. |
-| `terminal-close` | `<terminal id>` | `ok` | Closes a terminal tab the plugin opened (only its own). |
+| `say` | text | `ok` | A short message in the status bar (the next status update replaces it). |
+| `status-set` | `<id> <text>` | `ok` | A lasting item in the status bar, the plugin's own, named `id` (one word). Made the first time, changed after. |
+| `status-clear` | `<id>` | `ok` | Removes that item. |
+| `pick` | `{"title":"…","items":["a", {"label":"b","detail":"…"}]}` | `ok <index> <label>` | Shows the items in t-code's picker; the user types to filter. The answer is the chosen item's index (from 0) and label. |
+| `ask` | question | `ok <text>` | Asks for one line of text in the picker. |
+| `copy` | text | `ok` | Puts text on the clipboard. |
 | `scm-message` | text | `ok` | Fills the Source Control panel's commit message box. |
 
-The diagnostics JSON is a list of
+`pick` and `ask` answer `error canceled …` when the user presses Escape or clicks
+elsewhere. Only one question shows at a time: a newer one (from any plugin) cancels the older one.
+
+**Diagnostics:**
+
+| Command | Argument | Answer | What it does |
+|---|---|---|---|
+| `diagnostics-set` | `{"path":"/abs/file","items":[…]}` | `ok` | The plugin's diagnostics for that file, in place of its earlier ones there. `[]` removes them. |
+| `diagnostics-clear` | path, or nothing | `ok` | Removes the plugin's diagnostics for one file, or for every file. |
+
+Each item is
 `{"range":[line,col,line,col],"severity":"error|warning|info|hint","message":"…","code":"…","source":"…"}`.
+Only `range` and `message` are required; `severity` defaults to `error`, and `range` may hold only the
+start (`[line, col]`).
+
+- **Where they show:** like a language server's diagnostics: underlined in the editor, counted in the
+  status bar and listed in the Problems panel as `message (source code)`. Hints are not underlined.
+- **Files not open yet:** t-code keeps the diagnostics per file. A file that is not open shows them
+  when it opens.
+- **Who replaces what:** a plugin's list never replaces a language server's, or another plugin's.
+- **Moving with the text:** the marks move with the text the user types, until the plugin sends its
+  next list.
+
+**Terminal tabs:**
+
+| Command | Argument | Answer | What it does |
+|---|---|---|---|
+| `terminal-open` | `<title> [-- program args…]` | `ok <id>` | Opens a terminal tab in the project folder, running the program, or the user's shell without one. The program line is split like a shell would (quotes work). Needs `terminal`. |
+| `terminal-send` | `<id> <text>` | `ok` | Types the text into the plugin's tab and presses Enter. |
+| `terminal-interrupt` | `<id>` | `ok` | Sends Ctrl+C to the plugin's tab. |
+| `terminal-close` | `<id>` | `ok` | Closes the plugin's tab; its program gets SIGHUP. |
+
+- **Lifetime:** a plugin's tab closes by itself when its program exits.
+- **Not restored:** it is not brought back with the project's other terminal tabs.
+- **Ownership:** a plugin can only send to and close its own tabs.
 
 ### Events
 
@@ -289,29 +356,41 @@ Send `subscribe` and keep the connection open. t-code answers `ok` (a legacy con
 `{"event":"subscribed"}`), then sends one JSON object per line:
 
 ```json
+{"event":"active_changed","path":"/absolute/path/to/file.c"}
 {"event":"did_open","path":"/absolute/path/to/file.c"}
-{"event":"did_save","path":"/absolute/path/to/file.c"}
+{"event":"did_change","path":"/absolute/path/to/file.c"}
+{"event":"did_save","path":"/absolute/path/to/file.c","by":"plugin"}
+{"event":"did_close","path":"/absolute/path/to/file.c"}
+{"event":"project_changed","path":"/absolute/path/to/project"}
 ```
 
-- `did_open` is sent once a file has loaded, including a new file that does not exist yet. Load
-  failures other than "not found" do not send it.
-- `did_save` follows every successful write, autosaves included.
-- **(planned)** `did_close`, `did_change` (after typing pauses; path only, read the text with
-  `get-text`), `active_changed` (another tab became active), `project_changed`. Events caused by the
-  plugin itself will carry `"by":"plugin"`, so a formatter can ignore its own saves.
+| Event | When |
+|---|---|
+| `did_open` | A file has loaded in an editor, including a new file that does not exist yet. Load failures other than "not found" do not send it. |
+| `did_change` | A file's text changed, sent once typing pauses (300 ms). It carries only the path: read the text with `get-text`. |
+| `did_save` | A file was written, autosaves included. |
+| `did_close` | A file's editor tab closed. |
+| `active_changed` | Another tab became the active one. The path is empty when the active tab is not an editor. |
+| `project_changed` | Another project folder opened. |
+
+`did_change` and `did_save` carry `"by":"plugin"` when a socket request caused them: an `insert`,
+`edit` or `replace-all` (when every change since the last `did_change` came from the socket), or a
+`save`. A formatter or a linter uses this to ignore the results of its own work.
 
 New event names and new fields may appear: ignore what you do not know.
 
 Read events as they come. t-code never waits for a subscriber; one that leaves more than 256 KB
-unread is dropped and its connection closed. Closing the connection ends the subscription.
+unread is dropped and its connection closed. Closing the connection ends the subscription. When
+nobody is subscribed, t-code does no event work at all.
 
 ### Legacy connections
 
 A connection that never says `hello` is a legacy connection. t-code answers it exactly as before the
 API had a version, so old plugins and scripts keep working:
 
-- Only `get-file`, `get-project` (the bare value and a newline), `get-text` (the text and a NUL),
-  `version` and `subscribe` answer. Other requests get no answer, even when they fail.
+- Only `get-file`, `get-project`, `get-cursor` (the bare value and a newline), `get-text`,
+  `get-selection` (the text and a NUL), `version` and `subscribe` answer. Other requests get no
+  answer, even when they fail; `pick` and `ask` still wait for the user.
 - It may still use the internal names `debug` and `debug-failed`.
 
 ### Internal commands
@@ -351,18 +430,23 @@ These limits follow from the process model. They are deliberate, not missing fea
 
 ## Trust, review and the plugin registry
 
-### Permissions (planned)
+### Permissions
 
 A plugin declares what it does:
 
 | Permission | Meaning | Enforced |
 |---|---|---|
 | `edit` | Changes buffers (`insert`, `append`, `replace-all`, `edit`). | Yes: without it, those requests answer `error not-permitted`. |
-| `terminal` | Opens terminal tabs and starts programs. | Yes, for `terminal-open`. |
+| `terminal` | Opens terminal tabs and starts programs in them. | Yes, for `terminal-open`. |
 | `network` | Uses the network. | No: a declaration, checked by review. |
-| `start` | Starts with the project (`"start"`). | Yes. |
+| `start` | Starts with the project (`"start"`). | **(planned)** Yes. |
 
-The Plugins window shows them before a plugin is installed and enabled.
+- **Who is checked:** permissions apply to connections that said hello with the plugin's token. A
+  plugin could skip the token and act as a script. Enforcement catches honest mistakes; trust comes
+  from review.
+- **Plugins from before versions:** a plugin without `"api"` is not checked.
+- **(planned)** The Plugins window will show the permissions before a plugin is installed and
+  enabled.
 
 ### The Plugins window (planned)
 
@@ -409,7 +493,7 @@ signed, and t-code checks the signature.
 ## Plugin catalog
 
 These are plugins the API is meant to make possible. Each one says what it does, what t-code provides
-(**core**), what the plugin itself does, and where it stops. Most use **(planned)** parts of tapi_1.
+(**core**), what the plugin itself does, and where it stops. Some still use **(planned)** parts of tapi_1.
 
 ### Languages and REPLs
 
@@ -429,7 +513,7 @@ These are plugins the API is meant to make possible. Each one says what it does,
   - **Errors as diagnostics:** MATLAB's messages show in the terminal tab. The plugin also has MATLAB
     write a `diary` file, watches it, turns lines like `Error in foo (line 12)` into
     `diagnostics-set`, and clears them on the next run.
-  - **Stop:** sends Ctrl+C. It closes only its own processes.
+  - **Stop:** `terminal-interrupt` (Ctrl+C). It closes only its own processes.
   - **Alternative:** a Python plugin could attach to a shared session through `matlab.engine` and
     catch errors directly.
 - **Limits:**
@@ -520,7 +604,7 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
 
 #### Word count (`word-count`, in this repository)
 - **Does:** today, says the count in the status bar.
-- **(planned)** A lasting `status-set` item, updated on `did_change`.
+- **Could:** keep a lasting `status-set` item, updated on `did_change`.
 
 ### Build, devices, containers
 

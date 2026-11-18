@@ -1,54 +1,36 @@
 /*
- * The control socket, for plugins, scripts and tools (tools/headless.sh, packaging/smoke-test.sh); its
- * path is in $TCODE_SOCKET. One request per line; a client that ends its requests with NUL bytes
- * instead (a path may hold a line break: printf 'open %s\0' "$path") ends them all that way. The
- * protocol is docs/plugins.md's.
+ * The control socket's connections (see socket.h; the protocol is docs/plugins.md's): reading their
+ * requests (requests.c answers them), writing their output in order without blocking the main loop,
+ * and the events subscribers get. Its path is in $TCODE_SOCKET.
  *
- * A connection that starts with "hello tapi_1" speaks tapi_1: every request gets an answer line, "ok",
- * "ok <value>" or "error <code> <message>" (get-text's "ok" is followed by the text and a NUL). One
- * that does not is a legacy one, answered as before the API had a version: only get-file,
- * get-project, get-text, version and subscribe answer.
- *
- * "_debug <program>" and "_debug-failed <dir>" are internal (F5's build, through t-code --send): they
- * may change; a legacy connection may still call them "debug" and "debug-failed".
+ * One request per line; a client that ends its requests with NUL bytes instead (a path may hold a
+ * line break: printf 'open %s\0' "$path") ends them all that way.
  */
 #include "ipc/socket.h"
 
 #include "application/identity.h"
-#include "debug/debugger.h"
-#include "editor/editor.h"
-#include "editor/preview/preview.h"
-#include "git/compare.h"
-#include "project/project.h"
 #include "editor/tabs.h"
-#include "window/secondwindow.h"
-#include "window/statusbar.h"
-#include "window/terminal.h"
+#include "ipc/client.h"
 #include <gio/gunixsocketaddress.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
 #include <unistd.h>
 
-#ifndef TCODE_VERSION /* set by the Makefile */
-#define TCODE_VERSION "unknown"
-#endif
+/* did_change waits until typing pauses this long. */
+#define CHANGE_MS 300
 
 /* A subscriber that has this much unread output is dropped: it does not read its events. */
 #define MAX_BACKLOG (256 * 1024)
 
-/* A connection: its output goes out in order without blocking the main loop (a client that does not
- * read only fills its own queue). Held by its reader and by the write in flight. */
-typedef struct {
-  App *app;
-  GSocketConnection *conn;
-  GQueue pending; /* GBytes not written yet */
-  gsize backlog;  /* their bytes */
-  gboolean writing, failed, subscribed;
-  int api; /* the tapi version it said hello with; 0: a legacy connection */
-  int refs;
-} Client;
+gboolean socket_handling;
 
-static void client_unref(Client *c)
+/* A connection is held by its reader and by the write in flight. */
+void client_ref(Client *c)
+{
+  c->refs++;
+}
+
+void client_unref(Client *c)
 {
   if (--c->refs > 0)
     return;
@@ -56,6 +38,7 @@ static void client_unref(Client *c)
     g_ptr_array_remove(c->app->socket_events, c);
   g_queue_clear_full(&c->pending, (GDestroyNotify)g_bytes_unref);
   g_object_unref(c->conn);
+  g_free(c->owner);
   g_free(c);
 }
 
@@ -106,7 +89,7 @@ static void write_next(Client *c)
 }
 
 /* Queues output for the client. */
-static void client_send(Client *c, const char *data, gsize size)
+void client_send(Client *c, const char *data, gsize size)
 {
   if (c->failed)
     return;
@@ -120,35 +103,120 @@ static void client_send(Client *c, const char *data, gsize size)
   write_next(c);
 }
 
-static void broadcast_event(App *t, const char *event, const char *path)
+/* {"event":<event>,"path":<path>} (with "by":"plugin" when the socket caused it) to every subscriber. */
+static void broadcast_event(App *t, const char *event, const char *path, gboolean by_plugin)
 {
-  JsonNode *node = json_node_init_string(json_node_alloc(), path);
+  if (!t->socket_events || t->socket_events->len == 0)
+    return;
+  JsonNode *node = json_node_init_string(json_node_alloc(), path ? path : "");
   char *quoted = json_to_string(node, FALSE);
-  char *message = g_strdup_printf("{\"event\":\"%s\",\"path\":%s}\n", event, quoted);
+  char *message =
+      g_strdup_printf("{\"event\":\"%s\",\"path\":%s%s}\n", event, quoted, by_plugin ? ",\"by\":\"plugin\"" : "");
   gsize length = strlen(message);
 
   json_node_unref(node);
   g_free(quoted);
   /* client_send() may drop a subscriber from the list: go through a copy */
-  GPtrArray *clients = t->socket_events ? g_ptr_array_copy(t->socket_events, NULL, NULL) : NULL;
-  for (guint i = 0; clients && i < clients->len; i++)
+  GPtrArray *clients = g_ptr_array_copy(t->socket_events, NULL, NULL);
+  for (guint i = 0; i < clients->len; i++)
     client_send(g_ptr_array_index(clients, i), message, length);
-  if (clients)
-    g_ptr_array_unref(clients);
+  g_ptr_array_unref(clients);
   g_free(message);
 }
 
 void socket_did_open(App *t, const char *path)
 {
-  broadcast_event(t, "did_open", path);
+  broadcast_event(t, "did_open", path, FALSE);
+}
+
+/* The files whose save a socket request asked for (path → TRUE): their did_save is "by":"plugin". */
+static GHashTable *plugin_saves;
+
+void socket_saving(App *t G_GNUC_UNUSED, const char *path)
+{
+  if (!plugin_saves)
+    plugin_saves = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+  g_hash_table_add(plugin_saves, g_strdup(path));
 }
 
 void socket_did_save(App *t, const char *path)
 {
-  broadcast_event(t, "did_save", path);
+  gboolean by_plugin = plugin_saves && g_hash_table_remove(plugin_saves, path);
+
+  broadcast_event(t, "did_save", path, by_plugin);
 }
 
-static void subscribe_events(Client *c)
+void socket_did_close(App *t, const char *path)
+{
+  broadcast_event(t, "did_close", path, FALSE);
+}
+
+/* A did_change waiting for typing to pause. */
+typedef struct {
+  App *app;
+  char *path;
+  guint id;
+  gboolean by_plugin; /* every change since the last did_change came over the socket */
+} Change;
+
+static GHashTable *changes; /* path → Change */
+
+static void change_free(Change *change)
+{
+  g_clear_handle_id(&change->id, g_source_remove);
+  g_free(change->path);
+  g_free(change);
+}
+
+static gboolean change_now(gpointer data)
+{
+  Change *change = data;
+
+  change->id = 0;
+  broadcast_event(change->app, "did_change", change->path, change->by_plugin);
+  g_hash_table_remove(changes, change->path);
+  return G_SOURCE_REMOVE;
+}
+
+void socket_did_change(App *t, const char *path)
+{
+  Change *change;
+
+  if (!t->socket_events || t->socket_events->len == 0 || !path) /* nobody listens: no timer either */
+    return;
+  if (!changes)
+    changes = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, (GDestroyNotify)change_free);
+  change = g_hash_table_lookup(changes, path);
+  if (!change) {
+    change = g_new0(Change, 1);
+    change->app = t;
+    change->path = g_strdup(path);
+    change->by_plugin = TRUE;
+    g_hash_table_insert(changes, change->path, change);
+  }
+  change->by_plugin = change->by_plugin && socket_handling;
+  g_clear_handle_id(&change->id, g_source_remove);
+  change->id = g_timeout_add(CHANGE_MS, change_now, change);
+}
+
+/* The last active_changed sent, so tab switches that land on the same file send none. */
+static char *active_path;
+
+void socket_active_changed(App *t, const char *path)
+{
+  if (g_strcmp0(active_path, path ? path : "") == 0)
+    return;
+  g_free(active_path);
+  active_path = g_strdup(path ? path : "");
+  broadcast_event(t, "active_changed", active_path, FALSE);
+}
+
+void socket_project_changed(App *t)
+{
+  broadcast_event(t, "project_changed", t->project.root, FALSE);
+}
+
+void client_subscribe(Client *c)
 {
   static const char response[] = "{\"event\":\"subscribed\"}\n";
 
@@ -167,167 +235,12 @@ static void subscribe_events(Client *c)
 }
 
 /* Answers with text and a line break. */
-static void send_line(Client *c, const char *text)
+void send_line(Client *c, const char *text)
 {
   char *line = g_strconcat(text, "\n", NULL);
 
   client_send(c, line, strlen(line));
   g_free(line);
-}
-
-/* tapi answers (a legacy connection gets none): "ok" or "ok <value>". */
-static void answer_ok(Client *c, const char *value)
-{
-  char *line;
-
-  if (!c->api)
-    return;
-  line = value ? g_strconcat("ok ", value, NULL) : g_strdup("ok");
-  send_line(c, line);
-  g_free(line);
-}
-
-/* "error <code> <message>": code is one word a plugin can test, message is for people. */
-static void answer_error(Client *c, const char *code, const char *message)
-{
-  char *line;
-
-  if (!c->api)
-    return;
-  line = g_strdup_printf("error %s %s", code, message);
-  send_line(c, line);
-  g_free(line);
-}
-
-/* "hello [tapi_N]": the connection speaks tapi_N from now on (the latest when no version is named). */
-static void hello(Client *c, const char *arg)
-{
-  int version = 0;
-
-  if (!*arg)
-    version = TAPI_LATEST;
-  else if (g_str_has_prefix(arg, "tapi_")) {
-    char *end = NULL;
-    gint64 number = g_ascii_strtoll(arg + 5, &end, 10);
-    if (end && !*end && number >= 1 && number <= TAPI_LATEST)
-      version = (int)number;
-  }
-  if (!version) {
-    char *message =
-        g_strdup_printf("error unsupported-api t-code %s speaks tapi_1 to tapi_%d", TCODE_VERSION, TAPI_LATEST);
-    send_line(c, message);
-    g_free(message);
-    return;
-  }
-  c->api = version;
-  char *line = g_strdup_printf("ok tapi_%d t-code %s", version, TCODE_VERSION);
-  send_line(c, line);
-  g_free(line);
-}
-
-/* One request (see the top of this file). */
-static void handle(Client *c, const char *command, const char *arg)
-{
-  App *t = c->app;
-  Tab *tab = current_tab(t);
-  gboolean editor = tab && tab->kind == TAB_EDITOR;
-  GtkTextBuffer *buffer = editor && tab->buffer ? GTK_TEXT_BUFFER(tab->buffer) : NULL; /* NULL: no editor */
-  gboolean legacy = c->api == 0;
-  const char *failure = NULL, *message = NULL; /* an error's code and its words */
-  GtkTextIter start, end;
-
-  if (buffer)
-    gtk_text_buffer_get_bounds(buffer, &start, &end);
-  if (strcmp(command, "hello") == 0) {
-    hello(c, arg);
-    return;
-  }
-  if (strcmp(command, "version") == 0) { /* new with tapi_1: answers legacy connections too */
-    char *line = g_strdup_printf("ok tapi_%d t-code %s", TAPI_LATEST, TCODE_VERSION);
-    send_line(c, line);
-    g_free(line);
-    return;
-  }
-  if (strcmp(command, "subscribe") == 0) {
-    subscribe_events(c);
-    return;
-  }
-  if (strcmp(command, "get-file") == 0 || strcmp(command, "get-project") == 0) {
-    const char *value = command[4] == 'f' ? (editor && tab->path ? tab->path : "") : t->project.root ?: "";
-    if (legacy)
-      send_line(c, value);
-    else
-      answer_ok(c, value);
-    return;
-  }
-  if (strcmp(command, "get-text") == 0) {
-    char *text = buffer ? gtk_text_buffer_get_text(buffer, &start, &end, TRUE) : g_strdup("");
-    if (!legacy)
-      client_send(c, "ok\n", 3);
-    client_send(c, text, strlen(text) + 1); /* with its NUL */
-    g_free(text);
-    return;
-  }
-
-  gboolean edits = strcmp(command, "insert") == 0 || strcmp(command, "append") == 0 ||
-                   strcmp(command, "replace-all") == 0 || strcmp(command, "save") == 0;
-  gboolean on_path = strcmp(command, "open") == 0 || strcmp(command, "open-side") == 0 ||
-                     strcmp(command, "open-window") == 0 || strcmp(command, "preview") == 0 ||
-                     strcmp(command, "compare") == 0 || strcmp(command, "history") == 0 ||
-                     strcmp(command, "project") == 0 || strcmp(command, "terminal") == 0 ||
-                     strcmp(command, "_debug") == 0 || (legacy && strcmp(command, "debug") == 0);
-
-  if (edits && !buffer) {
-    failure = "no-editor";
-    message = "the active tab is not an editor";
-  } else if (on_path && !g_path_is_absolute(arg)) {
-    failure = "bad-argument";
-    message = "needs an absolute path";
-  } else if (strcmp(command, "say") == 0)
-    status_say(t, arg);
-  else if (strcmp(command, "insert") == 0)
-    gtk_text_buffer_insert_at_cursor(buffer, arg, -1);
-  else if (strcmp(command, "append") == 0)
-    gtk_text_buffer_insert(buffer, &end, arg, -1);
-  else if (strcmp(command, "replace-all") == 0)
-    gtk_text_buffer_set_text(buffer, arg, -1);
-  else if (strcmp(command, "save") == 0)
-    save_editor(tab);
-  else if (strcmp(command, "copy") == 0)
-    gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(t->window)), arg);
-  else if (strcmp(command, "_debug-failed") == 0 || (legacy && strcmp(command, "debug-failed") == 0))
-    debug_build_failed(t);
-  else if (strcmp(command, "open") == 0)
-    open_file(t, arg);
-  else if (strcmp(command, "open-side") == 0)
-    open_to_side(t, arg);
-  else if (strcmp(command, "open-window") == 0)
-    open_in_new_window(t, arg);
-  else if (strcmp(command, "preview") == 0)
-    open_preview(t, arg);
-  else if (strcmp(command, "compare") == 0)
-    compare_with_head(t, arg);
-  else if (strcmp(command, "history") == 0)
-    file_history(t, arg);
-  else if (strcmp(command, "project") == 0) {
-    if (g_file_test(arg, G_FILE_TEST_IS_DIR))
-      open_project(t, arg);
-    else {
-      failure = "bad-argument";
-      message = "not a folder";
-    }
-  } else if (strcmp(command, "terminal") == 0)
-    cd_in_shell(t, arg);
-  else if (on_path) /* _debug, or a legacy debug */
-    debug_launch(t, arg);
-  else {
-    failure = "unknown-command";
-    message = command;
-  }
-  if (failure)
-    answer_error(c, failure, message);
-  else
-    answer_ok(c, NULL);
 }
 
 static void read_request(GDataInputStream *in, Client *c);
@@ -356,15 +269,23 @@ static void on_request(GObject *source, GAsyncResult *result, gpointer data)
    * t-code --send) is dropped. */
   if (!c->app->closing && g_utf8_validate(request, length, NULL)) {
     char *space = strchr(request, ' ');
-    if (space) {
+    if (space)
       *space = '\0';
-      handle(c, request, space + 1);
-    } else {
-      handle(c, request, "");
-    }
+    socket_handling = TRUE;
+    c->held = !handle(c, request, space ? space + 1 : "");
+    socket_handling = FALSE;
   }
   g_free(request);
-  read_request(in, c);
+  if (!c->held)
+    read_request(in, c);
+}
+
+void client_resume(Client *c)
+{
+  if (!c->held)
+    return;
+  c->held = FALSE;
+  read_request(c->in, c);
 }
 
 /* Data came: a connection that sends a NUL byte ends its requests with NULs only (a path may hold a
@@ -407,6 +328,7 @@ static gboolean on_incoming(GSocketService *service G_GNUC_UNUSED, GSocketConnec
   Client *c = g_new0(Client, 1);
 
   c->app = t;
+  c->in = in;
   c->conn = g_object_ref(conn);
   c->refs = 1; /* the reader's */
   read_request(in, c);
@@ -441,4 +363,7 @@ void stop_socket(App *t)
   for (guint i = 0; t->socket_events && i < t->socket_events->len; i++)
     ((Client *)g_ptr_array_index(t->socket_events, i))->subscribed = FALSE; /* the list goes */
   g_clear_pointer(&t->socket_events, g_ptr_array_unref);
+  g_clear_pointer(&changes, g_hash_table_unref);
+  g_clear_pointer(&plugin_saves, g_hash_table_unref);
+  g_clear_pointer(&active_path, g_free);
 }

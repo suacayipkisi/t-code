@@ -9,8 +9,17 @@
 
 #include <json-glib/json-glib.h>
 
-/* Shows a publishDiagnostics' list (replacing the last one). */
+/* Shows a publishDiagnostics' list (replacing the server's last one; plugins' stay). */
 void diagnostics_show(Tab *tab, JsonNode *diagnostics);
+
+/* A plugin's diagnostics for path (socket "diagnostics-set"), in place of its last ones there: a JSON
+ * list of {"range":[line,col,line,col],"severity":"error|warning|info|hint","message":..,"code":..,
+ * "source":..}, 1-based. Kept per path: an editor opened later shows them too. NULL or [] drops them. */
+void diagnostics_set_owned(App *t, const char *path, const char *owner, JsonNode *items);
+/* Drops a plugin's diagnostics for path (NULL: every file). */
+void diagnostics_clear_owned(App *t, const char *path, const char *owner);
+/* An editor loaded its file: the plugins' diagnostics for it show. */
+void diagnostics_restore(Tab *tab);
 
 /* The messages of the diagnostics at iter, one per line ("error: ..."), or NULL. markup gets Pango
  * markup with each severity in its color. */

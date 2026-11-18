@@ -26,6 +26,17 @@ void restart_shell_pane(App *t);
  * tab closes with its × or when its shell exits. */
 VteTerminal *open_shell(App *t, const char *dir);
 
+/* A new terminal tab named name running argv (NULL: the user's shell) in the project root, shown but
+ * not focused (a plugin's: socket "terminal-open"). It closes when its program exits and is not kept
+ * in session.ini. */
+VteTerminal *open_program(App *t, const char *name, char **argv);
+
+/* The i-th terminal tab (the first one is 0), or NULL. */
+VteTerminal *shell_at(App *t, int i);
+
+/* Closes a terminal tab (not the first one): what runs in it gets SIGHUP. */
+void close_shell_tab(App *t, VteTerminal *term);
+
 /* Closes the terminal tab showing now (not the first one). */
 void close_current_shell(App *t);
 

@@ -12,6 +12,7 @@
 #include "files/files.h"
 #include "files/opentabs.h"
 #include "git/compare.h"
+#include "ipc/socket.h"
 #include "popups/contextmenu.h"
 #include "window/statusbar.h"
 #include "lsp/problems.h"
@@ -25,6 +26,8 @@
 /* The page went (its tab closed, or t-code quits): frees everything the tab holds. */
 static void tab_free(Tab *tab)
 {
+  if (tab->kind == TAB_EDITOR && tab->path && !tab->compare.with && tab->view)
+    socket_did_close(tab->app, tab->path);
   if (tab->preview)
     preview_free(tab->preview);
   editor_view_free(tab->view);
@@ -520,13 +523,20 @@ static void on_tabs_changed(GtkNotebook *group, GtkWidget *child G_GNUC_UNUSED, 
 }
 
 /* Another tab became the current one of a group: that group is the active one now. */
-static void on_tab_switched(GtkNotebook *group, GtkWidget *page G_GNUC_UNUSED, guint index G_GNUC_UNUSED, App *t)
+/* The socket's subscribers hear which file is active now (tab: the active one). */
+static void tell_active(App *t, Tab *tab)
+{
+  socket_active_changed(t, tab && tab->kind == TAB_EDITOR ? tab->path : NULL);
+}
+
+static void on_tab_switched(GtkNotebook *group, GtkWidget *page, guint index G_GNUC_UNUSED, App *t)
 {
   if (t->closing) /* the groups give up their pages as the window goes: the panels may be gone */
     return;
   t->editors.active = group_index(t, GTK_WIDGET(group));
   update_status(t);
   outline_show_tab(t);
+  tell_active(t, tab_of(page)); /* the group's current page is still the old one here */
 }
 
 /* A click into a group makes it the active one (new tabs go there). */
@@ -534,6 +544,7 @@ static void on_group_focus(GtkEventControllerFocus *focus, App *t)
 {
   t->editors.active = group_index(t, gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(focus)));
   update_status(t);
+  tell_active(t, current_tab(t));
 }
 
 /* The tab strip ------------------------------------------------------------------------------ */

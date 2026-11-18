@@ -127,6 +127,7 @@ typedef struct {
   App *app;
   GPid pid;          /* its shell; 0 until it started and once it exited */
   gboolean first;    /* the first tab: never closed, its shell starts again when it exits */
+  gboolean program;  /* a plugin's program, not a shell: not kept in session.ini */
   GtkLabel *label;   /* its name on the tab */
   ShellRun *waiting; /* a command waiting for the shell's prompt */
 } Shell;
@@ -196,19 +197,24 @@ static void spawn_done(VteTerminal *term, GPid pid, GError *error, gpointer data
     shell->pid = pid;
 }
 
-/* $SHELL first, like most terminals; then the login shell from the user database. It runs in dir
- * (NULL: the project root) with $TCODE_SOCKET set. */
-static void spawn_shell(App *t, VteTerminal *term, const char *dir)
+/* program (NULL: $SHELL first, like most terminals; then the login shell from the user database).
+ * It runs in dir (NULL: the project root) with $TCODE_SOCKET set. */
+static void spawn_program(App *t, VteTerminal *term, const char *dir, char **program)
 {
   const char *var = g_getenv("SHELL");
-  char *path = var && *var ? g_strdup(var) : vte_get_user_shell();
-  char *argv[] = { path ? path : "/bin/sh", NULL };
+  char *path = program ? NULL : var && *var ? g_strdup(var) : vte_get_user_shell();
+  char *shell[] = { path ? path : "/bin/sh", NULL };
   char **env = g_environ_setenv(g_get_environ(), "TCODE_SOCKET", t->paths.socket, TRUE);
 
-  vte_terminal_spawn_async(term, VTE_PTY_DEFAULT, dir ? dir : t->project.root, argv, env, G_SPAWN_SEARCH_PATH, NULL,
-                           NULL, NULL, -1, NULL, spawn_done, NULL);
+  vte_terminal_spawn_async(term, VTE_PTY_DEFAULT, dir ? dir : t->project.root, program ? program : shell, env,
+                           G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, -1, NULL, spawn_done, NULL);
   g_strfreev(env);
   g_free(path);
+}
+
+static void spawn_shell(App *t, VteTerminal *term, const char *dir)
+{
+  spawn_program(t, term, dir, NULL);
 }
 
 /* Where a terminal's shell is now: its working folder, else what the shell reported (bash does on
@@ -251,6 +257,11 @@ static void close_shell(App *t, VteTerminal *term)
   gtk_notebook_remove_page(t->shell.tabs, page);
   if (focused)
     gtk_widget_grab_focus(GTK_WIDGET(current_shell(t)));
+}
+
+void close_shell_tab(App *t, VteTerminal *term)
+{
+  close_shell(t, term);
 }
 
 void close_current_shell(App *t)
@@ -359,9 +370,9 @@ static char *next_name(App *t)
   }
 }
 
-/* A terminal tab named name (NULL: the next "Terminal N") at the end; its shell starts in dir
- * (NULL: the project root) unless it is the first, which starts with the window. */
-static VteTerminal *add_shell(App *t, const char *name, const char *dir, gboolean first)
+/* A terminal tab named name (NULL: the next "Terminal N") at the end; its shell (or program) starts
+ * in dir (NULL: the project root) unless it is the first, which starts with the window. */
+static VteTerminal *add_tab(App *t, const char *name, const char *dir, gboolean first, char **program)
 {
   VteTerminal *term = new_terminal(t);
   Shell *shell = g_new0(Shell, 1);
@@ -372,6 +383,7 @@ static VteTerminal *add_shell(App *t, const char *name, const char *dir, gboolea
 
   shell->app = t;
   shell->first = first;
+  shell->program = program != NULL;
   shell->label = GTK_LABEL(gtk_label_new(name ? name : fallback));
   g_object_set_data_full(G_OBJECT(term), "t-code-shell", shell, g_free);
   gtk_widget_add_css_class(GTK_WIDGET(term), "tcode-shell");
@@ -394,9 +406,14 @@ static VteTerminal *add_shell(App *t, const char *name, const char *dir, gboolea
   gtk_widget_add_controller(tab, GTK_EVENT_CONTROLLER(click));
   gtk_notebook_append_page(t->shell.tabs, GTK_WIDGET(term), tab);
   if (!first)
-    spawn_shell(t, term, dir);
+    spawn_program(t, term, dir, program);
   g_free(fallback);
   return term;
+}
+
+static VteTerminal *add_shell(App *t, const char *name, const char *dir, gboolean first)
+{
+  return add_tab(t, name, dir, first, NULL);
 }
 
 VteTerminal *open_shell(App *t, const char *dir)
@@ -407,6 +424,20 @@ VteTerminal *open_shell(App *t, const char *dir)
   set_pane_visible(t, t->shell.panel, TRUE);
   gtk_widget_grab_focus(GTK_WIDGET(term));
   return term;
+}
+
+VteTerminal *open_program(App *t, const char *name, char **argv)
+{
+  VteTerminal *term = add_tab(t, name, NULL, FALSE, argv);
+
+  gtk_notebook_set_current_page(t->shell.tabs, gtk_notebook_page_num(t->shell.tabs, GTK_WIDGET(term)));
+  set_pane_visible(t, t->shell.panel, TRUE);
+  return term;
+}
+
+VteTerminal *shell_at(App *t, int i)
+{
+  return i >= 0 && i < shell_count(t) ? nth_shell(t, i) : NULL;
 }
 
 static void on_add_clicked(App *t)
@@ -446,13 +477,16 @@ void restart_shell_pane(App *t)
 
 char **shell_folders(App *t, char ***names)
 {
-  int n = shell_count(t) - 1;
+  int n = shell_count(t) - 1, kept = 0;
   char **folders = g_new0(char *, n + 1);
 
   *names = g_new0(char *, n + 1);
   for (int i = 0; i < n; i++) {
-    folders[i] = shell_directory(t, nth_shell(t, i + 1));
-    (*names)[i] = g_strdup(shell_name(nth_shell(t, i + 1)));
+    VteTerminal *term = nth_shell(t, i + 1);
+    if (shell_of(term)->program) /* a plugin's: the plugin opens it again if it wants */
+      continue;
+    folders[kept] = shell_directory(t, term);
+    (*names)[kept++] = g_strdup(shell_name(term));
   }
   return folders;
 }

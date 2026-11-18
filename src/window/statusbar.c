@@ -353,6 +353,47 @@ static void on_run(App *t)
   build_project(t, TRUE);
 }
 
+/* A plugin's item: the label in t->status.plugins named key. */
+static GtkLabel *plugin_item(App *t, const char *key)
+{
+  for (GtkWidget *child = t->status.plugins ? gtk_widget_get_first_child(GTK_WIDGET(t->status.plugins)) : NULL; child;
+       child = gtk_widget_get_next_sibling(child))
+    if (g_strcmp0(gtk_widget_get_name(child), key) == 0)
+      return GTK_LABEL(child);
+  return NULL;
+}
+
+void status_plugin_set(App *t, const char *key, const char *text)
+{
+  GtkLabel *label = plugin_item(t, key);
+
+  if (!t->status.plugins)
+    return;
+  if (!label) {
+    label = status_label(GTK_WIDGET(t->status.plugins), FALSE);
+    gtk_widget_set_name(GTK_WIDGET(label), key);
+    gtk_label_set_ellipsize(label, PANGO_ELLIPSIZE_END);
+    gtk_label_set_max_width_chars(label, 40);
+  }
+  gtk_label_set_text(label, text);
+  gtk_widget_set_tooltip_text(GTK_WIDGET(label), text);
+}
+
+void status_plugin_clear(App *t, const char *key)
+{
+  GtkLabel *label = plugin_item(t, key);
+
+  if (label)
+    gtk_box_remove(t->status.plugins, GTK_WIDGET(label));
+}
+
+const char *status_plugin_text(App *t, const char *key)
+{
+  GtkLabel *label = plugin_item(t, key);
+
+  return label ? gtk_label_get_text(label) : NULL;
+}
+
 static void on_font_scale_reset(App *t)
 {
   set_font_scale(t, 1.0);
@@ -391,6 +432,8 @@ GtkWidget *status_bar(App *t)
 
   gtk_widget_set_hexpand(spacer, TRUE);
   gtk_box_append(GTK_BOX(bar), spacer);
+  t->status.plugins = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+  gtk_box_append(GTK_BOX(bar), GTK_WIDGET(t->status.plugins));
   t->status.progress = status_label(bar, TRUE);
   gtk_label_set_ellipsize(t->status.progress, PANGO_ELLIPSIZE_END);
   gtk_label_set_max_width_chars(t->status.progress, 48);

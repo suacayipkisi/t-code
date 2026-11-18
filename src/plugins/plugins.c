@@ -35,18 +35,29 @@ static void plugin_free(Plugin *plugin)
   g_free(plugin->description);
   g_free(plugin->dir);
   g_free(plugin->executable);
+  g_free(plugin->token);
   if (plugin->commands)
     g_ptr_array_free(plugin->commands, TRUE);
   g_free(plugin);
 }
 
-static Plugin *find_plugin(App *t, const char *id)
+Plugin *plugin_find(App *t, const char *id)
 {
   if (!t->plugins || !id)
     return NULL;
   for (guint i = 0; i < t->plugins->len; i++) {
     Plugin *p = g_ptr_array_index(t->plugins, i);
     if (g_strcmp0(p->id, id) == 0)
+      return p;
+  }
+  return NULL;
+}
+
+Plugin *plugin_by_token(App *t, const char *token)
+{
+  for (guint i = 0; t->plugins && token && *token && i < t->plugins->len; i++) {
+    Plugin *p = g_ptr_array_index(t->plugins, i);
+    if (strcmp(p->token, token) == 0)
       return p;
   }
   return NULL;
@@ -100,6 +111,32 @@ static int plugin_api(JsonObject *obj)
   return end && end != api + 5 && !*end && number >= 1 && number <= TAPI_LATEST ? (int)number : -1;
 }
 
+/* plugin.json's "permissions": a list of "edit", "terminal", "network", "start" (others are left
+ * out with a warning). */
+static PluginPermissions plugin_permissions(JsonObject *obj, const char *name)
+{
+  static const char *const names[] = { "edit", "terminal", "network", "start" };
+  JsonNode *node = json_object_get_member(obj, "permissions");
+  JsonArray *list = node && JSON_NODE_HOLDS_ARRAY(node) ? json_node_get_array(node) : NULL;
+  PluginPermissions permissions = 0;
+
+  for (guint i = 0; list && i < json_array_get_length(list); i++) {
+    JsonNode *item = json_array_get_element(list, i);
+    const char *word = JSON_NODE_HOLDS_VALUE(item) && json_node_get_value_type(item) == G_TYPE_STRING
+                           ? json_node_get_string(item)
+                           : NULL;
+    gboolean known = FALSE;
+    for (guint n = 0; word && n < G_N_ELEMENTS(names); n++)
+      if (strcmp(word, names[n]) == 0) {
+        permissions |= 1 << n;
+        known = TRUE;
+      }
+    if (!known)
+      g_warning("Plugin %s: unknown permission '%s' left out", name, word ? word : "?");
+  }
+  return permissions;
+}
+
 /* A command's "keys": GTK's shortcut syntax (<Control><Alt>b), its label made from it. A "trigger"
  * (the shortcut before tapi_1) leaves "keys" a label; so does "keys" GTK cannot read (Ctrl+Alt+B). */
 static void command_keys(PluginCommand *cmd, const char *keys, const char *trigger)
@@ -144,7 +181,7 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
   }
   if (!id || !*id)
     id = dir_name;
-  if (find_plugin(t, id))
+  if (plugin_find(t, id))
     return NULL;
   if (list && json_array_get_length(list) > 0 &&
       !(executable = plugin_executable(plugin_dir, dir_name, string_member(obj, "executable")))) {
@@ -160,6 +197,8 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
   p->dir = g_strdup(plugin_dir);
   p->executable = executable;
   p->api = api;
+  p->permissions = plugin_permissions(obj, name);
+  p->token = g_uuid_string_random();
   p->commands = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_command_free);
   for (guint i = 0; list && i < json_array_get_length(list); i++) {
     JsonNode *node = json_array_get_element(list, i);
@@ -418,7 +457,7 @@ static void on_plugin_finished(GObject *source, GAsyncResult *result, gpointer u
 
 void plugin_run_command(App *t, const char *plugin_id, const char *command_id)
 {
-  Plugin *p = find_plugin(t, plugin_id);
+  Plugin *p = plugin_find(t, plugin_id);
   if (!p) {
     g_warning("Plugin '%s' not found", plugin_id);
     return;
@@ -447,6 +486,7 @@ void plugin_run_command(App *t, const char *plugin_id, const char *command_id)
   char *api = g_strdup_printf("tapi_%d", TAPI_LATEST); /* what the socket speaks */
   env = g_environ_setenv(env, "TCODE_API", api, TRUE);
   g_free(api);
+  env = g_environ_setenv(env, "TCODE_PLUGIN_TOKEN", p->token, TRUE);
   env = g_environ_setenv(env, "TCODE_COMMAND_ID", command_id, TRUE);
 
   Tab *tab = current_tab(t);
