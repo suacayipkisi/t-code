@@ -94,7 +94,7 @@ when the current file's server is not installed, the status bar shows **⚠ No L
 the commands that install it on your distribution (each with a Copy button), and **Try Again** starts
 it once it is there. When clangd cannot find
 includes and the project has no `compile_commands.json` or `compile_flags.txt`, the status bar shows
-**⚠ No compile flags**; a click explains how to give it the flags (and points out a misnamed
+**No compile flags**; a click explains how to give it the flags (and points out a misnamed
 `compile-flags.txt`).
 
 **Editing and Crash recovery.** A file with changes is saved a second after the last one (the
@@ -114,11 +114,11 @@ and F5 what to run (with arguments, environment, working folder, and named profi
 [`tasks.md`](tasks.md).
 
 **Status bar**: the git branch (`*` when there are changes), the language servers' errors and
-warnings in the open files, **⚠ No compile flags** when clangd lacks them, **⚙ Build** and
-**▶ Run** with what they would build (a plugin's or recovery's short messages show there too),
+warnings in the open files, **No compile flags** when clangd lacks them, **Build** and
+**Run** with what they would build (a plugin's or recovery's short messages show there too),
 what a language server is busy with (**rust-analyzer: Indexing 45%**, **clangd: starting**),
-**⚠ No LSP** when the file's language server is not installed, the file's indentation (**Spaces: 4**, **Tab Size: 8**), the
-cursor's line and column, and **⌨ Keybinds**.
+**No LSP** when the file's language server is not installed, the file's indentation (**Spaces: 4**, **Tab Size: 8**), the
+cursor's line and column, and **Keybinds**.
 
 **Indentation.** Each file gets the indentation its project asks for: the Settings' tab size and
 spaces, overridden by what the file itself uses (detect indentation), then by the project's
@@ -308,7 +308,7 @@ video and fonts open in the desktop's app for them instead of as text.
 
 ## Keys
 
-The **⌨ Keybinds** button in the status bar shows all of them, and `Ctrl+Shift+P` (command
+The **Keybinds** button in the status bar shows all of them, and `Ctrl+Shift+P` (command
 palette) finds any command by name.
 
 | Where       | Key                                    | Action                                    |

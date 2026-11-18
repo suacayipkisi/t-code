@@ -389,7 +389,6 @@ static const char *const css =
 
 GtkWidget *files_panel(App *t)
 {
-  static gboolean icons_added;
   GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
   GtkWidget *scroll = gtk_scrolled_window_new();
   GtkEventController *keys = gtk_event_controller_key_new();
@@ -398,10 +397,6 @@ GtkWidget *files_panel(App *t)
 
   files.app = t;
   files.show_hidden = TRUE;
-  if (!icons_added) { /* once: every window's panel shares the display's icon theme */
-    gtk_icon_theme_add_resource_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), FILE_ICONS_RESOURCE);
-    icons_added = TRUE;
-  }
   files.expanded = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   files.rows = g_ptr_array_new();
   files.problems = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);

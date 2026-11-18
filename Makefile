@@ -52,17 +52,22 @@ $(APP_BIN): $(APP_OBJ) Makefile | build
 
 -include $(APP_DEP)
 
-# The file icons (assets/icons/{dark,light}/<kind>.svg) built into the binary as resources, laid out
-# for the icon theme: scalable/apps/tcode-file-<kind>.svg and tcode-file-<kind>-light.svg
-# (src/files/icons.h). They stay SVG: the icon theme draws them at each size and scale.
+# t-code's icons built into the binary as resources, laid out for the icon theme (src/window/theme.h):
+# the file icons assets/icons/{dark,light}/<kind>.svg as scalable/apps/tcode-file-<kind>[-light].svg
+# (src/files/icons.h), the interface's assets/icons/ui/<name>.svg as
+# scalable/actions/tcode-<name>-symbolic.svg (one color, fills only: GTK paints them in the text's
+# color). They stay SVG: the icon theme draws them at each size and scale.
 ICON_SVG := $(wildcard assets/icons/dark/*.svg assets/icons/light/*.svg)
-build/resources.xml: $(ICON_SVG) Makefile | build
+UI_SVG   := $(wildcard assets/icons/ui/*.svg)
+build/resources.xml: $(ICON_SVG) $(UI_SVG) Makefile | build
 	@( echo '<?xml version="1.0" encoding="UTF-8"?>'; \
 	   echo '<gresources><gresource prefix="/io/github/suacayipkisi/tcode/icons">'; \
 	   for f in $(ICON_SVG); do n=$$(basename $$f .svg); case $$f in */light/*) n=$$n-light;; esac; \
 	     echo "<file alias=\"scalable/apps/tcode-file-$$n.svg\">$$f</file>"; done; \
+	   for f in $(UI_SVG); do \
+	     echo "<file alias=\"scalable/actions/tcode-$$(basename $$f .svg)-symbolic.svg\">$$f</file>"; done; \
 	   echo '</gresource></gresources>' ) > $@
-build/resources.c: build/resources.xml $(ICON_SVG)
+build/resources.c: build/resources.xml $(ICON_SVG) $(UI_SVG)
 	glib-compile-resources --sourcedir=. --generate-source --target=$@ $<
 $(OBJ_DIR)/resources.o: build/resources.c
 	@mkdir -p $(dir $@)

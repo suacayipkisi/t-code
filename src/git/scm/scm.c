@@ -283,7 +283,7 @@ static void set_section_open(GtkWidget *box, gboolean open)
 
   gtk_widget_set_visible(list, open);
   gtk_image_set_from_icon_name(GTK_IMAGE(gtk_widget_get_first_child(head)),
-                               open ? "pan-down-symbolic" : "pan-end-symbolic");
+                               open ? "tcode-chevron-down-symbolic" : "tcode-chevron-right-symbolic");
   if (open && box == scm.commits_box && scm.commits_stale) {
     scm.commits_stale = FALSE;
     commits_load();
@@ -319,7 +319,7 @@ static GtkWidget *section(GtkLabel **title, const char *text, GtkListBox **list,
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   GtkWidget *label = gtk_label_new(text);
-  GtkWidget *chevron = gtk_image_new_from_icon_name("pan-down-symbolic");
+  GtkWidget *chevron = gtk_image_new_from_icon_name("tcode-chevron-down-symbolic");
   GtkGesture *click = gtk_gesture_click_new();
 
   gtk_widget_add_css_class(head, "section");
@@ -349,9 +349,9 @@ GtkWidget *scm_panel(App *t)
   GtkWidget *overlay = gtk_overlay_new();
   GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   GtkEventController *keys = gtk_event_controller_key_new();
-  GtkWidget *unstage_all_button = scm_icon_button("−", "Unstage All");
-  GtkWidget *stage_all_button = scm_icon_button("+", "Stage All");
-  GtkWidget *refresh = scm_icon_button("⟳", "Refresh");
+  GtkWidget *unstage_all_button = scm_icon_button("tcode-remove-symbolic", "Unstage All");
+  GtkWidget *stage_all_button = scm_icon_button("tcode-add-symbolic", "Stage All");
+  GtkWidget *refresh = scm_icon_button("tcode-refresh-symbolic", "Refresh");
   GtkWidget *staged_buttons[] = { unstage_all_button };
   GtkWidget *changes_buttons[] = { stage_all_button };
   GtkWidget *commits_buttons[] = { refresh };

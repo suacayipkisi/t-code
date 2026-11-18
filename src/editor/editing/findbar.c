@@ -185,7 +185,8 @@ static void on_expand(FindBar *f)
   gboolean show = !gtk_widget_get_visible(f->replace_row);
 
   gtk_widget_set_visible(f->replace_row, show);
-  gtk_button_set_icon_name(GTK_BUTTON(f->expand), show ? "pan-down-symbolic" : "pan-end-symbolic");
+  gtk_button_set_icon_name(GTK_BUTTON(f->expand),
+                           show ? "tcode-chevron-down-symbolic" : "tcode-chevron-right-symbolic");
 }
 
 /* Keys in the bar: Shift+Enter finds the previous match, Escape closes the bar. */
@@ -268,7 +269,7 @@ static FindBar *findbar_new(Tab *tab)
   gtk_widget_set_valign(f->bar, GTK_ALIGN_START);
   gtk_widget_set_margin_end(f->bar, 18); /* clear of the scrollbar */
 
-  f->expand = bar_button(row, FALSE, "pan-end-symbolic", NULL, "Toggle Replace (Ctrl+H)");
+  f->expand = bar_button(row, FALSE, "tcode-chevron-right-symbolic", NULL, "Toggle Replace (Ctrl+H)");
   g_signal_connect_swapped(f->expand, "clicked", G_CALLBACK(on_expand), f);
   f->find = GTK_ENTRY(gtk_entry_new());
   gtk_entry_set_placeholder_text(f->find, "Find");
@@ -282,11 +283,11 @@ static FindBar *findbar_new(Tab *tab)
   f->count = GTK_LABEL(gtk_label_new(NULL));
   gtk_widget_add_css_class(GTK_WIDGET(f->count), "count");
   gtk_box_append(GTK_BOX(row), GTK_WIDGET(f->count));
-  button = bar_button(row, FALSE, "go-up-symbolic", NULL, "Previous Match (Shift+Enter, Shift+F3)");
+  button = bar_button(row, FALSE, "tcode-arrow-up-symbolic", NULL, "Previous Match (Shift+Enter, Shift+F3)");
   g_signal_connect_swapped(button, "clicked", G_CALLBACK(on_previous), f);
-  button = bar_button(row, FALSE, "go-down-symbolic", NULL, "Next Match (Enter, F3)");
+  button = bar_button(row, FALSE, "tcode-arrow-down-symbolic", NULL, "Next Match (Enter, F3)");
   g_signal_connect_swapped(button, "clicked", G_CALLBACK(on_next), f);
-  button = bar_button(row, FALSE, "window-close-symbolic", NULL, "Close (Escape)");
+  button = bar_button(row, FALSE, "tcode-close-symbolic", NULL, "Close (Escape)");
   g_signal_connect_swapped(button, "clicked", G_CALLBACK(hide), f);
   gtk_box_append(GTK_BOX(f->bar), row);
 

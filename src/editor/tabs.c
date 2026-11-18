@@ -291,7 +291,7 @@ static void on_tab_menu(GtkWidget *widget, double x, double y, gpointer tab)
 static GtkWidget *tab_label(Tab *tab)
 {
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-  GtkWidget *close = gtk_button_new_from_icon_name("window-close-symbolic");
+  GtkWidget *close = gtk_button_new_from_icon_name("tcode-close-symbolic");
   GtkGesture *middle = gtk_gesture_click_new(), *click = gtk_gesture_click_new();
   GtkDragSource *drag = gtk_drag_source_new();
 

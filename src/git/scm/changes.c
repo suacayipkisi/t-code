@@ -16,10 +16,10 @@
 
 /* Lists -------------------------------------------------------------------------------------- */
 
-/* A small flat button with a symbol (+, −, ↶, ⟳), shown on hover. */
-GtkWidget *scm_icon_button(const char *text, const char *tooltip)
+/* A small flat button with an icon (stage, unstage, discard, refresh), shown on hover. */
+GtkWidget *scm_icon_button(const char *icon, const char *tooltip)
 {
-  GtkWidget *button = gtk_button_new_with_label(text);
+  GtkWidget *button = gtk_button_new_from_icon_name(icon);
 
   gtk_button_set_has_frame(GTK_BUTTON(button), FALSE);
   gtk_widget_set_focusable(button, FALSE);
@@ -98,14 +98,14 @@ void scm_fill_changes(GtkListBox *list, GPtrArray *changes, gboolean staged)
 
     g_object_set_data(G_OBJECT(row), "change", c);
     if (staged) {
-      button = scm_icon_button("−", "Unstage");
+      button = scm_icon_button("tcode-remove-symbolic", "Unstage");
       g_signal_connect(button, "clicked", G_CALLBACK(on_unstage_clicked), c);
       gtk_box_append(GTK_BOX(box), button);
     } else {
-      button = scm_icon_button("↶", "Discard changes");
+      button = scm_icon_button("tcode-discard-symbolic", "Discard changes");
       g_signal_connect(button, "clicked", G_CALLBACK(on_discard_clicked), c);
       gtk_box_append(GTK_BOX(box), button);
-      button = scm_icon_button("+", "Stage");
+      button = scm_icon_button("tcode-add-symbolic", "Stage");
       g_signal_connect(button, "clicked", G_CALLBACK(on_stage_clicked), c);
       gtk_box_append(GTK_BOX(box), button);
     }

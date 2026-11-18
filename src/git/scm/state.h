@@ -82,8 +82,8 @@ GtkWidget *scm_open_button(GtkWidget *row, GtkWidget *content);
 GtkWidget *scm_code_label(char code);
 /* A file's row: name, its folder dimmed; *box_out takes the buttons and the letter on the right. */
 GtkWidget *scm_file_row(const char *path, char code, GtkWidget **box_out);
-/* A small flat button with a symbol (+, −, ↶, ⟳), shown on hover. */
-GtkWidget *scm_icon_button(const char *text, const char *tooltip);
+/* A small flat button with an icon (tcode-add-symbolic, ...), shown on hover. */
+GtkWidget *scm_icon_button(const char *icon, const char *tooltip);
 /* changes.c: a list filled from changes (staged: their buttons unstage), a row's click (its changes
  * side by side) and right-click menu. */
 void scm_fill_changes(GtkListBox *list, GPtrArray *changes, gboolean staged);

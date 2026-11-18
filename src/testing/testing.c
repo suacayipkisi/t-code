@@ -264,10 +264,10 @@ static GtkWidget *row_new(const char *key, const char *arrow, TestState state, c
   }
   gtk_widget_set_hexpand(label, TRUE);
   if (debugs)
-    gtk_box_append(GTK_BOX(box), row_button(key, "system-run-symbolic", "Debug Test", G_CALLBACK(on_row_debug)));
+    gtk_box_append(GTK_BOX(box), row_button(key, "tcode-debug-symbolic", "Debug Test", G_CALLBACK(on_row_debug)));
   if (runs)
-    gtk_box_append(GTK_BOX(box), row_button(key, "media-playback-start-symbolic",
-                                            key[0] == 't' ? "Run Test" : "Run Tests", G_CALLBACK(on_row_run)));
+    gtk_box_append(GTK_BOX(box), row_button(key, "tcode-run-symbolic", key[0] == 't' ? "Run Test" : "Run Tests",
+                                            G_CALLBACK(on_row_run)));
   gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
   g_object_set_data_full(G_OBJECT(row), "key", g_strdup(key), g_free);
   return row;
@@ -1168,10 +1168,10 @@ GtkWidget *testing_panel(App *t)
   gtk_label_set_ellipsize(testing.summary, PANGO_ELLIPSIZE_END);
   gtk_widget_set_hexpand(GTK_WIDGET(testing.summary), TRUE);
   gtk_box_append(GTK_BOX(header), GTK_WIDGET(testing.summary));
-  testing.run_all = header_button("media-playback-start-symbolic", "Run All Tests", G_CALLBACK(on_run_all), t);
-  testing.run_failed = header_button("edit-redo-symbolic", "Run Failed Tests", G_CALLBACK(on_run_failed), t);
-  testing.stop = header_button("process-stop-symbolic", "Stop", G_CALLBACK(on_stop), t);
-  testing.refresh = header_button("view-refresh-symbolic", "Refresh Tests", G_CALLBACK(on_refresh), t);
+  testing.run_all = header_button("tcode-run-symbolic", "Run All Tests", G_CALLBACK(on_run_all), t);
+  testing.run_failed = header_button("tcode-redo-symbolic", "Run Failed Tests", G_CALLBACK(on_run_failed), t);
+  testing.stop = header_button("tcode-stop-symbolic", "Stop", G_CALLBACK(on_stop), t);
+  testing.refresh = header_button("tcode-refresh-symbolic", "Refresh Tests", G_CALLBACK(on_refresh), t);
   gtk_box_append(GTK_BOX(header), testing.run_all);
   gtk_box_append(GTK_BOX(header), testing.run_failed);
   gtk_box_append(GTK_BOX(header), testing.stop);

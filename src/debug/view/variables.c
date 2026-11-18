@@ -311,7 +311,7 @@ void var_setup_row(GtkSignalListItemFactory *factory G_GNUC_UNUSED, GtkListItem 
   gtk_box_append(GTK_BOX(box), equals);
   gtk_box_append(GTK_BOX(box), value);
   if (data) {
-    GtkWidget *remove = gtk_button_new_from_icon_name("window-close-symbolic");
+    GtkWidget *remove = gtk_button_new_from_icon_name("tcode-close-symbolic");
     gtk_widget_add_css_class(remove, "flat");
     gtk_widget_add_css_class(remove, "remove");
     gtk_widget_set_tooltip_text(remove, "Remove this expression");

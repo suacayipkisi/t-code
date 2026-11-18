@@ -22,24 +22,24 @@ const int panel_default_docks[PANELS] = { 0, 0, 0, 4, 4, 0, 4, 0, 0, 0 };
 const char *panel_icon(const char *page)
 {
   if (strcmp(page, "files") == 0)
-    return "folder-symbolic";
+    return "tcode-files-symbolic";
   if (strcmp(page, "scm") == 0)
-    return "send-to-symbolic";
+    return "tcode-source-control-symbolic";
   if (strcmp(page, "search") == 0)
-    return "system-search-symbolic";
+    return "tcode-search-symbolic";
   if (strcmp(page, "debug") == 0)
-    return "system-run-symbolic";
+    return "tcode-debug-symbolic";
   if (strcmp(page, "run") == 0)
-    return "media-playback-start-symbolic";
+    return "tcode-run-symbolic";
   if (strcmp(page, "problems") == 0)
-    return "dialog-warning-symbolic";
+    return "tcode-warning-symbolic";
   if (strcmp(page, "outline") == 0)
-    return "view-list-symbolic";
+    return "tcode-outline-symbolic";
   if (strcmp(page, "hierarchy") == 0)
-    return "format-indent-more-symbolic";
+    return "tcode-hierarchy-symbolic";
   if (strcmp(page, "testing") == 0)
-    return "object-select-symbolic";
-  return "utilities-terminal-symbolic";
+    return "tcode-testing-symbolic";
+  return "tcode-terminal-symbolic";
 }
 
 int panel_id(const char *page)
@@ -229,7 +229,8 @@ void set_dock_collapsed(App *t, int d, gboolean collapsed)
     gtk_widget_set_valign(t->dock.cards[d], collapsed ? GTK_ALIGN_START : GTK_ALIGN_FILL);
   GtkWidget *btn = g_object_get_data(G_OBJECT(t->dock.cards[d]), "tcode-collapse-btn");
   if (btn)
-    gtk_button_set_icon_name(GTK_BUTTON(btn), collapsed ? "pan-end-symbolic" : "pan-down-symbolic");
+    gtk_button_set_icon_name(GTK_BUTTON(btn),
+                             collapsed ? "tcode-chevron-right-symbolic" : "tcode-chevron-down-symbolic");
   sync_side_paneds(t, d / 4);
   queue_panel_checks(t);
 }
@@ -445,11 +446,11 @@ void update_scm_badge(GtkStackPage *sp, GParamSpec *pspec G_GNUC_UNUSED, App *t)
         GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
         GtkWidget *lbl = gtk_label_new(count);
         gtk_widget_add_css_class(lbl, "tcode-scm-badge");
-        gtk_box_append(GTK_BOX(box), gtk_image_new_from_icon_name("send-to-symbolic"));
+        gtk_box_append(GTK_BOX(box), gtk_image_new_from_icon_name("tcode-source-control-symbolic"));
         gtk_box_append(GTK_BOX(box), lbl);
         gtk_button_set_child(GTK_BUTTON(btn), box);
       } else {
-        gtk_button_set_icon_name(GTK_BUTTON(btn), "send-to-symbolic");
+        gtk_button_set_icon_name(GTK_BUTTON(btn), "tcode-source-control-symbolic");
       }
       break;
     }

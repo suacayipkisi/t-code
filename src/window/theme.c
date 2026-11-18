@@ -44,13 +44,16 @@ static const char *const css =
     "headerbar menubar > item { min-height: 22px; padding: 0 8px; margin: 4px 1px; border-radius: 7px; color: var(--tc-fg); }"
     "headerbar menubar > item:hover { background: color-mix(in srgb, var(--tc-fg) 8%, transparent); }"
     "headerbar menubar > item:selected { background: color-mix(in srgb, var(--tc-fg) 14%, transparent); color: var(--tc-fg-strong); }"
-    "windowcontrols { border-spacing: 2px; margin-left: 8px; }"
+    "windowcontrols { border-spacing: 2px; margin-left: 8px; }" /* their icons: titlebar.c */
     "windowcontrols > button { min-width: 36px; min-height: 22px; padding: 0; margin: 4px 0; border-radius: 7px; }"
     "windowcontrols > button > image, windowcontrols > button:hover > image,"
     "windowcontrols > button:active > image { background: none; box-shadow: none; padding: 0; margin: 0;"
     "  border-radius: 0; min-width: 16px; min-height: 16px; -gtk-icon-size: 14px; }"
     "windowcontrols > button.close:hover { background: #c42b1c; color: #ffffff; }"
     "windowcontrols > button.close:active { background: #a52617; color: #ffffff; }"
+    /* The trees' arrows (Files, Outline, ...): t-code's own chevrons instead of the theme's. */
+    "treeexpander expander { -gtk-icon-source: -gtk-icontheme('tcode-chevron-right-symbolic'); }"
+    "treeexpander expander:checked { -gtk-icon-source: -gtk-icontheme('tcode-chevron-down-symbolic'); }"
 
     /* Editor tabs (editor/tabs.c's strip over each group): rounded on top, the current one in the
      * editor's color, flowing into it. */
@@ -127,6 +130,7 @@ void load_theme(App *t)
   GtkCssProvider *provider = gtk_css_provider_new();
 
   g_object_set(gtk_settings_get_default(), "gtk-theme-name", "Adwaita", NULL);
+  gtk_icon_theme_add_resource_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), TCODE_ICONS_RESOURCE);
   move_old_colors();                        /* before the editors look for it */
   palette_init(t, t->settings.color_theme); /* the colors' CSS variables, under everything here */
   gtk_css_provider_load_from_string(provider, css);

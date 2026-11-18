@@ -148,7 +148,7 @@ t-code path/dir
 t-code a.c b.c    # open files as tabs
 ```
 
-The **⌨ Keybinds** button in the status bar lists every key, and `Ctrl+Shift+P` finds any command.
+The **Keybinds** button in the status bar lists every key, and `Ctrl+Shift+P` finds any command.
 The ones to know first:
 
 | Key | Action |

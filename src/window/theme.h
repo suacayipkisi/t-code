@@ -6,7 +6,12 @@
 
 #include "app.h"
 
-/* Before any window: forces Adwaita (dark) and adds the global CSS, the square theme when the
+/* t-code's own icons (assets/icons: the file icons and the interface's symbolic ones), built into the
+ * binary by the Makefile; load_theme() adds them to the icon theme. Names: tcode-file-<kind>[-light]
+ * (files/icons.h) and tcode-<name>-symbolic. */
+#define TCODE_ICONS_RESOURCE "/io/github/suacayipkisi/tcode/icons"
+
+/* Before any window: forces Adwaita (dark), adds t-code's icons and the global CSS, the square theme when the
  * settings ask for it, and the user's theme.css. */
 void load_theme(App *t);
 

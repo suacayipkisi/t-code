@@ -54,8 +54,7 @@ void problems_focus(App *t)
 /* A diagnostic's row: its icon, message and place; activating it opens the place. */
 static GtkWidget *problem_row(Tab *tab, const char *name, Diagnostic *d, int kind)
 {
-  static const char *const icons[] = { "dialog-error-symbolic", "dialog-warning-symbolic",
-                                       "dialog-information-symbolic" };
+  static const char *const icons[] = { "tcode-error-symbolic", "tcode-warning-symbolic", "tcode-info-symbolic" };
   static const char *const classes[] = { "tcode-problem-error", "tcode-problem-warning", "tcode-problem-info" };
   const char *message = diagnostic_message(d);
   GtkWidget *row = gtk_list_box_row_new(), *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);

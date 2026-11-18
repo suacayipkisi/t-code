@@ -33,7 +33,13 @@ static const char *const css =
     ".tcode-status button:hover { background: color-mix(in srgb, var(--tc-fg) 12%, transparent); }"
     ".tcode-status label { color: var(--tc-fg); padding: 0 8px; }"
     ".tcode-status label.dim { color: var(--tc-fg-dim); }"
-    ".tcode-status button.warning { color: var(--tc-warning); }";
+    ".tcode-status button.warning { color: var(--tc-warning); }"
+    /* Icons before the text: one gap between them, the label's own padding goes. */
+    ".tcode-status image.icon { -gtk-icon-size: 14px; color: var(--tc-fg); }"
+    ".tcode-status button > box > label { padding: 0; }"
+    ".tcode-status button.warning label, .tcode-status button.warning image.icon { color: var(--tc-warning); }"
+    ".tcode-status .problems { padding: 0 8px; }"
+    ".tcode-status .problems label { padding: 0 6px 0 0; }";
 
 /* How long a status_say() message stays before the Build / Run target comes back. */
 #define SAY_MS 3000
@@ -64,16 +70,17 @@ void update_status(App *t)
       warnings += each->problems.warnings;
     }
   }
-  text = g_strdup_printf("⊗ %d  ⚠ %d", errors, warnings);
-  gtk_label_set_text(t->status.problems, text);
+  text = g_strdup_printf("%d", errors);
+  gtk_label_set_text(t->status.errors, text);
+  g_free(text);
+  text = g_strdup_printf("%d", warnings);
+  gtk_label_set_text(t->status.warnings, text);
   g_free(text);
 
   const char *problem = NULL;
   text = lsp_flags_hint(t, &problem);
   if (text) {
-    char *label = g_strdup_printf("⚠ %s", problem);
-    gtk_button_set_label(GTK_BUTTON(t->status.flags), label);
-    g_free(label);
+    gtk_label_set_text(g_object_get_data(G_OBJECT(t->status.flags), "t-code-label"), problem);
   }
   gtk_widget_set_tooltip_text(t->status.flags, text);
   gtk_widget_set_visible(t->status.flags, text != NULL);
@@ -266,10 +273,29 @@ static GtkLabel *status_label(GtkWidget *bar, gboolean dim)
   return GTK_LABEL(label);
 }
 
-/* A flat button on the bar that calls clicked(t). */
-static GtkWidget *status_button(GtkWidget *bar, const char *text, const char *tooltip, GCallback clicked, App *t)
+/* An icon (t-code's own, see window/theme.h) on the bar. */
+static void status_icon(GtkWidget *box, const char *icon)
 {
-  GtkWidget *button = gtk_button_new_with_label(text);
+  GtkWidget *image = gtk_image_new_from_icon_name(icon);
+
+  gtk_widget_add_css_class(image, "icon");
+  gtk_box_append(GTK_BOX(box), image);
+}
+
+/* A flat button on the bar that calls clicked(t): its text, after an icon unless icon is NULL (then
+ * gtk_button_set_label() changes the text; with an icon, the label is its "t-code-label" data). */
+static GtkWidget *status_button(GtkWidget *bar, const char *icon, const char *text, const char *tooltip,
+                                GCallback clicked, App *t)
+{
+  GtkWidget *button = icon ? gtk_button_new() : gtk_button_new_with_label(text);
+
+  if (icon) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4), *label = gtk_label_new(text);
+    status_icon(box, icon);
+    gtk_box_append(GTK_BOX(box), label);
+    gtk_button_set_child(GTK_BUTTON(button), box);
+    g_object_set_data(G_OBJECT(button), "t-code-label", label);
+  }
 
   gtk_button_set_has_frame(GTK_BUTTON(button), FALSE);
   gtk_widget_set_focusable(button, FALSE);
@@ -348,13 +374,19 @@ GtkWidget *status_bar(App *t)
   gtk_widget_add_controller(GTK_WIDGET(t->status.branch), GTK_EVENT_CONTROLLER(branch_click));
   gtk_widget_set_cursor_from_name(GTK_WIDGET(t->status.branch), "pointer");
   gtk_widget_set_tooltip_text(GTK_WIDGET(t->status.branch), "Switch to another branch, or create one");
-  t->status.problems = status_label(bar, FALSE);
-  gtk_widget_set_tooltip_text(GTK_WIDGET(t->status.problems), "clangd errors and warnings in the open files");
-  t->status.flags = status_button(bar, "⚠ No compile flags", NULL, G_CALLBACK(on_flags), t);
+  GtkWidget *problems = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+  gtk_widget_add_css_class(problems, "problems");
+  gtk_widget_set_tooltip_text(problems, "clangd errors and warnings in the open files");
+  status_icon(problems, "tcode-error-symbolic");
+  t->status.errors = status_label(problems, FALSE);
+  status_icon(problems, "tcode-warning-symbolic");
+  t->status.warnings = status_label(problems, FALSE);
+  gtk_box_append(GTK_BOX(bar), problems);
+  t->status.flags = status_button(bar, "tcode-warning-symbolic", "No compile flags", NULL, G_CALLBACK(on_flags), t);
   gtk_widget_add_css_class(t->status.flags, "warning");
   gtk_widget_set_visible(t->status.flags, FALSE);
-  status_button(bar, "⚙ Build", "Build (Ctrl+Shift+B)", G_CALLBACK(on_build), t);
-  status_button(bar, "▶ Run", "Build and run, without debugging (Ctrl+F5)", G_CALLBACK(on_run), t);
+  status_button(bar, "tcode-build-symbolic", "Build", "Build (Ctrl+Shift+B)", G_CALLBACK(on_build), t);
+  status_button(bar, "tcode-run-symbolic", "Run", "Build and run, without debugging (Ctrl+F5)", G_CALLBACK(on_run), t);
   t->status.build = status_label(bar, TRUE);
 
   gtk_widget_set_hexpand(spacer, TRUE);
@@ -363,14 +395,14 @@ GtkWidget *status_bar(App *t)
   gtk_label_set_ellipsize(t->status.progress, PANGO_ELLIPSIZE_END);
   gtk_label_set_max_width_chars(t->status.progress, 48);
   gtk_widget_set_visible(GTK_WIDGET(t->status.progress), FALSE);
-  t->status.no_lsp = status_button(bar, "⚠ No LSP", NULL, G_CALLBACK(on_no_lsp), t);
+  t->status.no_lsp = status_button(bar, "tcode-warning-symbolic", "No LSP", NULL, G_CALLBACK(on_no_lsp), t);
   gtk_widget_add_css_class(t->status.no_lsp, "warning");
   gtk_widget_set_visible(t->status.no_lsp, FALSE);
-  t->status.font_scale = status_button(bar, "", "Reset Text Size (Ctrl + 0)", G_CALLBACK(on_font_scale_reset), t);
+  t->status.font_scale = status_button(bar, NULL, "", "Reset Text Size (Ctrl + 0)", G_CALLBACK(on_font_scale_reset), t);
   gtk_widget_set_visible(t->status.font_scale, FALSE);
-  t->status.indent = status_button(bar, "", NULL, G_CALLBACK(status_pick_indent), t);
+  t->status.indent = status_button(bar, NULL, "", NULL, G_CALLBACK(status_pick_indent), t);
   gtk_widget_set_visible(t->status.indent, FALSE);
   t->status.position = status_label(bar, FALSE);
-  status_button(bar, "⌨ Keybinds", "All keyboard shortcuts", G_CALLBACK(show_keybinds), t);
+  status_button(bar, "tcode-keyboard-symbolic", "Keybinds", "All keyboard shortcuts", G_CALLBACK(show_keybinds), t);
   return bar;
 }

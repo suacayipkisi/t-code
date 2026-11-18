@@ -9,6 +9,7 @@
 #include "files/files.c"
 #include "files/rows.c"
 #include "util.h"
+#include "window/theme.h"
 
 #include <glib/gstdio.h>
 
@@ -462,6 +463,7 @@ static void test_icons(void)
   g_assert_true(gtk_icon_theme_has_icon(theme, "tcode-file-c"));
   g_assert_true(gtk_icon_theme_has_icon(theme, "tcode-file-c-light"));
   g_assert_true(gtk_icon_theme_has_icon(theme, "tcode-file-folder-open"));
+  g_assert_true(gtk_icon_theme_has_icon(theme, "tcode-chevron-right-symbolic")); /* the interface's */
   r.path = g_strdup("/p/main.c");
   files_paint(&r);
   g_assert_cmpstr(gtk_image_get_icon_name(GTK_IMAGE(r.icon)), ==, "tcode-file-c");
@@ -484,6 +486,8 @@ int main(int argc, char **argv)
   app.settings.font_scale = 1;
   app.settings.files_font = "Cascadia Code 11";
   app.project.root = g_strdup(g_get_tmp_dir());
+  /* load_theme()'s (window/theme.c) */
+  gtk_icon_theme_add_resource_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), TCODE_ICONS_RESOURCE);
   window = gtk_window_new();
   gtk_window_set_child(GTK_WINDOW(window), files_panel(&app));
   g_clear_pointer(&app.project.root, g_free);

@@ -809,9 +809,9 @@ static GtkWidget *small_label(const char *text)
 }
 
 /* A flat button next to the summary (refresh, fold all, clear). */
-static GtkWidget *tool_button(const char *text, const char *tooltip, GCallback clicked)
+static GtkWidget *tool_button(const char *icon, const char *tooltip, GCallback clicked)
 {
-  GtkWidget *button = gtk_button_new_with_label(text);
+  GtkWidget *button = gtk_button_new_from_icon_name(icon);
 
   gtk_button_set_has_frame(GTK_BUTTON(button), FALSE);
   gtk_widget_set_focusable(button, FALSE);
@@ -892,9 +892,10 @@ GtkWidget *search_panel(App *t)
   gtk_label_set_wrap(search.summary, TRUE);
   gtk_widget_set_hexpand(GTK_WIDGET(search.summary), TRUE);
   gtk_box_append(GTK_BOX(head), GTK_WIDGET(search.summary));
-  gtk_box_append(GTK_BOX(head), tool_button("⟳", "Refresh", G_CALLBACK(start_search)));
-  gtk_box_append(GTK_BOX(head), tool_button("⊟", "Collapse / Expand All", G_CALLBACK(fold_all)));
-  gtk_box_append(GTK_BOX(head), tool_button("✕", "Clear Search Results", G_CALLBACK(clear_search)));
+  gtk_box_append(GTK_BOX(head), tool_button("tcode-refresh-symbolic", "Refresh", G_CALLBACK(start_search)));
+  gtk_box_append(GTK_BOX(head),
+                 tool_button("tcode-collapse-all-symbolic", "Collapse / Expand All", G_CALLBACK(fold_all)));
+  gtk_box_append(GTK_BOX(head), tool_button("tcode-close-symbolic", "Clear Search Results", G_CALLBACK(clear_search)));
   gtk_box_append(GTK_BOX(panel), head);
 
   search.list = GTK_LIST_BOX(gtk_list_box_new());

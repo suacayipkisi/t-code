@@ -156,21 +156,77 @@ static GMenu *menu_bar_model(App *t)
   return bar;
 }
 
+/* The window controls: t-code's own icons instead of the theme's. GtkWindowControls makes its
+ * buttons again when the layout or the window's state changes, so this runs after each time. */
+static void own_control_icons(GtkWidget *widget, gboolean maximized)
+{
+  for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child)) {
+    const char *name = NULL;
+    if (GTK_IS_IMAGE(child) && gtk_widget_get_parent(child) && GTK_IS_BUTTON(gtk_widget_get_parent(child))) {
+      GtkWidget *button = gtk_widget_get_parent(child);
+      if (gtk_widget_has_css_class(button, "minimize"))
+        name = "tcode-window-minimize-symbolic";
+      else if (gtk_widget_has_css_class(button, "maximize"))
+        name = maximized ? "tcode-window-restore-symbolic" : "tcode-window-maximize-symbolic";
+      else if (gtk_widget_has_css_class(button, "close"))
+        name = "tcode-window-close-symbolic";
+    }
+    if (name && g_strcmp0(gtk_image_get_icon_name(GTK_IMAGE(child)), name) != 0)
+      gtk_image_set_from_icon_name(GTK_IMAGE(child), name);
+    own_control_icons(child, maximized);
+  }
+}
+
+static gboolean controls_idle(gpointer data)
+{
+  GtkRoot *root = gtk_widget_get_root(data);
+
+  own_control_icons(data, GTK_IS_WINDOW(root) && gtk_window_is_maximized(GTK_WINDOW(root)));
+  return G_SOURCE_REMOVE;
+}
+
+static void controls_changed(GtkWidget *header)
+{
+  g_idle_add_full(G_PRIORITY_DEFAULT, controls_idle, g_object_ref(header), g_object_unref);
+}
+
+/* Watches every GtkWindowControls under widget for new buttons. */
+static void watch_controls(GtkWidget *widget, GtkWidget *header)
+{
+  for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child)) {
+    if (GTK_IS_WINDOW_CONTROLS(child)) {
+      GListModel *buttons = gtk_widget_observe_children(child);
+      g_signal_connect_object(buttons, "items-changed", G_CALLBACK(controls_changed), header, G_CONNECT_SWAPPED);
+      g_object_set_data_full(G_OBJECT(child), "t-code-buttons", buttons, g_object_unref);
+    }
+    watch_controls(child, header);
+  }
+}
+
+static void on_header_realize(GtkWidget *header)
+{
+  watch_controls(header, header);
+  g_signal_connect_object(gtk_widget_get_root(header), "notify::maximized", G_CALLBACK(controls_changed), header,
+                          G_CONNECT_SWAPPED);
+  controls_changed(header);
+}
+
 GtkWidget *title_bar(App *t)
 {
   GtkWidget *header = gtk_header_bar_new();
   GMenu *model = menu_bar_model(t);
   GtkWidget *menu_bar = gtk_popover_menu_bar_new_from_model(G_MENU_MODEL(model));
-  GtkWidget *left_btn = gtk_button_new_from_icon_name("sidebar-show-symbolic");
-  GtkWidget *right_btn = gtk_button_new_from_icon_name("sidebar-show-right-symbolic");
-  GtkWidget *bottom_btn = gtk_button_new_from_icon_name("go-bottom-symbolic");
+  GtkWidget *left_btn = gtk_button_new_from_icon_name("tcode-sidebar-left-symbolic");
+  GtkWidget *right_btn = gtk_button_new_from_icon_name("tcode-sidebar-right-symbolic");
+  GtkWidget *bottom_btn = gtk_button_new_from_icon_name("tcode-panel-bottom-symbolic");
   GtkWidget *split = gtk_toggle_button_new();
 
   add_menu_actions(t);
+  g_signal_connect(header, "realize", G_CALLBACK(on_header_realize), NULL);
   gtk_header_bar_pack_start(GTK_HEADER_BAR(header), menu_bar);
   g_object_unref(model);
 
-  gtk_button_set_icon_name(GTK_BUTTON(split), "view-dual-symbolic");
+  gtk_button_set_icon_name(GTK_BUTTON(split), "tcode-split-symbolic");
   gtk_widget_set_tooltip_text(split, "Split Editor (Ctrl+\\)");
   t->editors.split_button = GTK_TOGGLE_BUTTON(split);
   g_signal_connect(split, "toggled", G_CALLBACK(on_split_toggled), t);

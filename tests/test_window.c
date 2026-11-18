@@ -34,6 +34,7 @@
 #include "window/secondwindow.h"
 #include "window/statusbar.h"
 #include "window/palette.h"
+#include "window/docks/docks.h"
 #include "window/theme.h"
 #include "window/window.h"
 #include "broadway.h"
@@ -2235,6 +2236,31 @@ static gboolean button_on(const char *page)
   return on;
 }
 
+/* The interface uses t-code's own icons (assets/icons/ui, built in): the panels' tabs, the status
+ * bar and the window controls GTK makes, whose theme icons titlebar.c swaps. */
+static gboolean controls_owned(gconstpointer data G_GNUC_UNUSED)
+{
+  GtkWidget *close = find_widget(GTK_WIDGET(app.window), GTK_TYPE_BUTTON, NULL, "close");
+  GtkWidget *image = close ? find_widget(close, GTK_TYPE_IMAGE, NULL, NULL) : NULL;
+
+  return image && g_strcmp0(gtk_image_get_icon_name(GTK_IMAGE(image)), "tcode-window-close-symbolic") == 0;
+}
+
+static void test_own_icons(void)
+{
+  GtkIconTheme *theme = gtk_icon_theme_get_for_display(gdk_display_get_default());
+  GtkWidget *problems = find_widget(GTK_WIDGET(app.window), GTK_TYPE_BOX, NULL, "problems");
+
+  for (int i = 0; i < PANELS; i++)
+    g_assert_true(gtk_icon_theme_has_icon(theme, panel_icon(panel_names[i])));
+  g_assert_nonnull(problems);
+  g_assert_cmpstr(gtk_image_get_icon_name(GTK_IMAGE(find_widget(problems, GTK_TYPE_IMAGE, NULL, NULL))), ==,
+                  "tcode-error-symbolic");
+  g_assert_true(gtk_icon_theme_has_icon(theme, "tcode-error-symbolic"));
+  run_until(controls_owned, NULL);
+  g_assert_true(controls_owned(NULL));
+}
+
 /* Each panel has an item in the Panels menu, checked while the panel shows: choosing it hides a
  * shown panel and brings a hidden one back from wherever it is, also from a side squeezed to
  * nothing (a size saved on a bigger screen), which Ctrl+J then shows too instead of hiding it.
@@ -2955,6 +2981,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/open-user-files", test_open_user_files);
   g_test_add_func("/window/settings-pages", test_settings_pages);
   g_test_add_func("/window/panel-menu", test_panel_buttons);
+  g_test_add_func("/window/own-icons", test_own_icons);
   g_test_add_func("/window/temporary-tabs", test_temporary);
   g_test_add_func("/window/temporary-per-group", test_temporary_per_group);
   g_test_add_func("/window/opens-at-left-edge", test_opens_at_left_edge);

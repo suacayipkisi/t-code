@@ -964,13 +964,14 @@ GtkWidget *debug_panel(App *t)
   GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
 
   gtk_widget_add_css_class(bar, "tcode-debug-bar");
-  ui.start = tool_button(t, bar, "media-playback-start-symbolic", "Start Debugging (F5)", debug_start_or_continue);
-  ui.pause = tool_button(t, bar, "media-playback-pause-symbolic", "Pause (F6)", debug_pause);
-  ui.over = tool_button(t, bar, "go-jump-symbolic", "Step Over: the next line (F10)", debug_step_over);
-  ui.into = tool_button(t, bar, "go-down-symbolic", "Step Into: into the function called here (F11)", debug_step_into);
-  ui.out = tool_button(t, bar, "go-up-symbolic", "Step Out: back to the caller (Shift+F11)", debug_step_out);
-  ui.restart = tool_button(t, bar, "view-refresh-symbolic", "Restart (Ctrl+Shift+F5)", debug_restart);
-  ui.stop = tool_button(t, bar, "media-playback-stop-symbolic", "Stop (Shift+F5)", debug_stop);
+  ui.start = tool_button(t, bar, "tcode-run-symbolic", "Start Debugging (F5)", debug_start_or_continue);
+  ui.pause = tool_button(t, bar, "tcode-pause-symbolic", "Pause (F6)", debug_pause);
+  ui.over = tool_button(t, bar, "tcode-step-over-symbolic", "Step Over: the next line (F10)", debug_step_over);
+  ui.into = tool_button(t, bar, "tcode-step-into-symbolic", "Step Into: into the function called here (F11)",
+                        debug_step_into);
+  ui.out = tool_button(t, bar, "tcode-step-out-symbolic", "Step Out: back to the caller (Shift+F11)", debug_step_out);
+  ui.restart = tool_button(t, bar, "tcode-refresh-symbolic", "Restart (Ctrl+Shift+F5)", debug_restart);
+  ui.stop = tool_button(t, bar, "tcode-stop-symbolic", "Stop (Shift+F5)", debug_stop);
   ui.assembly = gtk_button_new_with_label("ASM");
   gtk_widget_set_tooltip_text(ui.assembly, "Open Disassembly View: the paused function's machine instructions; while "
                                            "it is in front, F10 / F11 step one instruction");

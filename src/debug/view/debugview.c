@@ -201,7 +201,7 @@ GtkWidget *debug_view(App *t)
   g_signal_connect(keys, "key-pressed", G_CALLBACK(watch_on_entry_key), view.watch_entry);
   gtk_widget_add_controller(view.watch_entry, keys);
   gtk_box_append(GTK_BOX(rest),
-                 heading("WATCH", "list-add-symbolic", "Add an expression to watch", G_CALLBACK(watch_on_add)));
+                 heading("WATCH", "tcode-add-symbolic", "Add an expression to watch", G_CALLBACK(watch_on_add)));
   gtk_box_append(GTK_BOX(rest), view.watch_entry);
   gtk_box_append(GTK_BOX(rest), var_list(view.watch, TRUE));
 
@@ -215,7 +215,7 @@ GtkWidget *debug_view(App *t)
   gtk_list_box_set_selection_mode(view.breakpoints, GTK_SELECTION_NONE);
   g_signal_connect(view.breakpoints, "row-activated", G_CALLBACK(bplist_on_activated), NULL);
   context_menu_attach(GTK_WIDGET(view.breakpoints), bplist_on_menu, NULL);
-  gtk_box_append(GTK_BOX(rest), heading("BREAKPOINTS", "edit-clear-all-symbolic", "Remove all breakpoints",
+  gtk_box_append(GTK_BOX(rest), heading("BREAKPOINTS", "tcode-delete-symbolic", "Remove all breakpoints",
                                         G_CALLBACK(bplist_on_remove_all)));
   gtk_box_append(GTK_BOX(rest), GTK_WIDGET(view.breakpoints));
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(rest_scroll), rest);

@@ -207,7 +207,8 @@ void open_tabs_show(gboolean shown)
   if (!open_tabs.chevron)
     return;
   g_object_set_data(G_OBJECT(open_tabs.chevron), "t-code-folded", shown ? NULL : GINT_TO_POINTER(1));
-  gtk_image_set_from_icon_name(GTK_IMAGE(open_tabs.chevron), shown ? "pan-down-symbolic" : "pan-end-symbolic");
+  gtk_image_set_from_icon_name(GTK_IMAGE(open_tabs.chevron),
+                               shown ? "tcode-chevron-down-symbolic" : "tcode-chevron-right-symbolic");
   gtk_widget_set_visible(open_tabs.scrolled, shown && tab_count(open_tabs.app) > 0);
 }
 
@@ -229,7 +230,7 @@ GtkWidget *open_tabs_new(App *t)
   open_tabs.app = t;
   open_tabs.section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_widget_add_css_class(open_tabs.section, "tcode-opentabs");
-  open_tabs.chevron = gtk_image_new_from_icon_name("pan-down-symbolic");
+  open_tabs.chevron = gtk_image_new_from_icon_name("tcode-chevron-down-symbolic");
   gtk_widget_add_css_class(open_tabs.chevron, "chevron");
   gtk_widget_add_css_class(head, "section");
   gtk_label_set_xalign(GTK_LABEL(title), 0);

@@ -114,7 +114,7 @@ void debug_view_breakpoints_changed(App *t)
     char *name = g_path_get_basename(l->path), *where = g_strdup_printf("%s:%d", name, l->b->line);
     GtkWidget *row = gtk_list_box_row_new(), *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     GtkWidget *place = gtk_label_new(where), *condition = gtk_label_new(NULL);
-    GtkWidget *remove = gtk_button_new_from_icon_name("window-close-symbolic");
+    GtkWidget *remove = gtk_button_new_from_icon_name("tcode-close-symbolic");
 
     if (l->b->condition) {
       char *text = g_strdup_printf("when %s", l->b->condition);

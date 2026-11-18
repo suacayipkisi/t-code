@@ -310,9 +310,9 @@ static GtkWidget *new_dock(App *t, int index)
 {
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  GtkWidget *collapse_btn = gtk_button_new_from_icon_name("pan-down-symbolic");
+  GtkWidget *collapse_btn = gtk_button_new_from_icon_name("tcode-chevron-down-symbolic");
   GtkWidget *switcher = gtk_stack_switcher_new();
-  GtkWidget *close_btn = gtk_button_new_from_icon_name("window-close-symbolic");
+  GtkWidget *close_btn = gtk_button_new_from_icon_name("tcode-close-symbolic");
   GtkStack *stack = GTK_STACK(gtk_stack_new());
   GtkGesture *right = gtk_gesture_click_new();
   GtkDragSource *drag = gtk_drag_source_new();
