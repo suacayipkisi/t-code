@@ -1,15 +1,16 @@
 /*
- * The control socket, for scripts and tools (tools/headless.sh, packaging/smoke-test.sh); its path
- * is in $TCODE_SOCKET. One request per line; a client that ends its requests with NUL bytes instead
- * (a path may hold a line break: printf 'open %s\0' "$path") ends them all that way:
- *   open <path>        open-side <path>    open-window <path> preview <path>     project <dir>
- *   compare <path>     history <path>      terminal <dir>     copy <text>
- *   debug <path>       debug-failed <dir>  say <text>         insert <text>      append <text>
- *   replace-all <text> get-file            get-project        get-text           save subscribe
- * Paths are absolute. "compare" and "history" are git comparisons (git/compare.c), "terminal"
- * does cd in the shell, "copy" puts text on the clipboard, "debug" starts the debugger on a program
- * that was just built for it (t-code --send, from project/run.c; a folder: pick one in it), "debug-failed"
- * says that build failed.
+ * The control socket, for plugins, scripts and tools (tools/headless.sh, packaging/smoke-test.sh); its
+ * path is in $TCODE_SOCKET. One request per line; a client that ends its requests with NUL bytes
+ * instead (a path may hold a line break: printf 'open %s\0' "$path") ends them all that way. The
+ * protocol is docs/plugins.md's.
+ *
+ * A connection that starts with "hello tapi_1" speaks tapi_1: every request gets an answer line, "ok",
+ * "ok <value>" or "error <code> <message>" (get-text's "ok" is followed by the text and a NUL). One
+ * that does not is a legacy one, answered as before the API had a version: only get-file,
+ * get-project, get-text, version and subscribe answer.
+ *
+ * "_debug <program>" and "_debug-failed <dir>" are internal (F5's build, through t-code --send): they
+ * may change; a legacy connection may still call them "debug" and "debug-failed".
  */
 #include "ipc/socket.h"
 
@@ -28,6 +29,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifndef TCODE_VERSION /* set by the Makefile */
+#define TCODE_VERSION "unknown"
+#endif
+
 /* A subscriber that has this much unread output is dropped: it does not read its events. */
 #define MAX_BACKLOG (256 * 1024)
 
@@ -39,6 +44,7 @@ typedef struct {
   GQueue pending; /* GBytes not written yet */
   gsize backlog;  /* their bytes */
   gboolean writing, failed, subscribed;
+  int api; /* the tapi version it said hello with; 0: a legacy connection */
   int refs;
 } Client;
 
@@ -154,7 +160,10 @@ static void subscribe_events(Client *c)
     g_ptr_array_add(c->app->socket_events, c);
     c->subscribed = TRUE;
   }
-  client_send(c, response, sizeof response - 1);
+  if (c->api)
+    client_send(c, "ok\n", 3);
+  else
+    client_send(c, response, sizeof response - 1);
 }
 
 /* Answers with text and a line break. */
@@ -166,6 +175,56 @@ static void send_line(Client *c, const char *text)
   g_free(line);
 }
 
+/* tapi answers (a legacy connection gets none): "ok" or "ok <value>". */
+static void answer_ok(Client *c, const char *value)
+{
+  char *line;
+
+  if (!c->api)
+    return;
+  line = value ? g_strconcat("ok ", value, NULL) : g_strdup("ok");
+  send_line(c, line);
+  g_free(line);
+}
+
+/* "error <code> <message>": code is one word a plugin can test, message is for people. */
+static void answer_error(Client *c, const char *code, const char *message)
+{
+  char *line;
+
+  if (!c->api)
+    return;
+  line = g_strdup_printf("error %s %s", code, message);
+  send_line(c, line);
+  g_free(line);
+}
+
+/* "hello [tapi_N]": the connection speaks tapi_N from now on (the latest when no version is named). */
+static void hello(Client *c, const char *arg)
+{
+  int version = 0;
+
+  if (!*arg)
+    version = TAPI_LATEST;
+  else if (g_str_has_prefix(arg, "tapi_")) {
+    char *end = NULL;
+    gint64 number = g_ascii_strtoll(arg + 5, &end, 10);
+    if (end && !*end && number >= 1 && number <= TAPI_LATEST)
+      version = (int)number;
+  }
+  if (!version) {
+    char *message =
+        g_strdup_printf("error unsupported-api t-code %s speaks tapi_1 to tapi_%d", TCODE_VERSION, TAPI_LATEST);
+    send_line(c, message);
+    g_free(message);
+    return;
+  }
+  c->api = version;
+  char *line = g_strdup_printf("ok tapi_%d t-code %s", version, TCODE_VERSION);
+  send_line(c, line);
+  g_free(line);
+}
+
 /* One request (see the top of this file). */
 static void handle(Client *c, const char *command, const char *arg)
 {
@@ -173,36 +232,71 @@ static void handle(Client *c, const char *command, const char *arg)
   Tab *tab = current_tab(t);
   gboolean editor = tab && tab->kind == TAB_EDITOR;
   GtkTextBuffer *buffer = editor && tab->buffer ? GTK_TEXT_BUFFER(tab->buffer) : NULL; /* NULL: no editor */
+  gboolean legacy = c->api == 0;
+  const char *failure = NULL, *message = NULL; /* an error's code and its words */
   GtkTextIter start, end;
 
   if (buffer)
     gtk_text_buffer_get_bounds(buffer, &start, &end);
-  if (strcmp(command, "subscribe") == 0)
+  if (strcmp(command, "hello") == 0) {
+    hello(c, arg);
+    return;
+  }
+  if (strcmp(command, "version") == 0) { /* new with tapi_1: answers legacy connections too */
+    char *line = g_strdup_printf("ok tapi_%d t-code %s", TAPI_LATEST, TCODE_VERSION);
+    send_line(c, line);
+    g_free(line);
+    return;
+  }
+  if (strcmp(command, "subscribe") == 0) {
     subscribe_events(c);
-  else if (strcmp(command, "say") == 0)
-    status_say(t, arg);
-  else if (strcmp(command, "insert") == 0 && buffer)
-    gtk_text_buffer_insert_at_cursor(buffer, arg, -1);
-  else if (strcmp(command, "append") == 0 && buffer)
-    gtk_text_buffer_insert(buffer, &end, arg, -1);
-  else if (strcmp(command, "replace-all") == 0 && buffer)
-    gtk_text_buffer_set_text(buffer, arg, -1);
-  else if (strcmp(command, "get-file") == 0)
-    send_line(c, editor && tab->path ? tab->path : "");
-  else if (strcmp(command, "get-project") == 0)
-    send_line(c, t->project.root ? t->project.root : "");
-  else if (strcmp(command, "get-text") == 0) {
+    return;
+  }
+  if (strcmp(command, "get-file") == 0 || strcmp(command, "get-project") == 0) {
+    const char *value = command[4] == 'f' ? (editor && tab->path ? tab->path : "") : t->project.root ?: "";
+    if (legacy)
+      send_line(c, value);
+    else
+      answer_ok(c, value);
+    return;
+  }
+  if (strcmp(command, "get-text") == 0) {
     char *text = buffer ? gtk_text_buffer_get_text(buffer, &start, &end, TRUE) : g_strdup("");
+    if (!legacy)
+      client_send(c, "ok\n", 3);
     client_send(c, text, strlen(text) + 1); /* with its NUL */
     g_free(text);
-  } else if (strcmp(command, "save") == 0 && editor)
+    return;
+  }
+
+  gboolean edits = strcmp(command, "insert") == 0 || strcmp(command, "append") == 0 ||
+                   strcmp(command, "replace-all") == 0 || strcmp(command, "save") == 0;
+  gboolean on_path = strcmp(command, "open") == 0 || strcmp(command, "open-side") == 0 ||
+                     strcmp(command, "open-window") == 0 || strcmp(command, "preview") == 0 ||
+                     strcmp(command, "compare") == 0 || strcmp(command, "history") == 0 ||
+                     strcmp(command, "project") == 0 || strcmp(command, "terminal") == 0 ||
+                     strcmp(command, "_debug") == 0 || (legacy && strcmp(command, "debug") == 0);
+
+  if (edits && !buffer) {
+    failure = "no-editor";
+    message = "the active tab is not an editor";
+  } else if (on_path && !g_path_is_absolute(arg)) {
+    failure = "bad-argument";
+    message = "needs an absolute path";
+  } else if (strcmp(command, "say") == 0)
+    status_say(t, arg);
+  else if (strcmp(command, "insert") == 0)
+    gtk_text_buffer_insert_at_cursor(buffer, arg, -1);
+  else if (strcmp(command, "append") == 0)
+    gtk_text_buffer_insert(buffer, &end, arg, -1);
+  else if (strcmp(command, "replace-all") == 0)
+    gtk_text_buffer_set_text(buffer, arg, -1);
+  else if (strcmp(command, "save") == 0)
     save_editor(tab);
   else if (strcmp(command, "copy") == 0)
     gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(t->window)), arg);
-  else if (strcmp(command, "debug-failed") == 0)
+  else if (strcmp(command, "_debug-failed") == 0 || (legacy && strcmp(command, "debug-failed") == 0))
     debug_build_failed(t);
-  else if (!g_path_is_absolute(arg))
-    ; /* the rest take a file or folder */
   else if (strcmp(command, "open") == 0)
     open_file(t, arg);
   else if (strcmp(command, "open-side") == 0)
@@ -215,12 +309,25 @@ static void handle(Client *c, const char *command, const char *arg)
     compare_with_head(t, arg);
   else if (strcmp(command, "history") == 0)
     file_history(t, arg);
-  else if (strcmp(command, "project") == 0 && g_file_test(arg, G_FILE_TEST_IS_DIR))
-    open_project(t, arg);
-  else if (strcmp(command, "terminal") == 0)
+  else if (strcmp(command, "project") == 0) {
+    if (g_file_test(arg, G_FILE_TEST_IS_DIR))
+      open_project(t, arg);
+    else {
+      failure = "bad-argument";
+      message = "not a folder";
+    }
+  } else if (strcmp(command, "terminal") == 0)
     cd_in_shell(t, arg);
-  else if (strcmp(command, "debug") == 0)
+  else if (on_path) /* _debug, or a legacy debug */
     debug_launch(t, arg);
+  else {
+    failure = "unknown-command";
+    message = command;
+  }
+  if (failure)
+    answer_error(c, failure, message);
+  else
+    answer_ok(c, NULL);
 }
 
 static void read_request(GDataInputStream *in, Client *c);

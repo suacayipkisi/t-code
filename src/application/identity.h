@@ -5,6 +5,8 @@
  *   TCODE_DISPLAY_NAME  the About window's program name
  *   TCODE_APP_ID        the GtkApplication ID and the icon name
  *   TCODE_DEV           1 in the dev variant: no update check at start-up
+ *   TAPI_LATEST         the newest plugin API version spoken ("tapi_1" .. "tapi_<TAPI_LATEST>",
+ *                       each holding all the ones before it: docs/plugins.md)
  * The Makefile defines them for the dev variant; tests and the stable build get these defaults.
  */
 #pragma once
@@ -21,3 +23,5 @@
 #ifndef TCODE_DEV
 #define TCODE_DEV 0
 #endif
+
+#define TAPI_LATEST 1

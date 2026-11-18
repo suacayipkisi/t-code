@@ -1,14 +1,14 @@
 {
+  "api": "tapi_1",
   "name": "Word Count",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Counts words in the active editor buffer",
   "executable": "wordcount.sh",
   "commands": [
     {
       "id": "count",
       "name": "Word Count: Count Words in Current Tab",
-      "keys": "Ctrl+Alt+W",
-      "trigger": "<Control><Alt>w"
+      "keys": "<Control><Alt>w"
     }
   ]
 }

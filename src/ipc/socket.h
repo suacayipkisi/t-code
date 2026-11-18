@@ -1,10 +1,9 @@
 /*
- * The control socket scripts and tools send requests, one per line (or ended by a NUL byte):
- *   open <path>, open-side <path>, open-window <path>, preview <path>, project <dir>, compare <path>,
- *   history <path>, terminal <dir>, copy <text>, say <text>, insert <text>, append <text>,
- *   replace-all <text>, get-file, get-project, get-text, save, subscribe
- * "subscribe" keeps the connection open for did_open/did_save JSON-lines events.
- * Its path is in $TCODE_SOCKET for every program t-code starts.
+ * The control socket plugins, scripts and tools send requests to (the protocol, tapi_1, is
+ * docs/plugins.md's): one per line, or each ended by a NUL byte. A connection that says
+ * "hello tapi_1" gets an "ok" / "error <code> <message>" answer to every request; one that does not
+ * is answered as before the API had a version. "subscribe" keeps the connection open for
+ * did_open/did_save JSON-lines events. Its path is in $TCODE_SOCKET for every program t-code starts.
  */
 #pragma once
 

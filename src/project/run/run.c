@@ -15,7 +15,7 @@
  *                   into PYTHONPATH, with the picked interpreter or its venv's python when it has one
  * Without one, a script (scripts[], or an executable file starting with "#!") is run by its
  * interpreter in its folder. Build checks the syntax when the language has a way to.
- * A build for debugging ends with "t-code --send 'debug <program>'" (or "debug-failed <dir>" when it
+ * A build for debugging ends with "t-code --send '_debug <program>'" (or "_debug-failed <dir>" when it
  * failed): the control socket hands the program to the debugger (for a Makefile, which builds who
  * knows what, the folder: the debugger asks which program, once).
  */
@@ -176,7 +176,7 @@ static char *cmake_command(const char *root, Goal goal)
     g_free(cmd);
     cmd = if_installed("ctest", test);
   } else if (goal != GOAL_BUILD) {
-    char *debug = goal == GOAL_DEBUG ? send_verb("debug", "\"$exe\"") : NULL;
+    char *debug = goal == GOAL_DEBUG ? send_verb("_debug", "\"$exe\"") : NULL;
     /* The executable named after the project (CMAKE_PROJECT_NAME) anywhere under build/
          * (targets may sit in build/bin, build/src); else the newest one that is not a test, else
          * the newest one. CMake's own checks and shared libraries are left out. */
@@ -219,7 +219,7 @@ static char *meson_command(const char *root, Goal goal)
   else if (goal == GOAL_BUILD)
     cmd = g_strdup(setup);
   else {
-    char *debug = goal == GOAL_DEBUG ? send_verb("debug", "\"$exe\"") : NULL;
+    char *debug = goal == GOAL_DEBUG ? send_verb("_debug", "\"$exe\"") : NULL;
     cmd = g_strdup_printf("%s && exe=$(cd %s && {"
                           " find . -type f -executable -not -path '*/meson-private/*'"
                           " -not -path '*/meson-info/*' -not -name '*.so*'"
@@ -244,7 +244,7 @@ static char *meson_command(const char *root, Goal goal)
 static char *make_command(const char *root, Goal goal)
 {
   char *dir = g_shell_quote(root);
-  char *debug = goal == GOAL_DEBUG ? send_verb("debug", dir) : NULL;
+  char *debug = goal == GOAL_DEBUG ? send_verb("_debug", dir) : NULL;
   char *cmd;
 
   if (debug)
@@ -285,7 +285,7 @@ static char *file_command(const char *file, Goal goal)
     g_free(cmd);
     cmd = with_run;
   } else if (goal == GOAL_DEBUG) {
-    char *debug = send_verb("debug", qout);
+    char *debug = send_verb("_debug", qout);
     char *with_debug = g_strdup_printf("%s && %s", cmd, debug);
     g_free(cmd);
     g_free(debug);
@@ -427,7 +427,7 @@ static char *goal_command(App *t, Goal goal, char **cwd)
     *cwd = run_folder(t, &p);
   if (goal == GOAL_DEBUG && p.kind != PROJECT_NONE) { /* a failed build says so: the debugger stops waiting */
     char *dir = alone ? g_path_get_dirname(p.root) : g_strdup(p.root);
-    char *qdir = g_shell_quote(dir), *failed = send_verb("debug-failed", qdir);
+    char *qdir = g_shell_quote(dir), *failed = send_verb("_debug-failed", qdir);
     char *with_failed = g_strdup_printf("%s || %s", command, failed);
     g_free(command);
     command = with_failed;

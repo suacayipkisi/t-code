@@ -21,13 +21,18 @@ if sock_path and os.path.exists(sock_path):
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.connect(sock_path)
-        s.sendall(f"say {msg}\n".encode("utf-8"))
+        s.sendall(f"hello tapi_1\nsay {msg}\n".encode("utf-8"))
+        answers = s.makefile("r", encoding="utf-8")
+        answers.readline()  # "ok tapi_1 t-code <version>"
+        answer = answers.readline().strip()
+        if answer != "ok":
+            print(f"word-count: {answer}", file=sys.stderr)
         s.close()
     except Exception:
         pass
 ' "$MSG"
   elif command -v nc >/dev/null 2>&1; then
-    printf 'say %s\n' "$MSG" | nc -U "$TCODE_SOCKET" 2>/dev/null || true
+    printf 'hello tapi_1\nsay %s\n' "$MSG" | nc -U "$TCODE_SOCKET" >/dev/null 2>&1 || true
   fi
 fi
 

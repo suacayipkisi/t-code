@@ -1,7 +1,7 @@
 /*
  * Debugging with gdb (see debugger.h). A session goes:
  *   F5          the project is built in the shell (project/run.c); the build ends with
- *               "t-code --send 'debug <program>'", and the control socket calls debug_launch()
+ *               "t-code --send '_debug <program>'", and the control socket calls debug_launch()
  *   launch      gdb starts ("gdb -i dap", debug/dap.c) with the program's terminal as its
  *               inferior-tty; it answers "initialize", says "initialized", gets every breakpoint
  *               and "configurationDone", then starts the program

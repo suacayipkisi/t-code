@@ -40,7 +40,7 @@ void debug_restart(App *t);
 /* Asks which program F5 debugs in a project built by a Makefile (it is remembered). */
 void debug_select_program(App *t);
 
-/* The build for debugging is done (the control socket's "debug <path>", project/run.c): path is
+/* The build for debugging is done (the control socket's "_debug <path>", project/run.c): path is
  * the program, or the folder of a Makefile, whose program is asked for once. */
 void debug_launch(App *t, const char *path);
 
@@ -52,7 +52,7 @@ typedef void (*DebugAgain)(App *t);
  * (the Debug panel says why). */
 void debug_launch_test(App *t, const char *program, const char *const *args, const char *cwd, DebugAgain again);
 
-/* The build for debugging failed (the control socket's "debug-failed <dir>"). */
+/* The build for debugging failed (the control socket's "_debug-failed <dir>"). */
 void debug_build_failed(App *t);
 
 /* The breakpoints in path changed (editor/gutter/breakpoints.c): gdb hears of them. */

@@ -637,6 +637,99 @@ static void test_socket_requests(void)
   g_free(odd);
 }
 
+/* A request on a tapi_1 connection, and its answer line. */
+static char *tapi_ask(GSocketConnection *conn, GDataInputStream *input, const char *request)
+{
+  g_assert_true(g_output_stream_write_all(g_io_stream_get_output_stream(G_IO_STREAM(conn)), request, strlen(request),
+                                          NULL, NULL, NULL));
+  return read_socket_line(input);
+}
+
+/* A connection that says "hello tapi_1" gets an answer to every request: "ok", "ok <value>" or
+ * "error <code> <message>"; get-text's "ok" is followed by the text and a NUL. */
+static void test_socket_tapi(void)
+{
+  GSocketClient *client = g_socket_client_new();
+  GSocketAddress *address = g_unix_socket_address_new(app.paths.socket);
+  GSocketConnection *conn;
+  GDataInputStream *input;
+  char *answer, *expected;
+
+  close_everything();
+  conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
+  g_assert_nonnull(conn);
+  input = g_data_input_stream_new(g_io_stream_get_input_stream(G_IO_STREAM(conn)));
+
+  answer = tapi_ask(conn, input, "hello tapi_7\n");
+  g_assert_true(g_str_has_prefix(answer, "error unsupported-api "));
+  g_free(answer);
+  answer = tapi_ask(conn, input, "version\n"); /* answers before hello too */
+  g_assert_true(g_str_has_prefix(answer, "ok tapi_1 t-code "));
+  g_free(answer);
+  answer = tapi_ask(conn, input, "hello tapi_1\n");
+  g_assert_true(g_str_has_prefix(answer, "ok tapi_1 t-code "));
+  g_free(answer);
+
+  answer = tapi_ask(conn, input, "say From a plugin\n");
+  g_assert_cmpstr(answer, ==, "ok");
+  g_free(answer);
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "From a plugin");
+
+  answer = tapi_ask(conn, input, "insert x\n"); /* no editor open */
+  g_assert_true(g_str_has_prefix(answer, "error no-editor "));
+  g_free(answer);
+  answer = tapi_ask(conn, input, "open relative.txt\n");
+  g_assert_true(g_str_has_prefix(answer, "error bad-argument "));
+  g_free(answer);
+  answer = tapi_ask(conn, input, "frobnicate now\n");
+  g_assert_cmpstr(answer, ==, "error unknown-command frobnicate");
+  g_free(answer);
+  answer = tapi_ask(conn, input, "debug /bin/true\n"); /* internal: only "_debug", or a legacy connection's "debug" */
+  g_assert_cmpstr(answer, ==, "error unknown-command debug");
+  g_free(answer);
+
+  answer = tapi_ask(conn, input, "get-project\n");
+  expected = g_strconcat("ok ", app.project.root, NULL);
+  g_assert_cmpstr(answer, ==, expected);
+  g_free(expected);
+  g_free(answer);
+
+  char *path = file("tapi.txt"), *open = g_strdup_printf("open %s\n", path);
+  g_assert_true(g_file_set_contents(path, "one\ntwo\n", -1, NULL));
+  answer = tapi_ask(conn, input, open);
+  g_assert_cmpstr(answer, ==, "ok");
+  g_free(answer);
+  run_until(has_tab, path);
+  run_until(loaded, find_tab(&app, TAB_EDITOR, path));
+  answer = tapi_ask(conn, input, "get-file\n");
+  expected = g_strconcat("ok ", path, NULL);
+  g_assert_cmpstr(answer, ==, expected);
+  g_free(expected);
+  g_free(answer);
+  answer = tapi_ask(conn, input, "get-text\n");
+  g_assert_cmpstr(answer, ==, "ok");
+  g_free(answer);
+  SocketResponse text = { .delimiter = '\0' };
+  g_data_input_stream_read_upto_async(input, "", 1, G_PRIORITY_DEFAULT, NULL, socket_response_read, &text);
+  run_until(socket_response_done, &text);
+  g_assert_no_error(text.error);
+  g_assert_cmpstr(text.text, ==, "one\ntwo\n");
+  g_free(text.text);
+
+  answer = tapi_ask(conn, input, "subscribe\n");
+  g_assert_cmpstr(answer, ==, "ok");
+  g_free(answer);
+
+  g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
+  g_object_unref(input);
+  g_object_unref(conn);
+  g_object_unref(address);
+  g_object_unref(client);
+  close_everything();
+  g_free(open);
+  g_free(path);
+}
+
 static gboolean no_socket_event_clients(gconstpointer data G_GNUC_UNUSED);
 static void test_socket_events(void)
 {
@@ -3154,6 +3247,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/recovery-journal", test_recovery_journal);
   g_test_add_func("/window/socket-requests", test_socket_requests);
   g_test_add_func("/window/socket-while-closing", test_socket_while_closing);
+  g_test_add_func("/window/socket-tapi", test_socket_tapi);
   g_test_add_func("/window/socket-events", test_socket_events);
   g_test_add_func("/window/socket-stalled-subscriber", test_socket_stalled_subscriber);
   g_test_add_func("/window/update-check-now", test_update_check_now);

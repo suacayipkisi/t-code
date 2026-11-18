@@ -91,6 +91,48 @@ static void test_valid_plugin(void)
   g_assert_cmpstr(c2->id, ==, "c2");
   g_assert_cmpstr(c2->name, ==, "Command Two");
   g_assert_null(c2->keys);
+  g_assert_cmpint(p->api, ==, 0); /* no "api": a plugin from before versions */
+
+  plugins_stop(&app);
+  g_free(scan_path);
+}
+
+/* A tapi_1 plugin: "keys" is GTK's shortcut syntax and its label is made from it; "keys" GTK cannot
+ * read stays a label only. A plugin without commands needs no program. */
+static void test_tapi_manifest(void)
+{
+  App app = { 0 };
+
+  write_file("tapi/keyed/plugin.json",
+             "{\"name\": \"Keyed\", \"api\": \"tapi_1\", \"executable\": \"run.sh\", \"commands\": ["
+             "{\"id\": \"k\", \"name\": \"Keyed Command\", \"keys\": \"<Control><Alt>k\"},"
+             "{\"id\": \"l\", \"name\": \"Labeled\", \"keys\": \"Ctrl+Alt+L\"}]}",
+             0644);
+  write_file("tapi/keyed/run.sh", "#!/bin/sh\nexit 0\n", 0755);
+  write_file("tapi/static-only/plugin.json", "{\"name\": \"Static\", \"api\": \"tapi_1\"}", 0644);
+
+  char *scan_path = g_build_filename(tmp_dir, "tapi", NULL);
+  app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
+  plugins_scan_dir(&app, scan_path);
+  g_assert_cmpuint(app.plugins->len, ==, 2);
+
+  Plugin *keyed = find_plugin(&app, "keyed"), *still = find_plugin(&app, "static-only");
+  g_assert_nonnull(keyed);
+  g_assert_cmpint(keyed->api, ==, 1);
+  PluginCommand *k = g_ptr_array_index(keyed->commands, 0), *l = g_ptr_array_index(keyed->commands, 1);
+  g_assert_cmpstr(k->trigger, ==, "<Control><Alt>k");
+  g_assert_cmpstr(k->keys, ==, "Ctrl+Alt+K");
+  g_assert_null(l->trigger);
+  g_assert_cmpstr(l->keys, ==, "Ctrl+Alt+L");
+
+  g_assert_nonnull(still);
+  g_assert_null(still->executable);
+  g_assert_cmpuint(still->commands->len, ==, 0);
+
+  GtkShortcutController *controller = GTK_SHORTCUT_CONTROLLER(gtk_shortcut_controller_new());
+  plugins_add_shortcuts(controller, &app);
+  g_assert_cmpuint(g_list_model_get_n_items(G_LIST_MODEL(controller)), ==, 1);
+  g_object_unref(controller);
 
   plugins_stop(&app);
   g_free(scan_path);
@@ -105,12 +147,15 @@ static void test_invalid_plugins(void)
              0644);
   write_file("invalid/p1/run.sh", "#!/bin/sh\nexit 0\n", 0755);
 
-  /* Missing commands */
-  write_file("invalid/p2/plugin.json", "{\"name\": \"P2\", \"executable\":\"run.sh\"}", 0644);
+  /* Commands that are not a list */
+  write_file("invalid/p2/plugin.json", "{\"name\": \"P2\", \"commands\": \"run\", \"executable\":\"run.sh\"}", 0644);
   write_file("invalid/p2/run.sh", "#!/bin/sh\nexit 0\n", 0755);
 
-  /* Empty commands array */
-  write_file("invalid/p3/plugin.json", "{\"name\": \"P3\", \"commands\": [], \"executable\":\"run.sh\"}", 0644);
+  /* A plugin API this t-code does not speak */
+  write_file("invalid/p3/plugin.json",
+             "{\"name\": \"P3\", \"api\": \"tapi_99\", \"commands\": [{\"id\":\"a\",\"name\":\"A\"}], "
+             "\"executable\":\"run.sh\"}",
+             0644);
   write_file("invalid/p3/run.sh", "#!/bin/sh\nexit 0\n", 0755);
 
   /* Malformed JSON */
@@ -128,7 +173,7 @@ static void test_invalid_plugins(void)
 
   char *scan_path = g_build_filename(tmp_dir, "invalid", NULL);
   app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
-  for (int i = 0; i < 5; i++)
+  for (int i = 0; i < 6; i++)
     g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "*");
   plugins_scan_dir(&app, scan_path);
   g_test_assert_expected_messages();
@@ -150,9 +195,10 @@ static void test_run_command(void)
                                  "echo \"SOCKET=$TCODE_SOCKET\" > \"%s\"\n"
                                  "echo \"PLUGIN=$TCODE_PLUGIN_ID\" >> \"%s\"\n"
                                  "echo \"CMD=$TCODE_COMMAND_ID\" >> \"%s\"\n"
+                                 "echo \"API=$TCODE_API\" >> \"%s\"\n"
                                  "echo \"ROOT=$TCODE_PROJECT_ROOT\" >> \"%s\"\n"
                                  "exit 0\n",
-                                 out_path, out_path, out_path, out_path);
+                                 out_path, out_path, out_path, out_path, out_path);
 
   write_file("exec/runner/plugin.json",
              "{\"name\": \"Runner\", \"commands\": [{\"id\":\"go\",\"name\":\"Run Go\"}], \"executable\":\"run.sh\"}",
@@ -183,6 +229,7 @@ static void test_run_command(void)
   g_assert_nonnull(strstr(contents, "SOCKET=/tmp/test-tcode.sock"));
   g_assert_nonnull(strstr(contents, "PLUGIN=runner"));
   g_assert_nonnull(strstr(contents, "CMD=go"));
+  g_assert_nonnull(strstr(contents, "API=tapi_1"));
   g_assert_nonnull(strstr(contents, "ROOT=/home/user/project"));
 
   g_free(contents);
@@ -254,6 +301,7 @@ int main(int argc, char **argv)
   g_test_init(&argc, &argv, NULL);
   g_test_add_func("/plugins/valid-plugin", test_valid_plugin);
   g_test_add_func("/plugins/invalid-plugins", test_invalid_plugins);
+  g_test_add_func("/plugins/tapi-manifest", test_tapi_manifest);
   g_test_add_func("/plugins/run-command", test_run_command);
   g_test_add_func("/plugins/palette-query", test_palette_query);
   g_test_add_func("/plugins/user-config-directory", test_user_config_directory);

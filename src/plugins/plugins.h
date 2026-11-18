@@ -1,8 +1,8 @@
 /*
- * Native Stage 1 Plugin System:
- * Out-of-process plugins discovered in user and system directories, configured via plugin.json.
- * Commands appear in the Command Palette and execute asynchronously with clean environment
- * ($TCODE_SOCKET, $TCODE_ACTIVE_FILE, etc.) without freezing the UI.
+ * Plugins (docs/plugins.md): programs t-code starts, found in the user's, the system's and the source
+ * tree's plugins/ folders by their plugin.json. Their commands show in the command palette and may
+ * have keys; a command starts the plugin's program without waiting for it, with $TCODE_SOCKET,
+ * $TCODE_API and the rest in its environment.
  */
 #pragma once
 
@@ -13,8 +13,8 @@ typedef struct Plugin Plugin;
 typedef struct PluginCommand {
   char *id;
   char *name;
-  char *keys;    /* display text */
-  char *trigger; /* GTK shortcut trigger, e.g. <Control><Alt>1 */
+  char *keys;    /* the label shown beside it, e.g. Ctrl+Alt+1 */
+  char *trigger; /* its GTK shortcut, e.g. <Control><Alt>1, or NULL */
   Plugin *plugin;
 } PluginCommand;
 
@@ -24,7 +24,8 @@ typedef struct Plugin {
   char *version;
   char *description;
   char *dir;
-  char *executable;
+  char *executable;    /* NULL for a plugin without commands */
+  int api;             /* the "tapi_N" its plugin.json asks for; 0: none (a plugin from before versions) */
   GPtrArray *commands; /* PluginCommand * */
 } Plugin;
 

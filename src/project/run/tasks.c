@@ -205,7 +205,7 @@ char *tasks_command(const char *root, Goal goal)
     if (dbg_exe) {
       char *full_exe = g_path_is_absolute(dbg_exe) ? g_strdup(dbg_exe) : g_build_filename(workdir, dbg_exe, NULL);
       char *qexe = g_shell_quote(full_exe);
-      char *debug = send_verb("debug", qexe);
+      char *debug = send_verb("_debug", qexe);
       if (tp.build)
         cmd = g_strdup_printf("cd %s && %s && %s", qdir, tp.build, debug);
       else

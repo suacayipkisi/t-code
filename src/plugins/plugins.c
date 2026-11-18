@@ -1,8 +1,6 @@
 /*
- * Native Stage 1 Plugin System:
- * Out-of-process plugins discovered in user and system directories, configured via plugin.json.
- * Commands appear in the Command Palette and execute asynchronously with clean environment
- * ($TCODE_SOCKET, $TCODE_ACTIVE_FILE, etc.) without freezing the UI.
+ * Plugins (see plugins.h; the manifest and the protocol are docs/plugins.md's): finding them, their
+ * commands in the palette and on keys, starting their programs.
  */
 #include "plugins/plugins.h"
 
@@ -86,24 +84,70 @@ static char *plugin_executable(const char *plugin_dir, const char *dir_name, con
   return NULL;
 }
 
-/* The plugin plugin.json (obj) describes, or NULL: a warning says what is wrong with a broken one; an empty
- * one, or one with the id of a plugin found before, is left out quietly. */
+/* The plugin API version plugin.json asks for ("api": "tapi_N"): 0 when it names none, -1 when it is
+ * not one this t-code speaks. */
+static int plugin_api(JsonObject *obj)
+{
+  const char *api = string_member(obj, "api");
+  char *end = NULL;
+  gint64 number;
+
+  if (!json_object_has_member(obj, "api"))
+    return 0;
+  if (!api || !g_str_has_prefix(api, "tapi_"))
+    return -1;
+  number = g_ascii_strtoll(api + 5, &end, 10);
+  return end && end != api + 5 && !*end && number >= 1 && number <= TAPI_LATEST ? (int)number : -1;
+}
+
+/* A command's "keys": GTK's shortcut syntax (<Control><Alt>b), its label made from it. A "trigger"
+ * (the shortcut before tapi_1) leaves "keys" a label; so does "keys" GTK cannot read (Ctrl+Alt+B). */
+static void command_keys(PluginCommand *cmd, const char *keys, const char *trigger)
+{
+  guint key = 0;
+  GdkModifierType mods = 0;
+
+  if (trigger && *trigger) {
+    cmd->trigger = g_strdup(trigger);
+    cmd->keys = g_strdup(keys);
+  } else if (keys && *keys && gtk_accelerator_parse(keys, &key, &mods) && key) {
+    cmd->trigger = g_strdup(keys);
+    cmd->keys = gtk_accelerator_get_label(key, mods);
+  } else {
+    cmd->keys = g_strdup(keys);
+  }
+}
+
+/* The plugin plugin.json (obj) describes, or NULL: a warning says what is wrong with a broken one; one
+ * with the id of a plugin found before is left out quietly. A plugin without commands needs no
+ * program. */
 static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, const char *dir_name)
 {
   const char *name = string_member(obj, "name"), *id = string_member(obj, "id");
   JsonNode *commands = json_object_get_member(obj, "commands");
   JsonArray *list = commands && JSON_NODE_HOLDS_ARRAY(commands) ? json_node_get_array(commands) : NULL;
-  char *executable;
+  int api = plugin_api(obj);
+  char *executable = NULL;
 
-  if (!json_object_has_member(obj, "name") || !commands) {
-    g_warning("Plugin at %s: missing required 'name' or 'commands'", plugin_dir);
+  if (!name || !*name) {
+    g_warning("Plugin at %s: missing required 'name'", plugin_dir);
+    return NULL;
+  }
+  if (commands && !list) {
+    g_warning("Plugin %s: 'commands' is not a list", name);
+    return NULL;
+  }
+  if (api < 0) {
+    g_warning("Plugin %s asks for plugin API %s: it needs a newer t-code (this one speaks tapi_1 to tapi_%d)", name,
+              string_member(obj, "api") ?: "?", TAPI_LATEST);
     return NULL;
   }
   if (!id || !*id)
     id = dir_name;
-  if (!name || !*name || !list || json_array_get_length(list) == 0 || find_plugin(t, id))
+  if (find_plugin(t, id))
     return NULL;
-  if (!(executable = plugin_executable(plugin_dir, dir_name, string_member(obj, "executable")))) {
+  if (list && json_array_get_length(list) > 0 &&
+      !(executable = plugin_executable(plugin_dir, dir_name, string_member(obj, "executable")))) {
     g_warning("Plugin %s (%s): no executable found in %s", name, id, plugin_dir);
     return NULL;
   }
@@ -115,25 +159,23 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
   p->description = g_strdup(string_member(obj, "description") ?: "");
   p->dir = g_strdup(plugin_dir);
   p->executable = executable;
+  p->api = api;
   p->commands = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_command_free);
-  for (guint i = 0; i < json_array_get_length(list); i++) {
+  for (guint i = 0; list && i < json_array_get_length(list); i++) {
     JsonNode *node = json_array_get_element(list, i);
     JsonObject *command = JSON_NODE_HOLDS_OBJECT(node) ? json_node_get_object(node) : NULL;
     const char *command_id = command ? string_member(command, "id") : NULL;
     const char *command_name = command ? string_member(command, "name") : NULL;
-    if (!command_id || !command_name)
+    if (!command_id || !command_name) {
+      g_warning("Plugin %s: a command without 'id' or 'name' is left out", name);
       continue;
+    }
     PluginCommand *cmd = g_new0(PluginCommand, 1);
     cmd->id = g_strdup(command_id);
     cmd->name = g_strdup(command_name);
-    cmd->keys = g_strdup(string_member(command, "keys"));
-    cmd->trigger = g_strdup(string_member(command, "trigger"));
+    command_keys(cmd, string_member(command, "keys"), string_member(command, "trigger"));
     cmd->plugin = p;
     g_ptr_array_add(p->commands, cmd);
-  }
-  if (p->commands->len == 0) {
-    plugin_free(p);
-    return NULL;
   }
   return p;
 }
@@ -402,6 +444,9 @@ void plugin_run_command(App *t, const char *plugin_id, const char *command_id)
   if (t->paths.socket)
     env = g_environ_setenv(env, "TCODE_SOCKET", t->paths.socket, TRUE);
   env = g_environ_setenv(env, "TCODE_PLUGIN_ID", plugin_id, TRUE);
+  char *api = g_strdup_printf("tapi_%d", TAPI_LATEST); /* what the socket speaks */
+  env = g_environ_setenv(env, "TCODE_API", api, TRUE);
+  g_free(api);
   env = g_environ_setenv(env, "TCODE_COMMAND_ID", command_id, TRUE);
 
   Tab *tab = current_tab(t);

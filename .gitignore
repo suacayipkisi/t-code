@@ -13,6 +13,7 @@ packaging/packages/
 KNOWN_ISSUES.md
 Plan.md
 __pycache__/
+t-code-plugins/
 
 # Raw generator sources and binary intermediate files
 *.bin
