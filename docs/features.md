@@ -210,7 +210,11 @@ Branches, stash and staging hunks are git's only for now. When several repositor
 folder (an svn checkout inside a git repository, or hg-git's `.git` next to `.hg`), Repositories lists
 each with its kind and the nearest is used; click another to make it the project's own (the Files
 panel and the gutters follow it, and the project remembers it). In a folder that is no repository,
-Source Control offers **Initialize Repository** with Git or Mercurial to choose.
+Source Control offers **Initialize Repository** with Git, Mercurial or Subversion to choose. Subversion
+keeps its repository apart from the working copy: type the server's URL to check the folder out from
+it, or leave it empty for a repository of its own on this computer (made in
+`~/.local/share/t-code/svn/<folder name>` with a `trunk`). Either way the folder's files stay, listed
+as new until you stage and commit them.
 
 **Branches, pull and fetch.** Click the branch in the status bar (or "Git: Checkout to…") to switch:
 the list has the local branches by their last commit, then the remote ones you have no branch of

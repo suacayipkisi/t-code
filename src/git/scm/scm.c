@@ -18,6 +18,7 @@
 #include "popups/contextmenu.h"
 #include "window/palette.h"
 
+#include <stdarg.h>
 #include <string.h>
 
 ScmState scm = { .recalled = -1 };
@@ -294,71 +295,181 @@ void scm_repos_changed(App *t)
 
 /* A new repository ---------------------------------------------------------------------------- */
 
-static void on_init_done(GObject *source, GAsyncResult *result, gpointer data)
+/* The commands that make it, run one after another in the project folder. */
+typedef struct {
+  App *t;
+  char *root;       /* the project they were asked for */
+  GPtrArray *steps; /* GStrv each: the program and its arguments */
+  guint next;
+  char *done_note; /* shown when all worked, or NULL */
+} InitRun;
+
+static void init_run_free(InitRun *r)
 {
-  App *t = data;
+  g_free(r->root);
+  g_ptr_array_unref(r->steps);
+  g_free(r->done_note);
+  g_free(r);
+}
+
+static void init_next(InitRun *r);
+
+static void on_init_step(GObject *source, GAsyncResult *result, gpointer data)
+{
+  InitRun *r = data;
   char *err = NULL;
   GError *error = NULL;
   gboolean ok = g_subprocess_communicate_utf8_finish(G_SUBPROCESS(source), result, NULL, &err, &error) &&
                 g_subprocess_get_successful(G_SUBPROCESS(source));
 
-  if (t->closing || g_strcmp0(g_object_get_data(source, "root"), t->project.root) != 0) {
-    /* another project opened meanwhile */
-  } else if (ok) {
-    scm_set_note(NULL, FALSE);
-    watch_git(t);
-  } else {
+  if (r->t->closing || g_strcmp0(r->root, r->t->project.root) != 0) { /* another project opened meanwhile */
+    init_run_free(r);
+  } else if (!ok) {
     scm_set_note(error ? error->message : err && *g_strstrip(err) ? err : "Could not create the repository", TRUE);
+    init_run_free(r);
+  } else {
+    r->next++;
+    init_next(r);
   }
   g_clear_error(&error);
   g_free(err);
 }
 
-void scm_init_repository(VcsKind kind)
+/* Starts the next step; after the last one the repositories are looked for again. */
+static void init_next(InitRun *r)
 {
-  App *t = scm.app;
+  if (r->next >= r->steps->len) {
+    scm_set_note(r->done_note, FALSE);
+    watch_git(r->t);
+    init_run_free(r);
+    return;
+  }
+  char **argv = r->steps->pdata[r->next];
   GError *error = NULL;
   GSubprocessLauncher *launcher =
       g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_PIPE);
   GSubprocess *proc;
 
-  g_subprocess_launcher_set_cwd(launcher, t->project.root);
-  proc = g_subprocess_launcher_spawn(launcher, &error, vcs_program(kind), "init", NULL);
+  g_subprocess_launcher_set_cwd(launcher, r->root);
+  proc = g_subprocess_launcher_spawnv(launcher, (const char *const *)argv, &error);
   g_object_unref(launcher);
   if (!proc) {
-    char *note = g_strdup_printf("%s is not installed (%s).", vcs_title(kind), error->message);
+    char *note = g_strdup_printf("%s is not installed (%s).", argv[0], error->message);
     scm_set_note(note, TRUE);
     g_free(note);
     g_error_free(error);
+    init_run_free(r);
     return;
   }
-  g_object_set_data_full(G_OBJECT(proc), "root", g_strdup(t->project.root), g_free);
-  g_subprocess_communicate_utf8_async(proc, NULL, NULL, on_init_done, t);
+  g_subprocess_communicate_utf8_async(proc, NULL, NULL, on_init_step, r);
   g_object_unref(proc);
+}
+
+static void add_step(InitRun *r, ...)
+{
+  GPtrArray *argv = g_ptr_array_new();
+  va_list ap;
+
+  va_start(ap, r);
+  for (const char *a; (a = va_arg(ap, const char *));)
+    g_ptr_array_add(argv, g_strdup(a));
+  va_end(ap);
+  g_ptr_array_add(argv, NULL);
+  g_ptr_array_add(r->steps, g_ptr_array_free(argv, FALSE));
+}
+
+/* A folder for a new local Subversion repository of the project: ~/.local/share/t-code/svn/<name>,
+ * "<name>-2" and so on when that is taken. */
+static char *local_svn_repository(const char *root)
+{
+  char *base = g_build_filename(g_get_user_data_dir(), "t-code", "svn", NULL);
+  char *name = g_path_get_basename(root), *path = g_build_filename(base, name, NULL);
+
+  for (int n = 2; g_file_test(path, G_FILE_TEST_EXISTS); n++) {
+    char *numbered = g_strdup_printf("%s-%d", name, n);
+    g_free(path);
+    path = g_build_filename(base, numbered, NULL);
+    g_free(numbered);
+  }
+  g_mkdir_with_parents(base, 0700);
+  g_free(name);
+  g_free(base);
+  return path;
+}
+
+void scm_init_repository(VcsKind kind, const char *url)
+{
+  App *t = scm.app;
+  InitRun *r = g_new0(InitRun, 1);
+  g_autofree char *server = g_strstrip(g_strdup(url ? url : ""));
+
+  r->t = t;
+  r->root = g_strdup(t->project.root);
+  r->steps = g_ptr_array_new_with_free_func((GDestroyNotify)g_strfreev);
+  if (kind != VCS_SVN) {
+    add_step(r, vcs_program(kind), "init", NULL);
+  } else if (*server) {
+    /* The folder becomes a working copy of the server's; its files stay (unknown until added). */
+    add_step(r, "svn", "checkout", "--non-interactive", "--force", server, ".", NULL);
+  } else {
+    /* No server: a repository of its own in t-code's data folder, with the usual trunk. */
+    char *repository = local_svn_repository(t->project.root);
+    char *uri = g_filename_to_uri(repository, NULL, NULL), *trunk = g_strconcat(uri, "/trunk", NULL);
+    add_step(r, "svnadmin", "create", repository, NULL);
+    add_step(r, "svn", "mkdir", "--non-interactive", "-m", "Create trunk", trunk, NULL);
+    add_step(r, "svn", "checkout", "--non-interactive", "--force", trunk, ".", NULL);
+    r->done_note = g_strdup_printf("A local Subversion repository was made in %s.", repository);
+    g_free(trunk);
+    g_free(uri);
+    g_free(repository);
+  }
+  scm_set_note(NULL, FALSE);
+  init_next(r);
+}
+
+static VcsKind chosen_init_kind(void)
+{
+  static const VcsKind kinds[] = { VCS_GIT, VCS_HG, VCS_SVN };
+  guint i = gtk_drop_down_get_selected(scm.init_kind);
+  return i < G_N_ELEMENTS(kinds) ? kinds[i] : VCS_GIT;
 }
 
 static void on_init_clicked(void)
 {
-  scm_init_repository(gtk_drop_down_get_selected(scm.init_kind) == 1 ? VCS_HG : VCS_GIT);
+  scm_init_repository(chosen_init_kind(), gtk_editable_get_text(GTK_EDITABLE(scm.init_url)));
 }
 
-/* "Initialize Repository" with Git or Mercurial to choose, shown outside any repository. */
+/* Subversion asks for a server's URL (empty: a local repository). */
+static void on_init_kind_changed(void)
+{
+  gtk_widget_set_visible(scm.init_url, chosen_init_kind() == VCS_SVN);
+}
+
+/* "Initialize Repository" with Git, Mercurial or Subversion to choose, shown outside any repository. */
 static GtkWidget *init_box(void)
 {
-  static const char *const kinds[] = { "Git", "Mercurial", NULL };
-  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  static const char *const kinds[] = { "Git", "Mercurial", "Subversion", NULL };
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+  GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   GtkWidget *button = gtk_button_new_with_label("Initialize Repository");
 
   scm.init_kind = GTK_DROP_DOWN(gtk_drop_down_new_from_strings(kinds));
-  gtk_widget_set_tooltip_text(GTK_WIDGET(scm.init_kind),
-                              "Which version control the new repository uses (Subversion needs a server: check out "
-                              "from it in a terminal)");
+  gtk_widget_set_tooltip_text(GTK_WIDGET(scm.init_kind), "Which version control the new repository uses");
+  g_signal_connect_swapped(scm.init_kind, "notify::selected", G_CALLBACK(on_init_kind_changed), NULL);
   gtk_widget_add_css_class(button, "primary");
   gtk_widget_set_hexpand(button, TRUE);
   g_signal_connect_swapped(button, "clicked", G_CALLBACK(on_init_clicked), NULL);
+  gtk_box_append(GTK_BOX(row), button);
+  gtk_box_append(GTK_BOX(row), GTK_WIDGET(scm.init_kind));
+  gtk_box_append(GTK_BOX(box), row);
+  scm.init_url = gtk_entry_new();
+  gtk_entry_set_placeholder_text(GTK_ENTRY(scm.init_url), "Server URL (empty: a local repository)");
+  gtk_widget_set_tooltip_text(scm.init_url, "Check this folder out from a Subversion server (svn checkout), or "
+                                            "leave it empty for a repository of its own on this computer");
+  g_signal_connect_swapped(scm.init_url, "activate", G_CALLBACK(on_init_clicked), NULL);
+  gtk_widget_set_visible(scm.init_url, FALSE);
+  gtk_box_append(GTK_BOX(box), scm.init_url);
   gtk_widget_add_css_class(box, "actions");
-  gtk_box_append(GTK_BOX(box), button);
-  gtk_box_append(GTK_BOX(box), GTK_WIDGET(scm.init_kind));
   gtk_widget_set_visible(box, FALSE);
   return box;
 }

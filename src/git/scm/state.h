@@ -23,7 +23,8 @@ typedef struct {
   GtkListBox *repos_list; /* Repositories: shown when the project holds more than one */
   GtkWidget *repos_box;
   GtkWidget *init_box;    /* outside any repository: Initialize Repository with a choice of kind */
-  GtkDropDown *init_kind; /* Git, Mercurial */
+  GtkDropDown *init_kind; /* Git, Mercurial, Subversion */
+  GtkWidget *init_url;    /* Subversion: the server's URL to check out from (empty: a local repository) */
   GtkLabel *staged_title, *changes_title;
   GtkWidget *staged_box, *changes_box, *commits_box;
   gboolean commits_stale;      /* HEAD moved while Commits was folded: listed once it opens */

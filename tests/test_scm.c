@@ -95,6 +95,7 @@ static void picker_pick(const char *payload)
 }
 
 static char *tmp, *with_commits, *no_git, *no_commits;
+static char *data_home; /* XDG_DATA_HOME for the tests */
 static int commits = 2; /* in with_commits */
 
 static void git(const char *dir, const char *const *args)
@@ -936,6 +937,52 @@ static void test_svn(void)
   g_free(repo);
 }
 
+static void wait_kind(VcsKind kind)
+{
+  for (gint64 until = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
+       app.project.repo_kind != kind && g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, FALSE);
+  g_assert_cmpint(app.project.repo_kind, ==, kind);
+}
+
+/* Initialize Repository with Subversion: no URL makes a local repository (in the data folder, with a
+ * trunk) and checks the folder out from it, its files kept; a URL checks out from there. */
+static void test_svn_init(void)
+{
+  if (!have("svn") || !have("svnadmin")) {
+    g_test_skip("no svn");
+    return;
+  }
+  char *local = make_dir("svn-local", "l.txt"), *served = make_dir("svn-served", "s.txt");
+  char *repository = g_build_filename(g_get_user_data_dir(), "t-code", "svn", "svn-local", NULL);
+
+  open_project_at(local);
+  run_for(500);
+  scm_init_repository(VCS_SVN, "  ");
+  wait_kind(VCS_SVN);
+  g_assert_true(g_file_test(repository, G_FILE_TEST_IS_DIR));
+  g_assert_cmpstr(app.project.repo_top, ==, local);
+  wait_for(1, 1); /* l.txt stays, unknown */
+  wait_for(2, 1); /* Create trunk */
+
+  /* The same repository again, from its URL: a working copy of it in another folder. */
+  char *uri = g_filename_to_uri(repository, NULL, NULL), *trunk = g_strconcat(uri, "/trunk", NULL);
+  open_project_at(served);
+  run_for(500);
+  scm_init_repository(VCS_SVN, trunk);
+  wait_kind(VCS_SVN);
+  g_assert_cmpstr(app.project.repo_top, ==, served);
+  wait_for(1, 1); /* s.txt */
+
+  open_project_at(no_git);
+  run_for(300);
+  g_free(trunk);
+  g_free(uri);
+  g_free(repository);
+  g_free(served);
+  g_free(local);
+}
+
 /* A folder that is a git and a Mercurial repository (hg-git): both show, git is the project's own
  * until Mercurial is chosen. A folder in none offers to make one, of the kind picked. */
 static void test_choice(void)
@@ -970,7 +1017,7 @@ static void test_choice(void)
   open_project_at(empty);
   run_for(500);
   g_assert_true(gtk_widget_get_visible(scm.init_box));
-  scm_init_repository(VCS_HG);
+  scm_init_repository(VCS_HG, NULL);
   for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
        app.project.repo_kind != VCS_HG && g_get_monotonic_time() < until;)
     g_main_context_iteration(NULL, FALSE);
@@ -989,6 +1036,9 @@ int main(int argc, char **argv)
 
   g_test_init(&argc, &argv, NULL);
   g_setenv("HGUSER", "t <t@t>", TRUE); /* hg commits without asking who */
+  /* Local Subversion repositories go there, not in the user's data folder (set before GTK reads it). */
+  data_home = g_dir_make_tmp("t-code-scm-data-XXXXXX", NULL);
+  g_setenv("XDG_DATA_HOME", data_home, TRUE);
   if (!gtk_init_check()) {
     g_test_skip("no display");
     return g_test_run();
@@ -1031,11 +1081,12 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/nested-repos", test_nested_repos);
   g_test_add_func("/scm/hg", test_hg);
   g_test_add_func("/scm/svn", test_svn);
+  g_test_add_func("/scm/svn-init", test_svn_init);
   g_test_add_func("/scm/choice", test_choice);
   status = g_test_run();
 
   app.closing = TRUE;
-  char *rm[] = { "rm", "-rf", tmp, NULL };
+  char *rm[] = { "rm", "-rf", tmp, data_home, NULL };
   g_spawn_sync(NULL, rm, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
   return status;
 }
