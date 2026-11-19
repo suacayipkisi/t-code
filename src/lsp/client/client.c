@@ -151,11 +151,12 @@ gboolean lsp_wants(Tab *tab)
 
 const char *lsp_missing_server(Tab *tab)
 {
-  ServerKind kind = server_kind_for_tab(tab); /* SERVER_NONE without a tab */
+  ServerKind kind;
 
-  if (kind == SERVER_NONE || tab->kind != TAB_EDITOR || tab->view->readonly || tab->compare.with)
-    return NULL; /* a Markdown preview has the .md path too */
-  return server_missing(tab->app, kind);
+  if (!tab || tab->kind != TAB_EDITOR || tab->view->readonly || tab->compare.with)
+    return NULL; /* a Markdown preview has the .md path too, and no source buffer */
+  kind = server_kind_for_tab(tab);
+  return kind == SERVER_NONE ? NULL : server_missing(tab->app, kind);
 }
 
 void lsp_open(Tab *tab)

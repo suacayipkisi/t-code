@@ -21,6 +21,7 @@
 #include "lsp/client/client.h"
 #include "lsp/inline/completion.h"
 #include "lsp/inline/diagnostics.h"
+#include "lsp/symbols/outline.h"
 #include "project/session.h"
 #include "window/statusbar.h"
 #include "ipc/socket.h"
@@ -546,6 +547,11 @@ Tab *open_editor(App *t, const char *path, int line, int column, gboolean readon
   g_signal_connect(tab->buffer, "mark-set", G_CALLBACK(on_mark_set), tab);
   g_signal_connect(tab->source, "map", G_CALLBACK(on_view_mapped), tab);
   load(tab, line, column);
+  if (tab == current_tab(t)) { /* its switch-page came before it had a view: see on_tab_switched */
+    update_status(t);
+    outline_show_tab(t);
+    socket_active_changed(t, tab->path);
+  }
   focus_current_tab(t);
   return tab;
 }

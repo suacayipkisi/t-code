@@ -3231,7 +3231,27 @@ static void test_outline(void)
   text = outline_text(&app);
   g_assert_cmpstr(text, ==, "(Open a file to see its symbols.)\n");
   g_free(text);
+
+  /* Switching tabs shows the new tab's outline, not the one it leaves (switch-page comes before the
+   * notebook's current page changes). */
+  char *md = file("outline.md");
+  GtkNotebook *group = app.editors.groups[app.editors.active];
+  g_assert_true(g_file_set_contents(md, "# Notes\n", -1, NULL));
+  open_preview(&app, md);
+  run_for(50);
+  g_assert_cmpint(gtk_notebook_get_n_pages(group), ==, 2);
+  gtk_notebook_set_current_page(group, 0); /* outline.c */
+  g_assert_true(current_tab(&app) == tab);
+  text = outline_text(&app);
+  g_assert_cmpstr(text, !=, "(Open a file to see its symbols.)\n");
+  g_free(text);
+  gtk_notebook_set_current_page(group, 1); /* the preview */
+  g_assert_cmpint(current_tab(&app)->kind, ==, TAB_PREVIEW);
+  text = outline_text(&app);
+  g_assert_cmpstr(text, ==, "(Open a file to see its symbols.)\n");
+  g_free(text);
   close_all_tabs(&app);
+  g_free(md);
   g_free(path);
 }
 

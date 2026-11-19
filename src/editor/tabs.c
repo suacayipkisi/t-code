@@ -522,21 +522,25 @@ static void on_tabs_changed(GtkNotebook *group, GtkWidget *child G_GNUC_UNUSED, 
     g_idle_add(close_window_if_empty, t);
 }
 
-/* Another tab became the current one of a group: that group is the active one now. */
 /* The socket's subscribers hear which file is active now (tab: the active one). */
 static void tell_active(App *t, Tab *tab)
 {
   socket_active_changed(t, tab && tab->kind == TAB_EDITOR ? tab->path : NULL);
 }
 
+/* Another tab became the current one of a group: that group is the active one now. Connected after the
+ * notebook's own handler, so that current_tab() is the new tab (the outline and status bar read it). */
 static void on_tab_switched(GtkNotebook *group, GtkWidget *page, guint index G_GNUC_UNUSED, App *t)
 {
   if (t->closing) /* the groups give up their pages as the window goes: the panels may be gone */
     return;
+  Tab *tab = tab_of(page);
   t->editors.active = group_index(t, GTK_WIDGET(group));
+  if (tab && tab->kind == TAB_EDITOR && !tab->view)
+    return; /* open_editor is still building it (add_tab shows it first): it tells them once done */
   update_status(t);
   outline_show_tab(t);
-  tell_active(t, tab_of(page)); /* the group's current page is still the old one here */
+  tell_active(t, tab);
 }
 
 /* A click into a group makes it the active one (new tabs go there). */
@@ -737,7 +741,7 @@ GtkNotebook *new_tab_group(App *t)
   g_signal_connect_after(group, "switch-page", G_CALLBACK(on_page_switched), NULL);
   g_signal_connect(group, "page-added", G_CALLBACK(on_tabs_changed), t);
   g_signal_connect(group, "page-removed", G_CALLBACK(on_tabs_changed), t);
-  g_signal_connect(group, "switch-page", G_CALLBACK(on_tab_switched), t);
+  g_signal_connect_after(group, "switch-page", G_CALLBACK(on_tab_switched), t);
   g_signal_connect(focus, "enter", G_CALLBACK(on_group_focus), t);
   gtk_widget_add_controller(GTK_WIDGET(group), focus);
   return group;
