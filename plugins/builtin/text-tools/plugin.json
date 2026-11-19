@@ -1,0 +1,29 @@
+{
+  "api": "tapi_1",
+  "id": "text-tools",
+  "name": "Text Tools",
+  "version": "1.0.0",
+  "description": "Change case, sort and dedupe lines, base64, URL encoding, JSON formatting, a UUID or a date.",
+  "executable": "text_tools.py",
+  "permissions": ["edit"],
+  "commands": [
+    { "id": "upper", "name": "Text: UPPER CASE" },
+    { "id": "lower", "name": "Text: lower case" },
+    { "id": "title", "name": "Text: Title Case" },
+    { "id": "snake", "name": "Text: snake_case" },
+    { "id": "camel", "name": "Text: camelCase" },
+    { "id": "sort", "name": "Text: Sort Lines" },
+    { "id": "sort-reverse", "name": "Text: Sort Lines Descending" },
+    { "id": "unique", "name": "Text: Remove Duplicate Lines" },
+    { "id": "reverse", "name": "Text: Reverse Lines" },
+    { "id": "trim", "name": "Text: Trim Trailing Spaces" },
+    { "id": "base64-encode", "name": "Text: Base64 Encode" },
+    { "id": "base64-decode", "name": "Text: Base64 Decode" },
+    { "id": "url-encode", "name": "Text: URL Encode" },
+    { "id": "url-decode", "name": "Text: URL Decode" },
+    { "id": "json-pretty", "name": "Text: Format JSON" },
+    { "id": "json-minify", "name": "Text: Minify JSON" },
+    { "id": "uuid", "name": "Text: Insert UUID" },
+    { "id": "date", "name": "Text: Insert Date and Time" }
+  ]
+}

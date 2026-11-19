@@ -627,7 +627,9 @@ static void test_lsp_test_plugins(void)
     kind = server_kind_for_tab(&tab);
     g_assert_cmpint(kind, >=, SERVER_PLUGIN);
     g_assert_cmpstr(server_name(kind), ==, server_id(builtin));
-    g_assert_true(server_installed(&app, kind));
+    char *program = find_program(server_id(builtin));
+    g_assert_true(server_installed(&app, kind) == (program != NULL)); /* found like the built-in ones */
+    g_free(program);
     g_assert_null(server_missing(&app, kind)); /* no install offers for a plugin's */
     g_assert_null(server_language(kind));
     g_assert_cmpstr(server_language_id(kind, &tab), ==, server_language_id(builtin, &tab));

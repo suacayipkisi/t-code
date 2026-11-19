@@ -351,6 +351,17 @@ static char *server_program(App *t, ServerKind kind)
 #endif
 }
 
+gboolean server_program_found(const char *argv0, const char *dir)
+{
+  char *program = strchr(argv0, '/')
+                      ? (g_path_is_absolute(argv0) ? g_strdup(argv0) : g_build_filename(dir, argv0, NULL))
+                      : find_program(argv0);
+  gboolean found = program && g_file_test(program, G_FILE_TEST_IS_EXECUTABLE);
+
+  g_free(program);
+  return found;
+}
+
 char **server_argv(App *t, ServerKind kind)
 {
   Declared *d = declared_of(kind);
@@ -385,8 +396,8 @@ const char *server_missing(App *t, ServerKind kind)
 
 gboolean server_installed(App *t, ServerKind kind)
 {
-  if (kind >= SERVER_PLUGIN)
-    return declared_of(kind) != NULL;
+  if (kind >= SERVER_PLUGIN) /* its program is there (no install offers for a plugin's) */
+    return declared_of(kind) && server_program_found(declared_of(kind)->argv[0], declared_of(kind)->dir);
 #ifdef SERVER_ARGV
   (void)t;
   return kind != SERVER_NONE;

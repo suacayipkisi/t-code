@@ -48,9 +48,13 @@ const char *server_language_id(ServerKind kind, Tab *tab);
  * server_program), its flags, and clangd's --clang-tidy as the settings say. */
 char **server_argv(App *t, ServerKind kind);
 
-/* Whether the server can run: clangd and plugins' servers are taken as there (a plugin's that is not
- * says so when it fails to start), the others must be found. */
+/* Whether the server can run: clangd is taken as there, the others must be found (a plugin's server
+ * whose program is missing serves nothing, quietly; the Plugins window says it is not found). */
 gboolean server_installed(App *t, ServerKind kind);
+
+/* Whether a plugin's server program is there: argv0 relative to the plugin's folder dir when it holds
+ * a "/", else on PATH or in the folders language installers use (as for the built-in servers). */
+gboolean server_program_found(const char *argv0, const char *dir);
 
 /* The program's name when a built-in server is not installed (an editor offers to install it), else
  * NULL. */

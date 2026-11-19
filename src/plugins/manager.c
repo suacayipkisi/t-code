@@ -8,6 +8,7 @@
 #include "plugins/manager.h"
 
 #include "application/identity.h"
+#include "lsp/servers.h"
 #include "plugins/plugins.h"
 #include "plugins/registry.h"
 #include "window/palette.h"
@@ -349,7 +350,14 @@ static void add_brings(GtkWidget *box, Plugin *p)
   for (guint i = 0; p->servers && i < p->servers->len; i++) {
     PluginServer *s = g_ptr_array_index(p->servers, i);
     char *files = g_strjoinv(" ", s->extensions[0] ? s->extensions : s->languages);
-    char *line = g_strdup_printf("Language server %s, for %s", s->name, files);
+    gboolean found = server_program_found(s->argv[0], p->dir);
+    char *line = g_strdup_printf("Language server %s, for %s%s%s", s->name, files, found ? "" : ": not found (",
+                                 found ? "" : s->argv[0]);
+    if (!found) {
+      char *closed = g_strconcat(line, " is not installed)", NULL);
+      g_free(line);
+      line = closed;
+    }
     gtk_box_append(GTK_BOX(box), label(line, NULL));
     g_free(line);
     g_free(files);

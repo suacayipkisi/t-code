@@ -1,0 +1,13 @@
+{
+  "api": "tapi_1",
+  "id": "shellcheck",
+  "name": "ShellCheck",
+  "version": "1.0.0",
+  "description": "ShellCheck's warnings in the Problems panel and the editor whenever a shell script is opened or saved.",
+  "executable": "shellcheck_plugin.py",
+  "start": "project",
+  "permissions": ["start"],
+  "commands": [
+    { "id": "check", "name": "ShellCheck: Check This File" }
+  ]
+}

@@ -807,6 +807,7 @@ static void test_socket_tapi_editing(void)
   close_everything();
   c = tapi_connect("hello tapi_1");
   tapi_expect(&c, "get-cursor", "error no-editor no editor here, open a file first");
+  tapi_expect(&c, "get-selection-range", "error no-editor no editor here, open a file first");
   request = g_strdup_printf("open %s:2:3", path);
   tapi_expect(&c, request, "ok");
   g_free(request);
@@ -821,8 +822,12 @@ static void test_socket_tapi_editing(void)
   g_assert_cmpstr(text, ==, "lpha\nbe");
   g_free(text);
   tapi_expect(&c, "get-cursor", "ok 2 3"); /* the cursor at the second place */
+  tapi_expect(&c, "get-selection-range", "ok 1 2 2 3");
+  tapi_expect(&c, "set-selection 2 3 1 2", "ok"); /* backwards: the range still starts first */
+  tapi_expect(&c, "get-selection-range", "ok 1 2 2 3");
 
   tapi_expect(&c, "set-selection 3 1 3 1", "ok");
+  tapi_expect(&c, "get-selection-range", "ok 3 1 3 1"); /* nothing selected: the cursor twice */
   tapi_expect(&c, "edit [{\"range\":[1,1,1,6],\"text\":\"ALPHA\"},{\"range\":[2,5,2,5],\"text\":\"!\"}]", "ok");
   tapi_expect(&c, "get-text", "ok");
   text = tapi_text(&c);
@@ -3377,6 +3382,149 @@ static void test_plugins_browse(void)
   g_free(work);
 }
 
+/* Whether tab's text is data (a string). */
+static gboolean text_is(gconstpointer data)
+{
+  const char *const *pair = data;
+  Tab *tab = find_tab(&app, TAB_EDITOR, pair[0]);
+  GtkTextIter start, end;
+  char *text;
+  gboolean same;
+
+  if (!tab)
+    return FALSE;
+  gtk_text_buffer_get_bounds(GTK_TEXT_BUFFER(tab->buffer), &start, &end);
+  text = gtk_text_buffer_get_text(GTK_TEXT_BUFFER(tab->buffer), &start, &end, TRUE);
+  same = strcmp(text, pair[1]) == 0;
+  g_free(text);
+  return same;
+}
+
+/* Whether the editor of path shows a diagnostic whose message holds data[1]. */
+static gboolean shows_diagnostic(gconstpointer data)
+{
+  const char *const *pair = data;
+  Tab *tab = find_tab(&app, TAB_EDITOR, pair[0]);
+  GPtrArray *list = tab ? diagnostics_of(tab) : NULL;
+
+  for (guint i = 0; list && i < list->len; i++)
+    if (strstr(diagnostic_message(g_ptr_array_index(list, i)), pair[1]))
+      return TRUE;
+  return FALSE;
+}
+
+static void write_program(const char *dir, const char *name, const char *text)
+{
+  g_free(write_at(dir, name, text, -1, 0755));
+}
+
+/* plugins/builtin against this window, through the real socket: Text Tools edits the buffer (the
+ * whole of it without a selection, the selection with one); ShellCheck, started with the project,
+ * turns a fake shellcheck's findings on an opened script into diagnostics; MATLAB runs a .m file in
+ * a fake MATLAB's terminal tab and turns its error into a diagnostic, then closes the session. */
+static void test_example_plugins(void)
+{
+  char *python = g_find_program_in_path("python3");
+  char *bin = g_dir_make_tmp("t-code-fake-bin-XXXXXX", NULL), *old_path = g_strdup(g_getenv("PATH"));
+  char *path_env = g_strconcat(bin, ":", old_path, NULL), *matlab = g_build_filename(bin, "matlab", NULL);
+  char *text_file = file("tools.txt"), *script = file("check.sh"), *m_file = file("script1.m");
+  int shells = shell_count(&app);
+
+  if (!python) {
+    g_test_skip("no python3");
+    g_free(bin);
+    g_free(old_path);
+    g_free(path_env);
+    g_free(matlab);
+    g_free(text_file);
+    g_free(script);
+    g_free(m_file);
+    return;
+  }
+  write_program(bin, "shellcheck",
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                "print(json.dumps({'comments': [{'line': 2, 'column': 6, 'endLine': 2, 'endColumn': 8, 'level': "
+                "'info', 'code': 2086, 'message': 'Double quote to prevent globbing and word splitting.'}]}))\n");
+  write_program(
+      bin, "matlab",
+      "#!/usr/bin/env python3\n"
+      "import re, sys\n"
+      "for line in sys.stdin:\n"
+      "    m = re.search(r\"diary\\('([^']*)'\\); disp\\('([^']*)'\\).*run\\('([^']*)'\\).*disp\\('([^']*)'\\)\", "
+      "line)\n"
+      "    if m:\n"
+      "        stem = m.group(3)[:-2]\n"
+      "        with open(m.group(1), 'w') as f:\n"
+      "            f.write(f\"{m.group(2)}\\nUndefined function or variable 'x'.\\n\\n\"\n"
+      "                    f\"Error in {stem} (line 2)\\ny = x + 1;\\n{m.group(4)}\\n\")\n"
+      "    print('>> ', end='', flush=True)\n");
+  g_setenv("PATH", path_env, TRUE);
+  g_setenv("TCODE_MATLAB", matlab, TRUE);
+  close_everything();
+  char *builtin = g_canonicalize_filename("plugins/builtin", NULL); /* the tests run in the source tree */
+  plugins_scan_dir(&app, builtin);
+  g_free(builtin);
+  g_assert_nonnull(plugin_find(&app, "text-tools"));
+  g_assert_nonnull(plugin_find(&app, "shellcheck"));
+  g_assert_nonnull(plugin_find(&app, "matlab"));
+
+  /* Text Tools */
+  g_assert_true(g_file_set_contents(text_file, "b\na\nb\n", -1, NULL));
+  open_file(&app, text_file);
+  run_until(has_tab, text_file);
+  run_until(loaded, find_tab(&app, TAB_EDITOR, text_file));
+  plugin_run_command(&app, "text-tools", "unique");
+  run_until(text_is, (const char *const[]){ text_file, "b\na\n" });
+  Tab *tab = find_tab(&app, TAB_EDITOR, text_file);
+  GtkTextIter start, end;
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(tab->buffer), &start, 1);
+  end = start;
+  gtk_text_iter_forward_char(&end);
+  gtk_text_buffer_select_range(GTK_TEXT_BUFFER(tab->buffer), &start, &end);
+  plugin_run_command(&app, "text-tools", "upper");
+  run_until(text_is, (const char *const[]){ text_file, "b\nA\n" });
+  gtk_text_buffer_undo(GTK_TEXT_BUFFER(tab->buffer)); /* one edit, one undo step */
+  g_assert_true(text_is((const char *const[]){ text_file, "b\na\n" }));
+
+  /* ShellCheck */
+  g_assert_true(g_file_set_contents(script, "#!/bin/sh\necho $1\n", -1, NULL));
+  g_assert_true(plugin_start(&app, plugin_find(&app, "shellcheck")));
+  run_for(500); /* it connects and subscribes */
+  open_file(&app, script);
+  run_until(shows_diagnostic, (const char *const[]){ script, "Double quote" });
+  plugin_stop(plugin_find(&app, "shellcheck"));
+
+  /* MATLAB */
+  g_assert_true(g_file_set_contents(m_file, "x = 1;\ny = x + 1;\n", -1, NULL));
+  open_file(&app, m_file);
+  run_until(has_tab, m_file);
+  run_until(loaded, find_tab(&app, TAB_EDITOR, m_file));
+  plugin_run_command(&app, "matlab", "run");
+  run_until(shows_diagnostic, (const char *const[]){ m_file, "Undefined function or variable 'x'." });
+  g_assert_cmpint(shell_count(&app), ==, shells + 1);
+  g_assert_cmpstr(shell_name(shell_at(&app, shells)), ==, "MATLAB");
+  plugin_run_command(&app, "matlab", "close");
+  for (int i = 0; i < 100 && shell_count(&app) > shells; i++)
+    run_for(50);
+  g_assert_cmpint(shell_count(&app), ==, shells);
+
+  close_everything();
+  plugins_reload(&app); /* back to t-code's own */
+  g_setenv("PATH", old_path, TRUE);
+  g_unsetenv("TCODE_MATLAB");
+  const char *rm[] = { "rm", "-rf", bin, NULL };
+  g_spawn_sync(NULL, (char **)rm, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
+  g_free(python);
+  g_free(bin);
+  g_free(old_path);
+  g_free(path_env);
+  g_free(matlab);
+  g_free(text_file);
+  g_free(script);
+  g_free(m_file);
+}
+
 static void on_activate(GApplication *gapp, gpointer data G_GNUC_UNUSED)
 {
   int *status = g_object_get_data(G_OBJECT(gapp), "status");
@@ -3793,6 +3941,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/settings-pages", test_settings_pages);
   g_test_add_func("/window/plugins-window", test_plugins_window);
   g_test_add_func("/window/plugins-browse", test_plugins_browse);
+  g_test_add_func("/window/example-plugins", test_example_plugins);
   g_test_add_func("/window/panel-menu", test_panel_buttons);
   g_test_add_func("/window/own-icons", test_own_icons);
   g_test_add_func("/window/terminal-tabs", test_terminal_tabs);

@@ -234,6 +234,7 @@ test: build/test-log build/test-searchmatch build/test-detect build/test-langenv
 	build/test-update
 	build/test-recovery
 	build/test-registry
+	for d in plugins/builtin/*/; do (cd $$d && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q) || exit 1; done
 
 # The tests that need no display again, under AddressSanitizer and UBSan: out-of-bounds access, use
 # after free, undefined behavior, and (LeakSanitizer, at exit) every block that was not freed.

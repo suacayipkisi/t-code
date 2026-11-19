@@ -191,9 +191,10 @@ Each `lsp` entry:
   completion, hover, signature help, inlay hints, semantic tokens, symbols, rename, formatting. It
   starts with the first of its files, one per project, stops a while after its last file closes,
   and is restarted after a crash.
-- **Not installed?** t-code does not offer to install a plugin's server: when its program cannot
-  start, t-code's stderr says so and its files have no server. Say how to install it in the plugin's
-  description or README.
+- **Not installed?** t-code does not offer to install a plugin's server. When its program is not
+  found (on `PATH`, in `~/.local/bin`, `~/.cargo/bin`, `~/go/bin`, or in the plugin's folder for a
+  relative path), its files quietly get no server, and the Plugins window shows the server as "not
+  found". Say how to install it in the plugin's description or README.
 - **Reloading** (Plugins: Reload Installed Plugins) moves the open files to the servers the plugins
   declare now.
 
@@ -348,6 +349,7 @@ New codes may be added; treat an unknown code as a failure.
 | `get-text` | – | `ok`, then text and NUL | The whole buffer, unsaved edits included (empty without an editor). |
 | `get-cursor` | – | `ok <line> <column>` | The cursor. |
 | `get-selection` | – | `ok`, then text and NUL | The selected text (empty when nothing is selected). |
+| `get-selection-range` | – | `ok <line> <col> <line> <col>` | Where the selection starts and ends (the start first, whichever end the cursor is at); the cursor twice when nothing is selected. For an `edit` that replaces the selection. |
 | `set-selection` | `<line> <col> <line> <col>` | `ok` | Selects from the first place to the second; the cursor goes to the second. Equal places just move the cursor. |
 | `insert` | text | `ok` | Inserts text at the cursor. Needs `edit`. |
 | `append` | text | `ok` | Adds text at the end of the buffer. Needs `edit`. |
@@ -589,30 +591,33 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Each one says what it does, what t-code provides
+These are plugins the API is meant to make possible. Three of them are written and live in this
+repository under `plugins/builtin/` (MATLAB, ShellCheck, Text Tools), as working examples and as the
+registry's first entries; t-code does not load them by itself (install them from Browse, or copy a
+folder into `~/.config/t-code/plugins/`). Each one says what it does, what t-code provides
 (**core**), what the plugin itself does, and where it stops. Some still use **(planned)** parts of tapi_1.
 
 ### Languages and REPLs
 
-#### MATLAB (`matlab`)
-- **Does:** write, run and send `.m` code without the MATLAB desktop.
+#### MATLAB (`matlab`, in this repository: `plugins/builtin/matlab`)
+- **Does:** write and run `.m` code without the MATLAB desktop: Run File (also `F5` on a `.m` file),
+  Run Selection, Stop, Open / Close Session.
 - **Core:**
-  - Terminal tabs (`terminal-open`, `terminal-send`).
-  - `"run": {".m": "matlab.run"}`, so F5 / Run on a `.m` file runs the plugin's command.
-  - The plugin's `language-specs/matlab.lang`.
-  - An `lsp` entry for the MATLAB Language Server, installed by the user (completion, hover,
-    diagnostics).
-- **Plugin:**
-  - **Session:** on its first command, opens a "MATLAB" terminal tab running
-    `matlab -nodesktop -nosplash`. The plugin owns this session.
-  - **Run:** `save`, then sends `run('/path/file.m')` to the tab. Send Selection: `get-selection`,
-    then `terminal-send`.
-  - **Errors as diagnostics:** MATLAB's messages show in the terminal tab. The plugin also has MATLAB
-    write a `diary` file, watches it, turns lines like `Error in foo (line 12)` into
-    `diagnostics-set`, and clears them on the next run.
-  - **Stop:** `terminal-interrupt` (Ctrl+C). It closes only its own processes.
-  - **Alternative:** a Python plugin could attach to a shared session through `matlab.engine` and
-    catch errors directly.
+  - Terminal tabs (`terminal-open`, `terminal-send`, `terminal-interrupt`, `terminal-close`).
+  - `"run": {".m": "run"}`, so `F5` / Run on a `.m` file runs the plugin's command.
+  - GtkSourceView's own `matlab` language (no language specs needed).
+  - An `lsp` entry for the MATLAB Language Server (`matlab-language-server --stdio`, installed by
+    the user; until then the Plugins window shows it as not found).
+- **Plugin** (Python 3, standard library):
+  - **Session:** a "MATLAB" terminal tab running `matlab -nodesktop -nosplash` (found on `PATH` or
+    in `/usr/local/MATLAB/*`, `/opt/MATLAB/*`, `~/MATLAB/*`). Its tab id is kept in
+    `$XDG_RUNTIME_DIR/t-code-matlab/`, so every command reaches the same session.
+  - **Run:** `save`, then one line into the session: a `diary` file, the file run inside
+    `try` / `catch` with `getReport`, and markers around it. The plugin waits for the end marker, turns
+    `Error in foo (line 12)` and `Error: File: … Line: 3 Column: 5` into `diagnostics-set` (the
+    first frame an error, the callers info), and clears them on the next run.
+  - **Run Selection:** `get-selection`, then each line with `terminal-send`.
+  - **Stop:** `terminal-interrupt` (Ctrl+C). It closes only its own tab.
 - **Limits:**
   - No workspace or variables panel; a variable list could show through `pick`.
   - Plot windows are MATLAB's own.
@@ -648,11 +653,16 @@ lines of script.
 All of these use the same pieces: `"start": "project"`, `subscribe`, `did_save` and
 `diagnostics-set`.
 
-#### ShellCheck (`shellcheck`)
-- **Does:** on `did_save` of a `.sh` / `.bash` file, runs `shellcheck -f json` and turns its findings
-  into diagnostics, with codes like `SC2086`.
+#### ShellCheck (`shellcheck`, in this repository: `plugins/builtin/shellcheck`)
+- **Does:** when a shell script is opened or saved (`.sh`, `.bash`, `.ksh`, `.bats`, or a `#!` line
+  naming sh / bash / dash / ksh), runs `shellcheck -f json1 -x` and turns its findings into
+  diagnostics, with codes like `SC2086` (ShellCheck's `style` level as hints). ShellCheck: Check This
+  File does it once by hand.
+- **Plugin** (Python 3): `"start": "project"`, a `subscribe` connection for `did_open`, `did_save`
+  and `did_close`, and a second one for `diagnostics-set`. ShellCheck counts a tab as 8 columns; the
+  plugin converts to characters.
 - **Limits:**
-  - Checks only on save.
+  - Checks on open and save only.
   - Checking while typing needs `did_change` and `get-text` (the unsaved text) instead of the file.
 
 #### Ruff / Flake8 / mypy (`python-lint`)
@@ -765,10 +775,13 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
 #### TODO finder (`todos`)
 - **Does:** finds TODO / FIXME with `rg`, then lists them with `pick` or as `info` diagnostics.
 
-#### Text tools (`text-tools`)
-- **Does:** change case, sort / unique lines, base64, URL encoding, JSON pretty printing, insert a
-  UUID or a date.
-- **Plugin:** `get-selection`, then `edit`.
+#### Text tools (`text-tools`, in this repository: `plugins/builtin/text-tools`)
+- **Does:** UPPER / lower / Title / snake_case / camelCase, sort (both ways), remove duplicate
+  lines, reverse lines, trim trailing spaces, base64 and URL encode / decode, format / minify JSON,
+  insert a UUID or the date and time.
+- **Plugin** (Python 3): `get-selection-range` and `get-selection`, then one `edit` (one undo step).
+  The line and JSON commands take the whole buffer when nothing is selected; the others need a
+  selection.
 
 #### Snippet packs and themes
 Declarations only: `snippets/` and `styles/*.xml` folders, no program.

@@ -207,6 +207,22 @@ static gboolean do_get_selection(Client *c, const char *arg G_GNUC_UNUSED)
   return TRUE;
 }
 
+/* The selection's start and end ("<line> <col> <line> <col>"); both the cursor when nothing is
+ * selected. */
+static gboolean do_get_selection_range(Client *c, const char *arg G_GNUC_UNUSED)
+{
+  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(active_editor(c->app)->buffer);
+  GtkTextIter start, end;
+
+  gtk_text_buffer_get_selection_bounds(buffer, &start, &end); /* none: both at the cursor */
+  char *range =
+      g_strdup_printf("%d %d %d %d", gtk_text_iter_get_line(&start) + 1, gtk_text_iter_get_line_offset(&start) + 1,
+                      gtk_text_iter_get_line(&end) + 1, gtk_text_iter_get_line_offset(&end) + 1);
+  send_value(c, range);
+  g_free(range);
+  return TRUE;
+}
+
 /* Editing ------------------------------------------------------------------------------------ */
 
 static gboolean do_insert(Client *c, const char *arg)
@@ -696,6 +712,7 @@ static const Request requests[] = {
   { "get-cursor",         NEEDS_EDITOR,  0,               FALSE, do_get_cursor },
   { "get-selection",      NEEDS_EDITOR,  0,               FALSE, do_get_selection },
   { "set-selection",      NEEDS_EDITOR,  0,               FALSE, do_set_selection },
+  { "get-selection-range", NEEDS_EDITOR, 0,               FALSE, do_get_selection_range },
   { "insert",             NEEDS_EDITOR,  PLUGIN_EDIT,     FALSE, do_insert },
   { "append",             NEEDS_EDITOR,  PLUGIN_EDIT,     FALSE, do_append },
   { "replace-all",        NEEDS_EDITOR,  PLUGIN_EDIT,     FALSE, do_replace_all },
