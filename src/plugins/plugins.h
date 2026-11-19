@@ -153,5 +153,8 @@ PluginCommand *plugins_run_command_for(App *t, const char *file);
 /* Runs a plugin command asynchronously in a subprocess. */
 void plugin_run_command(App *t, const char *plugin_id, const char *command_id);
 
+/* Opens dir (a plugin's folder) in the file manager; a failure says so in the status bar. */
+void plugin_open_folder(App *t, const char *dir);
+
 /* Opens the user plugins directory in desktop file manager. */
 void open_plugins_folder(App *t);

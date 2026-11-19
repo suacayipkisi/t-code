@@ -147,13 +147,9 @@ static void on_start(GtkButton *button G_GNUC_UNUSED, gpointer data G_GNUC_UNUSE
 static void on_open_folder(GtkButton *button G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
 {
   Plugin *p = picked();
-  GFile *dir = p ? g_file_new_for_path(p->dir) : NULL;
-  GtkFileLauncher *launcher = dir ? gtk_file_launcher_new(dir) : NULL;
 
-  if (launcher)
-    gtk_file_launcher_launch(launcher, GTK_WINDOW(manager->window), NULL, NULL, NULL);
-  g_clear_object(&launcher);
-  g_clear_object(&dir);
+  if (p)
+    plugin_open_folder(manager->app, p->dir);
 }
 
 static void on_uninstall_answer(GObject *dialog, GAsyncResult *result, gpointer data)

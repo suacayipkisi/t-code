@@ -1090,16 +1090,36 @@ void plugin_run_command(App *t, const char *plugin_id, const char *command_id)
   launch(t, p, command_id, FALSE);
 }
 
+/* The file manager answered: a failure says so in the status bar. */
+static void on_folder_opened(GObject *launcher, GAsyncResult *result, gpointer data)
+{
+  GError *error = NULL;
+
+  if (!gtk_file_launcher_launch_finish(GTK_FILE_LAUNCHER(launcher), result, &error) &&
+      !g_error_matches(error, GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED)) {
+    char *said = g_strdup_printf("The file manager would not open that folder: %s", error->message);
+    status_say(data, said);
+    g_free(said);
+  }
+  g_clear_error(&error);
+}
+
+/* GtkFileLauncher, not GtkUriLauncher: the portal's OpenURI turns down a folder's file:// URI. */
+void plugin_open_folder(App *t, const char *dir)
+{
+  GFile *folder = g_file_new_for_path(dir);
+  GtkFileLauncher *launcher = gtk_file_launcher_new(folder);
+
+  gtk_file_launcher_launch(launcher, t->window, NULL, on_folder_opened, t);
+  g_object_unref(launcher);
+  g_object_unref(folder);
+}
+
 void open_plugins_folder(App *t)
 {
   char *dir = g_build_filename(g_get_user_config_dir(), TCODE_NAME, "plugins", NULL);
+
   g_mkdir_with_parents(dir, 0755);
-  char *uri = g_filename_to_uri(dir, NULL, NULL);
-  if (uri) {
-    GtkUriLauncher *launcher = gtk_uri_launcher_new(uri);
-    gtk_uri_launcher_launch(launcher, t->window, NULL, NULL, NULL);
-    g_object_unref(launcher);
-    g_free(uri);
-  }
+  plugin_open_folder(t, dir);
   g_free(dir);
 }
