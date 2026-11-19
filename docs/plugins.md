@@ -538,34 +538,52 @@ picked on the right.
   here.
 - **Reload** and **Open Plugins Folder** at the top: put a plugin's folder in
   `~/.config/t-code/plugins/`, press Reload, and it shows.
-- **(planned) Browse:** the registry's plugins, with search and categories. Install downloads the
-  reviewed commit into `~/.config/t-code/plugins/<id>/` and checks its sha256; Update does the same for
-  a newer pin. It comes with the registry (below).
+- **Browse:** the registry's plugins (below), fetched when the page first shows, with a search over
+  names, descriptions and categories. Each shows its version, its review badge and the permissions it
+  asks for. **Install** downloads the pinned commit, checks its tree hash and its `plugin.json`'s id,
+  and puts it in `~/.config/t-code/plugins/<id>/`; **Update** does the same when the registry pins a
+  newer commit. A plugin that needs a newer t-code (`api`) cannot be installed. A reviewed plugin
+  installs switched on; an unreviewed one installs switched off.
+- A plugin installed from the registry shows "Registry: reviewed / not reviewed yet at <commit>" in
+  its details; one put in the folder by hand shows "installed by hand" and never warns.
 
-### The registry (planned)
+### The registry
 
-Plugins are shared through the `t-code-plugins` repository. It holds no plugin code, only pins:
+Plugins are shared through the [t-code-plugins](https://github.com/suacayipkisi/t-code-plugins)
+repository. It holds no plugin code, only pins; its README says how to publish.
 
-- **One file per plugin.** `plugins/<id>.json` holds the plugin's source repository, a commit, the
-  sha256 of that commit's archive, its API, its permissions and `"reviewed": false|true`.
-- **Publishing.** To publish, an author opens a pull request adding or updating that file.
-- **Automatic checks.** An automatic reviewer (CI) checks the pull request:
-  - the manifest, and that the commit's archive matches the sha256;
+- **One file per plugin.** `plugins/<id>.json` holds the plugin's repository on GitHub, a full
+  commit id, the plugin's folder in it (`path`), the tree hash of that folder (`tree-sha256`), its
+  name, description, version, API, permissions, categories and `"reviewed": false|true`.
+- **The tree hash** is the sha256 of one line per regular file of the plugin's folder, sorted by
+  path: `<file's sha256> <x or -> <path>` (`x`: executable). It does not depend on how GitHub
+  compresses archives. A folder with symbolic links or special files cannot be installed.
+- **Publishing.** An author opens a pull request adding or updating that file (and the generated
+  `index.json`).
+- **Automatic checks.** CI (`tools/check.py`) checks the pull request:
+  - the entry's fields, and that only a maintainer turns `reviewed` on;
+  - the commit: it downloads, its `plugin.json` matches the entry, its files match `tree-sha256`;
   - shell scripts with shellcheck;
-  - no binaries, no `curl | sh`, no undeclared network use;
-  - a smoke test against a fake t-code socket.
+  - no binaries (images aside), no symbolic links, no `curl | sh`, no network use without the
+    `network` permission (talking to t-code's socket does not count);
+  - a smoke test: each command, and `start`, runs against a fake t-code socket.
 - **Merged unreviewed.** When the checks pass, the pull request is merged with `"reviewed": false`.
 - **Maintainer review.** A t-code maintainer reads that exact commit and sets `"reviewed": true`.
   A new commit starts unreviewed again.
+- **The index.** t-code reads `index.json` from the repository's main branch over HTTPS (curl);
+  `$TCODE_REGISTRY` names another URL, or a file. It holds `{"format": 1, "plugins": [...]}`, the
+  entries as above. **(planned, before 1.0)** a signature over the index, checked by t-code.
 
 t-code warns before it runs an unreviewed plugin, three times:
 
-1. when it is installed;
-2. when it is first enabled;
-3. when it first runs.
+1. when it is installed (it installs switched off);
+2. when it is first turned on;
+3. when it first runs (a command, or its start program).
 
-After that it stops asking. The badge stays until a maintainer reviews it. The registry's index is
-signed, and t-code checks the signature.
+After that it stops asking, until an update brings a new unreviewed commit. The badge stays until a
+maintainer reviews it; t-code notices the review the next time Browse fetches the index. What was
+shown is kept in `~/.config/t-code/plugins.json` (`"registry"`: per plugin, its repository, commit,
+whether it was reviewed and the warnings taken).
 
 ---
 

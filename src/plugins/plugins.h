@@ -10,6 +10,7 @@
 #pragma once
 
 #include "app.h"
+#include "plugins/registry.h"
 
 #include <string.h>
 
@@ -73,7 +74,8 @@ typedef struct Plugin {
   char *executable; /* NULL for a plugin without commands */
   int api;          /* the "tapi_N" its plugin.json asks for; 0: none (a plugin from before versions) */
   PluginSource source;
-  gboolean enabled; /* not in plugins.json's "disabled": its commands, keys, servers and start work */
+  gboolean enabled;       /* not in plugins.json's "disabled": its commands, keys, servers and start work */
+  RegistryRecord *record; /* installed from the registry (plugins.json's "registry"); NULL: by hand */
   PluginPermissions permissions;
   char *token;         /* $TCODE_PLUGIN_TOKEN: its program says "hello tapi_1 <token>" to be known as it */
   GPtrArray *commands; /* PluginCommand * */
@@ -116,6 +118,20 @@ guint plugins_generation(void);
  * start program stops and its commands, keys and language servers go; on, they come back. Its
  * snippets and language specs follow at the next start. */
 void plugin_set_enabled(App *t, Plugin *p, gboolean enabled);
+
+/* id goes into plugins.json's "disabled", or out of it (an install, before the plugins load again). */
+void plugins_choose_disabled(const char *id, gboolean disabled);
+
+/* Installed from the registry at a commit no maintainer has reviewed: t-code warns on install, on
+ * first enable and on first run. */
+gboolean plugin_unreviewed(Plugin *p);
+
+/* A warning was shown and taken: kept in plugins.json, not shown again for this commit. */
+void plugin_warned(Plugin *p, RegistryWarned warning);
+
+/* The Plugins window asks before an unreviewed plugin first runs (manager.c); yes runs command_id,
+ * or the start program when it is NULL. */
+void plugins_confirm_run(App *t, Plugin *p, const char *command_id);
 
 /* Removes a plugin from the user's folder (stopped first) and loads the plugins again; FALSE with
  * error for one found elsewhere or a folder that would not go. */

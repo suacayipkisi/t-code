@@ -1,11 +1,15 @@
 /*
- * The Plugins window (see manager.h): the plugins on the left, the one picked on the right. It looks
- * at the plugins again every REFRESH_MS while it is open: a reload rebuilds the list (keeping the
- * pick by id), new output or another state updates the details.
+ * The Plugins window (see manager.h). Installed: the plugins on the left, the one picked on the
+ * right; it looks at the plugins again every REFRESH_MS while it is open: a reload rebuilds the list
+ * (keeping the pick by id), new output or another state updates the details. Browse: the registry's
+ * index, fetched when the page first shows, with Install / Update. And the three warnings an
+ * unreviewed plugin gets: on install, on first enable, on first run.
  */
 #include "plugins/manager.h"
 
+#include "application/identity.h"
 #include "plugins/plugins.h"
+#include "plugins/registry.h"
 #include "window/palette.h"
 #include "window/statusbar.h"
 
@@ -19,7 +23,10 @@ static const char *const css =
     ".tcode-plugins .section { font-weight: bold; color: var(--tc-fg-bright); margin-top: 14px; }"
     ".tcode-plugins .note { color: var(--tc-fg-dim); font-size: smaller; }"
     ".tcode-plugins .off { color: var(--tc-fg-dim); font-style: italic; }"
-    ".tcode-plugins .output { font-family: monospace; font-size: smaller; padding: 6px; }";
+    ".tcode-plugins .output { font-family: monospace; font-size: smaller; padding: 6px; }"
+    ".tcode-plugins .browse-list row { padding: 10px 14px; border-bottom: 1px solid var(--tc-border); }"
+    ".tcode-plugins .unreviewed { color: var(--tc-warning); }"
+    ".tcode-plugins .reviewed { color: var(--tc-git-added); }";
 
 typedef struct {
   App *app;
@@ -30,6 +37,9 @@ typedef struct {
   guint printed;                     /* the picked plugin's lines printed when its output was shown */
   PluginState shown_state;
   guint refresh_id;
+  GtkWidget *stack, *search, *browse_list, *browse_status; /* Browse */
+  GPtrArray *entries;                                      /* RegistryEntry *: the index, once fetched */
+  gboolean fetching;
 } Manager;
 
 static Manager *manager; /* while the window is open */
@@ -119,16 +129,138 @@ static void show_state(Plugin *p)
   manager->shown_state = p->state;
 }
 
-static void on_enabled(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+/* A question with two buttons over parent; yes(id) runs on the second. */
+typedef void (*Answered)(App *t, const char *id, const char *extra);
+
+typedef struct {
+  App *app;
+  char *id, *extra;
+  Answered yes;
+} Question;
+
+static void on_answer(GObject *dialog, GAsyncResult *result, gpointer data)
 {
-  Plugin *p = picked();
+  Question *q = data;
+
+  if (gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, NULL) == 1)
+    q->yes(q->app, q->id, q->extra);
+  g_free(q->id);
+  g_free(q->extra);
+  g_free(q);
+}
+
+static void ask(App *t, GtkWindow *parent, const char *title, const char *detail, const char *no, const char *yes,
+                Answered then, const char *id, const char *extra)
+{
+  GtkAlertDialog *dialog = gtk_alert_dialog_new("%s", title);
+  const char *buttons[] = { no, yes, NULL };
+  Question *q = g_new0(Question, 1);
+
+  q->app = t;
+  q->id = g_strdup(id);
+  q->extra = g_strdup(extra);
+  q->yes = then;
+  gtk_alert_dialog_set_detail(dialog, detail);
+  gtk_alert_dialog_set_buttons(dialog, buttons);
+  gtk_alert_dialog_set_cancel_button(dialog, 0);
+  gtk_alert_dialog_set_default_button(dialog, 0);
+  gtk_alert_dialog_choose(dialog, parent, NULL, on_answer, q);
+  g_object_unref(dialog);
+}
+
+static void turn_on(App *t, const char *id, const char *extra G_GNUC_UNUSED)
+{
+  Plugin *p = plugin_find(t, id);
 
   if (!p)
     return;
-  plugin_set_enabled(manager->app, p, gtk_switch_get_active(toggle));
+  plugin_warned(p, REGISTRY_WARNED_ENABLE);
+  plugin_set_enabled(t, p, TRUE);
+  status_say(t, "Plugin on: welcome aboard");
+  if (manager) {
+    show_details();
+    rebuild_list();
+  }
+}
+
+static void on_enabled(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+{
+  Plugin *p = picked();
+  gboolean on = gtk_switch_get_active(toggle);
+
+  if (!p || p->enabled == on)
+    return;
+  if (on && plugin_unreviewed(p) && !(p->record->warned & REGISTRY_WARNED_ENABLE)) {
+    char *title = g_strdup_printf("Second heads-up: %s is still not reviewed", p->name);
+    g_signal_handlers_block_by_func(toggle, on_enabled, NULL);
+    gtk_switch_set_active(toggle, FALSE); /* until the answer */
+    g_signal_handlers_unblock_by_func(toggle, on_enabled, NULL);
+    ask(manager->app, GTK_WINDOW(manager->window), title,
+        "On, its commands and keys work and it may start with the project. It runs with your rights. Turn it on?",
+        "Keep It Off", "Turn On", turn_on, p->id, NULL);
+    g_free(title);
+    return;
+  }
+  plugin_set_enabled(manager->app, p, on);
   status_say(manager->app, p->enabled ? "Plugin on: welcome back" : "Plugin off: it is taking a nap");
   show_state(p);
   rebuild_list();
+}
+
+/* The third warning ------------------------------------------------------------------------------ */
+
+static GHashTable *asking; /* the plugin ids whose first run is being asked about */
+
+static void run_first(App *t, const char *id, const char *command)
+{
+  Plugin *p = plugin_find(t, id);
+
+  g_hash_table_remove(asking, id);
+  if (!p)
+    return;
+  plugin_warned(p, REGISTRY_WARNED_RUN);
+  if (command)
+    plugin_run_command(t, id, command);
+  else
+    plugin_start(t, p);
+}
+
+static void on_run_answer(GObject *dialog, GAsyncResult *result, gpointer data)
+{
+  Question *q = data;
+
+  if (gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, NULL) == 1)
+    run_first(q->app, q->id, q->extra);
+  else
+    g_hash_table_remove(asking, q->id);
+  g_free(q->id);
+  g_free(q->extra);
+  g_free(q);
+}
+
+void plugins_confirm_run(App *t, Plugin *p, const char *command_id)
+{
+  GtkAlertDialog *dialog;
+  const char *buttons[] = { "Not Now", "Run It", NULL };
+  Question *q;
+
+  if (!asking)
+    asking = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+  if (g_hash_table_contains(asking, p->id)) /* one question at a time */
+    return;
+  g_hash_table_add(asking, g_strdup(p->id));
+  q = g_new0(Question, 1);
+  q->app = t;
+  q->id = g_strdup(p->id);
+  q->extra = g_strdup(command_id);
+  dialog = gtk_alert_dialog_new("Last heads-up before %s runs", p->name);
+  gtk_alert_dialog_set_detail(dialog, "It is not reviewed yet and this is its first run. It runs with your rights. "
+                                      "After this t-code stops asking, until a new version comes.");
+  gtk_alert_dialog_set_buttons(dialog, buttons);
+  gtk_alert_dialog_set_cancel_button(dialog, 0);
+  gtk_alert_dialog_set_default_button(dialog, 0);
+  gtk_alert_dialog_choose(dialog, manager ? GTK_WINDOW(manager->window) : t->window, NULL, on_run_answer, q);
+  g_object_unref(dialog);
 }
 
 static void on_start(GtkButton *button G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
@@ -310,6 +442,15 @@ static void show_details(void)
   add_fact(grid, &row, "API", api, FALSE);
   add_fact(grid, &row, "From", source_text(p->source), FALSE);
   add_fact(grid, &row, "Folder", p->dir, TRUE);
+  if (p->record) {
+    char *short_commit = g_strndup(p->record->commit, 12);
+    char *registry = g_strdup_printf("%s at %s", p->record->reviewed ? "reviewed" : "not reviewed yet", short_commit);
+    add_fact(grid, &row, "Registry", registry, FALSE);
+    g_free(registry);
+    g_free(short_commit);
+  } else if (p->source == PLUGIN_FROM_USER) {
+    add_fact(grid, &row, "Registry", "not from it: installed by hand", FALSE);
+  }
   manager->state = label("", NULL);
   gtk_grid_attach(GTK_GRID(grid), label("State", "note"), 0, row, 1, 1);
   gtk_grid_attach(GTK_GRID(grid), manager->state, 1, row++, 1, 1);
@@ -427,16 +568,306 @@ static void on_open_plugins_folder(GtkButton *b G_GNUC_UNUSED, gpointer data G_G
   open_plugins_folder(manager->app);
 }
 
+/* Browse ----------------------------------------------------------------------------------------- */
+
+static void fill_browse(void);
+
+/* What Install was told: its own copy of the entry, the window may close meanwhile. */
+typedef struct {
+  App *app;
+  RegistryEntry *entry;
+} Job;
+
+static RegistryEntry *entry_copy(const RegistryEntry *e)
+{
+  RegistryEntry *c = g_new0(RegistryEntry, 1);
+
+  c->id = g_strdup(e->id);
+  c->name = g_strdup(e->name);
+  c->description = g_strdup(e->description);
+  c->version = g_strdup(e->version);
+  c->api = g_strdup(e->api);
+  c->repository = g_strdup(e->repository);
+  c->commit = g_strdup(e->commit);
+  c->path = g_strdup(e->path);
+  c->tree = g_strdup(e->tree);
+  c->permissions = g_strdupv(e->permissions);
+  c->categories = g_strdupv(e->categories);
+  c->reviewed = e->reviewed;
+  return c;
+}
+
+static RegistryEntry *entry_named(const char *id)
+{
+  for (guint i = 0; manager && manager->entries && i < manager->entries->len; i++) {
+    RegistryEntry *e = g_ptr_array_index(manager->entries, i);
+    if (strcmp(e->id, id) == 0)
+      return e;
+  }
+  return NULL;
+}
+
+/* The download is in place (or not): an unreviewed plugin starts off, the plugins load again. */
+static void on_installed(const char *error, gpointer data)
+{
+  Job *job = data;
+  RegistryEntry *e = job->entry;
+
+  if (error) {
+    char *said = g_strdup_printf("%s: %s", e->name, error);
+    status_say(job->app, said);
+    if (manager) {
+      GtkAlertDialog *failed = gtk_alert_dialog_new("Could not install %s", e->name);
+      gtk_alert_dialog_set_detail(failed, error);
+      gtk_alert_dialog_show(failed, GTK_WINDOW(manager->window));
+      g_object_unref(failed);
+    }
+    g_free(said);
+  } else {
+    RegistryRecord record = { .repository = e->repository,
+                              .commit = e->commit,
+                              .reviewed = e->reviewed,
+                              .warned = e->reviewed ? 0 : REGISTRY_WARNED_INSTALL };
+    char *said = g_strdup_printf(e->reviewed ? "%s is in. Have fun"
+                                             : "%s is in, switched off for now: turn it on when "
+                                               "you are ready",
+                                 e->name);
+    registry_set_record(e->id, &record);
+    if (!e->reviewed)
+      plugins_choose_disabled(e->id, TRUE);
+    plugins_reload(job->app);
+    status_say(job->app, said);
+    g_free(said);
+    if (manager)
+      g_set_str(&manager->picked, e->id);
+  }
+  if (manager)
+    fill_browse();
+  registry_entry_free(e);
+  g_free(job);
+}
+
+static void install(App *t, const char *id, const char *extra G_GNUC_UNUSED)
+{
+  RegistryEntry *e = entry_named(id);
+  char *dir = g_build_filename(g_get_user_config_dir(), TCODE_NAME, "plugins", NULL), *said;
+  Job *job;
+
+  if (!e)
+    return;
+  job = g_new0(Job, 1);
+  job->app = t;
+  job->entry = entry_copy(e);
+  said = g_strdup_printf("Fetching %s…", e->name);
+  status_say(t, said);
+  registry_install(job->entry, dir, on_installed, job);
+  g_free(said);
+  g_free(dir);
+}
+
+static void on_install(GtkButton *b, gpointer data G_GNUC_UNUSED)
+{
+  RegistryEntry *e = entry_named(g_object_get_data(G_OBJECT(b), "entry-id"));
+
+  if (!e)
+    return;
+  gtk_widget_set_sensitive(GTK_WIDGET(b), FALSE);
+  gtk_button_set_label(b, "Installing…");
+  if (e->reviewed) {
+    install(manager->app, e->id, NULL);
+  } else {
+    char *title = g_strdup_printf("Heads up: %s is not reviewed yet", e->name);
+    ask(manager->app, GTK_WINDOW(manager->window), title,
+        "The registry's checks passed, but no maintainer has read this version yet. It runs with your rights, like "
+        "any program you start. It installs switched off.",
+        "Cancel", "Install Anyway", install, e->id, NULL);
+    g_free(title);
+    fill_browse(); /* Cancel leaves the button as it was */
+  }
+}
+
+/* "tapi_2" from a newer t-code than this one. */
+static gboolean too_new(const char *api)
+{
+  return g_str_has_prefix(api, "tapi_") && g_ascii_strtoll(api + 5, NULL, 10) > TAPI_LATEST;
+}
+
+static gboolean matches(RegistryEntry *e, const char *query)
+{
+  char *text, *low, *q;
+  gboolean found;
+
+  if (!query || !*query)
+    return TRUE;
+  text = g_strjoin(" ", e->id, e->name, e->description, NULL);
+  for (int i = 0; e->categories[i]; i++) {
+    char *more = g_strconcat(text, " ", e->categories[i], NULL);
+    g_free(text);
+    text = more;
+  }
+  low = g_utf8_strdown(text, -1);
+  q = g_utf8_strdown(query, -1);
+  found = strstr(low, q) != NULL;
+  g_free(q);
+  g_free(low);
+  g_free(text);
+  return found;
+}
+
+static GtkWidget *entry_row(RegistryEntry *e)
+{
+  Plugin *p = plugin_find(manager->app, e->id);
+  GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12), *texts = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+  GtkWidget *action, *badge;
+  char *line, *categories = g_strjoinv(", ", e->categories), *asks = g_strjoinv(", ", e->permissions);
+
+  gtk_box_append(GTK_BOX(texts), label(e->name, "section"));
+  line = g_strdup_printf("%s%s%s", e->version, *e->version && *categories ? " · " : "", categories);
+  gtk_box_append(GTK_BOX(texts), label(line, "note"));
+  g_free(line);
+  badge = label(e->reviewed ? "Reviewed by a maintainer" : "Not reviewed yet: checks passed, no human has read it",
+                e->reviewed ? "reviewed" : "unreviewed");
+  gtk_box_append(GTK_BOX(texts), badge);
+  if (*e->description)
+    gtk_box_append(GTK_BOX(texts), label(e->description, NULL));
+  line = g_strdup_printf("Asks for: %s", *asks ? asks : "nothing");
+  gtk_box_append(GTK_BOX(texts), label(line, "note"));
+  g_free(line);
+  gtk_widget_set_hexpand(texts, TRUE);
+  gtk_box_append(GTK_BOX(row), texts);
+
+  if (too_new(e->api))
+    action = gtk_button_new_with_label("Needs a newer t-code");
+  else if (p && p->record && strcmp(p->record->commit, e->commit) == 0)
+    action = gtk_button_new_with_label("Installed");
+  else if (p && p->record)
+    action = gtk_button_new_with_label("Update");
+  else if (p)
+    action = gtk_button_new_with_label("Already here");
+  else
+    action = gtk_button_new_with_label("Install");
+  gtk_widget_set_sensitive(action, !too_new(e->api) && (!p || (p->record && strcmp(p->record->commit, e->commit))));
+  if (p && !p->record)
+    gtk_widget_set_tooltip_text(action, "A plugin with this id is installed by hand (or came with t-code)");
+  g_object_set_data_full(G_OBJECT(action), "entry-id", g_strdup(e->id), g_free);
+  g_signal_connect(action, "clicked", G_CALLBACK(on_install), NULL);
+  gtk_widget_set_valign(action, GTK_ALIGN_CENTER);
+  gtk_box_append(GTK_BOX(row), action);
+  g_free(asks);
+  g_free(categories);
+  return row;
+}
+
+static void fill_browse(void)
+{
+  const char *query = gtk_editable_get_text(GTK_EDITABLE(manager->search));
+  GtkWidget *child;
+  int shown = 0;
+
+  while ((child = gtk_widget_get_first_child(manager->browse_list)))
+    gtk_list_box_remove(GTK_LIST_BOX(manager->browse_list), child);
+  for (guint i = 0; manager->entries && i < manager->entries->len; i++) {
+    RegistryEntry *e = g_ptr_array_index(manager->entries, i);
+    if (matches(e, query)) {
+      gtk_list_box_append(GTK_LIST_BOX(manager->browse_list), entry_row(e));
+      shown++;
+    }
+  }
+  if (manager->entries)
+    gtk_label_set_text(GTK_LABEL(manager->browse_status),
+                       !manager->entries->len ? "The registry is empty for now. Be the first to publish one!"
+                       : shown                ? ""
+                                              : "Nothing matches that. Try fewer letters?");
+}
+
+/* A maintainer reviewed the commit someone has installed: its record says so, no more warnings. */
+static void note_reviews(void)
+{
+  for (guint i = 0; manager->app->plugins && i < manager->app->plugins->len; i++) {
+    Plugin *p = g_ptr_array_index(manager->app->plugins, i);
+    RegistryEntry *e = p->record ? entry_named(p->id) : NULL;
+    if (e && e->reviewed && !p->record->reviewed && strcmp(e->commit, p->record->commit) == 0) {
+      p->record->reviewed = TRUE;
+      registry_set_record(p->id, p->record);
+    }
+  }
+}
+
+static void on_fetched(GPtrArray *entries, const char *error, gpointer data G_GNUC_UNUSED)
+{
+  if (!manager) {
+    if (entries)
+      g_ptr_array_unref(entries);
+    return;
+  }
+  manager->fetching = FALSE;
+  if (!entries) {
+    gtk_label_set_text(GTK_LABEL(manager->browse_status), error);
+    return;
+  }
+  if (manager->entries)
+    g_ptr_array_unref(manager->entries);
+  manager->entries = entries;
+  note_reviews();
+  fill_browse();
+  show_details();
+}
+
+static void fetch(void)
+{
+  if (manager->fetching)
+    return;
+  manager->fetching = TRUE;
+  gtk_label_set_text(GTK_LABEL(manager->browse_status), "Asking the registry what is out there…");
+  registry_fetch(on_fetched, NULL);
+}
+
+static void on_page(GtkStack *stack, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+{
+  if (g_strcmp0(gtk_stack_get_visible_child_name(stack), "browse") == 0 && !manager->entries)
+    fetch();
+}
+
+static void on_search(GtkSearchEntry *entry G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+{
+  fill_browse();
+}
+
+static GtkWidget *browse_page(void)
+{
+  GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8), *scroll = gtk_scrolled_window_new();
+
+  manager->search = gtk_search_entry_new();
+  gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(manager->search), "Search the registry (name, category)");
+  g_signal_connect(manager->search, "search-changed", G_CALLBACK(on_search), NULL);
+  manager->browse_status = label("", "note");
+  manager->browse_list = gtk_list_box_new();
+  gtk_list_box_set_selection_mode(GTK_LIST_BOX(manager->browse_list), GTK_SELECTION_NONE);
+  gtk_widget_add_css_class(manager->browse_list, "browse-list");
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), manager->browse_list);
+  gtk_widget_set_vexpand(scroll, TRUE);
+  gtk_widget_set_margin_start(page, 16);
+  gtk_widget_set_margin_end(page, 16);
+  gtk_widget_set_margin_top(page, 12);
+  gtk_box_append(GTK_BOX(page), manager->search);
+  gtk_box_append(GTK_BOX(page), manager->browse_status);
+  gtk_box_append(GTK_BOX(page), scroll);
+  return page;
+}
+
 static void on_destroy(GtkWidget *window G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
 {
   g_clear_handle_id(&manager->refresh_id, g_source_remove);
   g_free(manager->picked);
+  if (manager->entries)
+    g_ptr_array_unref(manager->entries);
   g_clear_pointer(&manager, g_free);
 }
 
 void show_plugins_window(App *t)
 {
-  GtkWidget *header, *panes, *side, *scroll;
+  GtkWidget *header, *panes, *side, *scroll, *switcher;
   GtkEventController *keys;
 
   if (manager) {
@@ -456,6 +887,10 @@ void show_plugins_window(App *t)
   gtk_header_bar_pack_start(GTK_HEADER_BAR(header), button("Reload", G_CALLBACK(on_reload)));
   gtk_header_bar_pack_start(GTK_HEADER_BAR(header), button("Open Plugins Folder", G_CALLBACK(on_open_plugins_folder)));
   gtk_window_set_titlebar(GTK_WINDOW(manager->window), header);
+  manager->stack = gtk_stack_new();
+  switcher = gtk_stack_switcher_new();
+  gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(manager->stack));
+  gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), switcher);
 
   manager->list = gtk_list_box_new();
   gtk_list_box_set_selection_mode(GTK_LIST_BOX(manager->list), GTK_SELECTION_BROWSE);
@@ -471,7 +906,10 @@ void show_plugins_window(App *t)
   panes = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_box_append(GTK_BOX(panes), side);
   gtk_box_append(GTK_BOX(panes), scroll);
-  gtk_window_set_child(GTK_WINDOW(manager->window), panes);
+  gtk_stack_add_titled(GTK_STACK(manager->stack), panes, "installed", "Installed");
+  gtk_stack_add_titled(GTK_STACK(manager->stack), browse_page(), "browse", "Browse");
+  g_signal_connect(manager->stack, "notify::visible-child", G_CALLBACK(on_page), NULL);
+  gtk_window_set_child(GTK_WINDOW(manager->window), manager->stack);
 
   keys = gtk_shortcut_controller_new(); /* Escape closes it */
   gtk_shortcut_controller_add_shortcut(

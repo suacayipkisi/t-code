@@ -28,6 +28,7 @@
 #include "lsp/symbols/outline.h"
 #include "lsp/symbols/symbols.h"
 #include "plugins/plugins.h"
+#include "plugins/registry.h"
 #include "popups/contextmenu.h"
 #include "project/run/run.h"
 #include "project/session.h"
@@ -3305,6 +3306,77 @@ static void test_plugins_window(void)
   g_assert_null(window_titled("Plugins"));
 }
 
+/* Browse: the registry's index ($TCODE_REGISTRY, a file here) lists its plugins with their review
+ * badges; Install on a reviewed one downloads its pinned archive (file:// here), checks it and puts it
+ * in the user's plugins folder, switched on, with its record; the button then says Installed. */
+static void test_plugins_browse(void)
+{
+  char *work = g_dir_make_tmp("t-code-registry-XXXXXX", NULL),
+       *plugin = g_build_filename(work, "b-c0ffee", "tidy", NULL);
+  char *repo = g_build_filename(work, "repo", NULL), *tree, *index, *json, *archive;
+  const char *commit = "c0ffee0000000000000000000000000000000000";
+  GtkWindow *plugins;
+  GtkWidget *stack, *install;
+  Plugin *p;
+
+  g_free(write_at(plugin, "plugin.json", "{\"api\": \"tapi_1\", \"name\": \"Tidy\", \"id\": \"tidy\"}", -1, 0644));
+  tree = registry_tree_hash(plugin, NULL);
+  g_mkdir_with_parents(repo, 0755);
+  archive = g_strdup_printf("%s/%s.tar.gz", repo, commit);
+  const char *tar[] = { "tar", "-czf", archive, "-C", work, "b-c0ffee", NULL };
+  g_assert_true(g_spawn_sync(NULL, (char **)tar, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL));
+  json =
+      g_strdup_printf("{\"plugins\": [{\"id\": \"tidy\", \"name\": \"Tidy\", \"api\": \"tapi_1\", "
+                      "\"repository\": \"file://%s\", \"commit\": \"%s\", \"path\": \"tidy\", "
+                      "\"tree-sha256\": \"%s\", \"reviewed\": true, \"categories\": [\"text\"]},"
+                      " {\"id\": \"wild\", \"name\": \"Wild\", \"api\": \"tapi_1\", \"repository\": \"file://%s\","
+                      " \"commit\": \"%s\", \"tree-sha256\": \"%s\"},"
+                      " {\"id\": \"future\", \"name\": \"Future\", \"api\": \"tapi_9\", \"repository\": \"file://%s\","
+                      " \"commit\": \"%s\", \"tree-sha256\": \"%s\"}]}",
+                      repo, commit, tree, repo, commit, tree, repo, commit, tree);
+  index = write_at(work, "index.json", json, -1, 0644);
+  g_setenv("TCODE_REGISTRY", index, TRUE);
+
+  run_command(&app, "Plugins: Manage Plugins");
+  run_for(50);
+  plugins = window_titled("Plugins");
+  stack = find_widget(GTK_WIDGET(plugins), GTK_TYPE_STACK, NULL, NULL);
+  gtk_stack_set_visible_child_name(GTK_STACK(stack), "browse");
+  run_for(100);
+  g_assert_true(says(GTK_WIDGET(plugins), "Reviewed by a maintainer"));
+  g_assert_true(says(GTK_WIDGET(plugins), "Not reviewed yet: checks passed, no human has read it"));
+  g_assert_true(says(GTK_WIDGET(plugins), "Needs a newer t-code")); /* tapi_9 */
+
+  /* the first row's button: Tidy's */
+  install = find_widget(gtk_stack_get_child_by_name(GTK_STACK(stack), "browse"), GTK_TYPE_BUTTON, NULL, NULL);
+  g_assert_cmpstr(gtk_button_get_label(GTK_BUTTON(install)), ==, "Install");
+  gtk_widget_activate(install);
+  for (int i = 0; i < 100 && !plugin_find(&app, "tidy"); i++)
+    run_for(50);
+  p = plugin_find(&app, "tidy");
+  g_assert_nonnull(p);
+  g_assert_true(p->enabled); /* reviewed: on at once */
+  g_assert_nonnull(p->record);
+  g_assert_cmpstr(p->record->commit, ==, commit);
+  g_assert_true(p->record->reviewed);
+  run_for(100);
+  g_assert_true(says(GTK_WIDGET(plugins), "Installed"));
+
+  g_assert_true(plugin_uninstall(&app, p, NULL));
+  gtk_window_destroy(plugins);
+  run_for(50);
+  g_unsetenv("TCODE_REGISTRY");
+  const char *rm[] = { "rm", "-rf", work, NULL };
+  g_spawn_sync(NULL, (char **)rm, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
+  g_free(index);
+  g_free(json);
+  g_free(archive);
+  g_free(tree);
+  g_free(repo);
+  g_free(plugin);
+  g_free(work);
+}
+
 static void on_activate(GApplication *gapp, gpointer data G_GNUC_UNUSED)
 {
   int *status = g_object_get_data(G_OBJECT(gapp), "status");
@@ -3720,6 +3792,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/open-user-files", test_open_user_files);
   g_test_add_func("/window/settings-pages", test_settings_pages);
   g_test_add_func("/window/plugins-window", test_plugins_window);
+  g_test_add_func("/window/plugins-browse", test_plugins_browse);
   g_test_add_func("/window/panel-menu", test_panel_buttons);
   g_test_add_func("/window/own-icons", test_own_icons);
   g_test_add_func("/window/terminal-tabs", test_terminal_tabs);

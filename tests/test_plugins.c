@@ -18,6 +18,9 @@ Tab *current_tab(App *t G_GNUC_UNUSED) { return NULL; }
 void status_say(App *t G_GNUC_UNUSED, const char *message G_GNUC_UNUSED) {}
 void refresh_shortcuts(App *t G_GNUC_UNUSED) {}
 void lsp_reattach(App *t G_GNUC_UNUSED) {}
+static int confirm_asked; /* the Plugins window's third warning, counted */
+static char *confirm_command;
+void plugins_confirm_run(App *t G_GNUC_UNUSED, Plugin *p G_GNUC_UNUSED, const char *command_id) { confirm_asked++; g_set_str(&confirm_command, command_id); }
 char *toolchain_python(App *t G_GNUC_UNUSED, const char *root G_GNUC_UNUSED) { return NULL; }
 char *toolchain_rust_features(App *t G_GNUC_UNUSED) { return NULL; }
 char *toolchain_rust_target(App *t G_GNUC_UNUSED) { return NULL; }
@@ -749,6 +752,60 @@ static void test_enabled(void)
   g_free(choices);
 }
 
+/* A plugin installed from the registry at an unreviewed commit: its first command and its start
+ * program wait for the Plugins window's question (the third warning); once taken, they run, and a
+ * reviewed one never asks. Uninstall forgets its record. */
+static void test_unreviewed(void)
+{
+  App app = { .project.root = tmp_dir };
+  RegistryRecord record = { .repository = "https://github.com/a/b", .commit = "abc" };
+  RegistryRecord *kept;
+  Plugin *p;
+
+  write_file("config-home/t-code/plugins/fresh/plugin.json",
+             "{\"name\": \"Fresh\", \"api\": \"tapi_1\", \"start\": \"project\", \"permissions\": [\"start\"],\n"
+             " \"commands\": [{\"id\": \"go\", \"name\": \"Fresh: Go\"}]}",
+             0644);
+  write_file("config-home/t-code/plugins/fresh/run.sh",
+             "#!/bin/sh\necho \"ran $1\"\nif [ \"$1\" = start ]; then exec sleep 30; fi\n", 0755);
+  g_assert_true(spin_until(runs_empty, NULL, 3000)); /* the earlier tests' programs are gone */
+  registry_set_record("fresh", &record);
+  plugins_init(&app);
+  p = plugin_find(&app, "fresh");
+  g_assert_nonnull(p->record);
+  g_assert_true(plugin_unreviewed(p));
+  confirm_asked = 0;
+
+  plugin_run_command(&app, "fresh", "go");
+  g_assert_cmpint(confirm_asked, ==, 1);
+  g_assert_cmpstr(confirm_command, ==, "go");
+  g_assert_true(runs == NULL); /* nothing started */
+  g_assert_false(plugin_start(&app, p));
+  g_assert_cmpint(confirm_asked, ==, 2);
+  g_assert_null(confirm_command);
+  g_assert_null(p->running);
+
+  plugin_warned(p, REGISTRY_WARNED_RUN); /* "Run It" */
+  kept = registry_record("fresh");
+  g_assert_cmpint(kept->warned, ==, REGISTRY_WARNED_RUN);
+  registry_record_free(kept);
+  plugin_run_command(&app, "fresh", "go");
+  g_assert_true(spin_until(has_printed, &(Printed){ p, "ran go" }, 3000));
+  g_assert_true(plugin_start(&app, p));
+  g_assert_cmpint(confirm_asked, ==, 2);
+
+  plugins_reload(&app); /* the record and its warnings come back from plugins.json */
+  p = plugin_find(&app, "fresh");
+  g_assert_cmpint(p->record->warned, ==, REGISTRY_WARNED_RUN);
+  g_assert_nonnull(p->running);
+
+  GError *error = NULL;
+  g_assert_true(plugin_uninstall(&app, p, &error));
+  g_assert_null(registry_record("fresh"));
+  plugins_stop(&app);
+  g_clear_pointer(&confirm_command, g_free);
+}
+
 int main(int argc, char **argv)
 {
   tmp_dir = g_dir_make_tmp("t-code-test-plugins-XXXXXX", NULL);
@@ -767,6 +824,7 @@ int main(int argc, char **argv)
   g_test_add_func("/plugins/lsp-test-plugins", test_lsp_test_plugins);
   g_test_add_func("/plugins/server-ids", test_server_ids);
   g_test_add_func("/plugins/enabled", test_enabled);
+  g_test_add_func("/plugins/unreviewed", test_unreviewed);
   g_test_add_func("/plugins/palette-query", test_palette_query);
   g_test_add_func("/plugins/user-config-directory", test_user_config_directory);
 

@@ -62,6 +62,7 @@ static void plugin_free(Plugin *plugin)
   g_clear_pointer(&plugin->run, g_hash_table_unref);
   g_free(plugin->language_specs);
   g_free(plugin->snippets);
+  registry_record_free(plugin->record);
   g_free(plugin);
 }
 
@@ -556,8 +557,7 @@ static void store_disabled(char **ids)
   g_free(path);
 }
 
-/* id goes into plugins.json's "disabled", or out of it. */
-static void choose_disabled(const char *id, gboolean disabled)
+void plugins_choose_disabled(const char *id, gboolean disabled)
 {
   char **ids = disabled_ids();
   GPtrArray *kept = g_ptr_array_new();
@@ -573,11 +573,30 @@ static void choose_disabled(const char *id, gboolean disabled)
   g_strfreev(ids);
 }
 
+gboolean plugin_unreviewed(Plugin *p)
+{
+  return p->record && !p->record->reviewed;
+}
+
+void plugin_warned(Plugin *p, RegistryWarned warning)
+{
+  if (!p->record)
+    return;
+  p->record->warned |= warning;
+  registry_set_record(p->id, p->record);
+}
+
+/* Whether p's program still needs the third warning before it runs. */
+static gboolean ask_first(Plugin *p)
+{
+  return plugin_unreviewed(p) && !(p->record->warned & REGISTRY_WARNED_RUN);
+}
+
 void plugin_set_enabled(App *t, Plugin *p, gboolean enabled)
 {
   if (p->enabled == enabled)
     return;
-  choose_disabled(p->id, !enabled);
+  plugins_choose_disabled(p->id, !enabled);
   p->enabled = enabled;
   if (!enabled)
     plugin_stop(p);
@@ -599,7 +618,8 @@ gboolean plugin_uninstall(App *t, Plugin *p, GError **error)
     return FALSE;
   }
   dir = g_strdup(p->dir);
-  choose_disabled(p->id, FALSE); /* not left in "disabled" */
+  plugins_choose_disabled(p->id, FALSE); /* not left in "disabled" */
+  registry_set_record(p->id, NULL);
   plugin_stop(p);
   done = files_delete(dir, error);
   g_free(dir);
@@ -642,6 +662,8 @@ void plugins_init(App *t)
   for (guint i = 0; i < t->plugins->len; i++) {
     Plugin *p = g_ptr_array_index(t->plugins, i);
     p->enabled = !g_strv_contains((const char *const *)disabled, p->id);
+    if (p->source == PLUGIN_FROM_USER) /* the registry installs only there */
+      p->record = registry_record(p->id);
   }
   g_strfreev(disabled);
   add_language_specs(t);
@@ -1017,6 +1039,10 @@ static void unload(App *t, gboolean quitting)
 
 gboolean plugin_start(App *t, Plugin *p)
 {
+  if (!p->running && p->enabled && p->starts && p->executable && ask_first(p)) {
+    plugins_confirm_run(t, p, NULL);
+    return FALSE;
+  }
   if (!p->running && p->enabled && p->starts && p->executable) {
     p->running = launch(t, p, "start", TRUE);
     p->state = p->running ? PLUGIN_RUNNING : PLUGIN_FAILED;
@@ -1079,6 +1105,10 @@ void plugin_run_command(App *t, const char *plugin_id, const char *command_id)
   }
   if (!p->enabled) {
     status_say(t, "That plugin is switched off: turn it on in Plugins: Manage Plugins");
+    return;
+  }
+  if (ask_first(p)) {
+    plugins_confirm_run(t, p, command_id);
     return;
   }
   for (guint i = 0; i < p->commands->len && !found; i++)
