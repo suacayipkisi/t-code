@@ -409,7 +409,24 @@ gboolean server_installed(App *t, ServerKind kind)
 /* What it is told ------------------------------------------------------------------------------ */
 
 /* The JSON server neither formats nor reads schemas other than local files; gopls' and TypeScript's
- * inlay hints; neocmakelsp formats and lints; rust-analyzer's Cargo features and target. */
+ * inlay hints; neocmakelsp formats (and lints with the project's own .neocmake.toml); rust-analyzer's
+ * Cargo features and target. */
+/* neocmakelsp's lint is mostly "line too long" past 80 columns (and command case), its limit set only
+ * in a .neocmake.toml / .neocmakelint.toml in the folder it runs in: on when the project has one,
+ * else every longer line was underlined. Its syntax errors come either way. */
+static gboolean cmake_lints(App *t)
+{
+  static const char *const names[] = { ".neocmake.toml", ".neocmakelint.toml" };
+  gboolean found = FALSE;
+
+  for (guint i = 0; i < G_N_ELEMENTS(names) && t && t->project.root && !found; i++) {
+    char *path = g_build_filename(t->project.root, names[i], NULL);
+    found = g_file_test(path, G_FILE_TEST_IS_REGULAR);
+    g_free(path);
+  }
+  return found;
+}
+
 char *server_options(ServerKind kind, App *t)
 {
   if (kind >= SERVER_PLUGIN)
@@ -425,8 +442,9 @@ char *server_options(ServerKind kind, App *t)
                     "\"includeInlayVariableTypeHints\":true,\"includeInlayFunctionLikeReturnTypeHints\":true,"
                     "\"includeInlayEnumMemberValueHints\":true}}");
   if (kind == SERVER_CMAKE) /* the packages' own CMake files are not read through: memory */
-    return g_strdup("{\"format\":{\"enable\":true},\"lint\":{\"enable\":true},\"scan_cmake_in_package\":false,"
-                    "\"semantic_token\":false}");
+    return g_strdup_printf("{\"format\":{\"enable\":true},\"lint\":{\"enable\":%s},\"scan_cmake_in_package\":false,"
+                           "\"semantic_token\":false}",
+                           cmake_lints(t) ? "true" : "false");
   if (kind != SERVER_RUST)
     return NULL;
   char *features = toolchain_rust_features(t), *target = toolchain_rust_target(t);

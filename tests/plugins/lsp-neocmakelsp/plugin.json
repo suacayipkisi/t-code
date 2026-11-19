@@ -21,7 +21,7 @@
           "enable": true
         },
         "lint": {
-          "enable": true
+          "enable": false
         },
         "scan_cmake_in_package": false,
         "semantic_token": false

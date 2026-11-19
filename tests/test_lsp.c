@@ -550,7 +550,20 @@ static void test_pull_diagnostics(void)
   g_assert_cmpint(server_kind_for_tab(module), ==, SERVER_CMAKE);
   g_assert_cmpint(server_kind_for_tab(text), ==, SERVER_NONE);
   g_assert_nonnull(strstr(options, "\"scan_cmake_in_package\":false"));
+  g_assert_nonnull(strstr(options, "\"lint\":{\"enable\":false}")); /* "line too long" past 80 columns */
   g_free(options);
+  char *old_root = app.project.root, *root = g_dir_make_tmp("t-code-cmake-XXXXXX", NULL);
+  char *config = g_build_filename(root, ".neocmake.toml", NULL);
+  app.project.root = root;
+  g_assert_true(g_file_set_contents(config, "line_max_words = 120\n", -1, NULL));
+  options = server_options(SERVER_CMAKE, &app);
+  g_assert_nonnull(strstr(options, "\"lint\":{\"enable\":true}")); /* the project chose its limit */
+  g_free(options);
+  app.project.root = old_root;
+  g_unlink(config);
+  g_rmdir(root);
+  g_free(config);
+  g_free(root);
 
   lsp_open(tab);
   g_assert_true(server_agrees(tab)); /* the first pull, after didOpen */

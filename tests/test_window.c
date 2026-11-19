@@ -3683,6 +3683,10 @@ static void test_example_plugins(void)
   open_file(&app, lists);
   run_until(has_tab, lists);
   run_until(loaded, find_tab(&app, TAB_EDITOR, lists));
+  /* colored as CMake: a whole-name glob, matched on the file's name, not its path */
+  g_assert_cmpstr(gtk_source_language_get_id(gtk_source_buffer_get_language(find_tab(&app, TAB_EDITOR, lists)->buffer)),
+                  ==, "cmake");
+  g_assert_cmpstr(gtk_source_language_get_id(editor_language("/some/where/Makefile", NULL)), ==, "makefile");
   plugin_run_command(&app, "cmake", "configure");
   run_until(shows_diagnostic, (const char *const[]){ lists, "Unknown CMake command \"foo_bar\"." });
 

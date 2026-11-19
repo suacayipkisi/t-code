@@ -125,11 +125,14 @@ void editor_view_set_font(App *t)
 GtkSourceLanguage *editor_language(const char *path, const char *text)
 {
   GtkSourceLanguageManager *languages = gtk_source_language_manager_get_default();
-  char *type = g_content_type_guess(path, NULL, 0, NULL);
-  GtkSourceLanguage *language = gtk_source_language_manager_guess_language(languages, path, type);
+  char *type = g_content_type_guess(path, NULL, 0, NULL), *name = g_path_get_basename(path);
+  /* The name alone: GtkSourceView 5.22 matches whole-name globs ("CMakeLists.txt", "Makefile") against
+   * all of it, so a full path never matched them. */
+  GtkSourceLanguage *language = gtk_source_language_manager_guess_language(languages, name, type);
 
   if (language && g_strcmp0(gtk_source_language_get_id(language), "chdr") == 0 && text && is_cxx_text(text, -1))
     language = gtk_source_language_manager_get_language(languages, "cpphdr");
+  g_free(name);
   g_free(type);
   return language;
 }
