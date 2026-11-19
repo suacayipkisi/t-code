@@ -592,8 +592,8 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Three of them are written and live in this
-repository under `plugins/builtin/` (MATLAB, ShellCheck, Text Tools), as working examples and as the
+These are plugins the API is meant to make possible. Four of them are written and live in this
+repository under `plugins/builtin/` (MATLAB, ShellCheck, CMake, Text Tools), as working examples and as the
 registry's first entries; t-code does not load them by itself (install them from Browse, or copy a
 folder into `~/.config/t-code/plugins/`). Each one says what it does, what t-code provides
 (**core**), what the plugin itself does, and where it stops. Some still use **(planned)** parts of tapi_1.
@@ -715,6 +715,29 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
 - **Could:** keep a lasting `status-set` item, updated on `did_change`.
 
 ### Build, devices, containers
+
+#### CMake (`cmake`, in this repository: `plugins/builtin/cmake`)
+- **Does:** CMake: Configure, Build, Clean and Select Configure Preset, beyond the built-in Run (which
+  always configures `build/` as Debug).
+- **Core:**
+  - `pick` for the presets, `diagnostics-set`, terminal tabs (`terminal-open`, `terminal-send`).
+  - An `lsp` entry for cmake-language-server (`pip install cmake-language-server`). The built-in
+    neocmakelsp wins when it is installed and on, so the plugin's server serves CMake files only
+    without it (or with it turned off in Settings → Language Servers).
+- **Plugin** (Python 3, standard library):
+  - **Configure:** runs `cmake` itself (`--preset <name>`, else `-B build -DCMAKE_BUILD_TYPE=Debug
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`), turns `CMake Error at <file>:<line> (<command>):` and
+    the warnings into diagnostics (the indented lines under them as the message, the call stack left
+    out) and says the result. It remembers the build folder CMake reports.
+  - **Presets:** `cmake --list-presets=configure` in the picker (includes and user presets
+    resolved by CMake), plus "No preset"; choosing one configures with it.
+  - **Build / Clean:** `cmake --build <folder>` (`--target clean`) typed into a "CMake" terminal tab,
+    a shell that stays open after the build; it configures first when there is no `CMakeCache.txt`.
+  - The preset, build folder and tab id are kept in `$XDG_RUNTIME_DIR/t-code-cmake/`, per project.
+- **Limits:**
+  - Build and test presets are not used: Build builds the configure preset's folder.
+  - Compiler errors from Build stay in the terminal (clangd shows them in the editor).
+  - No target picker yet.
 
 #### PlatformIO / Arduino (`platformio`)
 - **Does:** Build, Upload and Serial Monitor.

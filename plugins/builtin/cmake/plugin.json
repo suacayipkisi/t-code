@@ -1,0 +1,24 @@
+{
+  "api": "tapi_1",
+  "id": "cmake",
+  "name": "CMake",
+  "version": "0.1.0",
+  "description": "CMake presets, Configure with its errors as diagnostics, Build in a terminal tab, and cmake-language-server.",
+  "executable": "cmake_plugin.py",
+  "permissions": ["terminal"],
+  "commands": [
+    { "id": "configure", "name": "CMake: Configure" },
+    { "id": "build", "name": "CMake: Build" },
+    { "id": "preset", "name": "CMake: Select Configure Preset" },
+    { "id": "clean", "name": "CMake: Clean" }
+  ],
+  "lsp": [
+    {
+      "name": "cmake-language-server",
+      "argv": ["cmake-language-server"],
+      "extensions": ["CMakeLists.txt", ".cmake"],
+      "language-id": "cmake",
+      "options": { "buildDirectory": "build" }
+    }
+  ]
+}

@@ -3579,13 +3579,15 @@ static void write_program(const char *dir, const char *name, const char *text)
 /* plugins/builtin against this window, through the real socket: Text Tools edits the buffer (the
  * whole of it without a selection, the selection with one); ShellCheck, started with the project,
  * turns a fake shellcheck's findings on an opened script into diagnostics; MATLAB runs a .m file in
- * a fake MATLAB's terminal tab and turns its error into a diagnostic, then closes the session. */
+ * a fake MATLAB's terminal tab and turns its error into a diagnostic, then closes the session; CMake
+ * configures with a fake cmake and shows its error on the opened CMakeLists.txt. */
 static void test_example_plugins(void)
 {
   char *python = g_find_program_in_path("python3");
   char *bin = g_dir_make_tmp("t-code-fake-bin-XXXXXX", NULL), *old_path = g_strdup(g_getenv("PATH"));
   char *path_env = g_strconcat(bin, ":", old_path, NULL), *matlab = g_build_filename(bin, "matlab", NULL);
   char *text_file = file("tools.txt"), *script = file("check.sh"), *m_file = file("script1.m");
+  char *lists = file("CMakeLists.txt");
   int shells = shell_count(&app);
 
   if (!python) {
@@ -3597,8 +3599,15 @@ static void test_example_plugins(void)
     g_free(text_file);
     g_free(script);
     g_free(m_file);
+    g_unlink(lists);
+    g_free(lists);
     return;
   }
+  write_program(bin, "cmake",
+                "#!/bin/sh\n"
+                "echo '-- The C compiler identification is GNU'\n"
+                "printf 'CMake Error at CMakeLists.txt:2 (foo_bar):\\n  Unknown CMake command \"foo_bar\".\\n\\n' >&2\n"
+                "exit 1\n");
   write_program(bin, "shellcheck",
                 "#!/usr/bin/env python3\n"
                 "import json\n"
@@ -3626,6 +3635,7 @@ static void test_example_plugins(void)
   g_assert_nonnull(plugin_find(&app, "text-tools"));
   g_assert_nonnull(plugin_find(&app, "shellcheck"));
   g_assert_nonnull(plugin_find(&app, "matlab"));
+  g_assert_nonnull(plugin_find(&app, "cmake"));
 
   /* Text Tools */
   g_assert_true(g_file_set_contents(text_file, "b\na\nb\n", -1, NULL));
@@ -3667,7 +3677,16 @@ static void test_example_plugins(void)
     run_for(50);
   g_assert_cmpint(shell_count(&app), ==, shells);
 
+  /* CMake */
+  g_assert_true(g_file_set_contents(lists, "project(x)\nfoo_bar()\n", -1, NULL));
+  open_file(&app, lists);
+  run_until(has_tab, lists);
+  run_until(loaded, find_tab(&app, TAB_EDITOR, lists));
+  plugin_run_command(&app, "cmake", "configure");
+  run_until(shows_diagnostic, (const char *const[]){ lists, "Unknown CMake command \"foo_bar\"." });
+
   close_everything();
+  g_unlink(lists);
   plugins_reload(&app); /* back to t-code's own */
   g_setenv("PATH", old_path, TRUE);
   g_unsetenv("TCODE_MATLAB");
@@ -3681,6 +3700,7 @@ static void test_example_plugins(void)
   g_free(text_file);
   g_free(script);
   g_free(m_file);
+  g_free(lists);
 }
 
 static void on_activate(GApplication *gapp, gpointer data G_GNUC_UNUSED)
