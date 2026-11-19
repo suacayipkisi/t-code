@@ -673,6 +673,82 @@ static void test_server_ids(void)
   g_assert_true(server_enabled(&app, SERVER_PLUGIN));
 }
 
+/* Off (Plugins window): kept in plugins.json; its commands, keys, Run, servers and start go, and it
+ * stops; on again, it starts. A reload keeps it off. Uninstall removes only the user's own. */
+static void test_enabled(void)
+{
+  App app = { .project.root = tmp_dir };
+  char *choices = g_build_filename(tmp_dir, "config-home", "t-code", "plugins.json", NULL), *text = NULL;
+  Plugin *p;
+  Tab tab = { .kind = TAB_EDITOR, .app = &app, .path = "/w/a.zz" };
+
+  write_file("config-home/t-code/plugins/switchy/plugin.json",
+             "{\"name\": \"Switchy\", \"api\": \"tapi_1\", \"start\": \"project\", \"permissions\": [\"start\"],\n"
+             " \"commands\": [{\"id\": \"go\", \"name\": \"Switchy: Go\", \"keys\": \"<Control><Alt>9\"}],\n"
+             " \"run\": {\".zz\": \"go\"}, \"lsp\": [{\"argv\": [\"zz-ls\"], \"extensions\": [\".zz\"]}]}",
+             0644);
+  write_file("config-home/t-code/plugins/switchy/run.sh", "#!/bin/sh\necho up\nexec sleep 30\n", 0755);
+  write_file("config-home/t-code/plugins.json", "{\"other\": 1, \"disabled\": [\"someone-else\"]}", 0644);
+  plugins_init(&app);
+  p = plugin_find(&app, "switchy");
+  g_assert_true(p->enabled);
+  g_assert_cmpint(p->source, ==, PLUGIN_FROM_USER);
+  tab.buffer = gtk_source_buffer_new(NULL);
+  g_assert_cmpint(server_kind_for_tab(&tab), >=, SERVER_PLUGIN);
+  g_assert_true(plugin_start(&app, p));
+  g_assert_true(spin_until(has_printed, &(Printed){ p, "up" }, 3000));
+  g_assert_cmpuint(p->printed, >=, 1);
+
+  plugin_set_enabled(&app, p, FALSE);
+  g_assert_false(p->enabled);
+  g_assert_null(p->running);
+  g_assert_cmpint(p->state, ==, PLUGIN_STOPPED);
+  g_assert_true(g_file_get_contents(choices, &text, NULL, NULL));
+  g_assert_nonnull(strstr(text, "\"other\" : 1")); /* the rest of the file stays */
+  g_assert_nonnull(strstr(text, "\"someone-else\""));
+  g_assert_nonnull(strstr(text, "\"switchy\""));
+  g_free(text);
+  g_assert_null(plugins_run_command_for(&app, "/w/a.zz"));
+  g_assert_cmpint(server_kind_for_tab(&tab), ==, SERVER_NONE);
+  g_assert_false(plugin_start(&app, p));
+  if (test_picker_rows)
+    g_ptr_array_set_size(test_picker_rows, 0);
+  g_assert_cmpint(plugins_palette_query(&app, "Switchy", 0), ==, 0);
+
+  guint before = plugins_generation();
+  plugins_reload(&app); /* still off: nothing starts */
+  g_assert_cmpuint(plugins_generation(), ==, before + 1);
+  p = plugin_find(&app, "switchy");
+  g_assert_false(p->enabled);
+  g_assert_null(p->running);
+
+  plugin_set_enabled(&app, p, TRUE); /* a project is open: it starts */
+  g_assert_nonnull(p->running);
+  g_assert_cmpint(plugins_palette_query(&app, "Switchy", 0), ==, 1);
+  g_assert_true(plugins_run_command_for(&app, "/w/a.zz") != NULL);
+  g_assert_true(g_file_get_contents(choices, &text, NULL, NULL));
+  g_assert_null(strstr(text, "\"switchy\""));
+  g_free(text);
+
+  p->source = PLUGIN_FROM_SYSTEM; /* only the user's own go */
+  GError *error = NULL;
+  g_assert_false(plugin_uninstall(&app, p, &error));
+  g_assert_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED);
+  g_clear_error(&error);
+  p->source = PLUGIN_FROM_USER;
+  char *dir = g_strdup(p->dir);
+  g_assert_true(plugin_uninstall(&app, p, &error));
+  g_assert_no_error(error);
+  g_assert_false(g_file_test(dir, G_FILE_TEST_EXISTS));
+  g_assert_null(plugin_find(&app, "switchy"));
+  g_free(dir);
+
+  plugins_stop(&app);
+  g_object_unref(tab.buffer);
+  g_unlink(choices);
+  g_free(choices);
+}
+
 int main(int argc, char **argv)
 {
   tmp_dir = g_dir_make_tmp("t-code-test-plugins-XXXXXX", NULL);
@@ -690,6 +766,7 @@ int main(int argc, char **argv)
   g_test_add_func("/plugins/contributions", test_contributions);
   g_test_add_func("/plugins/lsp-test-plugins", test_lsp_test_plugins);
   g_test_add_func("/plugins/server-ids", test_server_ids);
+  g_test_add_func("/plugins/enabled", test_enabled);
   g_test_add_func("/plugins/palette-query", test_palette_query);
   g_test_add_func("/plugins/user-config-directory", test_user_config_directory);
 

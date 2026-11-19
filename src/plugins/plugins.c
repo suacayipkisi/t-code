@@ -7,6 +7,7 @@
 
 #include "application/identity.h"
 #include "editor/tabs.h"
+#include "files/fileops.h"
 #include "lsp/client/client.h"
 #include "popups/picker.h"
 #include "window/statusbar.h"
@@ -350,6 +351,8 @@ static char *plugin_folder(JsonObject *obj, const char *member, const char *plug
   return path;
 }
 
+static PluginSource scanning; /* where plugins_scan_dir is looking */
+
 /* The plugin plugin.json (obj) describes, or NULL: a warning says what is wrong with a broken one; one
  * with the id of a plugin found before is left out quietly. A plugin without commands or "start"
  * needs no program. */
@@ -403,6 +406,8 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
   p->dir = g_strdup(plugin_dir);
   p->executable = executable;
   p->api = api;
+  p->source = scanning;
+  p->enabled = TRUE;
   p->permissions = permissions;
   p->starts = starts;
   p->token = g_uuid_string_random();
@@ -483,35 +488,162 @@ static void add_language_specs(App *t)
 
   for (guint i = 0; !added && i < t->plugins->len; i++) {
     Plugin *p = g_ptr_array_index(t->plugins, i);
-    if (p->language_specs)
+    if (p->enabled && p->language_specs)
       gtk_source_language_manager_append_search_path(languages, p->language_specs);
   }
   added = TRUE;
 }
 
+/* Turned on or off ---------------------------------------------------------------------------- */
+
+static guint loads; /* plugins_generation() */
+
+guint plugins_generation(void)
+{
+  return loads;
+}
+
+static char *choices_file(void)
+{
+  return g_build_filename(g_get_user_config_dir(), TCODE_NAME, "plugins.json", NULL);
+}
+
+/* plugins.json's "disabled" ids (g_strfreev; an empty list when there is none). */
+static char **disabled_ids(void)
+{
+  char *path = choices_file();
+  JsonParser *parser = json_parser_new();
+  JsonNode *root;
+  char **ids = NULL;
+
+  if (json_parser_load_from_file(parser, path, NULL) && (root = json_parser_get_root(parser)) &&
+      JSON_NODE_HOLDS_OBJECT(root))
+    ids = string_list(json_node_get_object(root), "disabled");
+  g_object_unref(parser);
+  g_free(path);
+  return ids ? ids : g_new0(char *, 1);
+}
+
+/* Writes plugins.json again with ids as "disabled", keeping its other members. */
+static void store_disabled(char **ids)
+{
+  char *path = choices_file(), *text;
+  JsonParser *parser = json_parser_new();
+  JsonNode *root = NULL;
+  JsonObject *obj;
+  JsonArray *list = json_array_new();
+  GError *error = NULL;
+
+  if (json_parser_load_from_file(parser, path, NULL) && json_parser_get_root(parser) &&
+      JSON_NODE_HOLDS_OBJECT(json_parser_get_root(parser)))
+    root = json_node_copy(json_parser_get_root(parser));
+  if (!root) {
+    root = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(root, json_object_new());
+  }
+  obj = json_node_get_object(root);
+  for (int i = 0; ids[i]; i++)
+    json_array_add_string_element(list, ids[i]);
+  json_object_set_array_member(obj, "disabled", list);
+  text = json_to_string(root, TRUE);
+  if (!g_file_set_contents(path, text, -1, &error)) {
+    g_warning("t-code: cannot save %s: %s", path, error->message);
+    g_clear_error(&error);
+  }
+  g_free(text);
+  json_node_unref(root);
+  g_object_unref(parser);
+  g_free(path);
+}
+
+/* id goes into plugins.json's "disabled", or out of it. */
+static void choose_disabled(const char *id, gboolean disabled)
+{
+  char **ids = disabled_ids();
+  GPtrArray *kept = g_ptr_array_new();
+
+  for (int i = 0; ids[i]; i++)
+    if (strcmp(ids[i], id) != 0)
+      g_ptr_array_add(kept, ids[i]);
+  if (disabled)
+    g_ptr_array_add(kept, (gpointer)id);
+  g_ptr_array_add(kept, NULL);
+  store_disabled((char **)kept->pdata);
+  g_ptr_array_free(kept, TRUE);
+  g_strfreev(ids);
+}
+
+void plugin_set_enabled(App *t, Plugin *p, gboolean enabled)
+{
+  if (p->enabled == enabled)
+    return;
+  choose_disabled(p->id, !enabled);
+  p->enabled = enabled;
+  if (!enabled)
+    plugin_stop(p);
+  else if (t->project.root && strcmp(t->project.root, g_get_home_dir()) != 0)
+    plugin_start(t, p);
+  refresh_shortcuts(t);
+  lsp_reattach(t);
+}
+
+gboolean plugin_uninstall(App *t, Plugin *p, GError **error)
+{
+  char *dir;
+  gboolean done;
+
+  if (p->source != PLUGIN_FROM_USER) {
+    g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+                "%s came with the system or with t-code, not from your plugins folder: nothing to uninstall here",
+                p->name);
+    return FALSE;
+  }
+  dir = g_strdup(p->dir);
+  choose_disabled(p->id, FALSE); /* not left in "disabled" */
+  plugin_stop(p);
+  done = files_delete(dir, error);
+  g_free(dir);
+  plugins_reload(t);
+  return done;
+}
+
+/* Loading ----------------------------------------------------------------------------------- */
+
 void plugins_init(App *t)
 {
+  char **disabled = disabled_ids();
+
   if (!t->plugins)
     t->plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
+  loads++;
 
   /* 1. User directory: ~/.config/t-code/plugins */
   char *user_dir = g_build_filename(g_get_user_config_dir(), TCODE_NAME, "plugins", NULL);
   g_mkdir_with_parents(user_dir, 0755);
+  scanning = PLUGIN_FROM_USER;
   plugins_scan_dir(t, user_dir);
   g_free(user_dir);
 
   /* 2. System directory: /usr/share/t-code/plugins */
+  scanning = PLUGIN_FROM_SYSTEM;
   plugins_scan_dir(t, "/usr/share/t-code/plugins");
 
   /* 3. Also check beside styles for development / portable runs */
   if (t->paths.styles) {
     char *parent = g_path_get_dirname(t->paths.styles);
     char *beside = g_build_filename(parent, "plugins", NULL);
+    scanning = PLUGIN_FROM_TCODE;
     if (g_strcmp0(beside, "/usr/share/t-code/plugins") != 0)
       plugins_scan_dir(t, beside);
     g_free(beside);
     g_free(parent);
   }
+  scanning = PLUGIN_FROM_USER; /* plugins_scan_dir called alone (tests) */
+  for (guint i = 0; i < t->plugins->len; i++) {
+    Plugin *p = g_ptr_array_index(t->plugins, i);
+    p->enabled = !g_strv_contains((const char *const *)disabled, p->id);
+  }
+  g_strfreev(disabled);
   add_language_specs(t);
 }
 
@@ -554,7 +686,7 @@ int plugins_palette_query(App *t, const char *text, guint generation)
 
   for (guint i = 0; i < t->plugins->len; i++) {
     Plugin *p = g_ptr_array_index(t->plugins, i);
-    for (guint j = 0; j < p->commands->len; j++) {
+    for (guint j = 0; p->enabled && j < p->commands->len; j++) {
       PluginCommand *cmd = g_ptr_array_index(p->commands, j);
       int score = -1;
       if (!text || !*text) {
@@ -625,7 +757,7 @@ void plugins_add_shortcuts(GtkShortcutController *controller, App *t)
 
   for (guint i = 0; t->plugins && i < t->plugins->len; i++) {
     Plugin *plugin = g_ptr_array_index(t->plugins, i);
-    for (guint j = 0; j < plugin->commands->len; j++) {
+    for (guint j = 0; plugin->enabled && j < plugin->commands->len; j++) {
       PluginCommand *cmd = g_ptr_array_index(plugin->commands, j);
       GtkShortcutTrigger *trigger;
       PluginShortcut *shortcut;
@@ -701,6 +833,7 @@ static void keep_line(PluginRun *run, const char *line)
   if (!p)
     return;
   g_queue_push_tail(&p->output, g_strdup(line));
+  p->printed++;
   while (p->output.length > PLUGIN_OUTPUT_LINES)
     g_free(g_queue_pop_head(&p->output));
 }
@@ -884,7 +1017,7 @@ static void unload(App *t, gboolean quitting)
 
 gboolean plugin_start(App *t, Plugin *p)
 {
-  if (!p->running && p->starts && p->executable) {
+  if (!p->running && p->enabled && p->starts && p->executable) {
     p->running = launch(t, p, "start", TRUE);
     p->state = p->running ? PLUGIN_RUNNING : PLUGIN_FAILED;
   }
@@ -924,7 +1057,7 @@ PluginCommand *plugins_run_command_for(App *t, const char *file)
     GHashTableIter iter;
     gpointer pattern, command;
     g_hash_table_iter_init(&iter, p->run);
-    while (!found && g_hash_table_iter_next(&iter, &pattern, &command)) {
+    while (p->enabled && !found && g_hash_table_iter_next(&iter, &pattern, &command)) {
       char *const patterns[] = { pattern, NULL };
       for (guint c = 0; plugin_name_matches(name, patterns) && c < p->commands->len && !found; c++)
         if (strcmp(((PluginCommand *)g_ptr_array_index(p->commands, c))->id, command) == 0)
@@ -942,6 +1075,10 @@ void plugin_run_command(App *t, const char *plugin_id, const char *command_id)
 
   if (!p) {
     g_warning("Plugin '%s' not found", plugin_id);
+    return;
+  }
+  if (!p->enabled) {
+    status_say(t, "That plugin is switched off: turn it on in Plugins: Manage Plugins");
     return;
   }
   for (guint i = 0; i < p->commands->len && !found; i++)

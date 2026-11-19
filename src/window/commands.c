@@ -34,6 +34,7 @@
 #include "project/toolchain.h"
 #include "project/userfiles.h"
 #include "update/update.h"
+#include "plugins/manager.h"
 #include "plugins/plugins.h"
 #include "window/secondwindow.h"
 #include "window/statusbar.h"
@@ -405,6 +406,7 @@ static const Command commands[] = {
   { "Help: Open Log File", NULL, NULL, open_log, FALSE, FALSE, FALSE },
   { "About t-code", NULL, NULL, show_about, FALSE, FALSE, FALSE },
   { "Check for Updates Now", NULL, NULL, check_updates_now, FALSE, FALSE, FALSE },
+  { "Plugins: Manage Plugins", NULL, NULL, show_plugins_window, FALSE, FALSE, FALSE },
   { "Plugins: Reload Installed Plugins", NULL, NULL, plugins_reload, FALSE, FALSE, FALSE },
   { "Plugins: Open Plugins Folder", NULL, NULL, open_plugins_folder, FALSE, FALSE, FALSE },
 };

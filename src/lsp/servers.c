@@ -137,7 +137,7 @@ static ServerKind plugin_kind(App *t, const char *path, const char *id)
 
   for (guint i = 0; t && t->plugins && i < t->plugins->len && kind == SERVER_NONE; i++) {
     Plugin *p = g_ptr_array_index(t->plugins, i);
-    for (guint j = 0; p->servers && j < p->servers->len && kind == SERVER_NONE; j++) {
+    for (guint j = 0; p->enabled && p->servers && j < p->servers->len && kind == SERVER_NONE; j++) {
       PluginServer *s = g_ptr_array_index(p->servers, j);
       if (plugin_name_matches(name, s->extensions) || (*id && g_strv_contains((const char *const *)s->languages, id)))
         kind = declare(p, s);

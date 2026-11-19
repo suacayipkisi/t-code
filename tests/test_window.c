@@ -23,10 +23,11 @@
 #include "git/scm/scm.h"
 #include "ipc/socket.h"
 #include "lsp/inline/diagnostics.h"
-#include "plugins/plugins.h"
+#include "lsp/servers.h"
 #include "lsp/symbols/navigate.h"
 #include "lsp/symbols/outline.h"
 #include "lsp/symbols/symbols.h"
+#include "plugins/plugins.h"
 #include "popups/contextmenu.h"
 #include "project/run/run.h"
 #include "project/session.h"
@@ -3172,7 +3173,9 @@ static GtkStack *settings_stack(GtkWindow *settings)
  * setting is still there, and it opens again on the page it closed on. */
 static void test_settings_pages(void)
 {
-  static const char *const pages[] = { "general", "editor", "indentation", "appearance", "c", "files", NULL };
+  static const char *const pages[] = {
+    "general", "editor", "indentation", "appearance", "c", "servers", "files", NULL
+  };
   GtkWindow *settings;
   GtkStack *stack;
   int switches = 0;
@@ -3191,7 +3194,7 @@ static void test_settings_pages(void)
     g_assert_true(GTK_IS_SCROLLED_WINDOW(page));
     switches += count_of(page, GTK_TYPE_SWITCH);
   }
-  g_assert_cmpint(switches, ==, 15); /* none lost on the way (line blame the last) */
+  g_assert_cmpint(switches, ==, 15 + SERVER_NONE); /* none lost on the way; one per built-in server */
   g_assert_cmpstr(gtk_stack_get_visible_child_name(stack), ==, "general");
 
   gtk_stack_set_visible_child_name(stack, "appearance");
@@ -3208,6 +3211,98 @@ static void test_settings_pages(void)
   gtk_stack_set_visible_child_name(settings_stack(settings), "general"); /* as it was, for the other tests */
   gtk_window_destroy(settings);
   run_for(50);
+}
+
+static GtkWindow *window_titled(const char *title)
+{
+  GtkWindow *found = NULL;
+
+  for (guint i = 0; i < g_list_model_get_n_items(gtk_window_get_toplevels()); i++) {
+    GtkWindow *window = g_list_model_get_item(gtk_window_get_toplevels(), i);
+    if (g_strcmp0(gtk_window_get_title(window), title) == 0)
+      found = window;
+    g_object_unref(window);
+  }
+  return found;
+}
+
+/* Whether a label under root says text. */
+static gboolean says(GtkWidget *root, const char *text)
+{
+  if (GTK_IS_LABEL(root) && g_strcmp0(gtk_label_get_text(GTK_LABEL(root)), text) == 0)
+    return TRUE;
+  for (GtkWidget *child = gtk_widget_get_first_child(root); child; child = gtk_widget_get_next_sibling(child))
+    if (says(child, text))
+      return TRUE;
+  return FALSE;
+}
+
+/* The target of the menu item labeled label in model or its submenus and sections, or NULL. */
+static char *menu_target(GMenuModel *model, const char *label)
+{
+  char *target = NULL;
+
+  for (int i = 0; model && i < g_menu_model_get_n_items(model) && !target; i++) {
+    char *text = NULL;
+    if (g_menu_model_get_item_attribute(model, i, G_MENU_ATTRIBUTE_LABEL, "s", &text) && !g_strcmp0(text, label))
+      g_menu_model_get_item_attribute(model, i, G_MENU_ATTRIBUTE_TARGET, "s", &target);
+    g_free(text);
+    static const char *const links[] = { G_MENU_LINK_SUBMENU, G_MENU_LINK_SECTION };
+    for (guint l = 0; !target && l < G_N_ELEMENTS(links); l++) {
+      GMenuModel *inner = g_menu_model_get_item_link(model, i, links[l]);
+      target = menu_target(inner, label);
+      g_clear_object(&inner);
+    }
+  }
+  return target;
+}
+
+/* "Plugins: Manage Plugins" (also Settings → Plugins… in the menu bar): the plugins on the left
+ * (t-code's own Word Count among them), the first one's details on the right; its switch turns it off (its command leaves the palette) and on; a
+ * reload keeps the window going; a second call brings the same window back. */
+static void test_plugins_window(void)
+{
+  Plugin *p = plugin_find(&app, "word-count");
+  GtkWindow *plugins;
+  GtkWidget *list, *toggle;
+
+  g_assert_nonnull(p);
+  GtkWidget *bar = find_widget(GTK_WIDGET(app.window), GTK_TYPE_POPOVER_MENU_BAR, NULL, NULL);
+  char *target = menu_target(gtk_popover_menu_bar_get_menu_model(GTK_POPOVER_MENU_BAR(bar)), "Plugins…");
+  g_assert_cmpstr(target, ==, "Plugins: Manage Plugins"); /* also in the Settings menu */
+  g_free(target);
+  run_command(&app, "Plugins: Manage Plugins");
+  run_for(50);
+  plugins = window_titled("Plugins");
+  g_assert_nonnull(plugins);
+  list = find_widget(GTK_WIDGET(plugins), GTK_TYPE_LIST_BOX, NULL, NULL);
+  g_assert_cmpint(count_of(list, GTK_TYPE_LIST_BOX_ROW), ==, (int)app.plugins->len);
+  for (guint i = 0; i < app.plugins->len; i++)
+    if (g_ptr_array_index(app.plugins, i) == p)
+      gtk_list_box_select_row(GTK_LIST_BOX(list), gtk_list_box_get_row_at_index(GTK_LIST_BOX(list), (int)i));
+  run_for(20);
+  g_assert_true(says(GTK_WIDGET(plugins), "Word Count"));
+  g_assert_true(says(GTK_WIDGET(plugins), "tapi_1"));
+  g_assert_true(says(GTK_WIDGET(plugins), "t-code itself"));
+  g_assert_true(says(GTK_WIDGET(plugins), "Word Count: Count Words in Current Tab    Ctrl+Alt+W"));
+
+  toggle = find_widget(gtk_window_get_child(plugins), GTK_TYPE_SWITCH, NULL, NULL);
+  g_assert_true(gtk_switch_get_active(GTK_SWITCH(toggle)));
+  gtk_switch_set_active(GTK_SWITCH(toggle), FALSE);
+  g_assert_false(p->enabled);
+  g_assert_true(says(GTK_WIDGET(plugins), "off"));
+  gtk_switch_set_active(GTK_SWITCH(toggle), TRUE);
+  g_assert_true(p->enabled);
+
+  run_command(&app, "Plugins: Reload Installed Plugins"); /* the old Plugin pointers go */
+  run_for(700);                                           /* the window looks again */
+  g_assert_true(says(GTK_WIDGET(plugins), "Word Count"));
+  run_command(&app, "Plugins: Manage Plugins");
+  run_for(20);
+  g_assert_true(window_titled("Plugins") == plugins);
+  gtk_window_destroy(plugins);
+  run_for(50);
+  g_assert_null(window_titled("Plugins"));
 }
 
 static void on_activate(GApplication *gapp, gpointer data G_GNUC_UNUSED)
@@ -3624,6 +3719,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/settings-edited", test_settings_edited);
   g_test_add_func("/window/open-user-files", test_open_user_files);
   g_test_add_func("/window/settings-pages", test_settings_pages);
+  g_test_add_func("/window/plugins-window", test_plugins_window);
   g_test_add_func("/window/panel-menu", test_panel_buttons);
   g_test_add_func("/window/own-icons", test_own_icons);
   g_test_add_func("/window/terminal-tabs", test_terminal_tabs);

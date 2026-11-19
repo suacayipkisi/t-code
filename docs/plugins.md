@@ -227,7 +227,7 @@ the next start. t-code's own languages and the user's snippets come first.
 3. The program talks to t-code over the socket, then exits. Or it keeps a `subscribe` connection
    open and reacts to events.
 4. Its stdout and stderr are read line by line: t-code keeps the last 200 lines per plugin (the
-   Plugins window **(planned)** shows them) and copies them to its own stderr as `<id>: <line>`.
+   Plugins window shows them) and copies them to its own stderr as `<id>: <line>`.
    When it exits with a non-zero status, the status bar says "Plugin <name> failed".
 
 ### Starting with the project
@@ -514,23 +514,33 @@ A plugin declares what it does:
   plugin could skip the token and act as a script. Enforcement catches honest mistakes; trust comes
   from review.
 - **Plugins from before versions:** a plugin without `"api"` is not checked.
-- **(planned)** The Plugins window will show the permissions before a plugin is installed and
-  enabled.
+- The Plugins window shows a plugin's permissions. **(planned)** Browse will show them before a
+  plugin is installed.
 
-### The Plugins window (planned)
+### The Plugins window
 
-**Plugins: Manage Plugins** opens a window with two pages.
+**Plugins: Manage Plugins** (command palette, or Settings → Plugins… in the menu bar) opens a window: every plugin found on the left, the one
+picked on the right.
 
-- **Installed:**
-  - Every plugin, with its version, API, source (user, system, registry), state (running, stopped,
-    failed, needs a newer t-code) and review badge.
-  - Per plugin: Enable/Disable, Start/Stop, the commands and their keys, the permissions, the last
-    lines of its output, Open Folder, Update, Uninstall (user folder only).
-  - A disabled plugin's commands and keys are gone and it does not start.
-- **Browse:**
-  - The registry's plugins, with search and categories.
-  - Install downloads the reviewed commit into `~/.config/t-code/plugins/<id>/` and checks its
-    sha256.
+- **What it shows:** name, description, id, version, API (`tapi_1`, or none for a plugin from
+  before versions), where it was found (your plugins folder, the system, t-code itself), its folder
+  and its state (on, off; for a `start` plugin: running, stopped, failed, not started). Then its
+  commands with their keys, its permissions, what it brings (language servers, Run, language specs,
+  snippets) and the last 200 lines its programs printed, which update while the window is open.
+- **On / off:** the switch. Off, a plugin's commands and keys leave the palette, its language servers
+  and Run stop being used, its start program stops and it does not start again. On, all of that comes
+  back (it starts when a project is open). Its snippets and language specs follow at the next start.
+  The choice is kept in `~/.config/t-code/plugins.json` (`"disabled"`: the ids of the plugins that are
+  off).
+- **Start / Stop:** for a `start` plugin, by hand (stopping is the same SIGTERM, then SIGKILL).
+- **Open Folder**, and **Uninstall** for a plugin in your plugins folder: it stops, and its folder is
+  deleted after a question. Plugins that came with the system or with t-code cannot be uninstalled
+  here.
+- **Reload** and **Open Plugins Folder** at the top: put a plugin's folder in
+  `~/.config/t-code/plugins/`, press Reload, and it shows.
+- **(planned) Browse:** the registry's plugins, with search and categories. Install downloads the
+  reviewed commit into `~/.config/t-code/plugins/<id>/` and checks its sha256; Update does the same for
+  a newer pin. It comes with the registry (below).
 
 ### The registry (planned)
 

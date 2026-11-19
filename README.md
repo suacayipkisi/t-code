@@ -167,8 +167,9 @@ The full table: [docs/features.md](docs/features.md#keys).
 Plugins are separate programs, started only when one of their commands runs, so an idle plugin
 costs nothing. They live in `~/.config/t-code/plugins/<id>/` with a `plugin.json` manifest and talk
 to t-code over `$TCODE_SOCKET`. A plugin runs with your user's rights: install only ones you trust.
-The manifest, environment and socket protocol: [docs/plugins.md](docs/plugins.md); an example is
-in `plugins/word-count`.
+**Plugins: Manage Plugins** (command palette, or Settings → Plugins…) lists them: turn one off, start or stop it, read what
+it printed, uninstall it. The manifest, environment and socket protocol:
+[docs/plugins.md](docs/plugins.md); an example is in `plugins/word-count`.
 
 ## Creating a Plugin
 

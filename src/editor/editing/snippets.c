@@ -37,7 +37,7 @@ void snippets_init(App *t)
     g_ptr_array_add(path, t->paths.snippets);
   for (guint i = 0; t->plugins && i < t->plugins->len; i++) { /* the plugins' "snippets" */
     Plugin *p = g_ptr_array_index(t->plugins, i);
-    if (p->snippets)
+    if (p->enabled && p->snippets)
       g_ptr_array_add(path, p->snippets);
   }
   g_ptr_array_add(path, NULL);

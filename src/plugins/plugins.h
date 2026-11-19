@@ -24,6 +24,13 @@ typedef enum {
   PLUGIN_FAILED,  /* it exited with an error or a signal t-code did not send */
 } PluginState;
 
+/* Where a plugin was found. */
+typedef enum {
+  PLUGIN_FROM_USER,   /* ~/.config/t-code/plugins: the user's own, the only ones Uninstall removes */
+  PLUGIN_FROM_SYSTEM, /* /usr/share/t-code/plugins */
+  PLUGIN_FROM_TCODE,  /* plugins/ beside t-code's styles (the source tree, a portable run) */
+} PluginSource;
+
 /* The lines of output kept per plugin. */
 #define PLUGIN_OUTPUT_LINES 200
 
@@ -65,6 +72,8 @@ typedef struct Plugin {
   char *dir;
   char *executable; /* NULL for a plugin without commands */
   int api;          /* the "tapi_N" its plugin.json asks for; 0: none (a plugin from before versions) */
+  PluginSource source;
+  gboolean enabled; /* not in plugins.json's "disabled": its commands, keys, servers and start work */
   PluginPermissions permissions;
   char *token;         /* $TCODE_PLUGIN_TOKEN: its program says "hello tapi_1 <token>" to be known as it */
   GPtrArray *commands; /* PluginCommand * */
@@ -72,6 +81,7 @@ typedef struct Plugin {
   PluginState state;
   PluginRun *running;   /* its start program while it runs */
   GQueue output;        /* char *: the last PLUGIN_OUTPUT_LINES lines its programs printed (stdout, stderr) */
+  guint printed;        /* lines printed in all, to see that output changed */
   GPtrArray *servers;   /* PluginServer *: "lsp" */
   GHashTable *run;      /* "run": an extension (".m") or a file name -> one of its command ids */
   char *language_specs; /* "language-specs": a folder of .lang files (absolute), or NULL */
@@ -98,6 +108,18 @@ void plugins_init(App *t);
 
 /* Reloads all plugins. */
 void plugins_reload(App *t);
+
+/* Grows each time the plugins are loaded again (Plugin pointers from before are gone). */
+guint plugins_generation(void);
+
+/* Turns a plugin on or off, kept in ~/.config/t-code/plugins.json ("disabled": its ids). Off, its
+ * start program stops and its commands, keys and language servers go; on, they come back. Its
+ * snippets and language specs follow at the next start. */
+void plugin_set_enabled(App *t, Plugin *p, gboolean enabled);
+
+/* Removes a plugin from the user's folder (stopped first) and loads the plugins again; FALSE with
+ * error for one found elsewhere or a folder that would not go. */
+gboolean plugin_uninstall(App *t, Plugin *p, GError **error);
 
 /* Frees all loaded plugins and commands. Their start programs get SIGTERM, and SIGKILL when they are
  * still there a second later (t-code is quitting: this waits for them). */

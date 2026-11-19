@@ -1677,7 +1677,7 @@ static void test_plugin_server(void)
     .name = "fake-c", .argv = argv, .extensions = extensions, .languages = none, .language_ids = none
   };
   GPtrArray *servers = g_ptr_array_new();
-  Plugin plugin = { .id = "fake", .dir = "/tmp", .servers = servers };
+  Plugin plugin = { .id = "fake", .dir = "/tmp", .servers = servers, .enabled = TRUE };
   Tab *tab;
   Lsp *l;
   char *name;

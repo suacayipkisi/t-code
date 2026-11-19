@@ -191,8 +191,8 @@ build/test-window: tests/test_window.c tests/util.h tests/widgets.h tests/broadw
 build/test-about: tests/test_about.c tests/util.h src/dialogs/about.c $(APP_HDR) build/license.h | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_about.c \
 	  $(shell pkg-config --libs $(PKGS))
-build/test-plugins: tests/test_plugins.c tests/util.h src/plugins/plugins.c src/plugins/plugins.h src/lsp/servers.c src/lsp/servers.h $(wildcard tests/plugins/*/plugin.json) $(APP_HDR) | build
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_plugins.c $(shell pkg-config --libs $(PKGS))
+build/test-plugins: tests/test_plugins.c tests/util.h src/files/fileops.c src/plugins/plugins.c src/plugins/plugins.h src/lsp/servers.c src/lsp/servers.h $(wildcard tests/plugins/*/plugin.json) $(APP_HDR) | build
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_plugins.c src/files/fileops.c $(shell pkg-config --libs $(PKGS))
 
 build/test-update: tests/test_update.c tests/util.h src/update/update.c src/update/update.h $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_update.c src/update/update.c \
@@ -287,7 +287,7 @@ test-asan: | build
 	  tests/test_debug.c $(DAP_SRC) $(shell pkg-config --libs json-glib-1.0 gio-2.0)
 	$(ASAN_ENV) build/asan/test-debug
 	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -o build/asan/test-plugins \
-	  tests/test_plugins.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
+	  tests/test_plugins.c src/files/fileops.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
 	$(ASAN_ENV) build/asan/test-plugins
 	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o build/asan/test-update \
 	  tests/test_update.c src/update/update.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)

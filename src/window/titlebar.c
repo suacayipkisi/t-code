@@ -129,6 +129,7 @@ static GMenu *menu_bar_model(App *t)
   section = g_menu_new();
   add_command(menu, "Settings…", "Settings…", "<Control>comma");
   add_command(menu, "Color Theme…", "Preferences: Color Theme…", NULL);
+  add_command(menu, "Plugins…", "Plugins: Manage Plugins", NULL);
   add_command(section, "Open Settings File", "Preferences: Open Settings File", NULL);
   add_command(section, "Open Theme CSS", "Preferences: Open Theme CSS", NULL);
   add_command(section, "Open Editor Colors", "Preferences: Open Editor Colors", NULL);
