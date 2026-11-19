@@ -17,6 +17,7 @@
 #include "git/scm/state.h"
 #include "popups/contextmenu.h"
 #include "window/palette.h"
+#include "window/theme.h"
 
 #include <stdarg.h>
 #include <string.h>
@@ -32,6 +33,7 @@ static const char *const css =
     ".tcode-scm .placeholder { color: var(--tc-fg-faint); margin: 4px 6px; }"
     ".tcode-scm .actions { margin: 6px 10px; }"
     ".tcode-scm .actions button { min-height: 24px; padding: 0 10px; }"
+    ".tcode-scm .actions button.image-button { min-width: 0; padding: 0 6px; }"
     ".tcode-scm .primary { background: var(--tc-accent); color: var(--tc-accent-fg); }"
     ".tcode-scm .primary:hover { background: var(--tc-accent-hover); }"
     ".tcode-scm .note { color: var(--tc-fg-dim); font-size: 0.85em; margin: 0 10px 4px; }"
@@ -92,6 +94,52 @@ static int compare_changes(gconstpointer a, gconstpointer b)
   return g_strcmp0((*(Change **)a)->path, (*(Change **)b)->path);
 }
 
+/* Narrower than this, the panel shows Pull and Push as arrows (their words in the tooltips), so the
+ * row keeps "✓ Commit" readable. */
+#define NARROW_WIDTH 210
+
+static void word_or_arrow(GtkWidget *button, const char *text, const char *icon, const char *tip)
+{
+  char *tooltip = g_strdup_printf("%s: %s", text, tip);
+
+  if (scm.narrow) {
+    gtk_button_set_icon_name(GTK_BUTTON(button), icon);
+    gtk_widget_set_tooltip_text(button, tooltip);
+  } else {
+    gtk_button_set_label(GTK_BUTTON(button), text);
+    label_shrinks(button); /* set_label takes it back */
+    gtk_widget_set_tooltip_text(button, tip);
+  }
+  g_free(tooltip);
+}
+
+static void show_pull_push(void)
+{
+  word_or_arrow(scm.pull, scm.pull_text ? scm.pull_text : "Pull", "tcode-arrow-down-symbolic",
+                "Pull the remote's commits (git pull: merge or rebase as you set it up)");
+  word_or_arrow(scm.push, scm.push_text ? scm.push_text : "Push", "tcode-arrow-up-symbolic",
+                "Push the commits to the remote");
+}
+
+static gboolean relabel(gpointer data G_GNUC_UNUSED)
+{
+  if (scm.push)
+    show_pull_push();
+  return G_SOURCE_REMOVE;
+}
+
+/* The panel's width changed (its scrolled window's page): words or arrows, in an idle (not while
+ * GTK lays it out). */
+static void on_panel_width(GtkAdjustment *width, gpointer data G_GNUC_UNUSED)
+{
+  gboolean narrow = gtk_adjustment_get_page_size(width) > 0 && gtk_adjustment_get_page_size(width) < NARROW_WIDTH;
+
+  if (narrow != scm.narrow) {
+    scm.narrow = narrow;
+    g_idle_add(relabel, NULL);
+  }
+}
+
 /* The buttons' labels: "Publish Branch" / "Push ↑2 ↓1", and "Commit All" when nothing is staged. */
 static void update_buttons(void)
 {
@@ -107,10 +155,12 @@ static void update_buttons(void)
     text = g_strdup_printf("Push ↑%d", scm.ahead);
   else
     text = g_strdup("Push");
-  gtk_button_set_label(GTK_BUTTON(scm.push), text);
-  g_free(text);
+  g_free(scm.push_text);
+  scm.push_text = text;
+  show_pull_push();
   gtk_button_set_label(GTK_BUTTON(scm.commit),
                        scm.staged->len == 0 && scm.changes->len > 0 ? "✓ Commit All" : "✓ Commit");
+  label_shrinks(scm.commit); /* set_label takes it back */
 }
 
 /* Takes the output of "git status --porcelain=v2 --branch -z --untracked-files=all" (NULL: not a
@@ -178,7 +228,9 @@ void scm_update(App *t, const char *out, gsize size)
   gtk_widget_set_sensitive(scm.pull, out != NULL && scm.upstream != NULL);
   /* svn commits go to the server: nothing to push, and Pull is svn update. */
   gtk_widget_set_visible(scm.push, scm_kind() != VCS_SVN);
-  gtk_button_set_label(GTK_BUTTON(scm.pull), scm_kind() == VCS_SVN ? "Update" : "Pull");
+  g_free(scm.pull_text);
+  scm.pull_text = g_strdup(scm_kind() == VCS_SVN ? "Update" : "Pull");
+  show_pull_push();
   gtk_widget_set_visible(scm.init_box, !t->project.scm_top && git_repos()->len == 0);
   if (!out)
     scm_set_note(t->project.scm_top ? NULL : "This folder is not in a repository.", FALSE);
@@ -459,6 +511,7 @@ static GtkWidget *init_box(void)
   gtk_widget_add_css_class(button, "primary");
   gtk_widget_set_hexpand(button, TRUE);
   g_signal_connect_swapped(button, "clicked", G_CALLBACK(on_init_clicked), NULL);
+  label_shrinks(button);
   gtk_box_append(GTK_BOX(row), button);
   gtk_box_append(GTK_BOX(row), GTK_WIDGET(scm.init_kind));
   gtk_box_append(GTK_BOX(box), row);
@@ -587,6 +640,7 @@ GtkWidget *scm_panel(App *t)
   gtk_widget_add_controller(scm.message, keys);
   scm.placeholder = gtk_label_new("Message (Ctrl+Enter to commit)");
   gtk_widget_add_css_class(scm.placeholder, "placeholder");
+  gtk_label_set_ellipsize(GTK_LABEL(scm.placeholder), PANGO_ELLIPSIZE_END);
   gtk_widget_set_halign(scm.placeholder, GTK_ALIGN_START);
   gtk_widget_set_valign(scm.placeholder, GTK_ALIGN_START);
   gtk_widget_set_can_target(scm.placeholder, FALSE);
@@ -611,6 +665,8 @@ GtkWidget *scm_panel(App *t)
   gtk_box_append(GTK_BOX(actions), scm.commit);
   gtk_box_append(GTK_BOX(actions), scm.pull);
   gtk_box_append(GTK_BOX(actions), scm.push);
+  for (GtkWidget *b = gtk_widget_get_first_child(actions); b; b = gtk_widget_get_next_sibling(b))
+    label_shrinks(b); /* a narrow side shortens them rather than cutting them off */
   gtk_box_append(GTK_BOX(content), actions);
 
   scm.init_box = init_box();
@@ -644,6 +700,8 @@ GtkWidget *scm_panel(App *t)
 
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), content);
+  g_signal_connect(gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(scroll)), "changed",
+                   G_CALLBACK(on_panel_width), NULL);
   gtk_widget_set_vexpand(scroll, TRUE);
   gtk_box_append(GTK_BOX(panel), scroll);
   return panel;

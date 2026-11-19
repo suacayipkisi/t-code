@@ -18,7 +18,9 @@ typedef struct {
   GtkWidget *message; /* GtkTextView */
   GtkWidget *placeholder;
   GtkWidget *commit, *pull, *push;
-  GtkLabel *note; /* the last error or result */
+  gboolean narrow;             /* the panel is too narrow for Pull's and Push's words: they show arrows */
+  char *pull_text, *push_text; /* their words ("Update", "Push ↑2") */
+  GtkLabel *note;              /* the last error or result */
   GtkListBox *staged_list, *changes_list, *commits_list;
   GtkListBox *repos_list; /* Repositories: shown when the project holds more than one */
   GtkWidget *repos_box;

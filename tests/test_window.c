@@ -2612,12 +2612,17 @@ static void test_opens_at_left_edge(void)
   g_free(path);
 }
 
-/* The first run (no session.ini yet): Files shows on the left, the shell below the editors. */
+/* The first run (no session.ini yet): Files shows on the left, the shell below the editors, Outline,
+ * Hierarchy and Testing on the right. */
 static void test_first_run_layout(void)
 {
   g_assert_cmpint(panel_dock(&app, "files"), ==, 0);
   g_assert_cmpstr(gtk_stack_get_visible_child_name(app.dock.stacks[0]), ==, "files");
   g_assert_cmpint(panel_dock(&app, "shell"), ==, 4);
+  g_assert_cmpint(panel_dock(&app, "outline"), ==, 8);
+  g_assert_cmpint(panel_dock(&app, "hierarchy"), ==, 8);
+  g_assert_cmpint(panel_dock(&app, "testing"), ==, 8);
+  g_assert_true(gtk_widget_get_visible(app.layout.right));
 }
 
 /* A font that is not installed falls back to monospace, not to a proportional one. */
@@ -2942,7 +2947,7 @@ static void test_panel_buttons(void)
     g_assert_cmpint(panel_dock(&app, panel_names[i]), ==, panel_default_docks[i]);
   g_assert_true(panel_shown(&app, "files"));
   g_assert_true(panel_shown(&app, "shell"));
-  g_assert_false(gtk_widget_get_visible(app.layout.right)); /* nothing left there */
+  g_assert_true(gtk_widget_get_visible(app.layout.right)); /* Outline, Hierarchy, Testing */
   g_assert_true(button_on("files"));
 }
 
@@ -2957,6 +2962,151 @@ static GtkWidget *label_under(GtkWidget *widget, const char *text)
       return found;
   }
   return NULL;
+}
+
+/* Shows an edge strip being dragged inwards by (dx, dy). */
+static void drag_edge(int side, double dx, double dy)
+{
+  GListModel *controllers = gtk_widget_observe_controllers(app.layout.edges[side]);
+  GObject *drag = NULL;
+
+  for (guint i = 0; i < g_list_model_get_n_items(controllers) && !drag; i++) {
+    GObject *c = g_list_model_get_item(controllers, i);
+    if (GTK_IS_GESTURE_DRAG(c))
+      drag = c;
+    else
+      g_object_unref(c);
+  }
+  g_object_unref(controllers);
+  g_assert_nonnull(drag);
+  g_signal_emit_by_name(drag, "drag-update", dx, dy);
+  g_object_unref(drag);
+}
+
+static gboolean more_shown(gconstpointer more)
+{
+  return gtk_widget_get_visible(GTK_WIDGET(more));
+}
+
+static gboolean more_hidden(gconstpointer more)
+{
+  return !gtk_widget_get_visible(GTK_WIDGET(more));
+}
+
+/* Resizing the sides: the panels on the sides fit in a side's smallest width (shorter buttons, no
+ * cut-off rows); dragged smaller than that, a side squeezes to nothing and hides on release (to open
+ * at its last size), dragged back out first it stays; a hidden side's edge strip opens it when
+ * dragged inwards. A dock's icons that do not fit its tab bar go into its "more" menu. */
+static void test_panel_resize(void)
+{
+  int w = gtk_widget_get_width(GTK_WIDGET(app.layout.rpaned));
+  int max = 0;
+  GtkWidget *more, *switcher;
+  gboolean hidden_icon = FALSE;
+
+  reset_panel_layout(&app);
+  run_for(100);
+  for (int i = 0; i < PANELS; i++) {
+    int d = panel_dock(&app, panel_names[i]), min = 0;
+    GtkWidget *child = gtk_stack_get_child_by_name(app.dock.stacks[d], panel_names[i]);
+
+    if (d / 4 == 1) /* the bottom's are as wide as the window */
+      continue;
+    if (GTK_IS_SCROLLED_WINDOW(child))
+      child = gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(child));
+    if (GTK_IS_VIEWPORT(child))
+      child = gtk_viewport_get_child(GTK_VIEWPORT(child));
+    gtk_widget_measure(child, GTK_ORIENTATION_HORIZONTAL, -1, &min, NULL, NULL, NULL);
+    if (min > 170) /* the smallest side */
+      g_test_message("%s is at least %d wide", panel_names[i], min);
+    g_assert_cmpint(min, <=, 170);
+  }
+
+  /* The left side: dragged below its smallest width, out again, below again, released. */
+  app.layout.pressed = TRUE;
+  gtk_paned_set_position(app.layout.hpaned, 240);
+  gtk_paned_set_position(app.layout.hpaned, 120);
+  g_assert_cmpint(gtk_paned_get_position(app.layout.hpaned), ==, 0);
+  g_assert_true(gtk_widget_get_visible(app.layout.left));
+  gtk_paned_set_position(app.layout.hpaned, 200);
+  g_assert_cmpint(gtk_paned_get_position(app.layout.hpaned), ==, 200);
+  gtk_paned_set_position(app.layout.hpaned, 60);
+  g_assert_cmpint(gtk_paned_get_position(app.layout.hpaned), ==, 0);
+  end_pane_drag(&app);
+  run_for(50);
+  g_assert_false(gtk_widget_get_visible(app.layout.left));
+  g_assert_cmpint(gtk_paned_get_position(app.layout.hpaned), ==, 200);
+  g_assert_true(gtk_widget_get_visible(app.layout.edges[0]));
+
+  /* Its edge strip: a twitch does nothing, a drag opens it as wide as the pointer came. */
+  app.layout.pressed = TRUE;
+  drag_edge(0, 2, 0);
+  g_assert_false(gtk_widget_get_visible(app.layout.left));
+  drag_edge(0, 90, 0);
+  g_assert_true(gtk_widget_get_visible(app.layout.left));
+  g_assert_cmpint(gtk_paned_get_position(app.layout.hpaned), ==, 0); /* too narrow yet */
+  drag_edge(0, 260, 0);
+  g_assert_cmpint(gtk_paned_get_position(app.layout.hpaned), ==, 260);
+  end_pane_drag(&app);
+  run_for(50);
+  g_assert_true(gtk_widget_get_visible(app.layout.left));
+  g_assert_false(gtk_widget_get_visible(app.layout.edges[0]));
+
+  /* The right side and the bottom the same way. */
+  g_object_get(app.layout.rpaned, "max-position", &max, NULL);
+  g_assert_cmpint(max, >, 600);
+  app.layout.pressed = TRUE;
+  gtk_paned_set_position(app.layout.rpaned, max - 100);
+  g_assert_cmpint(gtk_paned_get_position(app.layout.rpaned), ==, max);
+  end_pane_drag(&app);
+  run_for(50);
+  g_assert_false(gtk_widget_get_visible(app.layout.right));
+  g_assert_true(gtk_widget_get_visible(app.layout.edges[2]));
+  app.layout.pressed = TRUE;
+  drag_edge(2, -300, 0);
+  end_pane_drag(&app);
+  run_for(50);
+  g_assert_true(gtk_widget_get_visible(app.layout.right));
+  run_for(1000);
+  g_assert_cmpint(gtk_widget_get_width(app.layout.right), >=, 290);
+
+  g_object_get(app.layout.vpaned, "max-position", &max, NULL);
+  app.layout.pressed = TRUE;
+  gtk_paned_set_position(app.layout.vpaned, max - 60);
+  end_pane_drag(&app);
+  run_for(50);
+  g_assert_false(gtk_widget_get_visible(app.layout.bottom));
+  g_assert_true(gtk_widget_get_visible(app.layout.edges[1]));
+  app.layout.pressed = TRUE;
+  drag_edge(1, 0, -200);
+  end_pane_drag(&app);
+  run_for(50);
+  g_assert_true(gtk_widget_get_visible(app.layout.bottom));
+  g_assert_false(gtk_widget_get_visible(app.layout.edges[1]));
+
+  /* Seven icons in a narrow dock: some go into "more", which shows them. */
+  for (int i = 0; i < PANELS; i++)
+    if (panel_default_docks[i] == 8)
+      move_panel(&app, panel_names[i], 0);
+  gtk_paned_set_position(app.layout.hpaned, 180);
+  more = find_widget(app.dock.cards[0], GTK_TYPE_MENU_BUTTON, "More Panels", NULL);
+  g_assert_nonnull(more);
+  run_until(more_shown, more);
+  g_assert_true(gtk_widget_get_visible(more));
+  switcher = g_object_get_data(G_OBJECT(app.dock.stacks[0]), "tcode-switcher");
+  for (GtkWidget *icon = gtk_widget_get_first_child(switcher); icon; icon = gtk_widget_get_next_sibling(icon))
+    hidden_icon |= gtk_widget_get_opacity(icon) == 0;
+  g_assert_true(hidden_icon);
+  gtk_menu_button_popup(GTK_MENU_BUTTON(more));
+  run_for(50);
+  g_assert_nonnull(label_under(GTK_WIDGET(gtk_menu_button_get_popover(GTK_MENU_BUTTON(more))), "Testing"));
+  gtk_menu_button_popdown(GTK_MENU_BUTTON(more));
+  gtk_paned_set_position(app.layout.hpaned, MIN(w - 300, 700));
+  run_until(more_hidden, more);
+  g_assert_false(gtk_widget_get_visible(more));
+
+  reset_panel_layout(&app);
+  run_for(50);
 }
 
 /* The toplevel window showing a label with text (a dialog), or NULL. */
@@ -3951,6 +4101,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/plugins-browse", test_plugins_browse);
   g_test_add_func("/window/example-plugins", test_example_plugins);
   g_test_add_func("/window/panel-menu", test_panel_buttons);
+  g_test_add_func("/window/panel-resize", test_panel_resize);
   g_test_add_func("/window/own-icons", test_own_icons);
   g_test_add_func("/window/terminal-tabs", test_terminal_tabs);
   g_test_add_func("/window/temporary-tabs", test_temporary);

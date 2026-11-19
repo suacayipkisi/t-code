@@ -35,6 +35,14 @@ void set_preview_zoom_scale(App *t, double scale);
  * current tab. */
 void set_pane_visible(App *t, GtkWidget *pane, gboolean visible);
 
+/* The mouse button that dragged a paned is up: the sides it squeezed to nothing (smaller than they
+ * can show their panels) hide, to open again at their last size. */
+void end_pane_drag(App *t);
+
+/* The strips on the window's edges show where a hidden side is (dragging one opens it), none while
+ * a mouse button is down. */
+void update_edges(App *t);
+
 /* Hides a shown pane, or shows a hidden one and gives it the keyboard. */
 void toggle_pane(App *t, GtkWidget *pane);
 

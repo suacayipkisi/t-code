@@ -157,16 +157,19 @@ GtkWidget *problems_panel(App *t)
   pv.err_label = GTK_LABEL(gtk_label_new("0 Errors"));
   gtk_widget_add_css_class(GTK_WIDGET(pv.err_label), "tcode-problem-error");
   gtk_widget_add_css_class(GTK_WIDGET(pv.err_label), "tcode-problems-badge");
+  gtk_label_set_ellipsize(pv.err_label, PANGO_ELLIPSIZE_END);
   gtk_box_append(GTK_BOX(header), GTK_WIDGET(pv.err_label));
 
   pv.warn_label = GTK_LABEL(gtk_label_new("0 Warnings"));
   gtk_widget_add_css_class(GTK_WIDGET(pv.warn_label), "tcode-problem-warning");
   gtk_widget_add_css_class(GTK_WIDGET(pv.warn_label), "tcode-problems-badge");
+  gtk_label_set_ellipsize(pv.warn_label, PANGO_ELLIPSIZE_END);
   gtk_box_append(GTK_BOX(header), GTK_WIDGET(pv.warn_label));
 
   pv.info_label = GTK_LABEL(gtk_label_new("0 Notes"));
   gtk_widget_add_css_class(GTK_WIDGET(pv.info_label), "tcode-problem-info");
   gtk_widget_add_css_class(GTK_WIDGET(pv.info_label), "tcode-problems-badge");
+  gtk_label_set_ellipsize(pv.info_label, PANGO_ELLIPSIZE_END);
   gtk_box_append(GTK_BOX(header), GTK_WIDGET(pv.info_label));
 
   gtk_box_append(GTK_BOX(box), header);

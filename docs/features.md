@@ -263,6 +263,13 @@ second window of the same project, sharing its language servers; closing it move
 window, command palette, updates, quit), Settings, Panels (each panel, checked while it shows),
 About and Help (keyboard shortcuts, reset panel layout). The middle shows the project's name.
 
+**Panels.** Files, Source Control, Search and Run and Debug start on the left; the Terminal, Debug
+and Problems at the bottom; Outline, Hierarchy and Testing on the right. Drag a panel's icon to move
+it. Panels get narrower as their side does (shorter buttons; icons that no longer fit go into the
+dock's `⋯` menu). A side dragged smaller than it can show closes when you let go. Drag it back out
+before letting go and it stays. To open a hidden side, drag from that edge of the window, the way you
+would resize it.
+
 **Projects.** For a second project next to the first, middle-click the dock icon (or pick "New Window" from
 its menu, or run `t-code --new-window`): a new window opens and asks for a folder.
 Switching remembers and closes the current project's tabs, shows the new folder in the Files

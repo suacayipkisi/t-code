@@ -81,37 +81,164 @@ static gboolean on_close_request(GtkWindow *window G_GNUC_UNUSED, App *t)
 
 /* Panes ------------------------------------------------------------------------------------ */
 
-/* When the user drags a paned handle all the way to the edge (< 24px), collapse that pane cleanly. */
-static void on_hpaned_position(GtkPaned *paned, GParamSpec *spec G_GNUC_UNUSED, App *t)
+/* A side dragged smaller than this (left / right: its width, bottom: its height) closes, the way a
+ * side would rather go than show its panels cut off; dragged back out while the button is still down,
+ * it opens again. Sizes it opens at when nothing was remembered. */
+static const int side_snap[3] = { 170, 100, 170 };
+static const int side_default[3] = { 280, 240, 280 };
+
+static GtkPaned *side_paned(App *t, int side)
 {
+  return side == 0 ? t->layout.hpaned : side == 1 ? t->layout.vpaned : t->layout.rpaned;
+}
+
+/* The paned's largest position: where the side after the handle (right, bottom) is gone. */
+static int paned_max(GtkPaned *paned, int side)
+{
+  int max = 0;
+
+  g_object_get(paned, "max-position", &max, NULL);
+  if (max <= 0)
+    max = side == 1 ? gtk_widget_get_height(GTK_WIDGET(paned)) : gtk_widget_get_width(GTK_WIDGET(paned));
+  return max;
+}
+
+static int side_size(App *t, int side)
+{
+  GtkPaned *paned = side_paned(t, side);
   int pos = gtk_paned_get_position(paned);
 
-  if (pos > 0 && pos < 24 && gtk_widget_get_visible(t->layout.left)) {
-    gtk_paned_set_position(paned, 280);
-    set_pane_visible(t, t->layout.left, FALSE);
+  return side == 0 ? pos : paned_max(paned, side) - pos;
+}
+
+static void set_side_size(App *t, int side, int size)
+{
+  GtkPaned *paned = side_paned(t, side);
+
+  gtk_paned_set_position(paned, side == 0 ? size : MAX(paned_max(paned, side) - size, 0));
+}
+
+/* The size a side opens at again: its last one that was big enough. */
+static int side_remembered(App *t, int side)
+{
+  return t->layout.sizes[side] >= side_snap[side] ? t->layout.sizes[side] : side_default[side];
+}
+
+/* The bottom with every dock collapsed is small on purpose (only their tab bars). */
+static gboolean side_can_snap(App *t, int side)
+{
+  if (side != 1)
+    return TRUE;
+  for (int d = 4; d < 8; d++)
+    if (gtk_widget_get_visible(t->dock.cards[d]) && !t->dock.collapsed[d])
+      return TRUE;
+  return FALSE;
+}
+
+/* A main paned moved. While the mouse drags it, a side smaller than side_snap squeezes to nothing
+ * (and hides on release); otherwise a side pushed to (almost) nothing hides at once. */
+static void on_paned_position(GtkPaned *paned, GParamSpec *spec G_GNUC_UNUSED, App *t)
+{
+  int side = paned == t->layout.hpaned ? 0 : paned == t->layout.vpaned ? 1 : 2;
+  GtkWidget *pane = side_widget(t, side);
+  int size = side_size(t, side);
+
+  if (!pane || !gtk_widget_get_visible(pane) || !side_can_snap(t, side))
+    return;
+  if (t->layout.pressed) {
+    if (size >= side_snap[side]) {
+      t->layout.sizes[side] = size;
+      t->layout.snapped &= ~(1u << side);
+    } else {
+      t->layout.snapped |= 1u << side;
+      if (size > 0)
+        set_side_size(t, side, 0);
+    }
+  } else if (size > 0 && size < 24 && paned_max(paned, side) > 320) {
+    set_side_size(t, side, side_remembered(t, side));
+    set_pane_visible(t, pane, FALSE);
   }
 }
 
-static void on_rpaned_position(GtkPaned *paned, GParamSpec *spec G_GNUC_UNUSED, App *t)
+void end_pane_drag(App *t)
 {
-  int w = gtk_widget_get_width(GTK_WIDGET(paned));
-  int pos = gtk_paned_get_position(paned);
-
-  if (w > 320 && pos > w - 24 && gtk_widget_get_visible(t->layout.right)) {
-    gtk_paned_set_position(paned, w - 280);
-    set_pane_visible(t, t->layout.right, FALSE);
-  }
+  t->layout.pressed = FALSE;
+  for (int side = 0; side < 3; side++)
+    if (t->layout.snapped & (1u << side)) {
+      t->layout.snapped &= ~(1u << side);
+      set_side_size(t, side, side_remembered(t, side));
+      set_pane_visible(t, side_widget(t, side), FALSE);
+    }
+  update_edges(t);
 }
 
-static void on_vpaned_position(GtkPaned *paned, GParamSpec *spec G_GNUC_UNUSED, App *t)
+/* Mouse buttons in the whole window, seen before any widget. */
+static gboolean on_window_event(GtkEventControllerLegacy *legacy G_GNUC_UNUSED, GdkEvent *event, App *t)
 {
-  int h = gtk_widget_get_height(GTK_WIDGET(paned));
-  int pos = gtk_paned_get_position(paned);
+  GdkEventType type = gdk_event_get_event_type(event);
 
-  if (h > 200 && pos > h - 24 && gtk_widget_get_visible(t->layout.bottom)) {
-    gtk_paned_set_position(paned, h - 240);
-    set_pane_visible(t, t->layout.bottom, FALSE);
+  if (type == GDK_BUTTON_PRESS)
+    t->layout.pressed = TRUE;
+  else if (type == GDK_BUTTON_RELEASE && t->layout.pressed)
+    end_pane_drag(t);
+  return GDK_EVENT_PROPAGATE;
+}
+
+void update_edges(App *t)
+{
+  if (t->layout.pressed) /* hiding a strip would end the drag that is opening its side */
+    return;
+  for (int side = 0; side < 3; side++)
+    if (t->layout.edges[side])
+      gtk_widget_set_visible(t->layout.edges[side],
+                             !gtk_widget_get_visible(side_widget(t, side)) && (side != 2 || side_has_pages(t, side)));
+}
+
+/* Dragging a hidden side's edge strip inwards shows the side, as wide as the pointer has come. */
+static void on_edge_drag(GtkGestureDrag *drag, double dx, double dy, App *t)
+{
+  int side = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(drag), "tcode-side"));
+  int inward = (int)(side == 0 ? dx : side == 1 ? -dy : -dx);
+  GtkWidget *pane = side_widget(t, side);
+
+  if (!gtk_widget_get_visible(pane)) {
+    if (inward < 4)
+      return;
+    set_pane_visible(t, pane, TRUE);
   }
+  set_side_size(t, side, MAX(inward, 0));
+}
+
+static GtkWidget *edge_strip(App *t, int side)
+{
+  GtkWidget *strip = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkGesture *drag = gtk_gesture_drag_new();
+
+  if (side == 1) {
+    gtk_widget_set_size_request(strip, -1, 4);
+    gtk_widget_set_valign(strip, GTK_ALIGN_END);
+  } else {
+    gtk_widget_set_size_request(strip, 4, -1);
+    gtk_widget_set_halign(strip, side == 0 ? GTK_ALIGN_START : GTK_ALIGN_END);
+  }
+  gtk_widget_set_cursor_from_name(strip, side == 1 ? "row-resize" : "col-resize");
+  gtk_widget_set_visible(strip, FALSE);
+  g_object_set_data(G_OBJECT(drag), "tcode-side", GINT_TO_POINTER(side));
+  g_signal_connect(drag, "drag-update", G_CALLBACK(on_edge_drag), t);
+  gtk_widget_add_controller(strip, GTK_EVENT_CONTROLLER(drag));
+  t->layout.edges[side] = strip;
+  return strip;
+}
+
+/* Wraps a paned in an overlay holding the edge strips of the given sides. */
+static GtkWidget *with_edges(App *t, GtkPaned *paned, int first, int last)
+{
+  GtkWidget *overlay = gtk_overlay_new();
+
+  gtk_overlay_set_child(GTK_OVERLAY(overlay), GTK_WIDGET(paned));
+  for (int side = first; side <= last; side += 2)
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), edge_strip(t, side));
+  return overlay;
 }
 
 /* The window --------------------------------------------------------------------------------- */
@@ -157,17 +284,17 @@ void build_window(App *t, GtkApplication *app)
   gtk_paned_set_resize_end_child(t->layout.vpaned, FALSE);
   gtk_paned_set_shrink_start_child(t->layout.vpaned, TRUE);
   gtk_paned_set_shrink_end_child(t->layout.vpaned, TRUE);
-  g_signal_connect(t->layout.vpaned, "notify::position", G_CALLBACK(on_vpaned_position), t);
+  g_signal_connect(t->layout.vpaned, "notify::position", G_CALLBACK(on_paned_position), t);
   gtk_paned_set_position(t->layout.vpaned, 620);
 
   /* The right sidebar right of the center area. */
   t->layout.rpaned = GTK_PANED(gtk_paned_new(GTK_ORIENTATION_HORIZONTAL));
-  gtk_paned_set_start_child(t->layout.rpaned, GTK_WIDGET(t->layout.vpaned));
+  gtk_paned_set_start_child(t->layout.rpaned, with_edges(t, t->layout.vpaned, 1, 1));
   gtk_paned_set_end_child(t->layout.rpaned, t->layout.right);
   gtk_paned_set_resize_end_child(t->layout.rpaned, FALSE);
   gtk_paned_set_shrink_start_child(t->layout.rpaned, TRUE);
   gtk_paned_set_shrink_end_child(t->layout.rpaned, TRUE);
-  g_signal_connect(t->layout.rpaned, "notify::position", G_CALLBACK(on_rpaned_position), t);
+  g_signal_connect(t->layout.rpaned, "notify::position", G_CALLBACK(on_paned_position), t);
   gtk_paned_set_position(t->layout.rpaned, 840);
 
   /* The left sidebar left of them. */
@@ -177,7 +304,7 @@ void build_window(App *t, GtkApplication *app)
   gtk_paned_set_resize_start_child(t->layout.hpaned, FALSE);
   gtk_paned_set_shrink_start_child(t->layout.hpaned, TRUE);
   gtk_paned_set_shrink_end_child(t->layout.hpaned, TRUE);
-  g_signal_connect(t->layout.hpaned, "notify::position", G_CALLBACK(on_hpaned_position), t);
+  g_signal_connect(t->layout.hpaned, "notify::position", G_CALLBACK(on_paned_position), t);
   gtk_paned_set_position(t->layout.hpaned, 280);
   gtk_widget_set_vexpand(GTK_WIDGET(t->layout.hpaned), TRUE);
   gtk_widget_add_css_class(GTK_WIDGET(t->layout.hpaned), "tcode-workspace");
@@ -185,7 +312,11 @@ void build_window(App *t, GtkApplication *app)
   g_signal_connect(t->layout.vpaned, "notify::position", G_CALLBACK(on_layout_changed), t);
   g_signal_connect(t->layout.rpaned, "notify::position", G_CALLBACK(on_layout_changed), t);
 
-  gtk_box_append(GTK_BOX(content), GTK_WIDGET(t->layout.hpaned));
+  gtk_box_append(GTK_BOX(content), with_edges(t, t->layout.hpaned, 0, 2));
+  GtkEventController *legacy = gtk_event_controller_legacy_new();
+  gtk_event_controller_set_propagation_phase(legacy, GTK_PHASE_CAPTURE);
+  g_signal_connect(legacy, "event", G_CALLBACK(on_window_event), t);
+  gtk_widget_add_controller(GTK_WIDGET(t->window), legacy);
   gtk_box_append(GTK_BOX(content), status_bar(t));
   gtk_overlay_set_child(GTK_OVERLAY(overlay), content);
   picker_init(t, GTK_OVERLAY(overlay));

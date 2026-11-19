@@ -10,6 +10,7 @@
 #include "lsp/symbols/symbols.h"
 #include "window/window.h"
 #include "window/palette.h"
+#include "window/theme.h"
 
 /* A symbol in the tree ------------------------------------------------------------------------ */
 
@@ -170,6 +171,8 @@ static void hier_restart(void)
   }
   gtk_button_set_label(GTK_BUTTON(hier.up), hier.types ? "Supertypes" : "Callers");
   gtk_button_set_label(GTK_BUTTON(hier.down), hier.types ? "Subtypes" : "Callees");
+  label_shrinks(GTK_WIDGET(hier.up)); /* set_label takes it back */
+  label_shrinks(GTK_WIDGET(hier.down));
   title = name ? g_strdup_printf(hier.types ? (hier.going_up ? "Supertypes of %s" : "Subtypes of %s")
                                             : (hier.going_up ? "Callers of %s" : "Calls from %s"),
                                  name)
@@ -437,6 +440,9 @@ GtkWidget *hierarchy_panel(App *t)
   gtk_toggle_button_set_active(hier.follow, TRUE);
   gtk_box_append(GTK_BOX(directions_row), GTK_WIDGET(directions));
   gtk_box_append(GTK_BOX(directions_row), GTK_WIDGET(hier.follow));
+  label_shrinks(GTK_WIDGET(hier.up));
+  label_shrinks(GTK_WIDGET(hier.down));
+  label_shrinks(GTK_WIDGET(hier.follow));
   gtk_box_append(GTK_BOX(panel), directions_row);
 
   hier.note = GTK_LABEL(gtk_label_new(NULL));

@@ -76,12 +76,16 @@ struct App {
 
   /* layout */
   struct {
-    GtkPaned *hpaned;  /* the left side | the rest */
-    GtkPaned *rpaned;  /* the editors and the bottom side | the right side */
-    GtkPaned *vpaned;  /* the editors over the bottom side */
-    GtkWidget *left;   /* the left side: a vertical paned chain holding dock.cards[0..3] */
-    GtkWidget *bottom; /* the bottom side: a horizontal chain holding dock.cards[4..7] */
-    GtkWidget *right;  /* the right side: a vertical chain holding dock.cards[8..11] */
+    GtkPaned *hpaned;    /* the left side | the rest */
+    GtkPaned *rpaned;    /* the editors and the bottom side | the right side */
+    GtkPaned *vpaned;    /* the editors over the bottom side */
+    GtkWidget *left;     /* the left side: a vertical paned chain holding dock.cards[0..3] */
+    GtkWidget *bottom;   /* the bottom side: a horizontal chain holding dock.cards[4..7] */
+    GtkWidget *right;    /* the right side: a vertical chain holding dock.cards[8..11] */
+    gboolean pressed;    /* a mouse button is down in the window (a paned may be being dragged) */
+    guint snapped;       /* a bit per side dragged below its smallest size: it hides on release */
+    int sizes[3];        /* each side's last size that was big enough, given back when it shows again */
+    GtkWidget *edges[3]; /* thin strips on the left, bottom and right edges: dragging one shows that hidden side */
   } layout;
 
   /* dock */

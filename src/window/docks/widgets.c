@@ -306,6 +306,91 @@ static void on_stack_switched(GtkStack *stack, GParamSpec *pspec G_GNUC_UNUSED, 
       set_dock_collapsed(t, d, FALSE);
 }
 
+/* A dock's icons that do not fit its tab bar go into its "more" menu (fit_icons), like a narrow
+ * side's tabs would rather do than show half an icon. */
+static void on_more_chosen(GtkButton *button, GtkStack *stack)
+{
+  GtkWidget *popover = gtk_widget_get_ancestor(GTK_WIDGET(button), GTK_TYPE_POPOVER);
+
+  gtk_stack_set_visible_child_name(stack, g_object_get_data(G_OBJECT(button), "tcode-page"));
+  if (popover)
+    gtk_popover_popdown(GTK_POPOVER(popover));
+}
+
+/* Fills the "more" menu with the panels whose icons are hidden, as it opens. */
+static void fill_more(GtkMenuButton *more, gpointer data G_GNUC_UNUSED)
+{
+  GtkStack *stack = g_object_get_data(G_OBJECT(more), "tcode-stack");
+  GtkWidget *switcher = g_object_get_data(G_OBJECT(stack), "tcode-switcher");
+  GtkSelectionModel *pages = gtk_stack_get_pages(stack);
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+  GtkWidget *popover = gtk_popover_new();
+  guint i = 0;
+
+  for (GtkWidget *icon = gtk_widget_get_first_child(switcher); icon; icon = gtk_widget_get_next_sibling(icon), i++) {
+    GtkStackPage *page = g_list_model_get_item(G_LIST_MODEL(pages), i);
+    if (page && gtk_widget_get_visible(icon) && gtk_widget_get_opacity(icon) == 0) {
+      GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+      GtkWidget *button = gtk_button_new();
+      gtk_box_append(GTK_BOX(row), gtk_image_new_from_icon_name(gtk_stack_page_get_icon_name(page)));
+      gtk_box_append(GTK_BOX(row), gtk_label_new(gtk_stack_page_get_title(page)));
+      gtk_button_set_child(GTK_BUTTON(button), row);
+      gtk_button_set_has_frame(GTK_BUTTON(button), FALSE);
+      g_object_set_data_full(G_OBJECT(button), "tcode-page", g_strdup(gtk_stack_page_get_name(page)), g_free);
+      g_signal_connect(button, "clicked", G_CALLBACK(on_more_chosen), stack);
+      gtk_box_append(GTK_BOX(box), button);
+    }
+    g_clear_object(&page);
+  }
+  g_object_unref(pages);
+  gtk_popover_set_child(GTK_POPOVER(popover), box);
+  gtk_menu_button_set_popover(more, popover);
+}
+
+/* Hides (keeps their place, draws nothing) the icons past the tab bar's end, and shows "more" for
+ * them; run after the tab bar's width changed. */
+static gboolean fit_icons(gpointer data)
+{
+  GtkWidget *more = data;
+  GtkStack *stack = g_object_get_data(G_OBJECT(more), "tcode-stack");
+  GtkWidget *switcher = g_object_get_data(G_OBJECT(stack), "tcode-switcher");
+  GtkWidget *bar = gtk_widget_get_ancestor(switcher, GTK_TYPE_SCROLLED_WINDOW);
+  int width = gtk_widget_get_width(bar);
+  gboolean overflow = FALSE;
+
+  g_object_set_data(G_OBJECT(more), "tcode-fit", NULL);
+  if (gtk_widget_get_visible(more)) /* without "more" the bar would be this much wider */
+    width += gtk_widget_get_width(more);
+  for (int pass = 0; pass < 2; pass++) {
+    for (GtkWidget *icon = gtk_widget_get_first_child(switcher); icon; icon = gtk_widget_get_next_sibling(icon)) {
+      graphene_rect_t bounds;
+      gboolean fits =
+          !gtk_widget_compute_bounds(icon, switcher, &bounds) || bounds.origin.x + bounds.size.width <= width;
+      if (pass == 0)
+        overflow |= !fits;
+      else {
+        gtk_widget_set_opacity(icon, fits ? 1 : 0);
+        gtk_widget_set_can_target(icon, fits);
+      }
+    }
+    if (pass == 0 && overflow) {
+      int more_width = 0;
+      gtk_widget_measure(more, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &more_width, NULL, NULL);
+      width -= more_width;
+    }
+  }
+  gtk_widget_set_visible(more, overflow);
+  return G_SOURCE_REMOVE;
+}
+
+static void queue_fit_icons(GtkAdjustment *adjustment G_GNUC_UNUSED, GtkWidget *more)
+{
+  if (!g_object_get_data(G_OBJECT(more), "tcode-fit"))
+    g_object_set_data(
+        G_OBJECT(more), "tcode-fit",
+        GUINT_TO_POINTER(g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, fit_icons, g_object_ref(more), g_object_unref)));
+}
+
 static GtkWidget *new_dock(App *t, int index)
 {
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -354,7 +439,20 @@ static GtkWidget *new_dock(App *t, int index)
 
   gtk_widget_add_css_class(header, "tcode-dock-header");
   gtk_box_append(GTK_BOX(header), collapse_btn);
-  gtk_box_append(GTK_BOX(header), clip_box(switcher, FALSE));
+  GtkWidget *bar = clip_box(switcher, FALSE);
+  GtkWidget *more = gtk_menu_button_new();
+  gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(more), "tcode-more-symbolic");
+  gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(more), FALSE);
+  gtk_widget_set_tooltip_text(more, "More Panels");
+  gtk_widget_add_css_class(more, "tcode-dock-close");
+  gtk_widget_set_focusable(more, FALSE);
+  gtk_widget_set_visible(more, FALSE);
+  g_object_set_data(G_OBJECT(more), "tcode-stack", stack);
+  gtk_menu_button_set_create_popup_func(GTK_MENU_BUTTON(more), fill_more, NULL, NULL);
+  g_signal_connect_object(gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(bar)), "changed",
+                          G_CALLBACK(queue_fit_icons), more, 0);
+  gtk_box_append(GTK_BOX(header), bar);
+  gtk_box_append(GTK_BOX(header), more);
   gtk_box_append(GTK_BOX(header), close_btn);
 
   gtk_widget_add_css_class(box, "tcode-sidebar");
@@ -426,9 +524,9 @@ void docks_create(App *t)
   add_dock_panel(t, 0, clip_box(debug_view(t), TRUE), "run", "Run and Debug (Ctrl+Shift+D)");
   t->problems = problems_panel(t);
   add_dock_panel(t, 4, clip_box(t->problems, TRUE), "problems", "Problems (Ctrl+Shift+M)");
-  add_dock_panel(t, 0, clip_box(outline_panel(t), TRUE), "outline", "Outline");
-  add_dock_panel(t, 0, clip_box(hierarchy_panel(t), TRUE), "hierarchy", "Hierarchy (Shift+Alt+H)");
-  add_dock_panel(t, 0, clip_box(testing_panel(t), TRUE), "testing", "Testing");
+  add_dock_panel(t, 8, clip_box(outline_panel(t), TRUE), "outline", "Outline");
+  add_dock_panel(t, 8, clip_box(hierarchy_panel(t), TRUE), "hierarchy", "Hierarchy (Shift+Alt+H)");
+  add_dock_panel(t, 8, clip_box(testing_panel(t), TRUE), "testing", "Testing");
   t->layout.left = build_side_chain(t, 0, GTK_ORIENTATION_VERTICAL, 320);
   t->layout.bottom = build_side_chain(t, 1, GTK_ORIENTATION_HORIZONTAL, 480);
   t->layout.right = build_side_chain(t, 2, GTK_ORIENTATION_VERTICAL, 320);

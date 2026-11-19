@@ -1128,7 +1128,7 @@ static const char *const testing_css =
     ".tcode-testing { background: var(--tc-panel); }"
     ".tcode-testing list { background: transparent; }"
     ".tcode-testing .header { margin: 4px 6px 2px 10px; }"
-    ".tcode-testing .header button { min-height: 22px; min-width: 22px; padding: 1px 4px; }"
+    ".tcode-testing .header button { min-height: 22px; min-width: 22px; padding: 1px 2px; }"
     ".tcode-testing .summary { color: var(--tc-fg-dim); }"
     ".tcode-testing .note { color: var(--tc-fg-dim); margin: 8px 10px; }"
     ".tcode-testing row { padding: 0 4px; margin: 0 4px; min-height: 22px; border-radius: 6px; color: var(--tc-fg); }"

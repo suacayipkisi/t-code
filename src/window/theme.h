@@ -27,6 +27,16 @@ void load_user_theme(void);
 /* Gives widget rounded corners on the window's darker frame; its children are cut to them. */
 void make_card(GtkWidget *widget);
 
+/* A text button that gets shorter ("Initialize Re…") in a narrow panel instead of keeping it wide.
+ * gtk_button_set_label undoes it: call it again after. */
+static inline void label_shrinks(GtkWidget *button)
+{
+  GtkWidget *label = gtk_button_get_child(GTK_BUTTON(button));
+
+  if (GTK_IS_LABEL(label))
+    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+}
+
 /* Switches the color theme while t-code runs (window/palette.c): the panels, editors, terminals and
  * previews take its colors. Saves nothing. */
 void color_theme_apply(App *t, const char *id);

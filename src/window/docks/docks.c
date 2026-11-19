@@ -18,7 +18,7 @@ static void queue_panel_checks(App *t);
 
 const char *const panel_names[PANELS] = { "files", "scm",      "search",  "shell",     "debug",
                                           "run",   "problems", "outline", "hierarchy", "testing" };
-const int panel_default_docks[PANELS] = { 0, 0, 0, 4, 4, 0, 4, 0, 0, 0 };
+const int panel_default_docks[PANELS] = { 0, 0, 0, 4, 4, 0, 4, 8, 8, 8 };
 
 const char *panel_icon(const char *page)
 {
@@ -382,6 +382,8 @@ static gboolean sync_panel_checks(gpointer data)
       g_simple_action_set_state(G_SIMPLE_ACTION(action), g_variant_new_boolean(panel_shown(t, panel_names[i])));
     g_free(name);
   }
+  if (!t->closing)
+    update_edges(t);
   return G_SOURCE_REMOVE;
 }
 
@@ -418,6 +420,8 @@ void reset_panel_layout(App *t)
   gtk_paned_set_position(t->layout.rpaned, w > 600 ? w - 280 : 840);
   show_side(t, 0, TRUE);
   show_side(t, 1, TRUE);
+  show_side(t, 2, TRUE);
+  gtk_stack_set_visible_child_name(t->dock.stacks[panel_dock(t, "outline")], "outline");
   gtk_stack_set_visible_child_name(t->dock.stacks[panel_dock(t, "shell")], "shell");
   show_sidebar_page(t, "files");
   queue_panel_checks(t);
