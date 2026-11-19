@@ -3367,6 +3367,14 @@ static void test_plugins_browse(void)
   run_for(100);
   g_assert_true(says(GTK_WIDGET(plugins), "Installed"));
 
+  /* the registry changed meanwhile: Reload fetches its index again */
+  g_free(write_at(work, "index.json", "{\"plugins\": []}", -1, 0644));
+  GtkWidget *reload = find_widget(gtk_window_get_titlebar(plugins), GTK_TYPE_BUTTON, NULL, NULL);
+  g_signal_emit_by_name(reload, "clicked"); /* Reload (activate would click it 250 ms later) */
+  run_for(200);
+  g_assert_true(says(GTK_WIDGET(plugins), "The registry is empty for now. Be the first to publish one!"));
+
+  p = plugin_find(&app, "tidy"); /* Reload loaded the plugins again */
   g_assert_true(plugin_uninstall(&app, p, NULL));
   gtk_window_destroy(plugins);
   run_for(50);

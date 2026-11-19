@@ -15,6 +15,7 @@
 #include "window/statusbar.h"
 
 #define REFRESH_MS 500
+#define INDEX_STALE_US (60 * G_USEC_PER_SEC) /* Browse shown again after this: the index is fetched again */
 
 static const char *const css =
     ".tcode-plugins { background: var(--tc-panel); }"
@@ -41,6 +42,7 @@ typedef struct {
   GtkWidget *stack, *search, *browse_list, *browse_status; /* Browse */
   GPtrArray *entries;                                      /* RegistryEntry *: the index, once fetched */
   gboolean fetching;
+  gint64 fetched_at; /* g_get_monotonic_time() of the last fetch that answered */
 } Manager;
 
 static Manager *manager; /* while the window is open */
@@ -565,10 +567,17 @@ static gboolean refresh(gpointer data G_GNUC_UNUSED)
   return G_SOURCE_CONTINUE;
 }
 
+static void fetch(void);
+
+/* Reload: the plugins load again, and the registry's index is fetched again (now on Browse, else the
+ * next time it shows). */
 static void on_reload(GtkButton *b G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
 {
   plugins_reload(manager->app);
   refresh(NULL);
+  manager->fetched_at = 0;
+  if (g_strcmp0(gtk_stack_get_visible_child_name(GTK_STACK(manager->stack)), "browse") == 0)
+    fetch();
 }
 
 static void on_open_plugins_folder(GtkButton *b G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
@@ -809,6 +818,7 @@ static void on_fetched(GPtrArray *entries, const char *error, gpointer data G_GN
     return;
   }
   manager->fetching = FALSE;
+  manager->fetched_at = g_get_monotonic_time();
   if (!entries) {
     gtk_label_set_text(GTK_LABEL(manager->browse_status), error);
     return;
@@ -832,7 +842,8 @@ static void fetch(void)
 
 static void on_page(GtkStack *stack, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
 {
-  if (g_strcmp0(gtk_stack_get_visible_child_name(stack), "browse") == 0 && !manager->entries)
+  if (g_strcmp0(gtk_stack_get_visible_child_name(stack), "browse") == 0 &&
+      (!manager->entries || g_get_monotonic_time() - manager->fetched_at > INDEX_STALE_US))
     fetch();
 }
 
