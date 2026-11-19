@@ -25,8 +25,9 @@ typedef enum {
 typedef struct {
   GtkTextMark *cell; /* the character holding the gap (AT_END: the hint's place) */
   char *text;
-  int width;       /* of the gap, in pixels */
-  int left, right; /* of it, outside the hint's box: the server's padding */
+  int width; /* of the gap, in pixels */
+  int left;  /* of it, outside the hint's box: the server's paddingLeft (paddingRight is left out:
+                    * the box's own margin keeps it off the next character) */
   InlayWhere where;
 } InlayHint;
 
@@ -128,9 +129,9 @@ static char *inlay_label_of(JsonNode *hint)
   return g_string_free(text, FALSE);
 }
 
-/* Puts a hint at iter, with a space's width outside its box on each padded side; FALSE when there is
- * no place for it (the last one took the character). */
-static gboolean inlay_place(Inlay *in, GtkTextIter *at, const char *text, gboolean left, gboolean right, int *last_cell)
+/* Puts a hint at iter, with a space's width outside its box when it is padded on the left; FALSE when
+ * there is no place for it (the last one took the character). */
+static gboolean inlay_place(Inlay *in, GtkTextIter *at, const char *text, gboolean left, int *last_cell)
 {
   GtkTextIter before = *at, cell, next;
   gboolean has_before = !gtk_text_iter_starts_line(at) && gtk_text_iter_backward_char(&before);
@@ -155,8 +156,7 @@ static gboolean inlay_place(Inlay *in, GtkTextIter *at, const char *text, gboole
     return FALSE; /* one gap per character */
   h.text = g_strdup(text);
   h.left = left ? inlay_text_width(GTK_WIDGET(in->tab->source), " ") : 0;
-  h.right = right ? inlay_text_width(GTK_WIDGET(in->tab->source), " ") : 0;
-  h.width = inlay_text_width(GTK_WIDGET(in->tab->source), text) + 2 * INLAY_PAD + h.left + h.right;
+  h.width = inlay_text_width(GTK_WIDGET(in->tab->source), text) + 2 * INLAY_PAD + h.left;
   h.cell = gtk_text_buffer_create_mark(in->buffer, NULL, &cell, TRUE);
   if (h.where != AT_END) {
     next = cell;
@@ -194,7 +194,7 @@ static void inlay_on_hints(JsonNode *result, gpointer data)
     lsp_iter_at(in->tab, position, &at);
     text = g_strstrip(inlay_label_of(hint));
     if (*text)
-      inlay_place(in, &at, text, inlay_padded(hint, "paddingLeft"), inlay_padded(hint, "paddingRight"), &last_cell);
+      inlay_place(in, &at, text, inlay_padded(hint, "paddingLeft"), &last_cell);
     g_free(text);
   }
   gtk_widget_queue_draw(GTK_WIDGET(in->tab->source));
@@ -415,9 +415,9 @@ void inlay_draw(Tab *tab, GtkTextView *view, GtkSnapshot *snapshot)
       default: x = at.x + INLAY_PAD; break;
     }
     x += h->left;
-    gtk_snapshot_append_color(snapshot, &fill,
-                              &GRAPHENE_RECT_INIT((float)x + 1, (float)at.y + 1,
-                                                  (float)(h->width - h->left - h->right) - 2, (float)at.height - 2));
+    gtk_snapshot_append_color(
+        snapshot, &fill,
+        &GRAPHENE_RECT_INIT((float)x + 1, (float)at.y + 1, (float)(h->width - h->left) - 2, (float)at.height - 2));
     inlay_draw_text(snapshot, GTK_WIDGET(view), h->text, x + INLAY_PAD, &at, palette_rgba(PAL_FG_DIM));
   }
 }
