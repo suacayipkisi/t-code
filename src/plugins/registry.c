@@ -23,6 +23,7 @@ void registry_entry_free(RegistryEntry *entry)
   g_free(entry->id);
   g_free(entry->name);
   g_free(entry->description);
+  g_free(entry->provider);
   g_free(entry->version);
   g_free(entry->api);
   g_free(entry->repository);
@@ -99,6 +100,16 @@ static gboolean good_path(const char *path)
   return good;
 }
 
+char *registry_owner(const char *repository)
+{
+  const char *owner = repository && g_str_has_prefix(repository, "https://github.com/")
+                          ? repository + strlen("https://github.com/")
+                          : NULL;
+  const char *slash = owner ? strchr(owner, '/') : NULL;
+
+  return slash ? g_strndup(owner, slash - owner) : g_strdup("");
+}
+
 static RegistryEntry *entry_from(JsonObject *obj)
 {
   RegistryEntry *e = g_new0(RegistryEntry, 1);
@@ -111,6 +122,7 @@ static RegistryEntry *entry_from(JsonObject *obj)
   e->description = g_strdup(text_of(obj, "description") ?: "");
   e->version = g_strdup(text_of(obj, "version") ?: "");
   e->api = g_strdup(text_of(obj, "api") ?: "");
+  e->provider = text_of(obj, "provider") ? g_strdup(text_of(obj, "provider")) : registry_owner(repository);
   e->repository = g_strdup(repository);
   e->commit = g_strdup(text_of(obj, "commit"));
   e->path = g_strdup(text_of(obj, "path") ?: "");

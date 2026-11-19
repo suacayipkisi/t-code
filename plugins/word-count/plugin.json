@@ -1,6 +1,7 @@
 {
   "api": "tapi_1",
   "name": "Word Count",
+  "provider": "t-code",
   "version": "1.1.0",
   "description": "Counts words in the active editor buffer",
   "executable": "wordcount.sh",

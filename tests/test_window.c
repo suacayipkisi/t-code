@@ -3480,15 +3480,15 @@ static void test_plugins_browse(void)
   archive = g_strdup_printf("%s/%s.tar.gz", repo, commit);
   const char *tar[] = { "tar", "-czf", archive, "-C", work, "b-c0ffee", NULL };
   g_assert_true(g_spawn_sync(NULL, (char **)tar, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL));
-  json =
-      g_strdup_printf("{\"plugins\": [{\"id\": \"tidy\", \"name\": \"Tidy\", \"api\": \"tapi_1\", "
-                      "\"repository\": \"file://%s\", \"commit\": \"%s\", \"path\": \"tidy\", "
-                      "\"tree-sha256\": \"%s\", \"reviewed\": true, \"categories\": [\"text\"]},"
-                      " {\"id\": \"wild\", \"name\": \"Wild\", \"api\": \"tapi_1\", \"repository\": \"file://%s\","
-                      " \"commit\": \"%s\", \"tree-sha256\": \"%s\"},"
-                      " {\"id\": \"future\", \"name\": \"Future\", \"api\": \"tapi_9\", \"repository\": \"file://%s\","
-                      " \"commit\": \"%s\", \"tree-sha256\": \"%s\"}]}",
-                      repo, commit, tree, repo, commit, tree, repo, commit, tree);
+  json = g_strdup_printf(
+      "{\"plugins\": [{\"id\": \"tidy\", \"name\": \"Tidy\", \"provider\": \"Tidy Team\", \"api\": \"tapi_1\", "
+      "\"repository\": \"file://%s\", \"commit\": \"%s\", \"path\": \"tidy\", "
+      "\"tree-sha256\": \"%s\", \"reviewed\": true, \"categories\": [\"text\"]},"
+      " {\"id\": \"wild\", \"name\": \"Wild\", \"api\": \"tapi_1\", \"repository\": \"file://%s\","
+      " \"commit\": \"%s\", \"tree-sha256\": \"%s\"},"
+      " {\"id\": \"future\", \"name\": \"Future\", \"api\": \"tapi_9\", \"repository\": \"file://%s\","
+      " \"commit\": \"%s\", \"tree-sha256\": \"%s\"}]}",
+      repo, commit, tree, repo, commit, tree, repo, commit, tree);
   index = write_at(work, "index.json", json, -1, 0644);
   g_setenv("TCODE_REGISTRY", index, TRUE);
 
@@ -3501,6 +3501,7 @@ static void test_plugins_browse(void)
   g_assert_true(says(GTK_WIDGET(plugins), "Reviewed by a maintainer"));
   g_assert_true(says(GTK_WIDGET(plugins), "Not reviewed yet: checks passed, no human has read it"));
   g_assert_true(says(GTK_WIDGET(plugins), "Needs a newer t-code")); /* tapi_9 */
+  g_assert_true(says(GTK_WIDGET(plugins), "by Tidy Team · text"));  /* who publishes it, beside the version */
 
   /* the first row's button: Tidy's */
   install = find_widget(gtk_stack_get_child_by_name(GTK_STACK(stack), "browse"), GTK_TYPE_BUTTON, NULL, NULL);

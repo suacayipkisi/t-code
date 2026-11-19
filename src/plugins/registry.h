@@ -16,6 +16,7 @@
 
 typedef struct {
   char *id, *name, *description, *version, *api;
+  char *provider;   /* who publishes it; the repository's owner when the index does not say */
   char *repository; /* https://github.com/<owner>/<repo>, or file:///... (tests, mirrors) */
   char *commit;     /* 40 hex digits */
   char *path;       /* the plugin's folder inside the repository; "" for its top */
@@ -25,6 +26,9 @@ typedef struct {
 } RegistryEntry;
 
 void registry_entry_free(RegistryEntry *entry);
+
+/* "someone" for https://github.com/someone/repo; "" for anything else. Newly allocated. */
+char *registry_owner(const char *repository);
 
 /* The entries of an index.json (RegistryEntry *); broken entries are left out with a warning. NULL
  * with error when the text is not an index at all. */

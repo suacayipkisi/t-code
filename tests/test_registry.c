@@ -36,7 +36,8 @@ static void test_parse(void)
 {
   const char *json =
       "{\"format\": 1, \"plugins\": [\n"
-      " {\"id\": \"fix\", \"name\": \"Fix\", \"version\": \"1.0\", \"api\": \"tapi_1\", \"repository\": "
+      " {\"id\": \"fix\", \"name\": \"Fix\", \"provider\": \"Fix Folks\", \"version\": \"1.0\", \"api\": \"tapi_1\", "
+      "\"repository\": "
       "\"https://github.com/a/b\", \"commit\": \"fedcba9876543210fedcba9876543210fedcba98\", \"tree-sha256\": "
       "\"" FIXTURE_TREE "\"},\n"
       " {\"id\": \"ok\", \"repository\": \"https://github.com/a/b\", \"commit\": "
@@ -67,17 +68,23 @@ static void test_parse(void)
   g_assert_cmpstr(e->id, ==, "fix");
   g_assert_false(e->reviewed);
   g_assert_cmpstr(e->path, ==, "");
+  g_assert_cmpstr(e->provider, ==, "Fix Folks");
   char *url = registry_archive_url(e);
   g_assert_cmpstr(url, ==, "https://github.com/a/b/archive/fedcba9876543210fedcba9876543210fedcba98.tar.gz");
   g_free(url);
   e = g_ptr_array_index(entries, 1);
-  g_assert_cmpstr(e->name, ==, "ok"); /* the id when there is no name */
+  g_assert_cmpstr(e->name, ==, "ok");    /* the id when there is no name */
+  g_assert_cmpstr(e->provider, ==, "a"); /* the repository's owner when there is no provider */
   g_assert_true(e->reviewed);
   g_assert_cmpstr(e->path, ==, "sub/ok");
   g_assert_cmpstr(e->permissions[0], ==, "edit");
   g_assert_cmpstr(e->categories[0], ==, "linters");
   g_assert_null(e->categories[1]);
   g_ptr_array_unref(entries);
+
+  char *owner = registry_owner("file:///srv/mirror");
+  g_assert_cmpstr(owner, ==, "");
+  g_free(owner);
 
   g_assert_null(registry_parse("{\"plugin\": []}", &error));
   g_assert_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA);

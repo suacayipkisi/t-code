@@ -2,6 +2,7 @@
   "api": "tapi_1",
   "id": "text-tools",
   "name": "Text Tools",
+  "provider": "t-code",
   "version": "1.0.0",
   "description": "Change case, sort and dedupe lines, base64, URL encoding, JSON formatting, a UUID or a date.",
   "executable": "text_tools.py",

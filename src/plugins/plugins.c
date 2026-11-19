@@ -51,6 +51,7 @@ static void plugin_free(Plugin *plugin)
   g_free(plugin->name);
   g_free(plugin->version);
   g_free(plugin->description);
+  g_free(plugin->provider);
   g_free(plugin->dir);
   g_free(plugin->executable);
   g_free(plugin->token);
@@ -404,6 +405,7 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
   p->name = g_strdup(name);
   p->version = g_strdup(string_member(obj, "version") ?: "");
   p->description = g_strdup(string_member(obj, "description") ?: "");
+  p->provider = g_strdup(string_member(obj, "provider") ?: "");
   p->dir = g_strdup(plugin_dir);
   p->executable = executable;
   p->api = api;
@@ -664,6 +666,10 @@ void plugins_init(App *t)
     p->enabled = !g_strv_contains((const char *const *)disabled, p->id);
     if (p->source == PLUGIN_FROM_USER) /* the registry installs only there */
       p->record = registry_record(p->id);
+    if (!*p->provider && p->record) {
+      g_free(p->provider);
+      p->provider = registry_owner(p->record->repository);
+    }
   }
   g_strfreev(disabled);
   add_language_specs(t);

@@ -87,6 +87,24 @@ static GtkWidget *label(const char *text, const char *css_class)
   return l;
 }
 
+/* A warning's text, opened with who publishes the plugin ("By someone. ..."). */
+static char *with_provider(const char *provider, const char *text)
+{
+  return *provider ? g_strdup_printf("By %s. %s", provider, text) : g_strdup(text);
+}
+
+/* "1.0.0 · by someone · linters" (or the state last), leaving out what is empty. */
+static char *by_line(const char *version, const char *provider, const char *last)
+{
+  GString *line = g_string_new(version);
+
+  if (*provider)
+    g_string_append_printf(line, "%sby %s", line->len ? " · " : "", provider);
+  if (*last)
+    g_string_append_printf(line, "%s%s", line->len ? " · " : "", last);
+  return g_string_free(line, FALSE);
+}
+
 static void add_section(GtkWidget *box, const char *title)
 {
   gtk_box_append(GTK_BOX(box), label(title, "section"));
@@ -198,9 +216,10 @@ static void on_enabled(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpoint
     g_signal_handlers_block_by_func(toggle, on_enabled, NULL);
     gtk_switch_set_active(toggle, FALSE); /* until the answer */
     g_signal_handlers_unblock_by_func(toggle, on_enabled, NULL);
-    ask(manager->app, GTK_WINDOW(manager->window), title,
-        "On, its commands and keys work and it may start with the project. It runs with your rights. Turn it on?",
-        "Keep It Off", "Turn On", turn_on, p->id, NULL);
+    char *detail = with_provider(p->provider, "On, its commands and keys work and it may start with the project. It "
+                                              "runs with your rights. Turn it on?");
+    ask(manager->app, GTK_WINDOW(manager->window), title, detail, "Keep It Off", "Turn On", turn_on, p->id, NULL);
+    g_free(detail);
     g_free(title);
     return;
   }
@@ -257,8 +276,10 @@ void plugins_confirm_run(App *t, Plugin *p, const char *command_id)
   q->id = g_strdup(p->id);
   q->extra = g_strdup(command_id);
   dialog = gtk_alert_dialog_new("Last heads-up before %s runs", p->name);
-  gtk_alert_dialog_set_detail(dialog, "It is not reviewed yet and this is its first run. It runs with your rights. "
-                                      "After this t-code stops asking, until a new version comes.");
+  char *detail = with_provider(p->provider, "It is not reviewed yet and this is its first run. It runs with your "
+                                            "rights. After this t-code stops asking, until a new version comes.");
+  gtk_alert_dialog_set_detail(dialog, detail);
+  g_free(detail);
   gtk_alert_dialog_set_buttons(dialog, buttons);
   gtk_alert_dialog_set_cancel_button(dialog, 0);
   gtk_alert_dialog_set_default_button(dialog, 0);
@@ -448,6 +469,7 @@ static void show_details(void)
   gtk_widget_set_margin_top(grid, 10);
   api = p->api ? g_strdup_printf("tapi_%d", p->api) : g_strdup("none (a plugin from before API versions)");
   add_fact(grid, &row, "Id", p->id, TRUE);
+  add_fact(grid, &row, "Provider", *p->provider ? p->provider : "not given", FALSE);
   add_fact(grid, &row, "Version", *p->version ? p->version : "not given", FALSE);
   add_fact(grid, &row, "API", api, FALSE);
   add_fact(grid, &row, "From", source_text(p->source), FALSE);
@@ -525,7 +547,7 @@ static void rebuild_list(void)
   for (guint i = 0; plugins && i < plugins->len; i++) {
     Plugin *p = g_ptr_array_index(plugins, i);
     GtkWidget *row = gtk_list_box_row_new(), *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-    char *line = g_strdup_printf("%s%s%s", *p->version ? p->version : "", *p->version ? " · " : "", state_text(p));
+    char *line = by_line(p->version, p->provider, state_text(p));
     GtkWidget *name = label(p->name, p->enabled ? NULL : "off"), *note = label(line, "note");
     gtk_box_append(GTK_BOX(box), name);
     gtk_box_append(GTK_BOX(box), note);
@@ -604,6 +626,7 @@ static RegistryEntry *entry_copy(const RegistryEntry *e)
   c->description = g_strdup(e->description);
   c->version = g_strdup(e->version);
   c->api = g_strdup(e->api);
+  c->provider = g_strdup(e->provider);
   c->repository = g_strdup(e->repository);
   c->commit = g_strdup(e->commit);
   c->path = g_strdup(e->path);
@@ -694,10 +717,11 @@ static void on_install(GtkButton *b, gpointer data G_GNUC_UNUSED)
     install(manager->app, e->id, NULL);
   } else {
     char *title = g_strdup_printf("Heads up: %s is not reviewed yet", e->name);
-    ask(manager->app, GTK_WINDOW(manager->window), title,
-        "The registry's checks passed, but no maintainer has read this version yet. It runs with your rights, like "
-        "any program you start. It installs switched off.",
-        "Cancel", "Install Anyway", install, e->id, NULL);
+    char *detail = with_provider(e->provider, "The registry's checks passed, but no maintainer has read this version "
+                                              "yet. It runs with your rights, like any program you start. It installs "
+                                              "switched off.");
+    ask(manager->app, GTK_WINDOW(manager->window), title, detail, "Cancel", "Install Anyway", install, e->id, NULL);
+    g_free(detail);
     g_free(title);
     fill_browse(); /* Cancel leaves the button as it was */
   }
@@ -716,7 +740,7 @@ static gboolean matches(RegistryEntry *e, const char *query)
 
   if (!query || !*query)
     return TRUE;
-  text = g_strjoin(" ", e->id, e->name, e->description, NULL);
+  text = g_strjoin(" ", e->id, e->name, e->description, e->provider, NULL);
   for (int i = 0; e->categories[i]; i++) {
     char *more = g_strconcat(text, " ", e->categories[i], NULL);
     g_free(text);
@@ -739,7 +763,7 @@ static GtkWidget *entry_row(RegistryEntry *e)
   char *line, *categories = g_strjoinv(", ", e->categories), *asks = g_strjoinv(", ", e->permissions);
 
   gtk_box_append(GTK_BOX(texts), label(e->name, "section"));
-  line = g_strdup_printf("%s%s%s", e->version, *e->version && *categories ? " · " : "", categories);
+  line = by_line(e->version, e->provider, categories);
   gtk_box_append(GTK_BOX(texts), label(line, "note"));
   g_free(line);
   badge = label(e->reviewed ? "Reviewed by a maintainer" : "Not reviewed yet: checks passed, no human has read it",

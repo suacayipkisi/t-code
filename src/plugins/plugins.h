@@ -70,6 +70,7 @@ typedef struct Plugin {
   char *name;
   char *version;
   char *description;
+  char *provider; /* who publishes it: plugin.json's "provider", else the registry repository's owner; "" */
   char *dir;
   char *executable; /* NULL for a plugin without commands */
   int api;          /* the "tapi_N" its plugin.json asks for; 0: none (a plugin from before versions) */

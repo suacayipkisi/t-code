@@ -60,6 +60,7 @@ static void write_valid_plugin(void)
 {
   const char *json = "{\n"
                      "  \"name\": \"Test Plugin\",\n"
+                     "  \"provider\": \"Someone\",\n"
                      "  \"version\": \"1.2.3\",\n"
                      "  \"description\": \"A sample test plugin\",\n"
                      "  \"executable\": \"run.sh\",\n"
@@ -90,6 +91,7 @@ static void test_valid_plugin(void)
   g_assert_cmpstr(p->name, ==, "Test Plugin");
   g_assert_cmpstr(p->version, ==, "1.2.3");
   g_assert_cmpstr(p->description, ==, "A sample test plugin");
+  g_assert_cmpstr(p->provider, ==, "Someone");
   g_assert_cmpuint(p->commands->len, ==, 2);
 
   PluginCommand *c1 = g_ptr_array_index(p->commands, 0);
@@ -775,6 +777,7 @@ static void test_unreviewed(void)
   plugins_init(&app);
   p = plugin_find(&app, "fresh");
   g_assert_nonnull(p->record);
+  g_assert_cmpstr(p->provider, ==, "a"); /* its plugin.json names none: the repository's owner */
   g_assert_true(plugin_unreviewed(p));
   confirm_asked = 0;
 

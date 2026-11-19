@@ -52,6 +52,7 @@ A plugin is a folder with a `plugin.json` and a program:
 {
   "api": "tapi_1",
   "name": "Hello",
+  "provider": "Jane Doe",
   "version": "1.0.0",
   "description": "Says hello in the status bar",
   "commands": [
@@ -119,6 +120,7 @@ found wins:
 |---|---|---|---|
 | `api` | string | recommended | The oldest API version the plugin needs: `"tapi_1"`. Without it, the plugin is treated as one from before versions. |
 | `name` | string | yes | The name people see. |
+| `provider` | string | no | Who publishes it: a person, a team or a project. The Plugins window shows it next to the plugin (Installed, Browse, the warnings). A plugin from the registry without one shows its repository's owner. |
 | `id` | string | no | A unique id. Defaults to the folder's name. Use lowercase, digits and `-`. |
 | `version` | string | no | The plugin's own version, such as `"1.2.0"`. |
 | `description` | string | no | One sentence. |
@@ -557,7 +559,7 @@ repository. It holds no plugin code, only pins; its README says how to publish.
 
 - **One file per plugin.** `plugins/<id>.json` holds the plugin's repository on GitHub, a full
   commit id, the plugin's folder in it (`path`), the tree hash of that folder (`tree-sha256`), its
-  name, description, version, API, permissions, categories and `"reviewed": false|true`.
+  name, provider, description, version, API, permissions, categories and `"reviewed": false|true`.
 - **The tree hash** is the sha256 of one line per regular file of the plugin's folder, sorted by
   path: `<file's sha256> <x or -> <path>` (`x`: executable). It does not depend on how GitHub
   compresses archives. A folder with symbolic links or special files cannot be installed.
