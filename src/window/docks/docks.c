@@ -16,9 +16,9 @@
 
 static void queue_panel_checks(App *t);
 
-const char *const panel_names[PANELS] = { "files", "scm",      "search",  "shell",     "debug",
-                                          "run",   "problems", "outline", "hierarchy", "testing" };
-const int panel_default_docks[PANELS] = { 0, 0, 0, 4, 4, 0, 4, 8, 8, 8 };
+const char *const panel_names[PANELS] = { "files",    "scm",     "search",    "shell",   "debug",  "run",
+                                          "problems", "outline", "hierarchy", "testing", "plugins" };
+const int panel_default_docks[PANELS] = { 0, 0, 0, 4, 4, 0, 4, 8, 8, 8, 0 };
 
 const char *panel_icon(const char *page)
 {
@@ -40,6 +40,8 @@ const char *panel_icon(const char *page)
     return "tcode-hierarchy-symbolic";
   if (strcmp(page, "testing") == 0)
     return "tcode-testing-symbolic";
+  if (strcmp(page, "plugins") == 0)
+    return "tcode-plugins-symbolic";
   return "tcode-terminal-symbolic";
 }
 

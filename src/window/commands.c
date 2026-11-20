@@ -101,6 +101,8 @@ static void git_stash_drop(App *t G_GNUC_UNUSED) { scm_pick_stash(STASH_DROP); }
 static void show_outline_cmd(App *t) { toggle_panel(t, "outline"); }
 static void show_hierarchy_cmd(App *t) { toggle_panel(t, "hierarchy"); }
 static void show_testing_cmd(App *t) { toggle_panel(t, "testing"); }
+static void show_plugins_cmd(App *t) { toggle_panel(t, "plugins"); }
+static void browse_plugins(App *t) { show_plugins_window_at(t, NULL, TRUE); }
 static void run_all_tests(App *t) { show_sidebar_page(t, "testing"); testing_run_all(t); }
 static void run_failed_tests(App *t) { show_sidebar_page(t, "testing"); testing_run_failed(t); }
 static void refresh_tests(App *t) { show_sidebar_page(t, "testing"); testing_refresh(t); }
@@ -355,6 +357,7 @@ static const Command commands[] = {
   { "View: Toggle Outline", NULL, NULL, show_outline_cmd, FALSE, FALSE, FALSE },
   { "View: Toggle Hierarchy", NULL, NULL, show_hierarchy_cmd, FALSE, FALSE, FALSE },
   { "View: Toggle Testing", NULL, NULL, show_testing_cmd, FALSE, FALSE, FALSE },
+  { "View: Toggle Plugins", NULL, NULL, show_plugins_cmd, FALSE, FALSE, FALSE },
   { "Debug: Add to Watch", NULL, NULL, add_to_watch, TRUE, FALSE, FALSE },
   { "Debug: Open Disassembly View", NULL, NULL, disassembly_open, FALSE, FALSE, FALSE },
   { "Debug: Remove All Breakpoints", NULL, NULL, breakpoints_remove_all, FALSE, FALSE, FALSE },
@@ -409,6 +412,7 @@ static const Command commands[] = {
   { "About t-code", NULL, NULL, show_about, FALSE, FALSE, FALSE },
   { "Check for Updates Now", NULL, NULL, check_updates_now, FALSE, FALSE, FALSE },
   { "Plugins: Manage Plugins", NULL, NULL, show_plugins_window, FALSE, FALSE, FALSE },
+  { "Plugins: Browse the Registry", NULL, NULL, browse_plugins, FALSE, FALSE, FALSE },
   { "Plugins: Reload Installed Plugins", NULL, NULL, plugins_reload, FALSE, FALSE, FALSE },
   { "Plugins: Open Plugins Folder", NULL, NULL, open_plugins_folder, FALSE, FALSE, FALSE },
 };

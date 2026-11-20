@@ -70,7 +70,7 @@ closes. All but clangd are optional: t-code uses them when they are on `PATH`.
 | YAML | `yaml-language-server` | `npm install -g yaml-language-server` |
 | Markdown | `marksman` | your distribution or its GitHub releases |
 | CMake | `neocmakelsp` | `cargo install neocmakelsp` |
-| Java | `jdtls`, through the Java plugin | install the plugin (Settings → Plugins… → Browse), then **Java: Install Language Server** (needs a JDK 21+) |
+| Java | `jdtls`, through the Java plugin | install the plugin (Plugins → Browse the Registry… in the menu bar), then **Java: Install Language Server** (needs a JDK 21+) |
 
 **Python: Select Interpreter…**, **Rust: Select Features…** and **Rust: Select Target…** (command
 palette) set the project's Python, Cargo features and target for the server and for Build, Run and
@@ -168,7 +168,7 @@ The full table: [docs/features.md](docs/features.md#keys).
 Plugins are separate programs, started only when one of their commands runs, so an idle plugin
 costs nothing. They live in `~/.config/t-code/plugins/<id>/` with a `plugin.json` manifest and talk
 to t-code over `$TCODE_SOCKET`. A plugin runs with your user's rights: install only ones you trust.
-**Plugins: Manage Plugins** (command palette, or Settings → Plugins…) lists them: turn one off, start or stop it, read what
+**Plugins: Manage Plugins** (command palette, or the Plugins menu in the menu bar) lists them: turn one off, start or stop it, read what
 it printed, uninstall it. **Help: Process Monitor** shows what each plugin, language server and terminal
 uses (CPU, memory). The manifest, environment and socket protocol:
 [docs/plugins.md](docs/plugins.md); examples are in `plugins/builtin/`, written in different languages (Python, Rust, C, C++, Go, JavaScript, Perl) on purpose, to test

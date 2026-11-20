@@ -28,6 +28,7 @@
 #include "lsp/symbols/navigate.h"
 #include "lsp/symbols/outline.h"
 #include "lsp/symbols/symbols.h"
+#include "plugins/manager.h"
 #include "plugins/plugins.h"
 #include "plugins/registry.h"
 #include "popups/contextmenu.h"
@@ -3539,7 +3540,7 @@ static char *menu_target(GMenuModel *model, const char *label)
   return target;
 }
 
-/* "Plugins: Manage Plugins" (also Settings → Plugins… in the menu bar): the plugins on the left
+/* "Plugins: Manage Plugins" (also Plugins → Manage Plugins… in the menu bar): the plugins on the left
  * (Word Count among them, installed in the user's folder), the first one's details on the right; its switch turns it off (its command leaves the palette) and on; a
  * reload keeps the window going; a second call brings the same window back. */
 static void test_plugins_window(void)
@@ -3550,8 +3551,8 @@ static void test_plugins_window(void)
 
   g_assert_nonnull(p);
   GtkWidget *bar = find_widget(GTK_WIDGET(app.window), GTK_TYPE_POPOVER_MENU_BAR, NULL, NULL);
-  char *target = menu_target(gtk_popover_menu_bar_get_menu_model(GTK_POPOVER_MENU_BAR(bar)), "Plugins…");
-  g_assert_cmpstr(target, ==, "Plugins: Manage Plugins"); /* also in the Settings menu */
+  char *target = menu_target(gtk_popover_menu_bar_get_menu_model(GTK_POPOVER_MENU_BAR(bar)), "Manage Plugins…");
+  g_assert_cmpstr(target, ==, "Plugins: Manage Plugins"); /* the menu bar's Plugins menu */
   g_free(target);
   run_command(&app, "Plugins: Manage Plugins");
   run_for(50);
@@ -3566,7 +3567,8 @@ static void test_plugins_window(void)
   g_assert_true(says(GTK_WIDGET(plugins), "Word Count"));
   g_assert_true(says(GTK_WIDGET(plugins), "tapi_1"));
   g_assert_true(says(GTK_WIDGET(plugins), "your plugins folder"));
-  g_assert_true(says(GTK_WIDGET(plugins), "Word Count: Count Words in the Selection or Tab    Ctrl+Alt+W"));
+  g_assert_true(says(GTK_WIDGET(plugins), "Word Count: Count Words in the Selection or Tab"));
+  g_assert_true(says(GTK_WIDGET(plugins), "Ctrl+Alt+W")); /* its keys beside it */
 
   toggle = find_widget(gtk_window_get_child(plugins), GTK_TYPE_SWITCH, NULL, NULL);
   g_assert_true(gtk_switch_get_active(GTK_SWITCH(toggle)));
@@ -3585,6 +3587,60 @@ static void test_plugins_window(void)
   gtk_window_destroy(plugins);
   run_for(50);
   g_assert_null(window_titled("Plugins"));
+}
+
+/* The Plugins panel (left dock, its own icon, "View: Toggle Plugins"): a row per plugin with its
+ * switch; the switch turns Word Count off and on, a click on its row opens the Plugins window on it. */
+static void test_plugins_panel(void)
+{
+  Plugin *p = plugin_find(&app, "word-count");
+  GtkWidget *panel, *list, *row = NULL, *toggle;
+  GtkWindow *plugins;
+
+  g_assert_nonnull(p);
+  g_assert_cmpint(panel_dock(&app, "plugins"), ==, 0);
+  g_assert_cmpstr(panel_icon("plugins"), ==, "tcode-plugins-symbolic");
+  run_command(&app, "View: Toggle Plugins");
+  run_for(50);
+  g_assert_true(panel_shown(&app, "plugins"));
+  panel = gtk_stack_get_child_by_name(app.dock.stacks[0], "plugins");
+  list = find_widget(panel, GTK_TYPE_LIST_BOX, NULL, NULL);
+  g_assert_cmpint(count_of(list, GTK_TYPE_LIST_BOX_ROW), ==, (int)app.plugins->len);
+  for (GtkWidget *r = gtk_widget_get_first_child(list); r; r = gtk_widget_get_next_sibling(r))
+    if (!g_strcmp0(g_object_get_data(G_OBJECT(r), "plugin-id"), "word-count"))
+      row = r;
+  g_assert_nonnull(row);
+  g_assert_true(says(row, "Word Count"));
+
+  toggle = find_widget(row, GTK_TYPE_SWITCH, NULL, NULL);
+  g_assert_true(gtk_switch_get_active(GTK_SWITCH(toggle)));
+  gtk_switch_set_active(GTK_SWITCH(toggle), FALSE);
+  g_assert_false(p->enabled);
+  run_for(50); /* the rows are built again */
+  row = NULL;
+  for (GtkWidget *r = gtk_widget_get_first_child(list); r; r = gtk_widget_get_next_sibling(r))
+    if (!g_strcmp0(g_object_get_data(G_OBJECT(r), "plugin-id"), "word-count"))
+      row = r;
+  toggle = find_widget(row, GTK_TYPE_SWITCH, NULL, NULL);
+  g_assert_false(gtk_switch_get_active(GTK_SWITCH(toggle)));
+  gtk_switch_set_active(GTK_SWITCH(toggle), TRUE);
+  g_assert_true(p->enabled);
+  run_for(50);
+
+  g_signal_emit_by_name(list, "row-activated", gtk_list_box_get_row_at_index(GTK_LIST_BOX(list), 0));
+  run_for(50);
+  plugins = window_titled("Plugins");
+  g_assert_nonnull(plugins);
+  g_assert_true(says(GTK_WIDGET(plugins), ((Plugin *)g_ptr_array_index(app.plugins, 0))->name));
+  for (guint i = 0; i < app.plugins->len; i++) /* a second click, on Word Count: the same window shows it */
+    if (g_ptr_array_index(app.plugins, i) == p)
+      g_signal_emit_by_name(list, "row-activated", gtk_list_box_get_row_at_index(GTK_LIST_BOX(list), (int)i));
+  run_for(50);
+  g_assert_true(window_titled("Plugins") == plugins);
+  g_assert_true(says(GTK_WIDGET(plugins), "Word Count: Count Words in the Selection or Tab"));
+  gtk_window_destroy(plugins);
+  run_command(&app, "View: Toggle Plugins");
+  run_for(50);
 }
 
 /* The first-run question about the plugin called name, or NULL. */
@@ -4497,6 +4553,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/open-user-files", test_open_user_files);
   g_test_add_func("/window/settings-pages", test_settings_pages);
   g_test_add_func("/window/plugins-window", test_plugins_window);
+  g_test_add_func("/window/plugins-panel", test_plugins_panel);
   g_test_add_func("/window/plugins-run-question", test_plugins_run_question);
   g_test_add_func("/window/plugins-browse", test_plugins_browse);
   g_test_add_func("/window/example-plugins", test_example_plugins);

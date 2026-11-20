@@ -69,7 +69,7 @@ typedef struct Tab {
 #define GROUPS 3
 #define WINDOW_GROUP 2
 #define DOCKS 12  /* 0..3: left stacked, 4..7: bottom side-by-side, 8..11: right stacked */
-#define PANELS 10 /* the panels that go into the docks (window.h's panel_names) */
+#define PANELS 11 /* the panels that go into the docks (window.h's panel_names) */
 
 struct App {
   GtkWindow *window;

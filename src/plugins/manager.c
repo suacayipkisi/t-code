@@ -21,20 +21,56 @@
 static const char *const css =
     ".tcode-plugins { background: var(--tc-panel); }"
     ".tcode-plugins .plugin-list { background: var(--tc-frame); border-right: 1px solid var(--tc-border); }"
-    ".tcode-plugins .plugin-list row { padding: 8px 12px; }"
-    ".tcode-plugins .title { font-weight: bold; font-size: larger; color: var(--tc-fg-bright); }"
-    ".tcode-plugins .section { font-weight: bold; color: var(--tc-fg-bright); margin-top: 14px; }"
+    ".tcode-plugins .plugin-list list { background: transparent; }"
+    ".tcode-plugins .plugin-list row { padding: 7px 10px; margin: 2px 6px; border-radius: 8px; }"
+    ".tcode-plugins .plugin-list row:hover { background: var(--tc-hover); }"
+    ".tcode-plugins .plugin-list row:selected { background: var(--tc-selection); }"
+    ".tcode-plugins .title { font-weight: bold; font-size: 1.35em; color: var(--tc-fg-bright); }"
+    ".tcode-plugins .subtitle { color: var(--tc-fg-dim); }"
+    ".tcode-plugins .section { font-weight: bold; color: var(--tc-fg-dim); font-size: 0.85em; margin-top: 16px; }"
+    ".tcode-plugins .card { background: var(--tc-frame); border: 1px solid var(--tc-border); border-radius: 8px;"
+    "  padding: 8px 12px; }"
     ".tcode-plugins .note { color: var(--tc-fg-dim); font-size: smaller; }"
+    ".tcode-plugins .keys { color: var(--tc-fg-dim); font-family: monospace; font-size: smaller; }"
     ".tcode-plugins .off { color: var(--tc-fg-dim); font-style: italic; }"
     ".tcode-plugins .output { font-family: monospace; font-size: smaller; padding: 6px; }"
-    ".tcode-plugins .browse-list row { padding: 10px 14px; border-bottom: 1px solid var(--tc-border); }"
-    ".tcode-plugins .unreviewed { color: var(--tc-warning); }"
-    ".tcode-plugins .reviewed { color: var(--tc-git-added); }";
+    ".tcode-plugins .output text { background: var(--tc-frame); }"
+    ".tcode-plugins .disclosure { margin-top: 12px; padding: 2px 4px; font-weight: bold; color: var(--tc-fg-dim); }"
+    ".tcode-plugins .disclosure:hover { color: var(--tc-fg-bright); }"
+    ".tcode-plugins .pill { border-radius: 9px; padding: 1px 8px; font-size: smaller;"
+    "  background: color-mix(in srgb, var(--tc-fg) 10%, transparent); color: var(--tc-fg); }"
+    ".tcode-plugins .pill.running { background: color-mix(in srgb, var(--tc-git-added) 20%, transparent);"
+    "  color: var(--tc-git-added); }"
+    ".tcode-plugins .pill.failed { background: color-mix(in srgb, var(--tc-error) 20%, transparent);"
+    "  color: var(--tc-error); }"
+    ".tcode-plugins .pill.off { background: none; color: var(--tc-fg-faint); }"
+    ".tcode-plugins .actions { margin-top: 18px; }"
+    ".tcode-plugins .browse-list { background: transparent; }"
+    ".tcode-plugins .browse-list row { padding: 10px 14px; margin: 4px 0; border-radius: 8px;"
+    "  background: var(--tc-frame); border: 1px solid var(--tc-border); }"
+    ".tcode-plugins .browse-name { font-weight: bold; color: var(--tc-fg-bright); }"
+    ".tcode-plugins .unreviewed { color: var(--tc-warning); font-size: smaller; }"
+    ".tcode-plugins .reviewed { color: var(--tc-git-added); font-size: smaller; }"
+    ".tcode-plugin-dot { font-size: 0.8em; min-width: 12px; color: var(--tc-fg-dim); }"
+    ".tcode-plugin-dot.running { color: var(--tc-git-added); }"
+    ".tcode-plugin-dot.failed { color: var(--tc-error); }"
+    ".tcode-plugin-dot.off { color: var(--tc-fg-faint); }";
+
+/* The window's CSS, added once: the Plugins panel's dots use it too. */
+static void add_css(void)
+{
+  static gboolean added;
+
+  if (!added)
+    palette_add_css(css);
+  added = TRUE;
+}
 
 typedef struct {
   App *app;
   GtkWidget *window, *list, *details;
   GtkWidget *state, *start, *output; /* the details' parts that change while they show */
+  gboolean facts_open, output_open;  /* the details' disclosures, kept from plugin to plugin */
   char *picked;                      /* the plugin shown on the right, by id */
   guint generation;                  /* plugins_generation() when the list was built */
   guint printed;                     /* the picked plugin's lines printed when its output was shown */
@@ -53,8 +89,7 @@ static Plugin *picked(void)
   return manager->picked ? plugin_find(manager->app, manager->picked) : NULL;
 }
 
-/* What it is doing, in a word or three. */
-static const char *state_text(Plugin *p)
+const char *plugin_state_text(Plugin *p)
 {
   if (!p->enabled)
     return "off";
@@ -106,9 +141,50 @@ static char *by_line(const char *version, const char *provider, const char *last
   return g_string_free(line, FALSE);
 }
 
-static void add_section(GtkWidget *box, const char *title)
+/* A heading ("COMMANDS") over a card, appended to box; the card is returned for its lines. */
+static GtkWidget *add_card(GtkWidget *box, const char *title)
 {
-  gtk_box_append(GTK_BOX(box), label(title, "section"));
+  GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
+  char *upper = g_utf8_strup(title, -1);
+
+  gtk_box_append(GTK_BOX(box), label(upper, "section"));
+  gtk_widget_add_css_class(card, "card");
+  gtk_widget_set_margin_top(card, 4);
+  gtk_box_append(GTK_BOX(box), card);
+  g_free(upper);
+  return card;
+}
+
+/* A flat "▸ Title" button that shows and hides child, keeping the choice in *open. */
+static void on_disclosure(GtkButton *button, gpointer data)
+{
+  GtkWidget *child = data;
+  gboolean *open = g_object_get_data(G_OBJECT(button), "open");
+
+  *open = !gtk_widget_get_visible(child);
+  gtk_widget_set_visible(child, *open);
+  gtk_image_set_from_icon_name(GTK_IMAGE(g_object_get_data(G_OBJECT(button), "arrow")),
+                               *open ? "tcode-chevron-down-symbolic" : "tcode-chevron-right-symbolic");
+}
+
+static void add_disclosure(GtkWidget *box, const char *title, GtkWidget *child, gboolean *open)
+{
+  GtkWidget *button = gtk_button_new(), *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  GtkWidget *arrow =
+      gtk_image_new_from_icon_name(*open ? "tcode-chevron-down-symbolic" : "tcode-chevron-right-symbolic");
+
+  gtk_box_append(GTK_BOX(row), arrow);
+  gtk_box_append(GTK_BOX(row), gtk_label_new(title));
+  gtk_button_set_child(GTK_BUTTON(button), row);
+  gtk_widget_add_css_class(button, "flat");
+  gtk_widget_add_css_class(button, "disclosure");
+  gtk_widget_set_halign(button, GTK_ALIGN_START);
+  g_object_set_data(G_OBJECT(button), "arrow", arrow);
+  g_object_set_data(G_OBJECT(button), "open", open);
+  g_signal_connect(button, "clicked", G_CALLBACK(on_disclosure), child);
+  gtk_widget_set_visible(child, *open);
+  gtk_box_append(GTK_BOX(box), button);
+  gtk_box_append(GTK_BOX(box), child);
 }
 
 /* "Name: value" lines in a grid; a selectable value can be copied. */
@@ -141,9 +217,34 @@ static void show_output(Plugin *p)
   manager->printed = p->printed;
 }
 
+/* "running", "failed" or "off" for the CSS of p's dot and pill; "" for the rest. */
+static const char *state_class(Plugin *p)
+{
+  if (!p->enabled)
+    return "off";
+  if (p->starts && p->state == PLUGIN_RUNNING)
+    return "running";
+  return p->starts && p->state == PLUGIN_FAILED ? "failed" : "";
+}
+
+GtkWidget *plugin_state_dot(Plugin *p)
+{
+  GtkWidget *dot = gtk_label_new(p->enabled ? "●" : "○");
+
+  add_css();
+  gtk_widget_add_css_class(dot, "tcode-plugin-dot");
+  if (*state_class(p))
+    gtk_widget_add_css_class(dot, state_class(p));
+  gtk_widget_set_valign(dot, GTK_ALIGN_CENTER);
+  return dot;
+}
+
 static void show_state(Plugin *p)
 {
-  gtk_label_set_text(GTK_LABEL(manager->state), state_text(p));
+  const char *classes[] = { "pill", state_class(p), NULL };
+
+  gtk_label_set_text(GTK_LABEL(manager->state), plugin_state_text(p));
+  gtk_widget_set_css_classes(manager->state, *classes[1] ? classes : (const char *[]){ "pill", NULL });
   if (manager->start) {
     gtk_button_set_label(GTK_BUTTON(manager->start), p->running ? "Stop" : "Start");
     gtk_widget_set_sensitive(manager->start, p->enabled);
@@ -205,27 +306,36 @@ static void turn_on(App *t, const char *id, const char *extra G_GNUC_UNUSED)
   }
 }
 
+gboolean plugins_switch(App *t, Plugin *p, gboolean on, GtkWindow *parent)
+{
+  if (p->enabled == on)
+    return TRUE;
+  if (on && plugin_unreviewed(p) && !(p->record->warned & REGISTRY_WARNED_ENABLE)) {
+    char *title = g_strdup_printf("Second heads-up: %s is still not reviewed", p->name);
+    char *detail = with_provider(p->provider, "On, its commands and keys work and it may start with the project. It "
+                                              "runs with your rights. Turn it on?");
+    ask(t, parent, title, detail, "Keep It Off", "Turn On", turn_on, p->id, NULL);
+    g_free(detail);
+    g_free(title);
+    return FALSE;
+  }
+  plugin_set_enabled(t, p, on);
+  status_say(t, p->enabled ? "Plugin on: welcome back" : "Plugin off: it is taking a nap");
+  return TRUE;
+}
+
 static void on_enabled(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
 {
   Plugin *p = picked();
-  gboolean on = gtk_switch_get_active(toggle);
 
-  if (!p || p->enabled == on)
+  if (!p)
     return;
-  if (on && plugin_unreviewed(p) && !(p->record->warned & REGISTRY_WARNED_ENABLE)) {
-    char *title = g_strdup_printf("Second heads-up: %s is still not reviewed", p->name);
+  if (!plugins_switch(manager->app, p, gtk_switch_get_active(toggle), GTK_WINDOW(manager->window))) {
     g_signal_handlers_block_by_func(toggle, on_enabled, NULL);
     gtk_switch_set_active(toggle, FALSE); /* until the answer */
     g_signal_handlers_unblock_by_func(toggle, on_enabled, NULL);
-    char *detail = with_provider(p->provider, "On, its commands and keys work and it may start with the project. It "
-                                              "runs with your rights. Turn it on?");
-    ask(manager->app, GTK_WINDOW(manager->window), title, detail, "Keep It Off", "Turn On", turn_on, p->id, NULL);
-    g_free(detail);
-    g_free(title);
     return;
   }
-  plugin_set_enabled(manager->app, p, on);
-  status_say(manager->app, p->enabled ? "Plugin on: welcome back" : "Plugin off: it is taking a nap");
   show_state(p);
   rebuild_list();
 }
@@ -372,13 +482,13 @@ static GtkWidget *button(const char *text, GCallback clicked)
 }
 
 /* What p brings besides commands: its language servers, Run, language specs, snippets. */
-static void add_brings(GtkWidget *box, Plugin *p)
+static void add_brings(GtkWidget *details, Plugin *p)
 {
   gboolean any = FALSE;
   GHashTableIter iter;
   gpointer pattern, command;
+  GtkWidget *box = add_card(details, "Brings");
 
-  add_section(box, "Brings");
   for (guint i = 0; p->servers && i < p->servers->len; i++) {
     PluginServer *s = g_ptr_array_index(p->servers, i);
     char *files = g_strjoinv(" ", s->extensions[0] ? s->extensions : s->languages);
@@ -410,20 +520,25 @@ static void add_brings(GtkWidget *box, Plugin *p)
     gtk_box_append(GTK_BOX(box), label("Nothing but its commands", "note"));
 }
 
-static void add_commands(GtkWidget *box, Plugin *p)
+/* Each command with its keys at the right. */
+static void add_commands(GtkWidget *details, Plugin *p)
 {
-  add_section(box, "Commands");
+  GtkWidget *box = add_card(details, "Commands");
+
   for (guint i = 0; i < p->commands->len; i++) {
     PluginCommand *cmd = g_ptr_array_index(p->commands, i);
-    char *line = cmd->keys && *cmd->keys ? g_strdup_printf("%s    %s", cmd->name, cmd->keys) : g_strdup(cmd->name);
-    gtk_box_append(GTK_BOX(box), label(line, NULL));
-    g_free(line);
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12), *name = label(cmd->name, NULL);
+    gtk_widget_set_hexpand(name, TRUE);
+    gtk_box_append(GTK_BOX(row), name);
+    if (cmd->keys && *cmd->keys)
+      gtk_box_append(GTK_BOX(row), label(cmd->keys, "keys"));
+    gtk_box_append(GTK_BOX(box), row);
   }
   if (!p->commands->len)
     gtk_box_append(GTK_BOX(box), label("None", "note"));
 }
 
-static void add_permissions(GtkWidget *box, Plugin *p)
+static void add_permissions(GtkWidget *details, Plugin *p)
 {
   static const struct {
     PluginPermissions bit;
@@ -435,7 +550,8 @@ static void add_permissions(GtkWidget *box, Plugin *p)
     { PLUGIN_START, "start: starts with the project" },
   };
 
-  add_section(box, "Permissions");
+  GtkWidget *box = add_card(details, "Permissions");
+
   if (!p->api) {
     gtk_box_append(GTK_BOX(box), label("Not checked: a plugin from before API versions", "note"));
     return;
@@ -447,36 +563,16 @@ static void add_permissions(GtkWidget *box, Plugin *p)
     gtk_box_append(GTK_BOX(box), label("None asked for", "note"));
 }
 
-static void show_details(void)
+/* Id, provider, version, API, where it came from, folder and registry, as "name  value" lines. */
+static GtkWidget *facts(Plugin *p)
 {
-  Plugin *p = picked();
-  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4), *grid, *controls, *toggle, *scroll;
-  char *api;
+  GtkWidget *grid = gtk_grid_new();
+  char *api = p->api ? g_strdup_printf("tapi_%d", p->api) : g_strdup("none (a plugin from before API versions)");
   int row = 0;
 
-  manager->state = manager->start = manager->output = NULL;
-  gtk_widget_set_margin_start(box, 20);
-  gtk_widget_set_margin_end(box, 20);
-  gtk_widget_set_margin_top(box, 16);
-  gtk_widget_set_margin_bottom(box, 16);
-  if (!p) {
-    gtk_box_append(GTK_BOX(box), label(manager->app->plugins && manager->app->plugins->len
-                                           ? "Pick a plugin on the left."
-                                           : "No plugins yet. Put one in your plugins folder (Open Plugins "
-                                             "Folder) and press Reload.",
-                                       "note"));
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(manager->details), box);
-    return;
-  }
-  gtk_box_append(GTK_BOX(box), label(p->name, "title"));
-  if (*p->description)
-    gtk_box_append(GTK_BOX(box), label(p->description, NULL));
-
-  grid = gtk_grid_new();
+  gtk_widget_add_css_class(grid, "card");
   gtk_grid_set_column_spacing(GTK_GRID(grid), 16);
-  gtk_grid_set_row_spacing(GTK_GRID(grid), 2);
-  gtk_widget_set_margin_top(grid, 10);
-  api = p->api ? g_strdup_printf("tapi_%d", p->api) : g_strdup("none (a plugin from before API versions)");
+  gtk_grid_set_row_spacing(GTK_GRID(grid), 3);
   add_fact(grid, &row, "Id", p->id, TRUE);
   add_fact(grid, &row, "Provider", *p->provider ? p->provider : "not given", FALSE);
   add_fact(grid, &row, "Version", *p->version ? p->version : "not given", FALSE);
@@ -492,34 +588,74 @@ static void show_details(void)
   } else if (p->source == PLUGIN_FROM_USER) {
     add_fact(grid, &row, "Registry", "not from it: installed by hand", FALSE);
   }
-  manager->state = label("", NULL);
-  gtk_grid_attach(GTK_GRID(grid), label("State", "note"), 0, row, 1, 1);
-  gtk_grid_attach(GTK_GRID(grid), manager->state, 1, row++, 1, 1);
-  gtk_box_append(GTK_BOX(box), grid);
   g_free(api);
+  return grid;
+}
 
-  controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-  gtk_widget_set_margin_top(controls, 10);
+/* The name, the state and the switch (with Start / Stop) on top; the description and who made it
+ * under them; commands, permissions and what it brings as cards; the facts and the output folded;
+ * Open Folder and Uninstall at the bottom. */
+static void show_details(void)
+{
+  Plugin *p = picked();
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4), *top, *name, *toggle, *scroll, *actions, *gone;
+  char *subtitle;
+
+  manager->state = manager->start = manager->output = NULL;
+  gtk_widget_set_margin_start(box, 24);
+  gtk_widget_set_margin_end(box, 24);
+  gtk_widget_set_margin_top(box, 18);
+  gtk_widget_set_margin_bottom(box, 18);
+  if (!p) {
+    GtkWidget *note = label(manager->app->plugins && manager->app->plugins->len
+                                ? "Pick a plugin on the left."
+                                : "No plugins yet. Find one on Browse, or put one in your plugins folder (Open Plugins "
+                                  "Folder in the ⋯ menu) and press Reload.",
+                            "note");
+    gtk_label_set_justify(GTK_LABEL(note), GTK_JUSTIFY_CENTER);
+    gtk_label_set_xalign(GTK_LABEL(note), 0.5);
+    gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(box), note);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(manager->details), box);
+    return;
+  }
+
+  top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+  name = label(p->name, "title");
+  gtk_widget_set_hexpand(name, TRUE);
+  gtk_box_append(GTK_BOX(top), name);
+  manager->state = label("", "pill");
+  gtk_widget_set_valign(manager->state, GTK_ALIGN_CENTER);
+  gtk_box_append(GTK_BOX(top), manager->state);
+  if (p->starts) {
+    manager->start = button("Start", G_CALLBACK(on_start));
+    gtk_widget_set_valign(manager->start, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(top), manager->start);
+  }
   toggle = gtk_switch_new();
   gtk_switch_set_active(GTK_SWITCH(toggle), p->enabled);
   gtk_widget_set_valign(toggle, GTK_ALIGN_CENTER);
   gtk_widget_set_tooltip_text(toggle, "On / off: off, its commands, keys and servers go and it does not start");
   g_signal_connect(toggle, "notify::active", G_CALLBACK(on_enabled), NULL);
-  gtk_box_append(GTK_BOX(controls), toggle);
-  if (p->starts) {
-    manager->start = button("Start", G_CALLBACK(on_start));
-    gtk_box_append(GTK_BOX(controls), manager->start);
+  gtk_box_append(GTK_BOX(top), toggle);
+  gtk_box_append(GTK_BOX(box), top);
+
+  subtitle = by_line(p->version, p->provider, p->api ? "" : "no API version");
+  if (*subtitle)
+    gtk_box_append(GTK_BOX(box), label(subtitle, "subtitle"));
+  g_free(subtitle);
+  if (*p->description) {
+    GtkWidget *description = label(p->description, NULL);
+    gtk_widget_set_margin_top(description, 6);
+    gtk_box_append(GTK_BOX(box), description);
   }
-  gtk_box_append(GTK_BOX(controls), button("Open Folder", G_CALLBACK(on_open_folder)));
-  if (p->source == PLUGIN_FROM_USER)
-    gtk_box_append(GTK_BOX(controls), button("Uninstall", G_CALLBACK(on_uninstall)));
-  gtk_box_append(GTK_BOX(box), controls);
 
   add_commands(box, p);
   add_permissions(box, p);
   add_brings(box, p);
 
-  add_section(box, "Output");
+  add_disclosure(box, "Details", facts(p), &manager->facts_open);
+
   manager->output = gtk_text_view_new();
   gtk_text_view_set_editable(GTK_TEXT_VIEW(manager->output), FALSE);
   gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(manager->output), GTK_WRAP_WORD_CHAR);
@@ -527,7 +663,20 @@ static void show_details(void)
   scroll = gtk_scrolled_window_new();
   gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroll), 160);
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), manager->output);
-  gtk_box_append(GTK_BOX(box), scroll);
+  gtk_widget_add_css_class(scroll, "card");
+  if (p->starts && p->state == PLUGIN_FAILED)
+    manager->output_open = TRUE; /* what went wrong is in there */
+  add_disclosure(box, "Output", scroll, &manager->output_open);
+
+  actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_add_css_class(actions, "actions");
+  gtk_box_append(GTK_BOX(actions), button("Open Folder", G_CALLBACK(on_open_folder)));
+  if (p->source == PLUGIN_FROM_USER) {
+    gone = button("Uninstall", G_CALLBACK(on_uninstall));
+    gtk_widget_add_css_class(gone, "destructive-action");
+    gtk_box_append(GTK_BOX(actions), gone);
+  }
+  gtk_box_append(GTK_BOX(box), actions);
 
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(manager->details), box);
   show_state(p);
@@ -555,12 +704,17 @@ static void rebuild_list(void)
     gtk_list_box_remove(GTK_LIST_BOX(manager->list), child);
   for (guint i = 0; plugins && i < plugins->len; i++) {
     Plugin *p = g_ptr_array_index(plugins, i);
-    GtkWidget *row = gtk_list_box_row_new(), *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-    char *line = by_line(p->version, p->provider, state_text(p));
+    GtkWidget *row = gtk_list_box_row_new(), *line_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
+    char *line = by_line(p->version, "", plugin_state_text(p));
     GtkWidget *name = label(p->name, p->enabled ? NULL : "off"), *note = label(line, "note");
+    gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(name), FALSE);
     gtk_box_append(GTK_BOX(box), name);
     gtk_box_append(GTK_BOX(box), note);
-    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
+    gtk_box_append(GTK_BOX(line_box), plugin_state_dot(p));
+    gtk_box_append(GTK_BOX(line_box), box);
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), line_box);
     g_object_set_data_full(G_OBJECT(row), "plugin-id", g_strdup(p->id), g_free);
     gtk_list_box_append(GTK_LIST_BOX(manager->list), row);
     if (!keep && (!manager->picked || g_strcmp0(manager->picked, p->id) == 0))
@@ -620,6 +774,48 @@ static void on_open_plugins_folder(GtkButton *b G_GNUC_UNUSED, gpointer data G_G
 static void on_processes(GtkButton *b G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
 {
   show_processes(manager->app);
+}
+
+/* An icon button for the header bar. */
+static GtkWidget *icon_button(const char *icon, const char *tooltip, GCallback clicked)
+{
+  GtkWidget *b = gtk_button_new_from_icon_name(icon);
+
+  gtk_widget_set_tooltip_text(b, tooltip);
+  g_signal_connect(b, "clicked", clicked, NULL);
+  return b;
+}
+
+/* A menu item of the ⋯ menu: a flat button that closes the menu before it runs. */
+static void on_menu_item(GtkButton *b, gpointer data G_GNUC_UNUSED)
+{
+  gtk_popover_popdown(GTK_POPOVER(gtk_widget_get_ancestor(GTK_WIDGET(b), GTK_TYPE_POPOVER)));
+}
+
+static void add_menu_item(GtkWidget *menu, const char *text, GCallback clicked)
+{
+  GtkWidget *b = gtk_button_new_with_label(text);
+
+  gtk_widget_add_css_class(b, "flat");
+  gtk_widget_set_halign(gtk_button_get_child(GTK_BUTTON(b)), GTK_ALIGN_START);
+  g_signal_connect(b, "clicked", G_CALLBACK(on_menu_item), NULL);
+  g_signal_connect(b, "clicked", clicked, NULL);
+  gtk_box_append(GTK_BOX(menu), b);
+}
+
+/* ⋯: Open Plugins Folder and the Process Monitor. */
+static GtkWidget *more_menu(void)
+{
+  GtkWidget *more = gtk_menu_button_new(), *popover = gtk_popover_new(),
+            *menu = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+
+  add_menu_item(menu, "Open Plugins Folder", G_CALLBACK(on_open_plugins_folder));
+  add_menu_item(menu, "Process Monitor", G_CALLBACK(on_processes));
+  gtk_popover_set_child(GTK_POPOVER(popover), menu);
+  gtk_menu_button_set_popover(GTK_MENU_BUTTON(more), popover);
+  gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(more), "tcode-more-symbolic");
+  gtk_widget_set_tooltip_text(more, "More");
+  return more;
 }
 
 /* Browse ----------------------------------------------------------------------------------------- */
@@ -777,7 +973,7 @@ static GtkWidget *entry_row(RegistryEntry *e)
   GtkWidget *action, *badge;
   char *line, *categories = g_strjoinv(", ", e->categories), *asks = g_strjoinv(", ", e->permissions);
 
-  gtk_box_append(GTK_BOX(texts), label(e->name, "section"));
+  gtk_box_append(GTK_BOX(texts), label(e->name, "browse-name"));
   line = by_line(e->version, e->provider, categories);
   gtk_box_append(GTK_BOX(texts), label(line, "note"));
   g_free(line);
@@ -925,14 +1121,25 @@ static void on_destroy(GtkWidget *window G_GNUC_UNUSED, gpointer data G_GNUC_UNU
 
 void show_plugins_window(App *t)
 {
+  show_plugins_window_at(t, NULL, FALSE);
+}
+
+void show_plugins_window_at(App *t, const char *id, gboolean browse)
+{
   GtkWidget *header, *panes, *side, *scroll, *switcher;
   GtkEventController *keys;
 
   if (manager) {
+    if (id && plugin_find(t, id) && g_strcmp0(id, manager->picked)) {
+      g_set_str(&manager->picked, id);
+      rebuild_list();
+      show_details();
+    }
+    gtk_stack_set_visible_child_name(GTK_STACK(manager->stack), browse ? "browse" : "installed");
     gtk_window_present(GTK_WINDOW(manager->window));
     return;
   }
-  palette_add_css(css);
+  add_css();
   manager = g_new0(Manager, 1);
   manager->app = t;
   manager->window = gtk_window_new();
@@ -942,9 +1149,11 @@ void show_plugins_window(App *t)
   gtk_widget_add_css_class(manager->window, "tcode-plugins");
 
   header = gtk_header_bar_new();
-  gtk_header_bar_pack_start(GTK_HEADER_BAR(header), button("Reload", G_CALLBACK(on_reload)));
-  gtk_header_bar_pack_start(GTK_HEADER_BAR(header), button("Open Plugins Folder", G_CALLBACK(on_open_plugins_folder)));
-  gtk_header_bar_pack_end(GTK_HEADER_BAR(header), button("Processes", G_CALLBACK(on_processes)));
+  gtk_header_bar_pack_start(GTK_HEADER_BAR(header),
+                            icon_button("tcode-refresh-symbolic",
+                                        "Reload: look at the plugins folders and the registry again",
+                                        G_CALLBACK(on_reload)));
+  gtk_header_bar_pack_end(GTK_HEADER_BAR(header), more_menu());
   gtk_window_set_titlebar(GTK_WINDOW(manager->window), header);
   manager->stack = gtk_stack_new();
   switcher = gtk_stack_switcher_new();
@@ -957,7 +1166,7 @@ void show_plugins_window(App *t)
   side = gtk_scrolled_window_new();
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(side), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(side), manager->list);
-  gtk_widget_set_size_request(side, 220, -1);
+  gtk_widget_set_size_request(side, 240, -1);
   gtk_widget_add_css_class(side, "plugin-list");
   manager->details = scroll = gtk_scrolled_window_new();
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
@@ -977,10 +1186,14 @@ void show_plugins_window(App *t)
   gtk_widget_add_controller(manager->window, keys);
   g_signal_connect(manager->window, "destroy", G_CALLBACK(on_destroy), NULL);
 
-  if (t->plugins && t->plugins->len)
+  if (id && plugin_find(t, id))
+    g_set_str(&manager->picked, id);
+  else if (t->plugins && t->plugins->len)
     g_set_str(&manager->picked, ((Plugin *)g_ptr_array_index(t->plugins, 0))->id);
   rebuild_list();
   show_details();
+  if (browse)
+    gtk_stack_set_visible_child_name(GTK_STACK(manager->stack), "browse");
   manager->refresh_id = g_timeout_add(REFRESH_MS, refresh, NULL);
   gtk_window_present(GTK_WINDOW(manager->window));
 }

@@ -568,14 +568,27 @@ A plugin declares what it does:
 
 ### The Plugins window
 
-**Plugins: Manage Plugins** (command palette, or Settings → Plugins… in the menu bar) opens a window: every plugin found on the left, the one
-picked on the right.
+**Plugins: Manage Plugins** (command palette, the menu bar's Plugins menu, or a click on a
+plugin in the Plugins panel) opens a window: every plugin found on the left, with a dot in its
+state's color (green running, red failed, hollow off), the one picked on the right.
 
-- **What it shows:** name, description, id, version, API (`tapi_1`, or none for a plugin from
-  before versions), where it was found (your plugins folder, the system, t-code itself), its folder
-  and its state (on, off; for a `start` plugin: running, stopped, failed, not started). Then its
-  commands with their keys, its permissions, what it brings (language servers, Run, language specs,
-  snippets) and the last 200 lines its programs printed, which update while the window is open.
+The **Plugins panel** (its icon in the left dock by default; Panels menu, or "View: Toggle Plugins")
+is the short version: each plugin with its dot and its on / off switch, the count at the top with
+Reload and a ⋯ menu (Manage Plugins…, Open Plugins Folder, Process Monitor), and **Browse the
+Registry…** at the bottom. A click on a plugin opens it in the window.
+
+The menu bar's **Plugins** menu, between Settings and Panels, has Manage Plugins…, Browse the
+Registry… ("Plugins: Browse the Registry"), Plugins Panel, Reload Installed Plugins, Open Plugins
+Folder and Process Monitor….
+
+- **What it shows:** on top its name, its state (on, off; for a `start` plugin: running, stopped,
+  failed, not started), Start / Stop and the switch; under them its version, provider and
+  description. Then its commands with their keys, its permissions and what it brings (language
+  servers, Run, language specs, snippets). Folded under **Details**: id, provider, version, API
+  (`tapi_1`, or none for a plugin from before versions), where it was found (your plugins folder, the
+  system, t-code itself), its folder and its registry record. Folded under **Output** (open by itself
+  when the plugin failed): the last 200 lines its programs printed, which update while the window is
+  open.
 - **On / off:** the switch. Off, a plugin's commands and keys leave the palette, its language servers
   and Run stop being used, its start program stops and it does not start again. On, all of that comes
   back (it starts when a project is open). Its snippets and language specs follow at the next start.
@@ -585,9 +598,9 @@ picked on the right.
 - **Open Folder**, and **Uninstall** for a plugin in your plugins folder: it stops, and its folder is
   deleted after a question. Plugins that came with the system or with t-code cannot be uninstalled
   here.
-- **Reload** and **Open Plugins Folder** at the top: put a plugin's folder in
-  `~/.config/t-code/plugins/`, press Reload, and it shows.
-- **Processes** at the top opens the Process Monitor ("Help: Process Monitor"): each plugin's
+- **Reload** (the arrow at the top left) and **Open Plugins Folder** (the ⋯ menu at the top right):
+  put a plugin's folder in `~/.config/t-code/plugins/`, press Reload, and it shows.
+- **Process Monitor** in the ⋯ menu opens the Process Monitor ("Help: Process Monitor"): each plugin's
   programs with their CPU and memory, next to t-code's other processes, and End for each.
 - **Browse:** the registry's plugins (below), fetched when the page shows (again after a minute, and
   on Reload), with a search over

@@ -11,6 +11,7 @@
 #include "files/files.h"
 #include "git/scm/scm.h"
 #include "lsp/symbols/hierarchy.h"
+#include "plugins/manager.h"
 #include "testing/testing.h"
 #include "lsp/symbols/outline.h"
 #include "lsp/problems.h"
@@ -527,6 +528,7 @@ void docks_create(App *t)
   add_dock_panel(t, 8, clip_box(outline_panel(t), TRUE), "outline", "Outline");
   add_dock_panel(t, 8, clip_box(hierarchy_panel(t), TRUE), "hierarchy", "Hierarchy (Shift+Alt+H)");
   add_dock_panel(t, 8, clip_box(testing_panel(t), TRUE), "testing", "Testing");
+  add_dock_panel(t, 0, clip_box(plugins_panel(t), TRUE), "plugins", "Plugins");
   t->layout.left = build_side_chain(t, 0, GTK_ORIENTATION_VERTICAL, 320);
   t->layout.bottom = build_side_chain(t, 1, GTK_ORIENTATION_HORIZONTAL, 480);
   t->layout.right = build_side_chain(t, 2, GTK_ORIENTATION_VERTICAL, 320);
