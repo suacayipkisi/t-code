@@ -321,6 +321,23 @@ const char *const *vcs_head_args(VcsKind kind)
   return kind == VCS_HG ? hg : kind == VCS_SVN ? svn : NULL;
 }
 
+gboolean vcs_merging(VcsKind kind, const char *top)
+{
+  if (kind != VCS_HG || !top)
+    return FALSE;
+  char *state = g_build_filename(top, ".hg", "merge", "state2", NULL);
+  gboolean merging = g_file_test(state, G_FILE_TEST_EXISTS);
+  g_free(state);
+  return merging;
+}
+
+const char *const *vcs_unresolved_args(void)
+{
+  static const char *const hg[] = { "resolve", "--list", NULL };
+
+  return hg;
+}
+
 /* One file's change, before it is written in git's format. */
 typedef struct {
   char *path, *orig; /* orig: a rename's old path */
@@ -500,14 +517,38 @@ static void vcs_read_head(VcsKind kind, const char *head, char **oid, char **bra
   }
 }
 
-char *vcs_git_status(VcsKind kind, const char *status, gsize size, const char *head, GHashTable *staged, gboolean v1,
-                     gsize *length)
+/* hg resolve --list's "U path" lines: those files are conflicts, whatever hg status called them. */
+static void vcs_mark_unresolved(GPtrArray *entries, const char *unresolved)
+{
+  char **lines = unresolved ? g_strsplit(unresolved, "\n", -1) : NULL;
+
+  for (int i = 0; lines && lines[i]; i++) {
+    if (lines[i][0] != 'U' || lines[i][1] != ' ' || !lines[i][2])
+      continue;
+    const char *path = lines[i] + 2;
+    gboolean found = FALSE;
+    for (guint k = 0; k < entries->len; k++) {
+      VcsEntry *e = entries->pdata[k];
+      if (strcmp(e->path, path) == 0) {
+        e->code = '!';
+        found = TRUE;
+      }
+    }
+    if (!found)
+      vcs_add_entry(entries, path, NULL, '!');
+  }
+  g_strfreev(lines);
+}
+
+char *vcs_git_status(VcsKind kind, const char *status, gsize size, const char *head, const char *unresolved,
+                     GHashTable *staged, gboolean v1, gsize *length)
 {
   GString *out = g_string_new(NULL);
   GPtrArray *entries = kind == VCS_HG ? vcs_hg_entries(status, size, '\0') : vcs_svn_entries(status, size);
   char *oid, *branch;
   gboolean initial;
 
+  vcs_mark_unresolved(entries, unresolved);
   vcs_read_head(kind, head, &oid, &branch, &initial);
   /* A staged path that no longer changed (committed, reverted) leaves the list. */
   if (staged) {

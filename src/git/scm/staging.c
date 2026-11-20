@@ -2,7 +2,8 @@
  * Staging in the Source Control panel (see state.h): a file or everything staged and unstaged,
  * one hunk staged or unstaged through the picker ("Stage Hunk…"), changes discarded after asking.
  * hg and svn have no index: their staged files are a list t-code keeps (GitRepo.staged), which the
- * commit takes; a file they do not know yet is added (hg add, svn add) when staged.
+ * commit takes; a file they do not know yet is added (hg add, svn add) when staged, a conflict is
+ * marked resolved (hg resolve --mark, svn resolve --accept working), as git add does.
  */
 #include "git/scm/scm.h"
 #include "git/scm/state.h"
@@ -25,29 +26,40 @@ static void stage_in_list(GHashTable *staged, const Change *c)
     g_hash_table_add(staged, g_strdup(c->old_path));
 }
 
-/* hg / svn: the files added (hg add, svn add) are staged once that worked. data: their paths. */
+/* hg / svn: the files added (hg add, svn add) or marked resolved are staged once that worked. data:
+ * their paths. */
 static void on_added(gboolean ok, const char *out G_GNUC_UNUSED, const char *err, gpointer data)
 {
   GPtrArray *paths = data;
   GitRepo *r = git_shown_repo(scm.app);
 
   if (!ok)
-    scm_set_note(*err ? err : "Could not add the files", TRUE);
+    scm_set_note(*err ? err : "Could not stage the files", TRUE);
   for (guint i = 0; ok && r && i < paths->len; i++)
     g_hash_table_add(r->staged, g_strdup(paths->pdata[i]));
   g_ptr_array_unref(paths);
 }
 
-/* hg / svn: stages path (NULL: every change); unknown files are added first. */
+/* hg / svn: runs args (add or resolve), then the paths are staged; args ends with "--". */
+static void run_then_stage(GPtrArray *args, GPtrArray *paths)
+{
+  for (guint i = 0; i < paths->len; i++)
+    g_ptr_array_add(args, paths->pdata[i]);
+  g_ptr_array_add(args, NULL);
+  scm_run_git((const char *const *)args->pdata, NULL, FALSE, on_added, g_ptr_array_ref(paths));
+}
+
+/* hg / svn: stages path (NULL: every change); unknown files are added first, conflicts marked
+ * resolved. */
 static void stage_without_index(const char *path)
 {
   GitRepo *r = git_shown_repo(scm.app);
-  GPtrArray *unknown = g_ptr_array_new_with_free_func(g_free);
-  GPtrArray *args = g_ptr_array_new();
+  GPtrArray *unknown = g_ptr_array_new_with_free_func(g_free), *conflicts = g_ptr_array_new_with_free_func(g_free);
+  gboolean svn = scm_kind() == VCS_SVN;
 
   if (!r) {
     g_ptr_array_unref(unknown);
-    g_ptr_array_free(args, TRUE);
+    g_ptr_array_unref(conflicts);
     return;
   }
   for (guint i = 0; i < scm.changes->len; i++) {
@@ -56,24 +68,35 @@ static void stage_without_index(const char *path)
       continue;
     if (c->code == 'U')
       g_ptr_array_add(unknown, g_strdup(c->path));
-    else if (c->code != '!')
+    else if (c->code == '!')
+      g_ptr_array_add(conflicts, g_strdup(c->path));
+    else
       stage_in_list(r->staged, c);
   }
+  scm_set_note(NULL, FALSE);
+  if (conflicts->len) { /* the file as it is now is the resolution */
+    GPtrArray *args = g_ptr_array_new();
+    g_ptr_array_add(args, "resolve");
+    g_ptr_array_add(args, svn ? "--accept" : "--mark");
+    if (svn)
+      g_ptr_array_add(args, "working");
+    g_ptr_array_add(args, "--");
+    run_then_stage(args, conflicts);
+    g_ptr_array_free(args, TRUE);
+  }
   if (unknown->len) {
+    GPtrArray *args = g_ptr_array_new();
     g_ptr_array_add(args, "add");
-    if (scm_kind() == VCS_SVN)
+    if (svn)
       g_ptr_array_add(args, "--parents"); /* its folders too */
     g_ptr_array_add(args, "--");
-    for (guint i = 0; i < unknown->len; i++)
-      g_ptr_array_add(args, unknown->pdata[i]);
-    g_ptr_array_add(args, NULL);
-    scm_set_note(NULL, FALSE);
-    scm_run_git((const char *const *)args->pdata, NULL, FALSE, on_added, g_ptr_array_ref(unknown));
-  } else {
-    refresh_branch(scm.app);
+    run_then_stage(args, unknown);
+    g_ptr_array_free(args, TRUE);
   }
-  g_ptr_array_free(args, TRUE);
+  if (!conflicts->len && !unknown->len)
+    refresh_branch(scm.app);
   g_ptr_array_unref(unknown);
+  g_ptr_array_unref(conflicts);
 }
 
 /* git add takes the files from disk: what the editors hold unsaved is saved first. */

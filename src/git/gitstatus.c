@@ -395,7 +395,43 @@ static void on_branch(GObject *source, GAsyncResult *result, gpointer data)
     g_bytes_unref(out);
 }
 
-/* hg / svn: the status answered after the head; both go through vcs_git_status(). */
+static GSubprocess *spawn_in(const char *top, VcsKind kind, const char *const *args);
+static void tag_proc(GSubprocess *proc, App *t, GitRepo *r);
+
+/* hg / svn: the head, the status and (during an hg merge) the unresolved files answered: all
+ * through vcs_git_status() into git's format. */
+static void vcs_status_done(App *t, GitRepo *r, gboolean ok, GBytes *out, const char *head, const char *unresolved)
+{
+  gsize size = 0, length;
+  const char *bytes = out ? g_bytes_get_data(out, &size) : NULL;
+
+  if (r->kind == VCS_SVN && head) {
+    g_free(r->svn_url);
+    r->svn_url = vcs_svn_url(head);
+  }
+  char *git = ok ? vcs_git_status(r->kind, bytes, size, head, unresolved, r->staged, FALSE, &length) : NULL;
+  GBytes *translated = git ? g_bytes_new_take(git, length) : NULL;
+  got_status(t, r, ok && head, translated);
+  if (translated)
+    g_bytes_unref(translated);
+}
+
+/* hg resolve --list answered, after the status. */
+static void on_vcs_unresolved(GObject *source, GAsyncResult *result, gpointer data)
+{
+  App *t = data;
+  char *unresolved = NULL;
+  gboolean ok = g_subprocess_communicate_utf8_finish(G_SUBPROCESS(source), result, &unresolved, NULL, NULL);
+  GitRepo *r = asked_repo(t, source);
+
+  branch_busy--;
+  if (r)
+    vcs_status_done(t, r, TRUE, g_object_get_data(source, "status"), g_object_get_data(source, "head"),
+                    ok ? unresolved : NULL);
+  g_free(unresolved);
+}
+
+/* hg / svn: the status answered after the head; during an hg merge hg resolve --list runs next. */
 static void on_vcs_status(GObject *source, GAsyncResult *result, gpointer data)
 {
   App *t = data;
@@ -403,21 +439,20 @@ static void on_vcs_status(GObject *source, GAsyncResult *result, gpointer data)
   gboolean ok = g_subprocess_communicate_finish(G_SUBPROCESS(source), result, &out, NULL, NULL) &&
                 g_subprocess_get_successful(G_SUBPROCESS(source));
   GitRepo *r = asked_repo(t, source);
+  const char *head = g_object_get_data(source, "head");
+  GSubprocess *proc =
+      r && ok && out && vcs_merging(r->kind, r->top) ? spawn_in(r->top, r->kind, vcs_unresolved_args()) : NULL;
 
-  branch_busy--;
-  if (r) {
-    gsize size = 0, length;
-    const char *bytes = out ? g_bytes_get_data(out, &size) : NULL;
-    const char *head = g_object_get_data(source, "head");
-    if (r->kind == VCS_SVN && head) {
-      g_free(r->svn_url);
-      r->svn_url = vcs_svn_url(head);
-    }
-    char *git = ok ? vcs_git_status(r->kind, bytes, size, head, r->staged, FALSE, &length) : NULL;
-    GBytes *translated = git ? g_bytes_new_take(git, length) : NULL;
-    got_status(t, r, ok && head, translated);
-    if (translated)
-      g_bytes_unref(translated);
+  if (proc) {
+    tag_proc(proc, t, r);
+    g_object_set_data_full(G_OBJECT(proc), "head", g_strdup(head), g_free);
+    g_object_set_data_full(G_OBJECT(proc), "status", g_bytes_ref(out), (GDestroyNotify)g_bytes_unref);
+    g_subprocess_communicate_utf8_async(proc, NULL, NULL, on_vcs_unresolved, t);
+    g_object_unref(proc);
+  } else {
+    branch_busy--;
+    if (r)
+      vcs_status_done(t, r, ok, out, head, NULL);
   }
   if (out)
     g_bytes_unref(out);

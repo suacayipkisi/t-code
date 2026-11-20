@@ -180,11 +180,16 @@ static void commit_without_index(char *message)
     g_hash_table_unref(seen);
     return;
   }
+  GitRepo *r = git_shown_repo(scm.app);
+  /* An hg merge is committed whole (hg refuses some of its files), without adding unknown files
+   * (the .orig copies the merge left). */
+  gboolean merge = r && vcs_merging(r->kind, r->top);
   g_ptr_array_add(args, g_strdup("commit"));
-  g_ptr_array_add(args, g_strdup(svn ? "--non-interactive" : "-A"));
+  if (!merge)
+    g_ptr_array_add(args, g_strdup(svn ? "--non-interactive" : "-A"));
   g_ptr_array_add(args, g_strdup(svn ? "-F" : "-l")); /* the message from stdin */
   g_ptr_array_add(args, g_strdup("-"));
-  if (scm.staged->len) {
+  if (scm.staged->len && !merge) {
     if (!svn)
       g_free(g_ptr_array_steal_index(args, 1)); /* only the staged files, not every unknown one */
     g_ptr_array_add(args, g_strdup("--"));

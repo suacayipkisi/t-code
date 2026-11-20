@@ -144,7 +144,7 @@ static void test_hg_status_recorded(void)
   char *out = vcs_git_status(VCS_HG, status, sizeof status - 1,
                              "9c65c4ef\x1f"
                              "default\x1f",
-                             staged, FALSE, &length);
+                             NULL, staged, FALSE, &length);
   char *joined = records(out, length);
   g_assert_cmpstr(joined, ==,
                   "# branch.oid 9c65c4ef|# branch.head default|# branch.upstream default|"
@@ -163,16 +163,25 @@ static void test_hg_status_recorded(void)
                        "0000000000\x1f"
                        "default\x1f"
                        "feature",
-                       NULL, FALSE, &length);
+                       NULL, NULL, FALSE, &length);
   joined = records(out, length);
   g_assert_cmpstr(joined, ==, "# branch.oid (initial)|# branch.head feature|# branch.upstream default|");
   g_free(joined);
   g_free(out);
 
-  out = vcs_git_status(VCS_HG, status, sizeof status - 1, NULL, staged, TRUE, &length);
+  out = vcs_git_status(VCS_HG, status, sizeof status - 1, NULL, NULL, staged, TRUE, &length);
   joined = records(out, length);
   g_assert_cmpstr(joined, ==,
                   "M  f.txt| A added.txt|R  d/k.txt|d/m.txt| C copy.txt|f.txt| D g.txt| D gone.txt|?? new.txt|");
+  g_free(joined);
+  g_free(out);
+
+  /* During a merge hg status calls a conflict modified: hg resolve --list tells it apart. */
+  static const char merging[] = "M f.txt\0M ok.txt\0";
+  out = vcs_git_status(VCS_HG, merging, sizeof merging - 1, NULL, "U f.txt\nR ok.txt\nU gone/x.txt\n", NULL, TRUE,
+                       &length);
+  joined = records(out, length);
+  g_assert_cmpstr(joined, ==, "UU f.txt| M ok.txt|UU gone/x.txt|");
   g_free(joined);
   g_free(out);
   g_hash_table_unref(staged);
@@ -203,7 +212,7 @@ static void test_svn_status_recorded(void)
   gsize length;
 
   g_hash_table_add(staged, "added.txt");
-  char *out = vcs_git_status(VCS_SVN, svn_status, sizeof svn_status - 1, svn_info, staged, FALSE, &length);
+  char *out = vcs_git_status(VCS_SVN, svn_status, sizeof svn_status - 1, svn_info, NULL, staged, FALSE, &length);
   char *joined = records(out, length);
   g_assert_cmpstr(joined, ==,
                   "# branch.oid 7|# branch.head fix|# branch.upstream server|"
@@ -223,7 +232,7 @@ static void test_svn_status_recorded(void)
   g_free(url);
   out =
       vcs_git_status(VCS_SVN, "", 0, "<info><entry revision=\"0\"><relative-url>^/trunk</relative-url></entry></info>",
-                     NULL, FALSE, &length);
+                     NULL, NULL, FALSE, &length);
   joined = records(out, length);
   g_assert_cmpstr(joined, ==, "# branch.oid (initial)|# branch.head trunk|# branch.upstream server|");
   g_free(joined);
@@ -327,8 +336,10 @@ static char *status_of(VcsKind kind, const char *top, GHashTable *staged)
   char *status = run(top, vcs_program(kind), vcs_status_args(kind), NULL);
   gsize size = last_length, length;
   char *head = run(top, vcs_program(kind), vcs_head_args(kind), NULL);
+  char *unresolved = vcs_merging(kind, top) ? run(top, "hg", vcs_unresolved_args(), NULL) : NULL;
   g_assert_nonnull(status);
-  char *out = vcs_git_status(kind, status, size, head, staged, FALSE, &length);
+  char *out = vcs_git_status(kind, status, size, head, unresolved, staged, FALSE, &length);
+  g_free(unresolved);
   char *joined = records(out, length);
   g_free(out);
   g_free(status);
@@ -422,6 +433,41 @@ static void test_hg_real(void)
   g_free(top);
 }
 
+/* An hg merge with a conflict: hg status says modified, the status shown says conflict until
+ * hg resolve --mark; the merge state stays until the commit. */
+static void test_hg_merge(void)
+{
+  if (!have("hg")) {
+    g_test_skip("no hg");
+    return;
+  }
+  char *top = g_build_filename(tmp, "hg-merge", NULL);
+  g_mkdir_with_parents(top, 0755);
+  must(top, "hg", (const char *[]){ "init", NULL });
+  g_free(write_at(top, "f.txt", "a\n", -1, 0));
+  must(top, "hg", (const char *[]){ "commit", "-A", "-m", "one", NULL });
+  g_free(write_at(top, "f.txt", "b\n", -1, 0));
+  must(top, "hg", (const char *[]){ "commit", "-m", "two", NULL });
+  must(top, "hg", (const char *[]){ "update", "-q", "0", NULL });
+  g_free(write_at(top, "f.txt", "c\n", -1, 0));
+  must(top, "hg", (const char *[]){ "commit", "-m", "three", NULL });
+  g_assert_false(vcs_merging(VCS_HG, top));
+  g_free(run(top, "hg", (const char *[]){ "merge", "--tool", "internal:merge", NULL }, NULL)); /* fails: the conflict */
+  g_assert_true(vcs_merging(VCS_HG, top));
+  g_assert_false(vcs_merging(VCS_SVN, top));
+  char *joined = status_of(VCS_HG, top, NULL);
+  g_assert_nonnull(strstr(joined, "|u UU N... 000000 000000 000000 000000 0 0 0 f.txt|"));
+  g_free(joined);
+  must(top, "hg", (const char *[]){ "resolve", "--mark", "f.txt", NULL });
+  joined = status_of(VCS_HG, top, NULL);
+  g_assert_nonnull(strstr(joined, "|1 .M N... 000000 000000 000000 0 0 f.txt|"));
+  g_free(joined);
+  g_assert_true(vcs_merging(VCS_HG, top));
+  must(top, "hg", (const char *[]){ "commit", "-m", "merged", NULL });
+  g_assert_false(vcs_merging(VCS_HG, top));
+  g_free(top);
+}
+
 static void test_svn_real(void)
 {
   if (!have("svn") || !have("svnadmin")) {
@@ -510,6 +556,7 @@ int main(int argc, char **argv)
   g_test_add_func("/vcs/revisions", test_revisions);
   g_test_add_func("/vcs/recorded-logs", test_recorded_logs);
   g_test_add_func("/vcs/hg", test_hg_real);
+  g_test_add_func("/vcs/hg-merge", test_hg_merge);
   g_test_add_func("/vcs/svn", test_svn_real);
   status = g_test_run();
   char *argv_rm[] = { "rm", "-rf", tmp, NULL };

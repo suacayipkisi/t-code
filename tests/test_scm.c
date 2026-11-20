@@ -912,6 +912,53 @@ static void test_hg(void)
   g_free(top);
 }
 
+/* An hg merge with a conflict: the conflict shows (hg status calls it modified), staging it marks it
+ * resolved, and the commit takes the whole merge without the .orig copy hg left. */
+static void test_hg_merge(void)
+{
+  if (!have("hg")) {
+    g_test_skip("no hg");
+    return;
+  }
+  char *top = make_dir("hg-merge", "f.txt"), *f = g_build_filename(top, "f.txt", NULL), *orig = NULL;
+  tool(top, "hg", (const char *[]){ "init", NULL });
+  g_file_set_contents(f, "a\n", -1, NULL);
+  tool(top, "hg", (const char *[]){ "commit", "-A", "-m", "one", NULL });
+  g_file_set_contents(f, "b\n", -1, NULL);
+  tool(top, "hg", (const char *[]){ "commit", "-m", "two", NULL });
+  tool(top, "hg", (const char *[]){ "update", "-q", "0", NULL });
+  g_file_set_contents(f, "c\n", -1, NULL);
+  tool(top, "hg", (const char *[]){ "commit", "-m", "three", NULL });
+  g_spawn_sync(top, (char *[]){ "hg", "merge", "--tool", "internal:merge", NULL }, NULL,
+               G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL, NULL, NULL,
+               NULL, NULL); /* exits 1: the conflict */
+  orig = g_build_filename(top, "f.txt.orig", NULL);
+
+  open_project_at(top);
+  wait_for(2, 3);
+  int changes = g_file_test(orig, G_FILE_TEST_EXISTS) ? 2 : 1; /* f.txt, and f.txt.orig when hg kept one */
+  wait_for(1, changes);
+  gboolean conflict = FALSE;
+  for (guint i = 0; i < scm.changes->len; i++) {
+    const Change *c = scm.changes->pdata[i];
+    conflict |= strcmp(c->path, "f.txt") == 0 && c->code == '!';
+  }
+  g_assert_true(conflict);
+
+  g_file_set_contents(f, "b and c\n", -1, NULL);
+  scm_stage("f.txt"); /* hg resolve --mark */
+  wait_for(0, 1);
+  wait_for(1, changes - 1);
+  scm_set_message("Merge");
+  scm_commit();
+  wait_for(2, 4);
+  wait_for(0, 0);
+  wait_for(1, changes - 1); /* the .orig copy was not added */
+  g_free(orig);
+  g_free(f);
+  g_free(top);
+}
+
 /* A Subversion working copy: no Push, Update for Pull; a commit of the staged file and of everything
  * (a new folder added on the way). */
 static void test_svn(void)
@@ -957,6 +1004,59 @@ static void test_svn(void)
   g_free(n);
   g_free(a);
   g_free(url);
+  g_free(top);
+  g_free(repo);
+}
+
+/* An svn update that conflicts: the conflict shows, staging it accepts the file as it is
+ * (svn resolve --accept working) and the commit takes it. */
+static void test_svn_conflict(void)
+{
+  if (!have("svn") || !have("svnadmin")) {
+    g_test_skip("no svn");
+    return;
+  }
+  char *repo = g_build_filename(tmp, "svnrepo-conflict", NULL), *top = g_build_filename(tmp, "svn-conflict", NULL),
+       *other = g_build_filename(tmp, "svn-conflict-other", NULL);
+  char *url = g_strconcat("file://", repo, "/trunk", NULL), *a = g_build_filename(top, "a.txt", NULL),
+       *b = g_build_filename(other, "a.txt", NULL);
+  tool(tmp, "svnadmin", (const char *[]){ "create", repo, NULL });
+  tool(tmp, "svn", (const char *[]){ "mkdir", "-q", "-m", "init", url, NULL });
+  tool(tmp, "svn", (const char *[]){ "checkout", "-q", url, top, NULL });
+  g_file_set_contents(a, "one\n", -1, NULL);
+  tool(top, "svn", (const char *[]){ "add", "-q", "a.txt", NULL });
+  tool(top, "svn", (const char *[]){ "commit", "-q", "-m", "first", NULL });
+  tool(tmp, "svn", (const char *[]){ "checkout", "-q", url, other, NULL });
+  g_file_set_contents(b, "theirs\n", -1, NULL);
+  tool(other, "svn", (const char *[]){ "commit", "-q", "-m", "theirs", NULL });
+  g_file_set_contents(a, "mine\n", -1, NULL);
+  tool(top, "svn", (const char *[]){ "update", "-q", "--accept", "postpone", NULL });
+
+  open_project_at(top);
+  wait_for(2, 3);
+  gboolean conflict = FALSE;
+  for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC; !conflict && g_get_monotonic_time() < until;) {
+    g_main_context_iteration(NULL, FALSE);
+    for (guint i = 0; i < scm.changes->len; i++) {
+      const Change *c = scm.changes->pdata[i];
+      conflict |= strcmp(c->path, "a.txt") == 0 && c->code == '!';
+    }
+  }
+  g_assert_true(conflict);
+
+  g_file_set_contents(a, "mine and theirs\n", -1, NULL);
+  scm_stage("a.txt"); /* svn resolve --accept working */
+  wait_for(0, 1);
+  scm_set_message("Both");
+  scm_commit();
+  wait_for(0, 0);
+  tool(top, "svn", (const char *[]){ "update", "-q", NULL });
+  refresh_branch(&app);
+  wait_for(2, 4);
+  g_free(b);
+  g_free(a);
+  g_free(url);
+  g_free(other);
   g_free(top);
   g_free(repo);
 }
@@ -1105,6 +1205,8 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/stash", test_stash);
   g_test_add_func("/scm/nested-repos", test_nested_repos);
   g_test_add_func("/scm/hg", test_hg);
+  g_test_add_func("/scm/hg-merge", test_hg_merge);
+  g_test_add_func("/scm/svn-conflict", test_svn_conflict);
   g_test_add_func("/scm/svn", test_svn);
   g_test_add_func("/scm/svn-init", test_svn_init);
   g_test_add_func("/scm/choice", test_choice);

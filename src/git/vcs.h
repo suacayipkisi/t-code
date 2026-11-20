@@ -55,6 +55,13 @@ const char *const *vcs_status_args(VcsKind kind);
 /* The command telling the branch and the revision checked out. */
 const char *const *vcs_head_args(VcsKind kind);
 
+/* Whether an hg merge is going on in the repository at top (its merge state is there): only then
+ * vcs_unresolved_args() has anything to tell. Always FALSE for svn, whose status shows conflicts. */
+gboolean vcs_merging(VcsKind kind, const char *top);
+
+/* hg resolve --list: "U path" for a file still in conflict, "R path" once marked resolved. */
+const char *const *vcs_unresolved_args(void);
+
 /* git status --porcelain=v2 --branch -z for an hg or svn repository, from its status and head
  * outputs (either NULL: none): "# branch.oid", "# branch.head" (the active bookmark or the branch;
  * svn: the folder under branches/ or tags/, or "trunk"), "# branch.upstream" (hg and svn always
@@ -63,9 +70,10 @@ const char *const *vcs_head_args(VcsKind kind);
  * otherwise its change is unstaged (paths in it that no longer changed are taken out). Renames (hg's copy of a removed file, svn's moves) become git's
  * rename records, unknown files "?", svn's ignored ones "!", conflicts "u". v1: the short format of
  * git status --porcelain=v1 -z instead (the Files panel's colors), without the header. Returns the
- * output, its length in *length. */
-char *vcs_git_status(VcsKind kind, const char *status, gsize size, const char *head, GHashTable *staged, gboolean v1,
-                     gsize *length);
+ * output, its length in *length. unresolved: hg resolve --list's output during a merge (NULL: none),
+ * whose "U" files are conflicts (hg status shows them modified). */
+char *vcs_git_status(VcsKind kind, const char *status, gsize size, const char *head, const char *unresolved,
+                     GHashTable *staged, gboolean v1, gsize *length);
 
 /* svn info --xml's repository-relative URL of the working copy ("^/trunk"), NULL when missing. */
 char *vcs_svn_url(const char *info);
