@@ -39,14 +39,14 @@
     <release version="0.4.3" date="2026-11-20">
       <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.4.3</url>
       <description>
-        <p>A Testing panel, terminal tabs, Mercurial and Subversion, a versioned plugin API with a Plugins window, MATLAB and Octave plugins, own icons and fixes:</p>
+        <p>A Testing panel, terminal tabs, Mercurial and Subversion, a versioned plugin API with a Plugins window, Java, MATLAB and Octave plugins, own icons and fixes:</p>
         <ul>
           <li>Testing panel: CTest, pytest, go test and cargo test (GoogleTest cases too); run or debug a test from the editor gutter, go to its source</li>
           <li>Several shells as tabs in the Terminal panel (Ctrl+Shift+T); Build and Run use the first</li>
           <li>Source Control for Mercurial and Subversion next to git; Initialize Repository offers all three; repositories nested in a project show too</li>
           <li>Plugin API tapi_1: socket commands for editing, asking, diagnostics and terminal tabs; plugins can bring language servers, Run, language specs and snippets</li>
           <li>A Plugins window: switch plugins off, uninstall them, install from the registry (unreviewed ones warn first)</li>
-          <li>Plugins for MATLAB, GNU Octave, ShellCheck, CMake and text tools; MATLAB and Octave also as the packages t-code-matlab and t-code-octave</li>
+          <li>Plugins for Java (jdtls, Run with errors and exceptions as diagnostics), MATLAB, GNU Octave, ShellCheck, CMake and text tools; MATLAB and Octave also as the packages t-code-matlab and t-code-octave</li>
           <li>Closing t-code ends the programs plugin terminal tabs started, and only those (MATLAB gets exit first)</li>
           <li>Objective-C (.m, .mm) goes to clangd; a .m file is MATLAB unless Objective-C sits next to it</li>
           <li>t-code's own SVG icons for files and the interface: no Nerd Font needed</li>

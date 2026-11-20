@@ -111,7 +111,7 @@ build/test-linediff
 - Source Control for Mercurial and Subversion next to git; Initialize Repository offers all three; repositories nested in a project show too
 - Plugin API tapi_1: socket commands for editing, asking, diagnostics and terminal tabs; plugins can bring language servers, Run, language specs and snippets
 - A Plugins window: switch plugins off, uninstall them, install from the registry (unreviewed ones warn first)
-- Plugins for MATLAB, GNU Octave, ShellCheck, CMake and text tools; MATLAB and Octave also as the packages t-code-matlab and t-code-octave
+- Plugins for Java (jdtls, Run with errors and exceptions as diagnostics), MATLAB, GNU Octave, ShellCheck, CMake and text tools; MATLAB and Octave also as the packages t-code-matlab and t-code-octave
 - Closing t-code ends the programs plugin terminal tabs started, and only those (MATLAB gets exit first)
 - Objective-C (.m, .mm) goes to clangd; a .m file is MATLAB unless Objective-C sits next to it
 - t-code's own SVG icons for files and the interface: no Nerd Font needed

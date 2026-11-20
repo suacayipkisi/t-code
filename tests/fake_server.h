@@ -268,6 +268,14 @@ static int fake_server(void)
       g_free(reply);
       g_free(note);
       g_free(quoted_uri);
+    } else if (g_strcmp0(method, "textDocument/hover") == 0 && g_hash_table_lookup(fake_docs, uri) &&
+               strstr(((GString *)g_hash_table_lookup(fake_docs, uri))->str, "MARKED")) {
+      /* jdtls' way: MarkedStrings, the signature with its language, then the Javadoc. */
+      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":{\"contents\":["
+                                    "{\"language\":\"java\",\"value\":\"String name()\"},\"Returns the name.\"]}}",
+                                    json_int_at(message, "id", 0));
+      fake_send(reply);
+      g_free(reply);
     } else if (g_strcmp0(method, "textDocument/hover") == 0) {
       char *reply =
           g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":{\"contents\":"

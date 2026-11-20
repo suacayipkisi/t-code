@@ -781,6 +781,17 @@ static void actions_query(App *t, const char *text, guint generation)
 
 static gboolean actions_utf16;
 
+/* A command the client runs itself: jdtls may send a quick fix as "java.apply.workspaceEdit",
+ * whose one argument is the WorkspaceEdit. Its edit, or NULL. */
+static JsonNode *client_command_edit(JsonNode *command)
+{
+  JsonNode *edit = json_at(command, "arguments.0");
+
+  if (g_strcmp0(json_string_at(command, "command"), "java.apply.workspaceEdit") != 0)
+    return NULL;
+  return edit && JSON_NODE_HOLDS_OBJECT(edit) ? edit : NULL;
+}
+
 void navigate_apply_action(Tab *tab, JsonNode *action, gboolean utf16)
 {
   JsonNode *command = json_at(action, "command");
@@ -789,7 +800,9 @@ void navigate_apply_action(Tab *tab, JsonNode *action, gboolean utf16)
     navigate_apply_edit(tab->app, json_at(action, "edit"), FALSE, utf16);
   if (command && JSON_NODE_HOLDS_VALUE(command))
     command = action; /* a Command: {title, command, arguments} */
-  if (command && JSON_NODE_HOLDS_OBJECT(command) && json_string_at(command, "command")) {
+  if (command && JSON_NODE_HOLDS_OBJECT(command) && client_command_edit(command)) {
+    navigate_apply_edit(tab->app, client_command_edit(command), FALSE, utf16);
+  } else if (command && JSON_NODE_HOLDS_OBJECT(command) && json_string_at(command, "command")) {
     JsonNode *arguments = json_at(command, "arguments");
     char *name = json_quote(json_string_at(command, "command"));
     char *list = arguments ? json_to_string(arguments, FALSE) : g_strdup("[]");
@@ -836,6 +849,8 @@ gboolean navigate_action_runnable(Tab *tab, JsonNode *action)
   if (command && JSON_NODE_HOLDS_VALUE(command))
     command = action; /* a Command: {title, command, arguments} */
   name = command && JSON_NODE_HOLDS_OBJECT(command) ? json_string_at(command, "command") : NULL;
+  if (name && client_command_edit(command))
+    return TRUE;
   commands = name && tab ? lsp_capability(tab, "executeCommandProvider.commands") : NULL;
   for (guint i = 0;
        commands && JSON_NODE_HOLDS_ARRAY(commands) && i < json_array_get_length(json_node_get_array(commands)); i++)

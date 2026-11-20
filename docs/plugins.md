@@ -414,6 +414,12 @@ start (`[line, col]`).
 - **Moving with the text:** the marks move with the text the user types, until the plugin sends its
   next list.
 
+**Language servers:**
+
+| Command | Argument | Answer | What it does |
+|---|---|---|---|
+| `lsp-refresh` | – | `ok` | Looks again for the open files' language servers: a plugin that just installed its server's program uses it, so the files already open get the server without a reload. |
+
 **Terminal tabs:**
 
 | Command | Argument | Answer | What it does |
@@ -607,8 +613,8 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Five of them are written and live in this
-repository under `plugins/builtin/` (MATLAB, Octave, ShellCheck, CMake, Text Tools), as working examples and
+These are plugins the API is meant to make possible. Six of them are written and live in this
+repository under `plugins/builtin/` (Java, MATLAB, Octave, ShellCheck, CMake, Text Tools), as working examples and
 as the registry's first entries; t-code does not load them by itself (install them from Browse, or copy a
 folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
 `t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
@@ -616,6 +622,52 @@ PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what
 (**core**), what the plugin itself does, and where it stops. Some still use **(planned)** parts of tapi_1.
 
 ### Languages and REPLs
+
+#### Java (`java`, in this repository: `plugins/builtin/java`)
+- **Does:** Java with what C gets from clangd, through the Eclipse JDT Language Server (jdtls):
+  errors as you type, completion (with imports), hover with Javadoc, signature help, go to
+  definition, references, rename, formatting, outline, call and type hierarchy, semantic colors,
+  inlay hints and quick fixes. Run (also `F5` on a `.java` file), Build, Run Tests, Clean and Stop for
+  Maven, Gradle and plain folders. Install Language Server and Clean Language Server Workspace.
+- **Core:**
+  - An `lsp` entry for `t-code-jdtls` (the plugin's launcher, in `~/.local/bin` once installed;
+    until then the Plugins window shows it as not found). jdtls answers hover with MarkedStrings
+    and may send a quick fix as the client-side command `java.apply.workspaceEdit`: t-code reads
+    both.
+  - `"run": {".java": "run"}`, terminal tabs, `diagnostics-set`, `pick`, `status-set`, and
+    `lsp-refresh`, so files already open get the server right after the install.
+  - `"start": "project"`: with jdtls ready the plugin exits at once; without it, the first `.java`
+    file that opens asks once whether to install it.
+- **Plugin** (Python 3, standard library):
+  - **Install:** jdtls needs a JDK 21 or newer (`$JAVA_HOME`, `java` on `PATH`, else the newest in
+    `/usr/lib/jvm`). A jdtls already installed (Arch's package, Homebrew, Mason, `jdtls` on `PATH`,
+    `$TCODE_JDTLS_HOME`) is used as it is; else the newest milestone is downloaded from
+    download.eclipse.org (about 50 MB, its SHA-256 checked) into `~/.local/share/t-code/jdtls/`.
+    Then `jdtls_launcher.py` is copied to `~/.local/bin/t-code-jdtls`; a newer plugin version
+    refreshes the copy when the project opens.
+  - **Launcher:** the JVM with the serial collector and a 1 GB heap at most (on a small project
+    295 MB, 800 MB with the parallel collector; `$TCODE_JDTLS_JVM_ARGS` replaces them), jdtls' index
+    in `~/.cache/t-code-java/workspace/<project>-<hash>`, Lombok as a Java agent when the build
+    file names it. In a project without Maven or Gradle it adds `triggerFiles` (one file per source
+    folder) to `initialize`, so `src/com/example/App.java` in package `com.example` is not reported
+    as a package mismatch.
+  - **Run:** the current file when it has a `main` (JDK 25's `void main()` too), else the only
+    one, else the one picked (the last pick first). Maven: `mvn compile
+    dependency:build-classpath`, then `java` with that classpath (`mvnw` when the project has one;
+    a file under `src/test` gets the test classpath). Gradle: an init script adds a task writing
+    the runtime classpath, then `java` (`gradlew` when there is one). Plain folder: `javac
+    -sourcepath` into `~/.cache/t-code-java/classes/`, with `lib/*.jar`, then `java` from the same
+    JDK as `javac`. Each run is a script typed into the plugin's "Java" tab; stdin and stdout stay
+    the terminal's.
+  - **Diagnostics:** javac's errors (also through Gradle) with the caret's column, Maven's
+    `[ERROR] File.java:[12,5]`, Surefire's and Gradle's failed tests, and the uncaught exception's
+    frames in the project (the first an error, each `Caused by` too, the callers info).
+  - **Run Tests:** `mvn test` / `gradle test`, only the current class when it is a test.
+- **Limits:**
+  - No debugger: the API has no `debuggers` yet (java-debug runs inside jdtls).
+  - The Testing panel does not list JUnit tests; Run Tests runs them in the terminal.
+  - Opening a class from a library jar (`jdt://` sources) is not supported.
+  - A Maven module that needs its sibling modules builds from its own folder.
 
 #### MATLAB (`matlab`, in this repository: `plugins/builtin/matlab`)
 - **Does:** write and run `.m` code without the MATLAB desktop: Run File (also `F5` on a `.m` file),

@@ -15,6 +15,7 @@
 
 #include "editor_page.h"
 #include "util.h"
+#include "widgets.h"
 #include "fake_server.h"
 #include "plugins/plugins.h"
 
@@ -243,6 +244,24 @@ static void test_hover_fixes(void)
   g_free(text);
   g_ptr_array_unref(buttons);
 
+  /* jdtls' fixes: a command the client runs itself, its one argument the edit. */
+  char *uri = lsp_path_to_uri(tab->path), *quoted = json_quote(uri);
+  char *json = g_strdup_printf("{\"title\":\"Add Z\",\"kind\":\"quickfix\",\"command\":{\"title\":\"Add Z\","
+                               "\"command\":\"java.apply.workspaceEdit\",\"arguments\":[{\"changes\":{%s:[{"
+                               "\"newText\":\"Z\",\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":"
+                               "{\"line\":0,\"character\":0}}}]}}]}}",
+                               quoted);
+  JsonNode *action = json_from_string(json, NULL);
+  g_assert_true(navigate_action_runnable(tab, action));
+  navigate_apply_action(tab, action, FALSE);
+  text = text_of(tab);
+  g_assert_cmpstr(text, ==, "Zint ;\n");
+  g_free(text);
+  json_node_unref(action);
+  g_free(json);
+  g_free(quoted);
+  g_free(uri);
+
   /* Away from the problem: no fixes asked for, no buttons. */
   g_assert_true(server_agrees(tab));
   g_object_unref(display);
@@ -255,6 +274,29 @@ static void test_hover_fixes(void)
   buttons = hover_buttons(GTK_WIDGET(display), g_ptr_array_new());
   g_assert_cmpuint(buttons->len, ==, 0);
   g_ptr_array_unref(buttons);
+  g_object_unref(display);
+  free_tab(tab);
+}
+
+/* jdtls answers hover with MarkedStrings (the signature, then the Javadoc): both show, one per line. */
+static void test_hover_marked(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/Marked.java", "int MARKED;\n");
+  GtkSourceHoverDisplay *display = g_object_ref_sink(g_object_new(GTK_SOURCE_TYPE_HOVER_DISPLAY, NULL));
+  GtkTextIter iter;
+  GtkWidget *label;
+  int done = 0;
+
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  iter = iter_at(tab, 0, 6);
+  populate(NULL, tab, &iter, display, NULL, on_populated, &done);
+  while (!done)
+    g_main_context_iteration(NULL, TRUE);
+  g_assert_cmpint(done, ==, 1);
+  label = find_widget(GTK_WIDGET(display), GTK_TYPE_LABEL, NULL, "symbol");
+  g_assert_nonnull(label);
+  g_assert_cmpstr(gtk_label_get_text(GTK_LABEL(label)), ==, "String name()\nReturns the name.");
   g_object_unref(display);
   free_tab(tab);
 }
@@ -1614,8 +1656,8 @@ static void test_language_routing(void)
     g_assert_cmpint(servers[i]->kind, ==, files[i].kind);
     g_assert_cmpstr(server_language_id(servers[i]->kind, tabs[i]), ==, files[i].id);
   }
-  g_assert_true(servers[4] == servers[7]); /* TypeScript's serves JavaScript too */
-  g_assert_true(servers[8] == servers[9]); /* .json and .jsonc */
+  g_assert_true(servers[4] == servers[7]);                               /* TypeScript's serves JavaScript too */
+  g_assert_true(servers[8] == servers[9]);                               /* .json and .jsonc */
   g_assert_true(servers[0] == servers[12] && servers[0] == servers[13]); /* clangd: Objective-C too */
   g_assert_true(servers[1] != servers[2] && servers[2] != servers[3] && servers[3] != servers[4]);
   g_assert_true(servers[4] != servers[8] && servers[8] != servers[10] && servers[10] != servers[11]);
@@ -1760,6 +1802,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/hover", test_hover);
   g_test_add_func("/lsp/plugin-server", test_plugin_server);
   g_test_add_func("/lsp/hover-fixes", test_hover_fixes);
+  g_test_add_func("/lsp/hover-marked", test_hover_marked);
   g_test_add_func("/lsp/toolchain-options", test_toolchain_options);
   g_test_add_func("/lsp/data-language-settings", test_data_language_settings);
   g_test_add_func("/lsp/document-highlight", test_document_highlight);

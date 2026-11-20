@@ -22,6 +22,7 @@
 #include "git/compare.h"
 #include "git/scm/scm.h"
 #include "lsp/inline/diagnostics.h"
+#include "lsp/client/client.h"
 #include "lsp/json.h"
 #include "plugins/plugins.h"
 #include "popups/picker.h"
@@ -388,6 +389,7 @@ static gboolean do_debug(Client *c, const char *arg) { debug_launch(c->app, arg)
 static gboolean do_debug_failed(Client *c, const char *arg G_GNUC_UNUSED) { debug_build_failed(c->app); answer_ok(c, NULL); return TRUE; }
 static gboolean do_say(Client *c, const char *arg) { status_say(c->app, arg); answer_ok(c, NULL); return TRUE; }
 static gboolean do_scm_message(Client *c, const char *arg) { scm_set_message(arg); answer_ok(c, NULL); return TRUE; }
+static gboolean do_lsp_refresh(Client *c, const char *arg G_GNUC_UNUSED) { lsp_reattach(c->app); answer_ok(c, NULL); return TRUE; }
 /* clang-format on */
 
 static gboolean do_project(Client *c, const char *arg)
@@ -753,6 +755,7 @@ static const Request requests[] = {
   { "terminal-close",     NEEDS_NOTHING, 0,               FALSE, do_terminal_close },
   { "terminal-close-text", NEEDS_NOTHING, 0,              FALSE, do_terminal_close_text },
   { "scm-message",        NEEDS_NOTHING, 0,               FALSE, do_scm_message },
+  { "lsp-refresh",        NEEDS_NOTHING, 0,               FALSE, do_lsp_refresh },
   { "_debug",             NEEDS_PATH,    0,               FALSE, do_debug },
   { "_debug-failed",      NEEDS_NOTHING, 0,               FALSE, do_debug_failed },
   { "debug",              NEEDS_PATH,    0,               TRUE,  do_debug },

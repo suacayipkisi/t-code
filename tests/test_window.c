@@ -857,6 +857,8 @@ static void test_socket_tapi_editing(void)
   g_free(message);
   scm_set_message(NULL);
 
+  tapi_expect(&c, "lsp-refresh", "ok"); /* a plugin installed its language server */
+
   tapi_close(&c);
   close_everything();
   g_free(path);
@@ -3704,7 +3706,8 @@ static void write_program(const char *dir, const char *name, const char *text)
  * whole of it without a selection, the selection with one); ShellCheck, started with the project,
  * turns a fake shellcheck's findings on an opened script into diagnostics; MATLAB runs a .m file in
  * a fake MATLAB's terminal tab and turns its error into a diagnostic, then closes the session; CMake
- * configures with a fake cmake and shows its error on the opened CMakeLists.txt. */
+ * configures with a fake cmake and shows its error on the opened CMakeLists.txt; Java runs a file
+ * with a fake JDK and shows its exception. */
 static void test_example_plugins(void)
 {
   char *python = g_find_program_in_path("python3");
@@ -3786,6 +3789,7 @@ static void test_example_plugins(void)
   g_assert_nonnull(plugin_find(&app, "matlab"));
   g_assert_nonnull(plugin_find(&app, "octave"));
   g_assert_nonnull(plugin_find(&app, "cmake"));
+  g_assert_nonnull(plugin_find(&app, "java"));
 
   /* Text Tools */
   g_assert_true(g_file_set_contents(text_file, "b\na\nb\n", -1, NULL));
@@ -3875,6 +3879,40 @@ static void test_example_plugins(void)
   g_assert_cmpstr(gtk_source_language_get_id(editor_language("/some/where/Makefile", NULL)), ==, "makefile");
   plugin_run_command(&app, "cmake", "configure");
   run_until(shows_diagnostic, (const char *const[]){ lists, "Unknown CMake command \"foo_bar\"." });
+
+  /* Java: Run (F5) on a plain folder's file builds it with javac and runs its class in the "Java"
+   * tab; the exception's frame in the project becomes a diagnostic */
+  write_program(bin, "javac", "#!/bin/sh\nexit 0\n");
+  write_program(bin, "java",
+                "#!/bin/sh\n"
+                "echo 'hello from java'\n"
+                "printf 'Exception in thread \"main\" java.lang.ArithmeticException: / by zero\\n"
+                "\\tat com.example.App.main(App.java:4)\\n' >&2\n"
+                "exit 1\n");
+  char *java_dir = g_build_filename(app.project.root, "jsrc", "com", "example", NULL);
+  char *java_file = write_at(java_dir, "App.java",
+                             "package com.example;\npublic class App {\n  public static void main(String[] a) {\n"
+                             "    System.out.println(1 / 0);\n  }\n}\n",
+                             -1, 0);
+  g_assert_nonnull(plugin_find(&app, "java"));
+  PluginCommand *java_run = plugins_run_command_for(&app, java_file);
+  g_assert_nonnull(java_run);
+  g_assert_cmpstr(java_run->plugin->id, ==, "java");
+  open_file(&app, java_file);
+  run_until(has_tab, java_file);
+  run_until(loaded, find_tab(&app, TAB_EDITOR, java_file));
+  shells = shell_count(&app);
+  build_project(&app, TRUE);
+  run_until(shows_diagnostic, (const char *const[]){ java_file, "ArithmeticException: / by zero" });
+  g_assert_cmpint(shell_count(&app), ==, shells + 1);
+  g_assert_cmpstr(shell_name(shell_at(&app, shells)), ==, "Java");
+  close_shell_tab(&app, shell_at(&app, shells));
+  char *java_top = g_build_filename(app.project.root, "jsrc", NULL);
+  const char *rm_java[] = { "rm", "-rf", java_top, NULL };
+  g_spawn_sync(NULL, (char **)rm_java, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
+  g_free(java_top);
+  g_free(java_file);
+  g_free(java_dir);
 
   close_everything();
   g_unlink(lists);

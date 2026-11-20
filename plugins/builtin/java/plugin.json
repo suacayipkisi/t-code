@@ -1,0 +1,60 @@
+{
+  "api": "tapi_1",
+  "id": "java",
+  "name": "Java",
+  "provider": "t-code",
+  "version": "0.1.0",
+  "description": "jdtls (completion, errors, navigation, refactoring), Run (F5 too), Build, Test and Clean for Maven, Gradle and plain folders, with errors and exceptions as diagnostics.",
+  "executable": "java_plugin.py",
+  "start": "project",
+  "permissions": ["terminal", "network", "start"],
+  "commands": [
+    { "id": "run", "name": "Java: Run" },
+    { "id": "build", "name": "Java: Build" },
+    { "id": "test", "name": "Java: Run Tests" },
+    { "id": "clean", "name": "Java: Clean" },
+    { "id": "stop", "name": "Java: Stop (Ctrl+C)" },
+    { "id": "install", "name": "Java: Install Language Server (jdtls)" },
+    { "id": "clean-workspace", "name": "Java: Clean Language Server Workspace" }
+  ],
+  "run": { ".java": "run" },
+  "lsp": [
+    {
+      "name": "jdtls",
+      "argv": ["t-code-jdtls"],
+      "languages": ["java"],
+      "language-id": "java",
+      "options": {
+        "extendedClientCapabilities": {
+          "classFileContentsSupport": false,
+          "progressReportProvider": false,
+          "resolveAdditionalTextEditsSupport": false
+        },
+        "settings": {
+          "java": {
+            "configuration": { "updateBuildConfiguration": "automatic" },
+            "import": { "maven": { "enabled": true }, "gradle": { "enabled": true } },
+            "autobuild": { "enabled": true },
+            "maxConcurrentBuilds": 1,
+            "signatureHelp": { "enabled": true },
+            "format": { "enabled": true },
+            "inlayHints": { "parameterNames": { "enabled": "literals" } },
+            "references": { "includeDecompiledSources": false }
+          }
+        }
+      },
+      "settings": {
+        "java": {
+          "configuration": { "updateBuildConfiguration": "automatic" },
+          "import": { "maven": { "enabled": true }, "gradle": { "enabled": true } },
+          "autobuild": { "enabled": true },
+          "maxConcurrentBuilds": 1,
+          "signatureHelp": { "enabled": true },
+          "format": { "enabled": true },
+          "inlayHints": { "parameterNames": { "enabled": "literals" } },
+          "references": { "includeDecompiledSources": false }
+        }
+      }
+    }
+  ]
+}

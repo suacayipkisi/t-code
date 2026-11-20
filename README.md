@@ -70,6 +70,7 @@ closes. All but clangd are optional: t-code uses them when they are on `PATH`.
 | YAML | `yaml-language-server` | `npm install -g yaml-language-server` |
 | Markdown | `marksman` | your distribution or its GitHub releases |
 | CMake | `neocmakelsp` | `cargo install neocmakelsp` |
+| Java | `jdtls`, through the Java plugin | install the plugin (Settings → Plugins… → Browse), then **Java: Install Language Server** (needs a JDK 21+) |
 
 **Python: Select Interpreter…**, **Rust: Select Features…** and **Rust: Select Target…** (command
 palette) set the project's Python, Cargo features and target for the server and for Build, Run and

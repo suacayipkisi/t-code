@@ -126,18 +126,43 @@ static GtkWidget *hover_label(const char *text, gboolean markup, const char *css
   return label;
 }
 
-/* The server's text (clangd's MarkupContent: {"value": ...}), without the blank lines clangd's plain
- * text has between every part. NULL when there is none. */
+/* Adds one part of the contents on a line of its own: a MarkupContent's or a MarkedString's
+ * ({"language", "value"}) value, or a plain string. */
+static void append_part(GString *text, JsonNode *part)
+{
+  const char *value = JSON_NODE_HOLDS_VALUE(part) ? json_node_get_string(part) : json_string_at(part, "value");
+
+  if (!value || !*value)
+    return;
+  if (text->len)
+    g_string_append_c(text, '\n');
+  g_string_append(text, value);
+}
+
+/* The server's text: clangd's MarkupContent ({"value": ...}), or MarkedStrings, one or a list of
+ * them (jdtls: the signature, then the Javadoc), without the blank lines clangd's plain text has
+ * between every part. NULL when there is none. */
 static char *hover_text(JsonNode *result)
 {
   static GRegex *blank_lines;
-  const char *value = json_string_at(result, "contents.value");
+  JsonNode *contents = json_at(result, "contents");
+  GString *text = g_string_new(NULL);
+  char *joined;
 
-  if (!value || !*value)
+  if (contents && JSON_NODE_HOLDS_ARRAY(contents))
+    for (guint i = 0; i < json_array_get_length(json_node_get_array(contents)); i++)
+      append_part(text, json_array_get_element(json_node_get_array(contents), i));
+  else if (contents)
+    append_part(text, contents);
+  if (!text->len) {
+    g_string_free(text, TRUE);
     return NULL;
+  }
   if (!blank_lines)
     blank_lines = g_regex_new("\n\\s*\n", G_REGEX_OPTIMIZE, 0, NULL);
-  return g_strstrip(g_regex_replace_literal(blank_lines, value, -1, 0, "\n", 0, NULL));
+  joined = g_regex_replace_literal(blank_lines, text->str, -1, 0, "\n", 0, NULL);
+  g_string_free(text, TRUE);
+  return g_strstrip(joined);
 }
 
 /* Fills the popover with the problems, their fixes and the server's text; with neither problems nor
