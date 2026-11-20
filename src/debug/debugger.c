@@ -68,6 +68,7 @@ struct Debugger {
   gboolean configured; /* the breakpoints went before the start: each change goes on its own now */
   gboolean attached;   /* to a process that ran before: Stop leaves it running */
   char *core;          /* a core dump taken out of systemd-coredump for this session, deleted at its end */
+  int signo;           /* the signal a core dump's program got (systemd-coredump says), 0: unknown */
   gint64 thread;       /* the thread that stopped last, which the steps go on with */
   char *reason;        /* why it stopped last ("breakpoint", "step", "signal") */
   gboolean crashed;    /* it stopped on a crash: its end is that crash's */
@@ -472,7 +473,7 @@ static void on_stack(gpointer data, JsonNode *body, const char *error)
   JsonNode *frames = json_at(body, "stackFrames");
   guint n = frames && JSON_NODE_HOLDS_ARRAY(frames) ? json_array_get_length(json_node_get_array(frames)) : 0;
   const char *path = NULL, *top = NULL, *function = NULL;
-  gboolean crash = g_strcmp0(s->reason, "signal") == 0 || g_strcmp0(s->reason, "exception") == 0;
+  gboolean crash = g_strcmp0(s->reason, "signal") == 0 || g_strcmp0(s->reason, "exception") == 0 || s->examining;
   gboolean sanitizer = FALSE;
   int line = 0, shown = 0;
   char *where;
@@ -523,8 +524,8 @@ static void on_stack(gpointer data, JsonNode *body, const char *error)
       c->where = g_strdup(where);
       dap_request_full(s->dap, "exceptionInfo", args, on_exception, c, crash_free);
       g_free(args);
-    } else if (sanitizer || s->kind != ADAPTER_GDB) {
-      say_crash(t, where, sanitizer, 0);
+    } else if (sanitizer || s->signo > 0 || s->kind != ADAPTER_GDB) {
+      say_crash(t, where, sanitizer, s->signo);
     } else {
       Crash *c = g_new0(Crash, 1);
       char *args = g_strdup_printf(
@@ -609,14 +610,23 @@ static void on_event(gpointer owner, const char *event, JsonNode *body)
       g_free(text);
       g_strfreev(lines);
     } else if (output && g_strcmp0(category, "console") == 0 && s->state != ENDING) { /* a logpoint's line, ... */
-      char *text = g_strchomp(g_strdup(output));
-      if (*text && !g_str_has_prefix(text, "Type 'dlv help'")) /* Delve's own command line: not here */
-        say(t, FALSE, "%s%s", s->kind == ADAPTER_GDB ? "◆ " : "", text);
-      g_free(text);
+      char **lines = g_strsplit(output, "\n", -1);
+      for (char **line = lines; *line; line++) {
+        g_strchomp(*line);
+        if (**line && !adapter_noise(s->kind, *line))
+          say(t, FALSE, "%s%s", s->kind == ADAPTER_GDB ? "◆ " : "", *line);
+      }
+      g_strfreev(lines);
     } else if (output && (g_strcmp0(category, "important") == 0 || g_strcmp0(category, "stderr") == 0)) {
-      char *text = g_strchomp(g_strdup(output));
-      say_text(t, FALSE, text);
-      g_free(text);
+      char **lines = g_strsplit(output, "\n", -1), *kept;
+      GString *text = g_string_new("");
+      for (char **line = lines; *line; line++)
+        if (!adapter_noise(s->kind, g_strchomp(*line)))
+          g_string_append_printf(text, "%s%s", text->len ? "\n" : "", *line);
+      if ((kept = g_strchomp(text->str)) && *kept)
+        say_text(t, FALSE, kept);
+      g_string_free(text, TRUE);
+      g_strfreev(lines);
     }
   }
 }
@@ -886,13 +896,13 @@ static void program_query(App *t, const char *text, guint generation)
   }
 }
 
-static void open_core(App *t, const char *core, const char *program, gboolean taken);
+static void open_core(App *t, const char *core, const char *program, gboolean taken, int signo);
 
 static void program_choose(App *t, const char *path)
 {
   if (ui.core) { /* the program of a core file */
     char *core = g_steal_pointer(&ui.core);
-    open_core(t, core, path, FALSE);
+    open_core(t, core, path, FALSE, 0);
     g_free(core);
     return;
   }
@@ -1029,8 +1039,9 @@ void debug_attach(App *t)
 
 #define CORE_FILE_PAYLOAD "file:"
 
-/* Opens core, the memory program had when it crashed; taken: a copy of t-code's, deleted at the end. */
-static void open_core(App *t, const char *core, const char *program, gboolean taken)
+/* Opens core, the memory program had when it crashed; taken: a copy of t-code's, deleted at the end;
+ * signo: the signal that killed it (0: unknown). */
+static void open_core(App *t, const char *core, const char *program, gboolean taken, int signo)
 {
   AdapterKind kind = native(t);
   const char *request;
@@ -1045,6 +1056,7 @@ static void open_core(App *t, const char *core, const char *program, gboolean ta
     say(t, FALSE, "Nothing runs: the stack and the variables are as they were when it crashed. Shift+F5 closes it.");
     if (taken)
       s->core = g_strdup(core);
+    s->signo = signo;
   } else if (taken) {
     g_unlink(core);
   }
@@ -1092,6 +1104,7 @@ static void core_query(App *t, const char *text, guint generation)
 typedef struct {
   App *app;
   char *core, *exe;
+  int signo;
 } Taken;
 
 static void taken_free(Taken *k)
@@ -1108,7 +1121,7 @@ static void on_core_taken(GObject *source, GAsyncResult *result, gpointer data)
   gboolean ok = g_subprocess_wait_check_finish(G_SUBPROCESS(source), result, NULL);
 
   if (ok && !k->app->closing)
-    open_core(k->app, k->core, k->exe, TRUE);
+    open_core(k->app, k->core, k->exe, TRUE, k->signo);
   else if (!k->app->closing) {
     show_sidebar_page(k->app, "debug");
     say(k->app, TRUE, "coredumpctl could not give the core dump of %s.", k->exe);
@@ -1152,7 +1165,7 @@ static void core_choose(App *t, const char *payload)
 
   if (process) {
     Taken *k = g_new0(Taken, 1);
-    *k = (Taken){ t, g_strdup(core), g_strdup(c->exe) };
+    *k = (Taken){ t, g_strdup(core), g_strdup(c->exe), c->signal };
     show_sidebar_page(t, "debug");
     update_ui(t, "Reading the core dump…");
     g_subprocess_wait_check_async(process, NULL, on_core_taken, k);

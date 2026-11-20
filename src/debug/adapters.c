@@ -48,6 +48,34 @@ gboolean adapter_owns_terminal(AdapterKind kind)
   return kind == ADAPTER_GDB || kind == ADAPTER_DELVE;
 }
 
+gboolean adapter_noise(AdapterKind kind, const char *line)
+{
+  const char *rest;
+
+  switch (kind) {
+    case ADAPTER_DELVE: /* its own command line, not here */ return g_str_has_prefix(line, "Type 'dlv help'");
+    case ADAPTER_LLDB:
+      if (g_str_has_prefix(line, "Attached to process ") || g_str_has_prefix(line, "Launching: ") ||
+          g_str_has_prefix(line, "Executable binary set to ") ||
+          g_str_has_prefix(line, "To get started with the debug console") ||
+          g_str_has_prefix(line, "For more information visit https://lldb.llvm.org"))
+        return TRUE; /* the Debug panel says it */
+      if (g_str_has_prefix(line, "warning: (") && strstr(line, "mismatch addresses for section"))
+        return TRUE; /* about a library's sections (libasan's, on Fedora): nothing the user can do */
+      if (!g_str_has_prefix(line, "Process "))
+        return FALSE;
+      rest = line + strlen("Process ");
+      if (!g_ascii_isdigit(*rest))
+        return FALSE;
+      while (g_ascii_isdigit(*rest))
+        rest++;
+      /* "Process 42 exited with status = 0 (0x00000000)": the Debug panel says how it ended */
+      return g_str_has_prefix(rest, " exited with status") || g_str_has_prefix(rest, " launched") ||
+             g_str_has_prefix(rest, " stopped") || g_str_has_prefix(rest, " resuming");
+    default: return FALSE;
+  }
+}
+
 /* lldb-dap under one of its names: lldb-dap, lldb-dap-19 (Debian's versioned ones), lldb-vscode (before
  * LLVM 18); the newest version first. NULL: none. */
 static char *find_lldb(void)

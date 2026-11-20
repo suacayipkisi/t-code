@@ -34,6 +34,11 @@ const char *adapter_id(AdapterKind kind);
  * redirections); else the debugger asks t-code to start it there (runInTerminal). */
 gboolean adapter_owns_terminal(AdapterKind kind);
 
+/* Whether line (a line of the debugger's "console" output) is its own chatter the Debug panel leaves
+ * out: Delve's command-line hint, lldb-dap's "Attached to process", "Process 42 exited with status",
+ * its warnings about libraries' sections. Logpoints' lines are kept. */
+gboolean adapter_noise(AdapterKind kind, const char *line);
+
 /* The C / C++ / Rust debugger: preferred ("gdb", "lldb"; NULL or "": gdb) when it is installed, else the
  * other one when that is, else preferred's (which then says it is missing). */
 AdapterKind adapter_native(const char *preferred);

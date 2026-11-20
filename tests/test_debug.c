@@ -563,6 +563,22 @@ static void test_lldb(void)
   g_free(dir);
 }
 
+/* The debuggers' own console chatter is left out; a logpoint's line is not. */
+static void test_noise(void)
+{
+  g_assert_true(adapter_noise(ADAPTER_LLDB, "Attached to process 856849."));
+  g_assert_true(adapter_noise(ADAPTER_LLDB, "Process 856849 exited with status = 0 (0x00000000)"));
+  g_assert_true(adapter_noise(ADAPTER_LLDB, "warning: (x86_64) /lib64/libasan.so.8 mismatch addresses for section "
+                                            "container when merging with /lib64/libasan.so.8, expected: 0x0, actual: "
+                                            "0x20"));
+  g_assert_true(adapter_noise(ADAPTER_LLDB, "Executable binary set to '/p/demo' (x86_64-unknown-linux-gnu)."));
+  g_assert_true(adapter_noise(ADAPTER_DELVE, "Type 'dlv help' for list of commands."));
+  g_assert_false(adapter_noise(ADAPTER_LLDB, "a is 6"));
+  g_assert_false(adapter_noise(ADAPTER_LLDB, "Process count: 3"));
+  g_assert_false(adapter_noise(ADAPTER_LLDB, "warning: low memory"));
+  g_assert_false(adapter_noise(ADAPTER_GDB, "Attached to process 42."));
+}
+
 /* What each debugger is told to launch, attach to, or open. */
 static void test_adapter_arguments(void)
 {
@@ -685,6 +701,7 @@ int main(int argc, char **argv)
   g_test_add_func("/dap/lldb", test_lldb);
   g_test_add_func("/dap/missing", test_missing);
   g_test_add_func("/adapters/arguments", test_adapter_arguments);
+  g_test_add_func("/adapters/noise", test_noise);
   g_test_add_func("/adapters/core-dumps", test_core_dumps);
   g_test_add_func("/adapters/attachable", test_attachable);
   return g_test_run();
