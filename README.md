@@ -2,7 +2,7 @@
 
 A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) and other color themes.
 
-### Jump => [Latest Release v0.4.2](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.2) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md)
+### Jump => [Latest Release v0.5.0](https://github.com/suacayipkisi/t-code/releases/tag/v0.5.0) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md)
 
 ![t-code 0.4 in the Dark Classic color theme with the rounded look](docs/dark_classic-rounded.png)
 
@@ -225,16 +225,20 @@ to adding new features in their IDE is takes more time than making it myself usi
 
 ## Performance
 
-Measured on Fedora 44 with the same 25 C files of this repository open, each tab shown in turn
-(`tools/measure.sh`; PSS, so the rows add up):
+Measured on Fedora 44 (0.5.0: Fedora 45, clangd 23) with the same 25 C files of this repository
+open, each tab shown in turn (`tools/measure.sh`; PSS, so the rows add up):
 
-| all 25 tabs shown | 0.1.1 (micro) | 0.2 (GtkSourceView) | 0.3 | 0.4.1 |
-|---|---:|---:|---:|---:|
-| editors | 25 micro processes, 412 MB | in the window | in the window | in the window |
-| t-code window | 57 MB | 83 MB | 70 MB | 70–72 MB |
-| helper processes per editor | 50, 6 MB | none | none | none |
-| clangd | 361 MB | 470 MB | 345–367 MB | 372–392 MB |
-| **memory in all** | **839 MB** | **557 MB** | **418–442 MB** | **445–467 MB** |
+| all 25 tabs shown | 0.1.1 (micro) | 0.2 (GtkSourceView) | 0.3 | 0.4.1 | 0.5.0 |
+|---|---:|---:|---:|---:|---:|
+| editors | 25 micro processes, 412 MB | in the window | in the window | in the window | in the window |
+| t-code window | 57 MB | 83 MB | 70 MB | 70–72 MB | 70–76 MB |
+| helper processes per editor | 50, 6 MB | none | none | none | none |
+| clangd | 361 MB | 470 MB | 345–367 MB | 372–392 MB | 372–416 MB |
+| **memory in all** | **839 MB** | **557 MB** | **418–442 MB** | **445–467 MB** | **445–495 MB** |
+
+RSS, which counts shared libraries in full, for 0.5.0: window 111–112 MB, clangd 419–442 MB.
+On Fedora 45 the same day, 0.4.2 measured 89–90 MB for the window, 394–532 MB for clangd and
+487–625 MB in all, so 0.5.0 is smaller than the release before it on the same system.
 
 clangd gets a file only once its tab is shown, keeps at most five open, runs with two malloc
 arenas and stops when its last file closes; idle, t-code uses no CPU. What keeps it small and how
