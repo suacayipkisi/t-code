@@ -75,6 +75,16 @@ const char *const *vcs_unresolved_args(void);
 char *vcs_git_status(VcsKind kind, const char *status, gsize size, const char *head, const char *unresolved,
                      GHashTable *staged, gboolean v1, gsize *length);
 
+/* Quick Open's list: the files under the folder it runs in, as git ls-files -co --exclude-standard
+ * gives them (hg: tracked and unknown files, not ignored ones; svn: every versioned path and the
+ * unknown ones, not ignored ones). */
+const char *const *vcs_files_args(VcsKind kind);
+
+/* Reads vcs_files_args()'s output: paths relative to that folder. hg's all go to tracked; svn's
+ * versioned ones (folders among them; not deleted or missing ones) to tracked, unknown ones (a
+ * whole unknown folder as one path) to unknown. */
+void vcs_files(VcsKind kind, const char *out, gsize size, GPtrArray *tracked, GPtrArray *unknown);
+
 /* svn info --xml's repository-relative URL of the working copy ("^/trunk"), NULL when missing. */
 char *vcs_svn_url(const char *info);
 

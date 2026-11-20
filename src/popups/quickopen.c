@@ -1,12 +1,13 @@
 /*
  * Ctrl+P: open a file by typing part of its name.
- * The file list comes from git when the project is a repository (so .gitignore applies),
- * otherwise from walking the project, skipping hidden folders and build output. It is built
+ * The file list comes from git, hg or svn when the project is a repository (so their ignore rules
+ * apply), otherwise from walking the project, skipping hidden folders and build output. It is built
  * on a worker thread; the picker shows the previous list of the same project until then.
  */
 #include "popups/quickopen.h"
 
 #include "editor/editor.h"
+#include "git/vcs.h"
 #include "popups/picker.h"
 
 #include <string.h>
@@ -62,6 +63,58 @@ static void walk(GPtrArray *files, const char *dir, const char *prefix)
   g_dir_close(d);
 }
 
+/* hg / svn: their files under root; svn's folders are left out, its unknown folders walked. */
+static gboolean from_vcs(GPtrArray *files, const char *root, VcsKind kind)
+{
+  const char *const *args = vcs_files_args(kind);
+  GSubprocessLauncher *launcher =
+      g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
+  GPtrArray *argv = g_ptr_array_new();
+  GSubprocess *proc = NULL;
+  GBytes *out = NULL;
+
+  g_ptr_array_add(argv, (gpointer)vcs_program(kind));
+  for (int i = 0; args && args[i]; i++)
+    g_ptr_array_add(argv, (gpointer)args[i]);
+  g_ptr_array_add(argv, NULL);
+  g_subprocess_launcher_set_cwd(launcher, root);
+  g_subprocess_launcher_setenv(launcher, "HGPLAIN", "1", TRUE);
+  if (args)
+    proc = g_subprocess_launcher_spawnv(launcher, (const char *const *)argv->pdata, NULL);
+  gboolean ok =
+      proc && g_subprocess_communicate(proc, NULL, NULL, &out, NULL, NULL) && g_subprocess_get_successful(proc);
+  g_ptr_array_free(argv, TRUE);
+  g_object_unref(launcher);
+  g_clear_object(&proc);
+  if (!ok) {
+    if (out)
+      g_bytes_unref(out);
+    return FALSE;
+  }
+  gsize size;
+  const char *data = g_bytes_get_data(out, &size);
+  GPtrArray *tracked = g_ptr_array_new_with_free_func(g_free), *unknown = g_ptr_array_new_with_free_func(g_free);
+  vcs_files(kind, data, size, tracked, unknown);
+  for (guint i = 0; i < tracked->len && files->len < MAX_WALK; i++) {
+    char *path = g_build_filename(root, tracked->pdata[i], NULL);
+    if (kind == VCS_HG || g_file_test(path, G_FILE_TEST_IS_REGULAR))
+      g_ptr_array_add(files, g_strdup(tracked->pdata[i]));
+    g_free(path);
+  }
+  for (guint i = 0; i < unknown->len && files->len < MAX_WALK; i++) {
+    char *path = g_build_filename(root, unknown->pdata[i], NULL);
+    if (g_file_test(path, G_FILE_TEST_IS_DIR))
+      walk(files, path, unknown->pdata[i]);
+    else
+      g_ptr_array_add(files, g_strdup(unknown->pdata[i]));
+    g_free(path);
+  }
+  g_ptr_array_unref(tracked);
+  g_ptr_array_unref(unknown);
+  g_bytes_unref(out);
+  return TRUE;
+}
+
 typedef struct {
   const char *path;
   int score;
@@ -115,6 +168,7 @@ static void choose(App *t, const char *relative)
 typedef struct {
   guint number;
   char *root;
+  VcsKind kind; /* the project's repository: git, hg or svn lists the files */
 } Listing;
 
 /* Frees a Listing. */
@@ -130,7 +184,9 @@ static void list_files(GTask *task, gpointer source G_GNUC_UNUSED, gpointer data
   Listing *l = data;
   GPtrArray *list = g_ptr_array_new_with_free_func(g_free);
 
-  if (!from_git(list, l->root))
+  gboolean listed =
+      l->kind == VCS_HG || l->kind == VCS_SVN ? from_vcs(list, l->root, l->kind) : from_git(list, l->root);
+  if (!listed)
     walk(list, l->root, "");
   g_task_return_pointer(task, list, (GDestroyNotify)g_ptr_array_unref);
 }
@@ -168,6 +224,7 @@ void quick_open_show(App *t)
     Listing *l = g_new(Listing, 1);
     l->number = list_number;
     l->root = g_strdup(t->project.root);
+    l->kind = t->project.repo_kind;
     g_task_set_task_data(task, l, (GDestroyNotify)listing_free);
     listing = TRUE;
     g_task_run_in_thread(task, list_files);

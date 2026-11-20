@@ -606,6 +606,47 @@ char *vcs_git_status(VcsKind kind, const char *status, gsize size, const char *h
   return g_string_free(out, FALSE);
 }
 
+/* Files ---------------------------------------------------------------------------------------- */
+
+const char *const *vcs_files_args(VcsKind kind)
+{
+  static const char *const hg[] = { "status",      "--modified", "--added", "--clean", "--unknown",
+                                    "--no-status", "--print0",   ".",       NULL };
+  static const char *const svn[] = { "status", "--xml", "--verbose", "--non-interactive", NULL };
+
+  return kind == VCS_HG ? hg : kind == VCS_SVN ? svn : NULL;
+}
+
+void vcs_files(VcsKind kind, const char *out, gsize size, GPtrArray *tracked, GPtrArray *unknown)
+{
+  if (kind == VCS_HG) {
+    for (const char *p = out, *end = out ? out + size : NULL; out && p < end;) {
+      const char *nul = memchr(p, '\0', end - p);
+      gsize len = (nul ? nul : end) - p;
+      if (len)
+        g_ptr_array_add(tracked, g_strndup(p, len));
+      p += len + 1;
+    }
+    return;
+  }
+  VcsNode *root = out ? vcs_xml_parse(out, size) : NULL;
+  GPtrArray *list = vcs_all(root, "entry");
+  for (guint i = 0; i < list->len; i++) {
+    VcsNode *n = list->pdata[i];
+    const char *path = vcs_attr(n, "path"), *item = vcs_attr(vcs_child(n, "wc-status"), "item");
+    if (!path || !item || strcmp(path, ".") == 0)
+      continue;
+    if (strcmp(item, "unversioned") == 0)
+      g_ptr_array_add(unknown, g_strdup(path));
+    else if (strcmp(item, "deleted") != 0 && strcmp(item, "missing") != 0 && strcmp(item, "ignored") != 0 &&
+             strcmp(item, "external") != 0 && strcmp(item, "none") != 0)
+      g_ptr_array_add(tracked, g_strdup(path));
+  }
+  g_ptr_array_free(list, TRUE);
+  if (root)
+    vcs_node_free(root);
+}
+
 /* Versions ------------------------------------------------------------------------------------- */
 
 char *vcs_rev(VcsKind kind, const char *rev)

@@ -468,6 +468,96 @@ static void test_hg_merge(void)
   g_free(top);
 }
 
+static int by_path(gconstpointer a, gconstpointer b)
+{
+  return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+/* Joins a list of paths, sorted, with "|". */
+static char *sorted(GPtrArray *paths)
+{
+  g_ptr_array_sort(paths, by_path);
+  g_ptr_array_add(paths, NULL);
+  char *joined = g_strjoinv("|", (char **)paths->pdata);
+  g_ptr_array_remove_index(paths, paths->len - 1);
+  return joined;
+}
+
+/* Quick Open's lists: the ignored, removed and missing files are not in them; svn gives an unknown
+ * folder as one path and its versioned folders too (Quick Open leaves those out). */
+static void test_files(void)
+{
+  if (!have("hg") || !have("svn") || !have("svnadmin")) {
+    g_test_skip("no hg or svn");
+    return;
+  }
+  char *top = g_build_filename(tmp, "hg-files", NULL), *deep = g_build_filename(top, "sub", "deep", NULL),
+       *target = g_build_filename(top, "target", NULL);
+  g_mkdir_with_parents(deep, 0755);
+  g_mkdir_with_parents(target, 0755);
+  must(top, "hg", (const char *[]){ "init", NULL });
+  g_free(write_at(top, ".hgignore", "target/\n", -1, 0));
+  g_free(write_at(top, "sub/a.c", "a\n", -1, 0));
+  g_free(write_at(top, "top.c", "t\n", -1, 0));
+  g_free(write_at(top, "gone.c", "g\n", -1, 0));
+  g_free(write_at(top, "target/x.o", "x\n", -1, 0));
+  must(top, "hg", (const char *[]){ "commit", "-A", "-m", "one", NULL });
+  g_free(write_at(top, "sub/deep/new.c", "n\n", -1, 0));
+  must(top, "hg", (const char *[]){ "rm", "top.c", NULL });
+  char *gone = g_build_filename(top, "gone.c", NULL);
+  g_unlink(gone);
+  char *sub = g_build_filename(top, "sub", NULL);
+  gsize size;
+  char *out = run(sub, "hg", vcs_files_args(VCS_HG), NULL); /* the project may be a folder in the repository */
+  size = last_length;
+  GPtrArray *tracked = g_ptr_array_new_with_free_func(g_free), *unknown = g_ptr_array_new_with_free_func(g_free);
+  vcs_files(VCS_HG, out, size, tracked, unknown);
+  char *joined = sorted(tracked);
+  g_assert_cmpstr(joined, ==, "a.c|deep/new.c");
+  g_assert_cmpuint(unknown->len, ==, 0);
+  g_free(joined);
+  g_free(out);
+  g_ptr_array_set_size(tracked, 0);
+
+  char *repo = g_build_filename(tmp, "svn-files-repo", NULL), *wc = g_build_filename(tmp, "svn-files", NULL);
+  char *url = g_strconcat("file://", repo, NULL), *d = g_build_filename(wc, "d", NULL),
+       *fresh = g_build_filename(wc, "fresh", NULL), *build = g_build_filename(wc, "build2", NULL);
+  must(tmp, "svnadmin", (const char *[]){ "create", repo, NULL });
+  must(tmp, "svn", (const char *[]){ "checkout", "-q", url, wc, NULL });
+  g_mkdir_with_parents(d, 0755);
+  g_free(write_at(wc, "a.c", "a\n", -1, 0));
+  g_free(write_at(wc, "d/b.c", "b\n", -1, 0));
+  must(wc, "svn", (const char *[]){ "add", "-q", "a.c", "d", NULL });
+  must(wc, "svn", (const char *[]){ "commit", "-q", "-m", "one", NULL });
+  g_mkdir_with_parents(fresh, 0755);
+  g_mkdir_with_parents(build, 0755);
+  g_free(write_at(wc, "fresh/z.c", "z\n", -1, 0));
+  g_free(write_at(wc, "y.c", "y\n", -1, 0));
+  must(wc, "svn", (const char *[]){ "propset", "-q", "svn:ignore", "build2", ".", NULL });
+  out = run(wc, "svn", vcs_files_args(VCS_SVN), NULL);
+  vcs_files(VCS_SVN, out, last_length, tracked, unknown);
+  joined = sorted(tracked);
+  g_assert_cmpstr(joined, ==, "a.c|d|d/b.c");
+  g_free(joined);
+  joined = sorted(unknown);
+  g_assert_cmpstr(joined, ==, "fresh|y.c");
+  g_free(joined);
+  g_free(out);
+  g_ptr_array_unref(tracked);
+  g_ptr_array_unref(unknown);
+  g_free(build);
+  g_free(fresh);
+  g_free(d);
+  g_free(url);
+  g_free(wc);
+  g_free(repo);
+  g_free(sub);
+  g_free(gone);
+  g_free(target);
+  g_free(deep);
+  g_free(top);
+}
+
 static void test_svn_real(void)
 {
   if (!have("svn") || !have("svnadmin")) {
@@ -558,6 +648,7 @@ int main(int argc, char **argv)
   g_test_add_func("/vcs/hg", test_hg_real);
   g_test_add_func("/vcs/hg-merge", test_hg_merge);
   g_test_add_func("/vcs/svn", test_svn_real);
+  g_test_add_func("/vcs/files", test_files);
   status = g_test_run();
   char *argv_rm[] = { "rm", "-rf", tmp, NULL };
   g_spawn_sync(NULL, argv_rm, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
