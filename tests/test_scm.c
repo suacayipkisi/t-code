@@ -912,6 +912,127 @@ static void test_hg(void)
   g_free(top);
 }
 
+/* What program prints in dir, stripped. */
+static char *tool_out(const char *dir, const char *const *argv)
+{
+  char *out = NULL;
+
+  g_spawn_sync(dir, (char **)argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL, &out, NULL, NULL,
+               NULL);
+  return g_strstrip(out ? out : g_strdup(""));
+}
+
+/* Runs the main loop until argv prints want in dir (or 5 s pass); returns what it printed last. */
+static char *wait_out(const char *dir, const char *const *argv, const char *want)
+{
+  char *out = tool_out(dir, argv);
+
+  for (gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+       strcmp(out, want) != 0 && g_get_monotonic_time() < end;) {
+    run_for(50);
+    g_free(out);
+    out = tool_out(dir, argv);
+  }
+  return out;
+}
+
+/* Mercurial's branches: its named branches and bookmarks to switch to (hg update), a new one made
+ * as a bookmark. */
+static void test_hg_branches(void)
+{
+  if (!have("hg")) {
+    g_test_skip("no hg");
+    return;
+  }
+  const char *const where[] = { "hg", "log", "-r", ".", "-T", "{activebookmark}|{branch}", NULL };
+  char *top = make_dir("hg-branches", "a.txt"), *a = g_build_filename(top, "a.txt", NULL), *now;
+  tool(top, "hg", (const char *[]){ "init", NULL });
+  tool(top, "hg", (const char *[]){ "commit", "-A", "-m", "one", NULL });
+  tool(top, "hg", (const char *[]){ "branch", "other", NULL });
+  g_file_set_contents(a, "two\n", -1, NULL);
+  tool(top, "hg", (const char *[]){ "commit", "-m", "two", NULL });
+  tool(top, "hg", (const char *[]){ "update", "-q", "default", NULL });
+  open_project_at(top);
+  wait_for(2, 2);
+
+  picked_rows = g_ptr_array_new_with_free_func(g_free);
+  scm_switch_branch();
+  wait_rows(3);
+  g_assert_cmpstr(picked_rows->pdata[0], ==, "+ Create new branch…\t\tnew\t");
+  g_assert_true(g_str_has_prefix(picked_rows->pdata[1], "other\t"));
+  g_assert_true(g_str_has_suffix(picked_rows->pdata[1], "· two\tswitch\tother"));
+  g_assert_true(g_str_has_prefix(picked_rows->pdata[2], "default\tchecked out · "));
+  picker_pick("switch\tother");
+  now = wait_out(top, where, "|other");
+  g_assert_cmpstr(now, ==, "|other");
+  g_free(now);
+
+  picker_run(&app, "feat");
+  picker_pick("create\tfeat"); /* a bookmark, made active */
+  now = wait_out(top, where, "feat|other");
+  g_assert_cmpstr(now, ==, "feat|other");
+  g_free(now);
+  scm_switch_branch();
+  wait_rows(4); /* + Create, feat, other, default */
+  g_assert_true(g_str_has_prefix(picked_rows->pdata[1], "feat\t"));
+  picker_pick("switch\tdefault");
+  now = wait_out(top, where, "|default");
+  g_assert_cmpstr(now, ==, "|default");
+  g_free(now);
+  g_ptr_array_free(picked_rows, TRUE);
+  picked_rows = NULL;
+  g_free(a);
+  g_free(top);
+}
+
+/* Subversion's branches: trunk and the folders in branches/; a new one is copied on the server and
+ * switched to (svn switch), and switching back works. */
+static void test_svn_branches(void)
+{
+  if (!have("svn") || !have("svnadmin")) {
+    g_test_skip("no svn");
+    return;
+  }
+  const char *const where[] = { "svn", "info", "--show-item", "relative-url", NULL };
+  char *repo = g_build_filename(tmp, "svnrepo-branches", NULL), *top = g_build_filename(tmp, "svn-branches", NULL);
+  char *root = g_strconcat("file://", repo, NULL), *trunk = g_strconcat(root, "/trunk", NULL),
+       *folder = g_strconcat(root, "/branches", NULL), *a = g_build_filename(top, "a.txt", NULL), *now;
+  tool(tmp, "svnadmin", (const char *[]){ "create", repo, NULL });
+  tool(tmp, "svn", (const char *[]){ "mkdir", "-q", "-m", "layout", trunk, folder, NULL });
+  tool(tmp, "svn", (const char *[]){ "checkout", "-q", trunk, top, NULL });
+  g_file_set_contents(a, "one\n", -1, NULL);
+  tool(top, "svn", (const char *[]){ "add", "-q", "a.txt", NULL });
+  tool(top, "svn", (const char *[]){ "commit", "-q", "-m", "first", NULL });
+  tool(top, "svn", (const char *[]){ "update", "-q", NULL });
+  open_project_at(top);
+  wait_for(2, 2);
+
+  picked_rows = g_ptr_array_new_with_free_func(g_free);
+  scm_switch_branch();
+  wait_rows(2);
+  g_assert_true(g_str_has_prefix(picked_rows->pdata[1], "trunk\tchecked out · "));
+  picker_run(&app, "fix");
+  picker_pick("create\tfix");
+  now = wait_out(top, where, "^/branches/fix");
+  g_assert_cmpstr(now, ==, "^/branches/fix");
+  g_free(now);
+  scm_switch_branch();
+  wait_rows(3); /* + Create, fix, trunk */
+  g_assert_true(g_str_has_prefix(picked_rows->pdata[1], "fix\t"));
+  picker_pick("switch\ttrunk");
+  now = wait_out(top, where, "^/trunk");
+  g_assert_cmpstr(now, ==, "^/trunk");
+  g_free(now);
+  g_ptr_array_free(picked_rows, TRUE);
+  picked_rows = NULL;
+  g_free(a);
+  g_free(folder);
+  g_free(trunk);
+  g_free(root);
+  g_free(top);
+  g_free(repo);
+}
+
 /* An hg merge with a conflict: the conflict shows (hg status calls it modified), staging it marks it
  * resolved, and the commit takes the whole merge without the .orig copy hg left. */
 static void test_hg_merge(void)
@@ -1206,6 +1327,8 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/nested-repos", test_nested_repos);
   g_test_add_func("/scm/hg", test_hg);
   g_test_add_func("/scm/hg-merge", test_hg_merge);
+  g_test_add_func("/scm/hg-branches", test_hg_branches);
+  g_test_add_func("/scm/svn-branches", test_svn_branches);
   g_test_add_func("/scm/svn-conflict", test_svn_conflict);
   g_test_add_func("/scm/svn", test_svn);
   g_test_add_func("/scm/svn-init", test_svn_init);

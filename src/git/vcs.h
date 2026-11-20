@@ -85,6 +85,23 @@ const char *const *vcs_files_args(VcsKind kind);
  * whole unknown folder as one path) to unknown. */
 void vcs_files(VcsKind kind, const char *out, gsize size, GPtrArray *tracked, GPtrArray *unknown);
 
+/* Branches ------------------------------------------------------------------------------------- */
+
+/* The branches to switch to. hg: the bookmarks and the open named branches' heads, newest first.
+ * svn: the repository's top (for trunk) and, with_folder, its branches folder; without the
+ * branches folder that command fails: ask again without it. */
+char **vcs_branches_args(VcsKind kind, gboolean with_folder);
+
+/* git for-each-ref's lines for vcs_branches_args()'s output, as the Switch Branch picker reads
+ * them: "*|space TAB refs/heads/name TAB name TAB 3 days ago TAB subject". current: what is
+ * checked out (hg: the active bookmark or the branch; svn: the working copy's "^/" URL). svn's
+ * branches are trunk and the folders in branches/, newest first; their subject is the revision and
+ * its author. */
+char *vcs_git_branches(VcsKind kind, const char *out, const char *current);
+
+/* svn: the "^/" URL of a branch from that list ("trunk" or a folder in branches/). */
+char *vcs_svn_branch_url(const char *name);
+
 /* svn info --xml's repository-relative URL of the working copy ("^/trunk"), NULL when missing. */
 char *vcs_svn_url(const char *info);
 

@@ -647,6 +647,109 @@ void vcs_files(VcsKind kind, const char *out, gsize size, GPtrArray *tracked, GP
     vcs_node_free(root);
 }
 
+/* Branches -------------------------------------------------------------------------------------- */
+
+char **vcs_branches_args(VcsKind kind, gboolean with_folder)
+{
+  if (kind == VCS_HG)
+    return vcs_args_of("log", "-r", "sort((head() and not closed()) or bookmark(), '-date -rev')", "-T",
+                       "{branch}\\x1f{join(bookmarks, '\\x1e')}\\x1f{date|age}\\x1f{desc|firstline}\\n", NULL);
+  return vcs_args_of("list", "--xml", "--non-interactive", "^/", with_folder ? "^/branches" : NULL, NULL);
+}
+
+char *vcs_svn_branch_url(const char *name)
+{
+  return strcmp(name, "trunk") == 0 ? g_strdup("^/trunk") : g_strconcat("^/branches/", name, NULL);
+}
+
+typedef struct {
+  char *name;
+  gint64 revision, when;
+  char *author;
+} VcsBranch;
+
+static int vcs_newer(gconstpointer a, gconstpointer b)
+{
+  const VcsBranch *x = *(VcsBranch *const *)a, *y = *(VcsBranch *const *)b;
+  return x->revision < y->revision ? 1 : x->revision > y->revision ? -1 : 0;
+}
+
+static void vcs_branch_free(VcsBranch *b)
+{
+  g_free(b->name);
+  g_free(b->author);
+  g_free(b);
+}
+
+static void vcs_branch_line(GString *out, const char *name, const char *current, const char *ago, const char *subject)
+{
+  g_string_append_printf(out, "%c\trefs/heads/%s\t%s\t%s\t%s\n", g_strcmp0(name, current) == 0 ? '*' : ' ', name, name,
+                         ago, subject);
+}
+
+char *vcs_git_branches(VcsKind kind, const char *out, const char *current)
+{
+  GString *lines = g_string_new(NULL);
+
+  if (kind == VCS_HG) {
+    GHashTable *seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    char **records = g_strsplit(out ? out : "", "\n", -1);
+    for (int i = 0; records[i]; i++) {
+      char **f = g_strsplit(records[i], "\x1f", 4);
+      if (g_strv_length(f) == 4) {
+        char **marks = g_strsplit(f[1], "\x1e", -1);
+        for (int k = 0; marks[k]; k++)
+          if (*marks[k] && g_hash_table_add(seen, g_strdup(marks[k])))
+            vcs_branch_line(lines, marks[k], current, f[2], f[3]);
+        g_strfreev(marks);
+        if (g_hash_table_add(seen, g_strdup(f[0]))) /* the newest head of each branch */
+          vcs_branch_line(lines, f[0], current, f[2], f[3]);
+      }
+      g_strfreev(f);
+    }
+    g_strfreev(records);
+    g_hash_table_unref(seen);
+    return g_string_free(lines, FALSE);
+  }
+  /* svn: the first list is the top (trunk in it), the second the branches folder. */
+  VcsNode *root = out ? vcs_xml_parse(out, strlen(out)) : NULL;
+  GPtrArray *lists = vcs_all(root, "list"), *found = g_ptr_array_new_with_free_func((GDestroyNotify)vcs_branch_free);
+  for (guint l = 0; l < lists->len && l < 2; l++) {
+    GPtrArray *entries = vcs_all(lists->pdata[l], "entry");
+    for (guint i = 0; i < entries->len; i++) {
+      VcsNode *e = entries->pdata[i], *commit = vcs_child(e, "commit");
+      const char *name = vcs_child_text(e, "name");
+      if (g_strcmp0(vcs_attr(e, "kind"), "dir") != 0 || !name || !*name || (l == 0 && strcmp(name, "trunk") != 0))
+        continue;
+      VcsBranch *b = g_new0(VcsBranch, 1);
+      b->name = g_strdup(name);
+      const char *revision = commit ? vcs_attr(commit, "revision") : NULL;
+      b->revision = revision ? g_ascii_strtoll(revision, NULL, 10) : 0;
+      b->when = vcs_svn_time(vcs_child_text(commit, "date"));
+      const char *author = commit ? vcs_child_text(commit, "author") : "";
+      b->author = *author ? g_strdup(author) : NULL;
+      g_ptr_array_add(found, b);
+    }
+    g_ptr_array_free(entries, TRUE);
+  }
+  g_ptr_array_sort(found, vcs_newer);
+  for (guint i = 0; i < found->len; i++) {
+    VcsBranch *b = found->pdata[i];
+    char *url = vcs_svn_branch_url(b->name), *ago = b->when >= 0 ? vcs_ago(b->when) : g_strdup("");
+    char *subject =
+        g_strdup_printf("r%" G_GINT64_FORMAT "%s%s", b->revision, b->author ? " · " : "", b->author ? b->author : "");
+    vcs_branch_line(lines, b->name, g_strcmp0(url, current) == 0 ? b->name : NULL, ago, subject);
+    g_free(subject);
+    g_free(ago);
+    g_free(url);
+  }
+  g_ptr_array_unref(found);
+  g_ptr_array_free(lists, TRUE);
+  if (root)
+    vcs_node_free(root);
+  return g_string_free(lines, FALSE);
+}
+
 /* Versions ------------------------------------------------------------------------------------- */
 
 char *vcs_rev(VcsKind kind, const char *rev)

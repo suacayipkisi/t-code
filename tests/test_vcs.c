@@ -328,6 +328,54 @@ static void test_recorded_logs(void)
   g_free(out);
 }
 
+/* The Switch Branch picker's lines: hg's bookmarks and each branch's newest head once; svn's trunk
+ * and branches newest first, the working copy's marked. */
+static void test_recorded_branches(void)
+{
+  char *out = vcs_git_branches(VCS_HG,
+                               "other\x1f\x1f"
+                               "1 second ago\x1fon other\n"
+                               "default\x1fwork\x1e"
+                               "fix\x1f"
+                               "2 days ago\x1fthree\n"
+                               "default\x1f"
+                               "feat\x1f"
+                               "3 days ago\x1ftwo\n",
+                               "work");
+  g_assert_cmpstr(out, ==,
+                  " \trefs/heads/other\tother\t1 second ago\ton other\n"
+                  "*\trefs/heads/work\twork\t2 days ago\tthree\n"
+                  " \trefs/heads/fix\tfix\t2 days ago\tthree\n"
+                  " \trefs/heads/default\tdefault\t2 days ago\tthree\n"
+                  " \trefs/heads/feat\tfeat\t3 days ago\ttwo\n");
+  g_free(out);
+
+  static const char svn[] =
+      "<lists><list path=\"file:///r\">"
+      "<entry kind=\"file\"><name>README</name><commit revision=\"1\"><author>a</author></commit></entry>"
+      "<entry kind=\"dir\"><name>trunk</name><commit revision=\"4\"><author>ada</author>"
+      "<date>2026-11-18T19:23:59.4Z</date></commit></entry>"
+      "<entry kind=\"dir\"><name>tags</name><commit revision=\"2\"/></entry></list>"
+      "<list path=\"file:///r/branches\">"
+      "<entry kind=\"dir\"><name>fix</name><commit revision=\"7\"><author>bo</author>"
+      "<date>2026-11-19T10:00:00Z</date></commit></entry></list></lists>";
+  out = vcs_git_branches(VCS_SVN, svn, "^/trunk");
+  char **lines = g_strsplit(out, "\n", -1);
+  g_assert_cmpuint(g_strv_length(lines), ==, 3);
+  g_assert_true(g_str_has_prefix(lines[0], " \trefs/heads/fix\tfix\t"));
+  g_assert_true(g_str_has_suffix(lines[0], " ago\tr7 · bo"));
+  g_assert_true(g_str_has_prefix(lines[1], "*\trefs/heads/trunk\ttrunk\t"));
+  g_assert_true(g_str_has_suffix(lines[1], "\tr4 · ada"));
+  g_strfreev(lines);
+  g_free(out);
+  char *url = vcs_svn_branch_url("trunk");
+  g_assert_cmpstr(url, ==, "^/trunk");
+  g_free(url);
+  url = vcs_svn_branch_url("fix");
+  g_assert_cmpstr(url, ==, "^/branches/fix");
+  g_free(url);
+}
+
 /* Real repositories ------------------------------------------------------------------------------ */
 
 /* status + head of the repository at top, through vcs.c's arguments, in git's format. */
@@ -645,6 +693,7 @@ int main(int argc, char **argv)
   g_test_add_func("/vcs/svn-status-recorded", test_svn_status_recorded);
   g_test_add_func("/vcs/revisions", test_revisions);
   g_test_add_func("/vcs/recorded-logs", test_recorded_logs);
+  g_test_add_func("/vcs/recorded-branches", test_recorded_branches);
   g_test_add_func("/vcs/hg", test_hg_real);
   g_test_add_func("/vcs/hg-merge", test_hg_merge);
   g_test_add_func("/vcs/svn", test_svn_real);

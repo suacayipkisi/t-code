@@ -1,6 +1,8 @@
 /*
  * The Source Control panel's talk with the remote (push, pull, fetch) and the branches: switching and
- * creating them (see scm.h). The panel's note says how it went.
+ * creating them (see scm.h). The panel's note says how it went. Mercurial's branches are its
+ * bookmarks and named branches (a new one is a bookmark), Subversion's trunk and the folders in
+ * branches/ (a new one is an svn copy on the server, then switched to).
  */
 #include "git/scm/scm.h"
 
@@ -148,10 +150,10 @@ static void branches_query(App *t, const char *text, guint generation)
   g_free(name);
 }
 
-/* "git for-each-ref" answered: one branch a line, "*|space TAB refname TAB short TAB date TAB subject". */
-static void on_branches(gboolean ok, const char *out, const char *err G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+/* git for-each-ref's lines: one branch a line, "*|space TAB refname TAB short TAB date TAB subject". */
+static void read_branch_lines(const char *out)
 {
-  char **lines = g_strsplit(ok && out ? out : "", "\n", -1);
+  char **lines = g_strsplit(out ? out : "", "\n", -1);
 
   if (branches)
     g_ptr_array_unref(branches);
@@ -179,6 +181,28 @@ static void on_branches(gboolean ok, const char *out, const char *err G_GNUC_UNU
   picker_requery(scm.app, branches_query);
 }
 
+static void read_branches(void);
+
+/* The branches answered; hg's and svn's in git's lines first. data: svn asked again without its
+ * branches folder (there is none). */
+static void on_branches(gboolean ok, const char *out, const char *err G_GNUC_UNUSED, gpointer data)
+{
+  VcsKind kind = scm_kind();
+  GitRepo *r = git_shown_repo(scm.app);
+
+  if (kind != VCS_HG && kind != VCS_SVN) {
+    read_branch_lines(ok ? out : NULL);
+  } else if (!ok && kind == VCS_SVN && !data) {
+    char **args = vcs_branches_args(kind, FALSE);
+    scm_run_git((const char *const *)args, NULL, TRUE, on_branches, GINT_TO_POINTER(1));
+    g_strfreev(args);
+  } else {
+    char *lines = vcs_git_branches(kind, ok ? out : NULL, !r ? NULL : kind == VCS_HG ? r->branch : r->svn_url);
+    read_branch_lines(lines);
+    g_free(lines);
+  }
+}
+
 static void read_branches(void)
 {
   const char *args[] = { "for-each-ref",
@@ -189,6 +213,12 @@ static void read_branches(void)
                          NULL };
 
   g_clear_pointer(&branches, g_ptr_array_unref);
+  if (scm_kind() == VCS_HG || scm_kind() == VCS_SVN) {
+    char **vcs = vcs_branches_args(scm_kind(), TRUE);
+    scm_run_git((const char *const *)vcs, NULL, TRUE, on_branches, NULL);
+    g_strfreev(vcs);
+    return;
+  }
   scm_run_git(args, NULL, TRUE, on_branches, NULL);
 }
 
@@ -208,11 +238,68 @@ static void on_switched(gboolean ok, const char *out G_GNUC_UNUSED, const char *
   g_free(note);
 }
 
+/* svn: switches the working copy to the branch called name ("trunk" or a folder in branches/). */
+static void svn_switch(const char *name, const char *note)
+{
+  char *url = vcs_svn_branch_url(name);
+  const char *args[] = { "switch", "--non-interactive", "--", url, NULL };
+
+  scm_run_git_owned(args, NULL, FALSE, on_switched, g_strdup(note), g_free);
+  g_free(url);
+}
+
+/* svn copy made the branch on the server: the working copy goes there. data: its name. */
+static void on_svn_copied(gboolean ok, const char *out G_GNUC_UNUSED, const char *err, gpointer data)
+{
+  char *name = data, *note = g_strdup_printf("Created and switched to %s", name);
+
+  if (ok)
+    svn_switch(name, note);
+  else
+    scm_set_note(*err ? err : "The branch could not be created", TRUE);
+  g_free(note);
+  g_free(name);
+}
+
+/* hg / svn: the switch to name, or its creation (create). */
+static void switch_without_git(const char *name, gboolean create)
+{
+  char *note = g_strdup_printf(create ? "Created and switched to %s" : "Switched to %s", name);
+
+  if (scm_kind() == VCS_HG) {
+    const char *update[] = { "update", "-r", name, NULL };
+    const char *bookmark[] = { "bookmark", "--", name, NULL }; /* at what is checked out, made active */
+    scm_run_git_owned(create ? bookmark : update, NULL, FALSE, on_switched, g_strdup(note), g_free);
+  } else if (!create) {
+    svn_switch(name, note);
+  } else {
+    GitRepo *r = git_shown_repo(scm.app);
+    const char *from = r ? r->svn_url : NULL;
+    if (!from || (strcmp(from, "^/trunk") != 0 && !g_str_has_prefix(from, "^/branches/"))) {
+      scm_set_note("Subversion branches need the trunk and branches folders", TRUE);
+    } else {
+      char *url = vcs_svn_branch_url(name), *message = g_strdup_printf("Create branch %s", name);
+      const char *copy[] = { "copy", "--parents", "--non-interactive", "-m", message, "--", from, url, NULL };
+      scm_run_git_owned(copy, NULL, FALSE, on_svn_copied, g_strdup(name), g_free);
+      g_free(message);
+      g_free(url);
+    }
+  }
+  g_free(note);
+}
+
 /* The editors are saved (git switch takes the files on disk along): the switch runs. */
 static void on_saved_for_switch(App *t G_GNUC_UNUSED, gpointer data)
 {
   char *payload = data, *tab = strchr(payload, '\t');
   const char *name = tab ? tab + 1 : "";
+
+  if (scm_kind() == VCS_HG || scm_kind() == VCS_SVN) {
+    scm_set_note(NULL, FALSE);
+    switch_without_git(name, g_str_has_prefix(payload, "create\t"));
+    g_free(payload);
+    return;
+  }
   const char *switch_to[] = { "switch", name, NULL };
   const char *track[] = { "switch", "--track", name, NULL };
   const char *create[] = { "switch", "-c", name, NULL };
@@ -240,8 +327,6 @@ static void branches_choose(App *t, const char *payload)
 
 void scm_switch_branch(void)
 {
-  if (scm_git_only("Switching branches"))
-    return;
   if (!scm.app || !scm.app->project.scm_top) {
     if (scm.app)
       status_say(scm.app, "This folder is not in a repository");
@@ -254,8 +339,6 @@ void scm_switch_branch(void)
 
 void scm_create_branch(void)
 {
-  if (scm_git_only("Creating branches"))
-    return;
   if (!scm.app || !scm.app->project.scm_top)
     return;
   branch_new_only = TRUE;

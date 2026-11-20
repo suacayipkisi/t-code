@@ -208,7 +208,10 @@ every change when none are staged. Mercurial has Pull (`hg pull --update`) and P
 the Pull button is **Update** (`svn update`) and there is no Push (a commit goes to the server).
 Conflicts (an `hg merge`, an `svn update`) show with **!** and the editor's conflict buttons; once the
 file is fixed, **+** marks it resolved (`hg resolve --mark`, `svn resolve --accept working`), and
-during an hg merge Commit takes the whole merge. Branches, stash and staging hunks are git's only for now. When several repositories hold the project
+during an hg merge Commit takes the whole merge. Switching branches works too: Mercurial lists its
+bookmarks and open named branches (`hg update`; a new branch is a bookmark), Subversion `trunk` and the
+folders in `branches/` (`svn switch`; a new branch is copied on the server from the one checked out,
+then switched to). Stash and staging hunks are git's only for now. When several repositories hold the project
 folder (an svn checkout inside a git repository, or hg-git's `.git` next to `.hg`), Repositories lists
 each with its kind and the nearest is used; click another to make it the project's own (the Files
 panel and the gutters follow it, and the project remembers it). In a folder that is no repository,
