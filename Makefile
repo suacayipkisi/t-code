@@ -244,6 +244,10 @@ test: build/test-log build/test-children build/test-searchmatch build/test-detec
 	# plugins in C++ (word-count): their test_*.cpp, built and run
 	for t in plugins/builtin/*/test_*.cpp; do test -f $$t || continue; \
 	  $(CXX) -std=c++17 -Wall -Wextra -Werror -o build/$$(basename $$t .cpp) $$t && build/$$(basename $$t .cpp) || exit 1; done
+	# plugins in Go (format-on-save): go test, when go is there
+	for d in plugins/builtin/*/; do test -f $$d/go.mod || continue; \
+	  if command -v go >/dev/null; then (cd $$d && GOTOOLCHAIN=local GOPROXY=off go test ./...) || exit 1; \
+	  else echo "no go: $$d not tested"; fi; done
 	# plugins in Rust (todos): their own tests, when cargo is there
 	for d in plugins/builtin/*/; do test -f $$d/Cargo.toml || continue; \
 	  if command -v cargo >/dev/null; then CARGO_TARGET_DIR=$(CURDIR)/build/cargo cargo test -q --offline --locked \

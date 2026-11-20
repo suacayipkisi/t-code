@@ -639,11 +639,12 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Eight of them are written and live in this
+These are plugins the API is meant to make possible. Nine of them are written and live in this
 repository under `plugins/builtin/` (Java, MATLAB, Octave, ShellCheck, CMake, Text Tools, TODO Finder,
-Word Count), as working examples and
+Word Count, Format on Save), as working examples and
 as the registry's first entries. They are written in different languages on purpose, to test that
-tapi_1 works the same from any of them: TODO Finder is Rust, Word Count is C++, the rest are Python 3.
+tapi_1 works the same from any of them: TODO Finder is Rust, Word Count is C++, Format on Save is Go,
+the rest are Python 3.
 t-code does not load them by itself (install them from Browse, or copy a folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
 `t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
 PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what it does, what t-code provides
@@ -798,10 +799,19 @@ All of these use the same pieces: `"start": "project"`, `subscribe`, `did_save` 
 #### markdownlint, yamllint, hadolint, actionlint
 Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub workflows.
 
-#### Format on save (`format-on-save`)
-- **Does:** prettier, black, shfmt, stylua, or rustfmt where no language server formats.
-- **Plugin:** on `did_save`, formats and applies the difference with `edit`, so the cursor stays and
-  undo is one step. It ignores events marked `"by":"plugin"`, so its own save does not loop.
+#### Format on save (`format-on-save`, in this repository: `plugins/builtin/format-on-save`, in Go)
+- **Does:** formats the active file when it is saved, where the project configures a formatter:
+  clang-format (`.clang-format`), ruff or black (`ruff.toml`, `[tool.ruff]` / `[tool.black]` in
+  `pyproject.toml`), prettier (`.prettierrc`, `prettier` in `package.json`), rustfmt (`Cargo.toml`,
+  `rustfmt.toml`), shfmt (`.editorconfig`); gofmt and `zig fmt` always. **Format: Format This File**
+  (`Ctrl+Alt+F`) formats now, configured or not; **Format: Turn Format on Save Off or On for This
+  Project** keeps the choice in `~/.config/t-code-format/settings.json`.
+- **Plugin:** starts with the project. On `did_save` (not `"by":"plugin"`, so its own save does not
+  loop) it runs the formatter on the buffer's text and applies the difference as one `edit` (the
+  common start and end left alone), so the cursor stays and undo is one step, then saves. `run.sh`
+  builds it with `go`, offline, into `~/.cache/t-code-format-on-save/`.
+- **Limits:** the active file only (requests act on the active editor); a file typed in while the
+  formatter ran is left for the next save; the formatter itself is not installed by the plugin.
 
 #### Spell check (`spell`)
 - **Does:** checks comments, strings and Markdown with `hunspell`. Findings are `hint` diagnostics.

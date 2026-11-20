@@ -1,0 +1,15 @@
+{
+  "api": "tapi_1",
+  "id": "format-on-save",
+  "name": "Format on Save",
+  "provider": "t-code",
+  "version": "0.1.0",
+  "description": "Formats a file when it is saved, where the project configures a formatter (.clang-format, ruff or black in pyproject.toml, .prettierrc, Cargo.toml, .editorconfig for shfmt; gofmt always), as one undo step. Needs the formatter itself; written in Go, built once with go.",
+  "executable": "run.sh",
+  "start": "project",
+  "permissions": ["start", "edit"],
+  "commands": [
+    { "id": "format", "name": "Format: Format This File", "keys": "<Control><Alt>f" },
+    { "id": "toggle", "name": "Format: Turn Format on Save Off or On for This Project" }
+  ]
+}
