@@ -639,12 +639,12 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Twelve of them are written and live in this
+These are plugins the API is meant to make possible. Thirteen of them are written and live in this
 repository under `plugins/builtin/` (Java, MATLAB, Octave, ShellCheck, CMake, Text Tools, TODO Finder,
-Word Count, Format on Save, Targets, LaTeX and Typst, Pomodoro), as working examples and
+Word Count, Format on Save, Targets, LaTeX and Typst, Pomodoro, Open on GitHub / GitLab), as working examples and
 as the registry's first entries. They are written in different languages on purpose, to test that
 tapi_1 works the same from any of them: TODO Finder and LaTeX are Rust, Word Count is C++, Pomodoro is C, Format on Save is Go,
-Targets is JavaScript (Node.js), the rest are Python 3.
+Targets is JavaScript (Node.js), Open on GitHub is Perl, the rest are Python 3.
 t-code does not load them by itself (install them from Browse, or copy a folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
 `t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
 PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what it does, what t-code provides
@@ -927,6 +927,16 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
   may land in tapi_2.
 
 ### Git and forges
+
+#### Open on GitHub / GitLab (`forge-link`, in this repository: `plugins/builtin/forge-link`, in Perl)
+- **Does:** **Open on GitHub: Copy Link to This Line** puts the web link of the cursor's line, or
+  of the selected lines, on the clipboard (`copy`); **Open This Line in the Browser** opens it with
+  `xdg-open`. The link names the current commit (`…/blob/<commit>/src/main.c#L10-L12`), so it
+  keeps showing the same text; the status bar warns when that commit is not pushed yet.
+- **Plugin:** Perl 5, core modules. The remote is the one the branch tracks, else `origin`; the
+  link has GitHub's form, GitLab's (hosts with "gitlab" in their name), Codeberg / Gitea /
+  Forgejo's or Bitbucket's.
+- **Limits:** other self-hosted forges get GitHub's form; a file not in git yet has no link.
 
 #### GitHub / GitLab (`forge`)
 - **Does:** uses the `gh` or `glab` command-line tools.
