@@ -947,7 +947,9 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
 - **Plugin:** Perl 5, core modules. The remote is the one the branch tracks, else `origin`; the
   link has GitHub's form, GitLab's (hosts with "gitlab" in their name), Codeberg / Gitea /
   Forgejo's or Bitbucket's.
-- **Limits:** other self-hosted forges get GitHub's form; a file not in git yet has no link.
+- **Limits:** other self-hosted forges get GitHub's form; a file not in git yet has no link. Fedora
+  splits Perl's core modules into packages: the plugin needs `perl-IO`, `perl-PathTools`,
+  `perl-File-Basename` and `perl-Socket` (or all of `perl`).
 
 #### GitHub / GitLab (`forge`)
 - **Does:** uses the `gh` or `glab` command-line tools.

@@ -257,7 +257,8 @@ test: build/test-log build/test-children build/test-searchmatch build/test-detec
 	  else echo "no node: $$t not tested"; fi; done
 	# plugins in Perl (forge-link): their test_*.pl
 	for t in plugins/builtin/*/test_*.pl; do test -f $$t || continue; \
-	  perl $$t >/dev/null || { perl $$t; exit 1; }; done
+	  if command -v perl >/dev/null; then perl $$t >/dev/null || { perl $$t; exit 1; }; \
+	  else echo "no perl: $$t not tested"; fi; done
 	# plugins in Rust (todos): their own tests, when cargo is there
 	for d in plugins/builtin/*/; do test -f $$d/Cargo.toml || continue; \
 	  if command -v cargo >/dev/null; then CARGO_TARGET_DIR=$(CURDIR)/build/cargo cargo test -q --offline --locked \
