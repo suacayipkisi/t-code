@@ -105,7 +105,7 @@ sudo dnf copr enable suacayipkisi/t-code-ide
 sudo dnf install t-code-ide
 ```
 
-Fedora 43, 44 and rawhide; updates come with `dnf upgrade`.
+Fedora 43, 44, 45 and rawhide; updates come with `dnf upgrade`.
 
 ### Ubuntu (PPA)
 
