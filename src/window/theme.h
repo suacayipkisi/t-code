@@ -12,7 +12,7 @@
 #define TCODE_ICONS_RESOURCE "/io/github/suacayipkisi/tcode/icons"
 
 /* Before any window: forces Adwaita (dark), adds t-code's icons and the global CSS, the square theme when the
- * settings ask for it, and the user's theme.css. */
+ * settings ask for it, and the user's theme.css. Only the first call does anything. */
 void load_theme(App *t);
 
 /* Turns the square theme on or off, as t->settings.square says. */

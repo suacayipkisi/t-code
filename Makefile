@@ -191,6 +191,9 @@ build/test-window: tests/test_window.c tests/util.h tests/widgets.h tests/broadw
 build/test-about: tests/test_about.c tests/util.h src/dialogs/about.c $(APP_HDR) build/license.h | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_about.c \
 	  $(shell pkg-config --libs $(PKGS))
+build/test-welcome: tests/test_welcome.c tests/util.h tests/widgets.h src/dialogs/welcome.c src/dialogs/welcome.h | build
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_welcome.c \
+	  $(shell pkg-config --libs $(PKGS))
 build/test-plugins: tests/test_plugins.c tests/util.h src/files/fileops.c src/plugins/registry.c src/plugins/plugins.c src/plugins/plugins.h src/lsp/servers.c src/lsp/servers.h $(wildcard tests/plugins/*/plugin.json) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_plugins.c src/files/fileops.c src/plugins/registry.c $(shell pkg-config --libs $(PKGS))
 
@@ -216,7 +219,7 @@ build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c sr
 
 
 test: build/test-log build/test-children build/test-processes build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
-      build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-repos build/test-vcs build/test-frameworks build/test-testing build/test-files build/test-window build/test-about \
+      build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-repos build/test-vcs build/test-frameworks build/test-testing build/test-files build/test-window build/test-about build/test-welcome \
       build/test-plugins build/test-update build/test-recovery build/test-registry
 	build/test-searchmatch
 	build/test-log
@@ -240,6 +243,7 @@ test: build/test-log build/test-children build/test-processes build/test-searchm
 	build/test-files
 	build/test-window
 	build/test-about
+	build/test-welcome
 	build/test-plugins
 	build/test-update
 	build/test-recovery

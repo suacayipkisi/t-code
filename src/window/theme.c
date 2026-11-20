@@ -127,8 +127,11 @@ static GtkCssProvider *user_look; /* theme.css */
  * theme left light buttons and dark text on dark panels. */
 void load_theme(App *t)
 {
-  GtkCssProvider *provider = gtk_css_provider_new();
+  GtkCssProvider *provider;
 
+  if (square) /* loaded already: the welcome window came before the main window */
+    return;
+  provider = gtk_css_provider_new();
   g_object_set(gtk_settings_get_default(), "gtk-theme-name", "Adwaita", NULL);
   gtk_icon_theme_add_resource_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), TCODE_ICONS_RESOURCE);
   move_old_colors();                        /* before the editors look for it */

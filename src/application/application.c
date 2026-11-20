@@ -8,16 +8,17 @@
 #include "application/identity.h"
 #include "application/log.h"
 #include "debug/debugger.h"
+#include "dialogs/welcome.h"
 #include "editor/editor.h"
 #include "files/files.h"
 #include "git/compare.h"
 #include "ipc/socket.h"
 #include "lsp/client/client.h"
 #include "plugins/plugins.h"
-#include "project/project.h"
 #include "project/session.h"
-#include "window/window.h"
 #include "window/terminal.h"
+#include "window/theme.h"
+#include "window/window.h"
 
 #include <glib-unix.h>
 #include <signal.h>
@@ -58,18 +59,34 @@ static void reopen_last_project(App *t)
   g_strfreev(recent);
 }
 
+/* The welcome window picked a folder: the main window opens on it, with its tabs from last time. */
+static void on_welcome_chosen(const char *folder, gpointer data)
+{
+  App *t = data;
+
+  g_set_str(&t->project.root, folder);
+  build_window(t, GTK_APPLICATION(g_application_get_default()));
+  session_restore_tabs(t);
+}
+
 /* "activate": started without folder/file arguments. With another window open, a new one from the
- * app menu (or --new-window) asks for its folder: the last project is probably open over there, and
- * two editors on one file overwrite each other. Otherwise the current folder, or the last project
- * (see above), comes back with its tabs. */
+ * app menu (or --new-window) asks for its folder in the welcome window: the last project is probably
+ * open over there, and two editors on one file overwrite each other. Otherwise the current folder,
+ * or the last project (see above), comes back with its tabs; with neither (the first start), the
+ * welcome window asks too. */
 static void on_activate(GApplication *app, App *t)
 {
-  if (already_running() && (cli_new_window() || strcmp(t->project.root, g_get_home_dir()) == 0)) {
-    build_window(t, GTK_APPLICATION(app));
-    choose_folder(t);
+  gboolean second = already_running() && (cli_new_window() || strcmp(t->project.root, g_get_home_dir()) == 0);
+
+  if (!second)
+    reopen_last_project(t);
+  if (second || strcmp(t->project.root, g_get_home_dir()) == 0) { /* no folder to open */
+    char **recent = session_recent();
+    load_theme(t);
+    show_welcome(GTK_APPLICATION(app), (const char *const *)recent, on_welcome_chosen, t);
+    g_strfreev(recent);
     return;
   }
-  reopen_last_project(t);
   build_window(t, GTK_APPLICATION(app));
   session_restore_tabs(t);
 }
