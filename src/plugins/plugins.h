@@ -174,6 +174,11 @@ PluginCommand *plugins_run_command_for(App *t, const char *file);
  * the socket's debug-start), or NULL. */
 PluginCommand *plugins_debug_command_for(App *t, const char *file);
 
+/* Runs command (the one "debug" names for file) to debug one test of the Testing panel's: file is its $2,
+ * test (the panel's id: "package.Class#method") its TCODE_TEST. FALSE when it did not start (switched
+ * off, or it never ran: its first run is asked about from its own commands). */
+gboolean plugin_debug_test(App *t, PluginCommand *command, const char *file, const char *test);
+
 /* Runs a plugin command asynchronously in a subprocess. */
 void plugin_run_command(App *t, const char *plugin_id, const char *command_id);
 

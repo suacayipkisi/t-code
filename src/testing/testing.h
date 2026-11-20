@@ -38,8 +38,9 @@ char *testing_text(void);
 /* The text the output view shows now. */
 char *testing_output_text(void);
 
-/* Builds the CTest project, then debugs the test with id (its command under gdb); FALSE when it is
- * not a CTest test, a command runs or a debugging session goes on. */
+/* Builds the CTest project, then debugs the test with id (its command under gdb); a JUnit test goes to
+ * the plugin whose "debug" takes its file, with the test's id. FALSE when it cannot be debugged, a
+ * command runs or a debugging session goes on. */
 gboolean testing_debug_one(const char *id);
 
 /* Debugs the test last debugged again (the debugger's Restart). */

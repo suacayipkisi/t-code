@@ -227,6 +227,9 @@ class FakeTcode:
         self.sent.append((command, argument))
         return self.file if command == "get-file" else ""
 
+    def close(self):
+        self.sent.append(("close", ""))
+
     def json(self, command, value):
         self.sent.append((command, value))
         if command == "lsp-command":
@@ -307,6 +310,62 @@ class Debugging(Fixture):
             self.assertTrue(any(c == "say" and "Restart Language Servers" in v for c, v in t.sent))
         finally:
             del os.environ["XDG_DATA_HOME"]
+
+    def test_listening_from_proc(self):
+        table = self.put("tcp", "  sl  local_address rem_address   st\n"
+                                "   0: 0100007F:1F90 00000000:0000 0A 0\n"
+                                "   1: 0100007F:1F91 0100007F:9C40 01 0\n")
+        self.assertTrue(jp.listening(8080, (table,)))
+        self.assertFalse(jp.listening(8081, (table,)))  # connected, not listening
+        self.assertFalse(jp.listening(8082, (table, os.path.join(self.dir, "missing"))))
+
+    def test_debug_test_lines(self):
+        maven = jp.Build("maven", self.dir, "mvn", test=True)
+        line = jp.debug_test_line(maven, "com.example.CalcTest$Inner#deep", 41000, self.dir)
+        self.assertIn("'-Dtest=com.example.CalcTest$Inner#deep'", line)
+        self.assertIn("address=localhost:41000", line)
+        self.assertIn("-Dmaven.surefire.debug=", line)
+        gradle = jp.Build("gradle", self.dir, "./gradlew", test=True)
+        line = jp.debug_test_line(gradle, "com.example.CalcTest#adds", 41001, self.dir)
+        self.assertIn("--tests com.example.CalcTest.adds", line)
+        self.assertIn("cleanTest test", line)
+        self.assertIn("address=localhost:41001", jp.read(os.path.join(self.dir, "debug.gradle")))
+        self.assertIsNone(jp.debug_test_line(jp.Build("plain", self.dir), "A#b", 1, self.dir))
+
+    def test_debug_test_attaches_once_the_jvm_listens(self):
+        os.environ["XDG_DATA_HOME"] = self.dir
+        os.environ["XDG_RUNTIME_DIR"] = self.dir
+        self.put("t-code/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar", "")
+        self.put("pom.xml", "<project/>")
+        test = self.put("src/test/java/com/example/CalcTest.java", "package com.example;\nclass CalcTest {}\n")
+        answers = {"vscode.java.startDebugSession": 41234}
+        polls = []
+        try:
+            with mock.patch.object(jp, "tool_missing", return_value=None), \
+                 mock.patch.object(jp, "listening", side_effect=lambda port: polls.append(port) or len(polls) > 2), \
+                 mock.patch.object(jp, "wait_for", return_value=False), mock.patch.object(jp.time, "sleep"):
+                t = FakeTcode(answers, test)
+                jp.debug_test(t, self.dir, "com.example.CalcTest#adds", test)
+                start = [v for c, v in t.sent if c == "debug-start"][0]
+                self.assertEqual(start["request"], "attach")
+                self.assertEqual(start["connect"], "127.0.0.1:41234")
+                self.assertEqual(start["arguments"]["hostName"], "localhost")
+                self.assertEqual(start["arguments"]["port"], polls[0])  # the port the JVM was told
+                typed = [a for c, a in t.sent if c in ("terminal-open", "terminal-send")]
+                self.assertTrue(typed and "sh " in typed[0])
+
+                # the run ends before the JVM listens (a build error): no debugger, its errors reported
+                polls.clear()
+                with mock.patch.object(jp, "listening", return_value=False), \
+                     mock.patch.object(jp.os.path, "exists", side_effect=lambda p: p.endswith("done") or os.access(p, os.F_OK)), \
+                     mock.patch.object(jp, "report") as report:
+                    t = FakeTcode(answers, test)
+                    jp.debug_test(t, self.dir, "com.example.CalcTest#adds", test)
+                    report.assert_called_once()
+                    self.assertFalse(any(c == "debug-start" for c, _ in t.sent))
+        finally:
+            del os.environ["XDG_DATA_HOME"]
+            del os.environ["XDG_RUNTIME_DIR"]
 
 
 if __name__ == "__main__":

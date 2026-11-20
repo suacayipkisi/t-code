@@ -462,6 +462,10 @@ start (`[line, col]`).
   filter is turned on when the debugger has one.
 - **From F5:** a file the plugin's `debug` names gets that command on `F5` (the editors saved first);
   the command prepares (builds, finds its port) and ends with `debug-start`. Restart runs it again.
+- **From the Testing panel:** a JUnit test whose file the plugin's `debug` names gets a debug button
+  (and Debug on its ▶ in the gutter). Its file opens, the editors are saved, and the same command
+  runs with that file as `$2` and the test's id in `TCODE_TEST` (`com.example.CalcTest#adds`, a
+  nested class's `Outer$Inner#name`).
 
 **Terminal tabs:**
 
@@ -703,7 +707,8 @@ PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what
   - `"uri-contents": {"jdt": "java/classFileContents"}` (with `classFileContentsSupport` in its
     options): Go to Definition into a library's class opens its source (or jdtls' decompiled
     text) read-only.
-  - The Testing panel lists and runs JUnit tests itself (a Maven or Gradle project).
+  - The Testing panel lists and runs JUnit tests itself (a Maven or Gradle project); its debug
+    button hands a test to the plugin's `debug` (`TCODE_TEST`).
   - `"start": "project"`: with jdtls ready the plugin exits at once; without it, the first `.java`
     file that opens asks once whether to install it.
 - **Plugin** (Python 3, standard library):
@@ -738,8 +743,14 @@ PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what
     picked), a build (errors stop it: the Problems panel shows them), the classpath, the Java
     program and a debug adapter's port (`vscode.java.startDebugSession`), then starts t-code's
     debugger on that port with `debug-start`. The program runs in the Debug panel's terminal.
+  - **Debug a test** (the Testing panel's debug button): `mvn test -Dtest=<id>` with
+    `maven.surefire.debug`, or Gradle with an init script giving the test JVM its `jvmArgs`, run in
+    the Java tab with the JVM waiting on a free port (JDWP); once something listens there (read
+    from `/proc/net/tcp`: a probe would use up the JVM's one connection), java-debug attaches
+    (`debug-start` with `"request": "attach"`). The run's errors become diagnostics at its end.
 - **Limits:**
-  - A JUnit test cannot be debugged from the Testing panel yet; `F5` debugs a main class.
+  - A test debugged from the panel does not update its ✓ / ✗ there (Run does); Restart in the Debug
+    panel runs `F5` on the current file instead of that test again.
   - Abstract test classes' tests are not listed (their subclasses run them); Gradle's names for
     parameterized cases do not map to their method.
   - A Maven module that needs its sibling modules builds from its own folder.

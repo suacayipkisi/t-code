@@ -8,6 +8,7 @@
 
 #include "debug/debugger.h"
 #include "editor/editor.h"
+#include "plugins/plugins.h"
 #include "project/langenv.h"
 #include "project/toolchain.h"
 #include "testing/frameworks.h"
@@ -193,7 +194,7 @@ char *testing_output_text(void)
 
 static void run_keys(GPtrArray *keys);
 
-/* The debug button on a CTest test's row. */
+/* The debug button on a test's row (CTest's, and JUnit's through its plugin). */
 static void on_row_debug(GtkButton *button, gpointer data G_GNUC_UNUSED)
 {
   TestCase *test = find_test(g_object_get_data(G_OBJECT(button), "key"));
@@ -350,8 +351,7 @@ static void rebuild(void)
       if (test->kind != first->kind || strcmp(test->group, first->group) != 0)
         continue;
       char *key = test_key(test);
-      GtkWidget *child = row_new(key, NULL, test->state, test->name, NULL, TRUE,
-                                 test->kind == TEST_CTEST && test->command && test->command[0]);
+      GtkWidget *child = row_new(key, NULL, test->state, test->name, NULL, TRUE, testing_can_debug(test));
       g_object_set_data_full(G_OBJECT(child), "group", g_strdup(gkey), g_free);
       gtk_list_box_append(testing.list, child);
       if (g_strcmp0(testing.selected, key) == 0)
@@ -923,10 +923,65 @@ static void debug_saved(App *t, gpointer data)
   g_free(id);
 }
 
+/* The plugin command that debugs a JUnit test (the "debug" its file's plugin names), with the file
+ * (absolute; g_free), or NULL. */
+static PluginCommand *plugin_debugger(const TestCase *test, char **file)
+{
+  PluginCommand *command;
+
+  *file = NULL;
+  if (test->kind != TEST_JUNIT || !test->file || !testing.app->project.root)
+    return NULL;
+  *file = g_path_is_absolute(test->file) ? g_strdup(test->file)
+                                         : g_build_filename(testing.app->project.root, test->file, NULL);
+  if (!(command = plugins_debug_command_for(testing.app, *file)))
+    g_clear_pointer(file, g_free);
+  return command;
+}
+
+gboolean testing_can_debug(const TestCase *test)
+{
+  char *file = NULL;
+  gboolean can = test->kind == TEST_CTEST ? test->command && test->command[0] : plugin_debugger(test, &file) != NULL;
+
+  g_free(file);
+  return can;
+}
+
+/* After the save: the plugin ("<plugin id>\n<command id>\n<file>\n<test id>") debugs the test. */
+static void plugin_debug_saved(App *t, gpointer data)
+{
+  char **parts = g_strsplit(data, "\n", 4);
+  Plugin *p = !t->closing && g_strv_length(parts) == 4 ? plugin_find(t, parts[0]) : NULL;
+
+  for (guint i = 0; p && p->commands && i < p->commands->len; i++) {
+    PluginCommand *command = g_ptr_array_index(p->commands, i);
+    if (strcmp(command->id, parts[1]) == 0 && !debug_active(t)) {
+      g_set_str(&testing.debugged, parts[3]);
+      plugin_debug_test(t, command, parts[2], parts[3]);
+      break;
+    }
+  }
+  g_strfreev(parts);
+  g_free(data);
+}
+
 gboolean testing_debug_one(const char *id)
 {
   TestCase *test = find_test_id(id);
+  char *file = NULL;
+  PluginCommand *command = test ? plugin_debugger(test, &file) : NULL;
 
+  if (command) { /* a JUnit test: the Java plugin runs it under java-debug */
+    if (testing_busy() || debug_active(testing.app)) {
+      g_free(file);
+      return FALSE;
+    }
+    open_file(testing.app, file); /* its language server answers the plugin about it */
+    save_all(testing.app, plugin_debug_saved, g_strjoin("\n", command->plugin->id, command->id, file, test->id, NULL));
+    g_free(file);
+    return TRUE;
+  }
   if (!test || test->kind != TEST_CTEST || !test->command || !test->command[0] || testing_busy())
     return FALSE;
   if (debug_active(testing.app)) { /* says so */

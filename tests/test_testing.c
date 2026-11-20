@@ -7,6 +7,7 @@
 #include "debug/debugger.h"
 #include "editor/editor.h"
 #include "editor/editorview.h"
+#include "plugins/plugins.h"
 #include "project/toolchain.h"
 #include "util.h"
 
@@ -22,6 +23,33 @@ gboolean debug_active(App *t G_GNUC_UNUSED) { return FALSE; }
 static char *shown_page; /* the last show_sidebar_page's */
 void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page) { g_set_str(&shown_page, page); }
 /* clang-format on */
+
+/* A plugin whose "debug" takes .java files (the Java plugin), while java_plugin_on. */
+static gboolean java_plugin_on;
+static Plugin java_plugin = { .id = "java", .name = "Java" };
+static PluginCommand java_debug = { .id = "debug", .name = "Java: Debug", .plugin = &java_plugin };
+static char *debugged_by_plugin; /* "file|test" of the last plugin_debug_test */
+static char *opened_file;        /* the last open_file's */
+
+PluginCommand *plugins_debug_command_for(App *t G_GNUC_UNUSED, const char *file)
+{
+  return java_plugin_on && g_str_has_suffix(file, ".java") ? &java_debug : NULL;
+}
+Plugin *plugin_find(App *t G_GNUC_UNUSED, const char *id)
+{
+  return g_strcmp0(id, "java") == 0 ? &java_plugin : NULL;
+}
+gboolean plugin_debug_test(App *t G_GNUC_UNUSED, PluginCommand *command, const char *file, const char *test)
+{
+  g_assert_true(command == &java_debug);
+  g_free(debugged_by_plugin);
+  debugged_by_plugin = g_strdup_printf("%s|%s", file, test);
+  return TRUE;
+}
+void open_file(App *t G_GNUC_UNUSED, const char *path)
+{
+  g_set_str(&opened_file, path);
+}
 
 static char *launched; /* "program|args|cwd" of the last debug_launch_test */
 static char *opened;   /* "path:line" of the last open_file_at */
@@ -281,6 +309,40 @@ static void test_debug(void)
   g_free(cproject);
 }
 
+/* A JUnit test is debugged by the plugin whose "debug" takes its file: its file opens (for its language
+ * server) and the plugin gets the file and the test's id; without such a plugin it cannot be. */
+static void test_debug_junit(void)
+{
+  char *jproject = g_build_filename(tmp, "jproject", NULL), *source;
+  GPtrArray *commands = g_ptr_array_new();
+
+  g_free(write_at(jproject, "pom.xml", "<project/>\n", -1, 0));
+  source = write_at(jproject, "src/test/java/com/example/CalcTest.java",
+                    "package com.example;\nclass CalcTest {\n  @Test void adds() {}\n}\n", -1, 0);
+  g_ptr_array_add(commands, &java_debug);
+  java_plugin.commands = commands;
+  java_plugin.enabled = TRUE;
+  switch_to(jproject);
+  run_until(idle, NULL);
+  assert_text("com.example.CalcTest\n  ○ adds\n");
+
+  g_assert_false(testing_debug_one("com.example.CalcTest#adds")); /* no plugin debugs Java */
+  java_plugin_on = TRUE;
+  g_assert_true(testing_debug_one("com.example.CalcTest#adds"));
+  char *expected = g_strdup_printf("%s|com.example.CalcTest#adds", source);
+  g_assert_cmpstr(debugged_by_plugin, ==, expected);
+  g_assert_cmpstr(opened_file, ==, source);
+
+  java_plugin_on = FALSE;
+  java_plugin.commands = NULL;
+  g_ptr_array_unref(commands);
+  g_clear_pointer(&debugged_by_plugin, g_free);
+  g_clear_pointer(&opened_file, g_free);
+  g_free(expected);
+  g_free(source);
+  g_free(jproject);
+}
+
 static void assert_marks(Tab *tab, const char *expected)
 {
   char *text = testing_marks_text(tab);
@@ -456,6 +518,7 @@ int main(int argc, char **argv)
   g_test_add_func("/testing/stop", test_stop);
   g_test_add_func("/testing/switch", test_switch);
   g_test_add_func("/testing/debug", test_debug);
+  g_test_add_func("/testing/debug-junit", test_debug_junit);
   g_test_add_func("/testing/marks", test_marks);
   g_test_add_func("/testing/gtest-cases", test_gtest_cases);
   status = g_test_run();

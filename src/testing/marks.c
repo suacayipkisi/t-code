@@ -83,7 +83,7 @@ static void update(TestMarks *m)
         mark->state = joined(mark->state, test->state);
       }
       g_ptr_array_add(mark->ids, g_strdup(test->id));
-      mark->debuggable = mark->ids->len == 1 && test->kind == TEST_CTEST && test->command && test->command[0];
+      mark->debuggable = mark->ids->len == 1 && testing_can_debug(test);
     }
     g_array_free(found, TRUE);
     g_free(text);
