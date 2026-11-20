@@ -121,6 +121,16 @@ static void sync_sidebar_visible(App *t)
     gtk_widget_set_visible(t->layout.right, side_any_visible(t, 2));
 }
 
+/* Hides a side left without a shown dock. Never shows one: a side hidden with its docks still
+ * there (Ctrl+B) stays hidden when a dock on another side changes. */
+static void hide_side_if_empty(App *t, int side)
+{
+  GtkWidget *w = side_widget(t, side);
+
+  if (w && !side_any_visible(t, side))
+    gtk_widget_set_visible(w, FALSE);
+}
+
 /* Gives a side that is being shown room when its paned has squeezed it to (almost) nothing. */
 static void make_room(App *t, int side)
 {
@@ -254,7 +264,7 @@ void hide_dock(App *t, int d)
   if (gtk_widget_has_focus(t->dock.cards[d]))
     focus_current_tab(t);
   gtk_widget_set_visible(t->dock.cards[d], FALSE);
-  sync_sidebar_visible(t);
+  hide_side_if_empty(t, d / 4);
   sync_side_paneds(t, d / 4);
 }
 
@@ -524,7 +534,9 @@ void move_panel_at(App *t, const char *page, int to, int insert_pos)
   gtk_widget_set_visible(t->dock.cards[to], TRUE);
   if (t->dock.collapsed[to])
     set_dock_collapsed(t, to, FALSE);
-  sync_sidebar_visible(t);
+  hide_side_if_empty(t, from / 4);
+  if (side_widget(t, to / 4))
+    gtk_widget_set_visible(side_widget(t, to / 4), TRUE);
   make_room(t, to / 4);
   sync_side_paneds(t, from / 4);
   sync_side_paneds(t, to / 4);

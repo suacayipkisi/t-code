@@ -3057,6 +3057,17 @@ static void test_panel_buttons(void)
   g_assert_true(gtk_widget_get_visible(app.layout.bottom));
   g_assert_true(panel_shown(&app, "shell"));
 
+  toggle_pane(&app, app.layout.left); /* Ctrl+B, then Ctrl+J: the left side stays hidden */
+  g_assert_false(gtk_widget_get_visible(app.layout.left));
+  toggle_pane(&app, app.shell.panel);
+  g_assert_false(panel_shown(&app, "shell"));
+  g_assert_false(gtk_widget_get_visible(app.layout.left));
+  toggle_pane(&app, app.shell.panel);
+  g_assert_true(panel_shown(&app, "shell"));
+  g_assert_false(gtk_widget_get_visible(app.layout.left));
+  toggle_pane(&app, app.layout.left);
+  g_assert_true(panel_shown(&app, "files"));
+
   move_panel(&app, "files", 8); /* moved right, its dock hidden, the bottom collapsed */
   click_panel("files");
   g_assert_false(panel_shown(&app, "files"));
