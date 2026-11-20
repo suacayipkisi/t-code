@@ -80,6 +80,7 @@ typedef struct {
   GPtrArray *entries;                                      /* RegistryEntry *: the index, once fetched */
   gboolean fetching;
   gint64 fetched_at; /* g_get_monotonic_time() of the last fetch that answered */
+  char *index_note;  /* why the entries shown are the kept index's, or NULL */
 } Manager;
 
 static Manager *manager; /* while the window is open */
@@ -481,7 +482,7 @@ static GtkWidget *button(const char *text, GCallback clicked)
   return b;
 }
 
-/* What p brings besides commands: its language servers, Run, language specs, snippets. */
+/* What p brings besides commands: its language servers, Run, language specs, snippets, color themes. */
 static void add_brings(GtkWidget *details, Plugin *p)
 {
   gboolean any = FALSE;
@@ -516,7 +517,9 @@ static void add_brings(GtkWidget *details, Plugin *p)
     gtk_box_append(GTK_BOX(box), label("Language specs (read when t-code starts)", NULL));
   if (p->snippets)
     gtk_box_append(GTK_BOX(box), label("Snippets (read when t-code starts)", NULL));
-  if (!any && !p->language_specs && !p->snippets)
+  if (p->styles)
+    gtk_box_append(GTK_BOX(box), label("Color themes (Preferences: Color Theme…)", NULL));
+  if (!any && !p->language_specs && !p->snippets && !p->styles)
     gtk_box_append(GTK_BOX(box), label("Nothing but its commands", "note"));
 }
 
@@ -1028,7 +1031,7 @@ static void fill_browse(void)
   if (manager->entries)
     gtk_label_set_text(GTK_LABEL(manager->browse_status),
                        !manager->entries->len ? "The registry is empty for now. Be the first to publish one!"
-                       : shown                ? ""
+                       : shown                ? (manager->index_note ? manager->index_note : "")
                                               : "Nothing matches that. Try fewer letters?");
 }
 
@@ -1061,6 +1064,7 @@ static void on_fetched(GPtrArray *entries, const char *error, gpointer data G_GN
   if (manager->entries)
     g_ptr_array_unref(manager->entries);
   manager->entries = entries;
+  g_set_str(&manager->index_note, error);
   note_reviews();
   fill_browse();
   show_details();
@@ -1116,6 +1120,7 @@ static void on_destroy(GtkWidget *window G_GNUC_UNUSED, gpointer data G_GNUC_UNU
   g_free(manager->picked);
   if (manager->entries)
     g_ptr_array_unref(manager->entries);
+  g_free(manager->index_note);
   g_clear_pointer(&manager, g_free);
 }
 

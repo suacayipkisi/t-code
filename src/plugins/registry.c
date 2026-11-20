@@ -7,6 +7,7 @@
 #include "plugins/registry.h"
 
 #include "application/identity.h"
+#include "plugins/ed25519.h"
 
 #include <glib/gstdio.h>
 #include <json-glib/json-glib.h>
@@ -266,35 +267,124 @@ char *registry_archive_url(const RegistryEntry *entry)
 
 /* Fetching the index ----------------------------------------------------------------------------- */
 
+gboolean registry_signed(const char *index, gsize length, const char *signature, const char *key)
+{
+  char *signature_text = g_strstrip(g_strdup(signature ? signature : "")), *key_text = g_strstrip(g_strdup(key));
+  gsize signature_length = 0, key_length = 0;
+  guint8 *signature_bytes = *signature_text ? g_base64_decode(signature_text, &signature_length) : NULL;
+  guint8 *key_bytes = *key_text ? g_base64_decode(key_text, &key_length) : NULL;
+  gboolean good = signature_length == 64 && key_length == 32 &&
+                  ed25519_verify(signature_bytes, (const guint8 *)index, length, key_bytes);
+
+  g_free(signature_bytes);
+  g_free(key_bytes);
+  g_free(signature_text);
+  g_free(key_text);
+  return good;
+}
+
 typedef struct {
   RegistryFetched done;
   gpointer data;
+  char *where; /* the index's URL or file */
+  char *fetch; /* curl's folder for the two files */
+  char *kept;  /* the cache's copy of a checked index from where; its signature beside it */
 } Fetch;
 
-static void fetched(Fetch *f, const char *json, const char *failure)
+/* The entries of index when signature is good, else NULL and why. */
+static GPtrArray *checked(const char *index, gsize length, const char *signature, char **why)
 {
+  const char *key = g_getenv("TCODE_REGISTRY_KEY");
   GError *error = NULL;
-  GPtrArray *entries = json ? registry_parse(json, &error) : NULL;
-  char *message = NULL;
+  GPtrArray *entries;
 
-  if (!json)
-    message = g_strdup(failure);
-  else if (!entries)
-    message = g_strdup_printf("The registry's index is broken: %s", error->message);
+  if (!signature) {
+    *why = g_strdup("the index came without its signature (index.json.sig)");
+    return NULL;
+  }
+  if (!registry_signed(index, length, signature, key && *key ? key : REGISTRY_PUBLIC_KEY)) {
+    *why = g_strdup("the index's signature does not match: it was changed on the way, or not signed again yet");
+    return NULL;
+  }
+  entries = registry_parse(index, &error);
+  if (!entries) {
+    *why = g_strdup_printf("the index is broken: %s", error->message);
+    g_error_free(error);
+  }
+  return entries;
+}
+
+static char *read_text(const char *path, gsize *length)
+{
+  char *text = NULL;
+
+  return path && g_file_get_contents(path, &text, length, NULL) ? text : NULL;
+}
+
+/* index (NULL: could not be had, failure says why) and its signature are in: done gets them, or the kept
+ * copy with a note, or what went wrong. */
+static void fetched(Fetch *f, const char *index, gsize length, const char *signature, const char *failure)
+{
+  char *why = NULL, *message = NULL, *kept_signature_path = g_strconcat(f->kept, ".sig", NULL);
+  GPtrArray *entries = index ? checked(index, length, signature, &why) : NULL;
+
+  if (entries) {
+    char *dir = g_path_get_dirname(f->kept);
+    g_mkdir_with_parents(dir, 0700);
+    g_file_set_contents(f->kept, index, length, NULL);
+    g_file_set_contents(kept_signature_path, signature, -1, NULL);
+    g_free(dir);
+  } else {
+    gsize kept_length = 0;
+    char *kept = read_text(f->kept, &kept_length), *kept_signature = read_text(kept_signature_path, NULL),
+         *ignored = NULL;
+    GStatBuf st;
+    entries = kept ? checked(kept, kept_length, kept_signature, &ignored) : NULL;
+    if (entries && g_stat(f->kept, &st) == 0) {
+      GDateTime *when = g_date_time_new_from_unix_local(st.st_mtime);
+      char *date = g_date_time_format(when, "%Y-%m-%d %H:%M");
+      message = g_strdup_printf("Showing the registry as of %s: %s", date, why ? why : failure);
+      g_free(date);
+      g_date_time_unref(when);
+    } else if (why) {
+      message = g_strdup_printf("Not trusting the registry: %s", why);
+    } else {
+      message = g_strdup(failure);
+    }
+    g_free(ignored);
+    g_free(kept_signature);
+    g_free(kept);
+  }
   f->done(entries, message, f->data);
-  g_clear_error(&error);
   g_free(message);
+  g_free(why);
+  g_free(kept_signature_path);
+  g_free(f->where);
+  g_free(f->kept);
+  g_free(f->fetch);
   g_free(f);
 }
 
 static void on_index(GObject *source, GAsyncResult *result, gpointer data)
 {
-  char *out = NULL;
+  Fetch *f = data;
+  char *index_path = g_build_filename(f->fetch, "index.json", NULL),
+       *signature_path = g_strconcat(index_path, ".sig", NULL);
+  gsize length = 0;
+  char *index, *signature;
 
-  g_subprocess_communicate_utf8_finish(G_SUBPROCESS(source), result, &out, NULL, NULL);
-  fetched(data, out && *out && g_subprocess_get_successful(G_SUBPROCESS(source)) ? out : NULL,
+  g_subprocess_wait_finish(G_SUBPROCESS(source), result, NULL); /* one of the two may have failed: see below */
+  index = read_text(index_path, &length);
+  signature = read_text(signature_path, NULL);
+  g_unlink(index_path);
+  g_unlink(signature_path);
+  g_rmdir(f->fetch);
+  fetched(f, index && length ? index : NULL, length, signature,
           "Could not reach the registry: offline, or GitHub is having a moment");
-  g_free(out);
+  g_free(signature);
+  g_free(index);
+  g_free(signature_path);
+  g_free(index_path);
 }
 
 void registry_fetch(RegistryFetched done, gpointer data)
@@ -302,26 +392,48 @@ void registry_fetch(RegistryFetched done, gpointer data)
   const char *where = g_getenv("TCODE_REGISTRY");
   Fetch *f = g_new0(Fetch, 1);
   GSubprocess *process;
-  char *url;
+  char *hash, *name, *index_path, *signature_path, *signature_url;
 
   f->done = done;
   f->data = data;
-  if (where && *where && g_path_is_absolute(where)) { /* a file: the tests', a local copy */
-    char *json = NULL;
-    g_file_get_contents(where, &json, NULL, NULL);
-    fetched(f, json, "Could not read the registry's index file");
-    g_free(json);
+  f->where = g_strdup(where && *where ? where : REGISTRY_INDEX_URL);
+  hash = g_compute_checksum_for_string(G_CHECKSUM_SHA256, f->where, -1);
+  name = g_strdup_printf("index-%.16s.json", hash); /* one per registry */
+  f->kept = g_build_filename(g_get_user_cache_dir(), TCODE_NAME, "registry", name, NULL);
+  g_free(name);
+  g_free(hash);
+  if (g_path_is_absolute(f->where)) { /* a file: the tests', a local copy */
+    char *signature_file = g_strconcat(f->where, ".sig", NULL);
+    gsize length = 0;
+    char *index = read_text(f->where, &length), *signature = read_text(signature_file, NULL);
+    fetched(f, index, length, signature, "Could not read the registry's index file");
+    g_free(signature);
+    g_free(index);
+    g_free(signature_file);
     return;
   }
-  url = g_strdup(where && *where ? where : REGISTRY_INDEX_URL);
-  process = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL, "curl", "-fsSL",
-                             "--max-time", FETCH_SECONDS, url, NULL);
-  g_free(url);
+  name = g_build_filename(g_get_user_cache_dir(), TCODE_NAME, NULL);
+  g_mkdir_with_parents(name, 0700);
+  f->fetch = g_build_filename(name, "registry-fetch-XXXXXX", NULL);
+  g_free(name);
+  if (!g_mkdtemp(f->fetch)) {
+    fetched(f, NULL, 0, NULL, "Could not reach the registry: no room in the cache folder");
+    return;
+  }
+  index_path = g_build_filename(f->fetch, "index.json", NULL);
+  signature_path = g_strconcat(index_path, ".sig", NULL);
+  signature_url = g_strconcat(f->where, ".sig", NULL);
+  process = g_subprocess_new(G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL, "curl", "-fsSL", "--max-time", FETCH_SECONDS,
+                             f->where, "-o", index_path, signature_url, "-o", signature_path, NULL);
+  g_free(signature_url);
+  g_free(signature_path);
+  g_free(index_path);
   if (!process) {
-    fetched(f, NULL, "Could not reach the registry: curl is not installed");
+    g_rmdir(f->fetch);
+    fetched(f, NULL, 0, NULL, "Could not reach the registry: curl is not installed");
     return;
   }
-  g_subprocess_communicate_utf8_async(process, NULL, NULL, on_index, f);
+  g_subprocess_wait_async(process, NULL, on_index, f);
   g_object_unref(process);
 }
 

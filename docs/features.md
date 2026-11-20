@@ -332,7 +332,8 @@ files open in an editor change there (unsaved, `Ctrl+Z` takes it back), the othe
 
 **Color themes.** Dark Classic and other dark and light themes (Gruvbox among them), each with a
 preview, in a rounded or a square look; the editor, the terminals and the panels all follow.
-`theme.css` and the editor's style scheme can be edited by hand ("Preferences: Open …").
+`theme.css` and the editor's style scheme can be edited by hand ("Preferences: Open …"). Plugins can
+bring more: each GtkSourceView style scheme in a plugin's `styles` folder is a theme (docs/plugins.md).
 
 **Settings** (`Ctrl+,` or Settings in the menu bar, its pages listed on the left): minimap, code coloring, indent guides,
 word wrap (off by default; with it off, long lines run off the screen and scroll sideways with

@@ -404,6 +404,9 @@ static void pal_compute(const Theme *theme)
                (int)(c[k].green * 255 + 0.5), (int)(c[k].blue * 255 + 0.5));
 }
 
+static const Theme *pal_nth(int n);
+static const char *pal_scheme_id(const Theme *theme);
+
 static const Theme *pal_find(const char *id)
 {
   static const char *const renamed[][2] = {
@@ -421,9 +424,9 @@ static const Theme *pal_find(const char *id)
   for (size_t i = 0; id && i < G_N_ELEMENTS(renamed); i++)
     if (strcmp(id, renamed[i][0]) == 0)
       id = renamed[i][1];
-  for (size_t i = 0; id && i < G_N_ELEMENTS(theme_table); i++)
-    if (strcmp(theme_table[i].id, id) == 0)
-      return &theme_table[i];
+  for (int i = 0; id && i < palette_count(); i++)
+    if (strcmp(palette_nth_id(i), id) == 0)
+      return pal_nth(i);
   return &theme_table[0];
 }
 
@@ -589,6 +592,10 @@ GtkSourceStyleScheme *palette_scheme(App *t)
 
   if (current_theme == &theme_table[0])
     return gtk_source_style_scheme_manager_get_scheme(schemes, DARK_CLASSIC_SCHEME);
+  if (pal_scheme_id(current_theme)) {
+    scheme = gtk_source_style_scheme_manager_get_scheme(schemes, pal_scheme_id(current_theme));
+    return scheme ? scheme : gtk_source_style_scheme_manager_get_scheme(schemes, DARK_CLASSIC_SCHEME);
+  }
   id = g_strconcat("t-code-", current_theme->id, NULL);
   if (g_strcmp0(made, current_theme->id) != 0) {
     char *dir = pal_schemes_dir(), *file = g_strconcat(id, ".xml", NULL), *path = g_build_filename(dir, file, NULL);
@@ -642,17 +649,201 @@ gboolean palette_light(void)
   return current_theme->light;
 }
 
+/* The plugins' themes ------------------------------------------------------------------------- */
+
+/* A theme made from a plugin's style scheme; its strings live in plugin_strings. */
+typedef struct {
+  Theme theme;        /* first: a Theme * of a plugin's theme is its PluginTheme * */
+  const char *scheme; /* the GtkSourceView style scheme its editors use as it is */
+  const char *given[2 * (PAL_COUNT + 8) + 1];
+} PluginTheme;
+
+static GPtrArray *plugin_themes;     /* PluginTheme *, after theme_table in the lists */
+static GStringChunk *plugin_strings; /* their texts, dropped together */
+static GHashTable *plugin_dirs;      /* the folders added to GtkSourceView's search path */
+
+static const Theme *pal_nth(int n)
+{
+  int built_in = G_N_ELEMENTS(theme_table);
+
+  return n < built_in ? &theme_table[n] : &((PluginTheme *)g_ptr_array_index(plugin_themes, n - built_in))->theme;
+}
+
+/* NULL for a built-in theme. */
+static const char *pal_scheme_id(const Theme *theme)
+{
+  for (size_t i = 0; i < G_N_ELEMENTS(theme_table); i++)
+    if (theme == &theme_table[i])
+      return NULL;
+  return ((const PluginTheme *)theme)->scheme;
+}
+
+/* A style's color ("foreground" or "background") as "#rrggbb", trying names in turn; NULL when none sets it. */
+static const char *pal_style_color(GtkSourceStyleScheme *scheme, const char *names, const char *which)
+{
+  char **each = g_strsplit(names, " ", -1), *set_name = g_strconcat(which, "-set", NULL);
+  const char *found = NULL;
+
+  for (int i = 0; each[i] && !found; i++) {
+    GtkSourceStyle *style = gtk_source_style_scheme_get_style(scheme, each[i]);
+    gboolean set = FALSE;
+    char *color = NULL;
+    GdkRGBA rgba;
+    if (!style)
+      continue;
+    g_object_get(style, set_name, &set, which, &color, NULL);
+    if (set && color && gdk_rgba_parse(&rgba, color))
+      found = g_string_chunk_insert_const(plugin_strings, color);
+    g_free(color);
+  }
+  g_free(set_name);
+  g_strfreev(each);
+  return found;
+}
+
+static const char *pal_hex_of(GdkRGBA c)
+{
+  char text[8];
+
+  g_snprintf(text, sizeof text, "#%02x%02x%02x", (int)(c.red * 255 + 0.5), (int)(c.green * 255 + 0.5),
+             (int)(c.blue * 255 + 0.5));
+  return g_string_chunk_insert_const(plugin_strings, text);
+}
+
+/* A metadata color ("t-code-<name>"), or NULL. */
+static const char *pal_meta_color(GtkSourceStyleScheme *scheme, const char *name)
+{
+  char *key = g_strconcat("t-code-", name, NULL);
+  const char *value = gtk_source_style_scheme_get_metadata(scheme, key);
+  GdkRGBA rgba;
+
+  g_free(key);
+  return value && gdk_rgba_parse(&rgba, value) ? g_string_chunk_insert_const(plugin_strings, value) : NULL;
+}
+
+/* The theme a plugin's scheme makes: its text's colors, its code's colors, the editor's colors it sets,
+ * and what its metadata says ("t-code-accent", "t-code-frame", "t-code-terminal", "t-code-<color>"). */
+static PluginTheme *pal_theme_of(GtkSourceStyleScheme *scheme)
+{
+  /* clang-format off */
+  static const char *const code[11] = {
+    "def:comment", "def:keyword", "def:statement def:keyword", "def:type", "def:function",
+    "def:identifier", "def:special-constant def:constant", "def:string", "def:number def:decimal def:constant",
+    "def:special-char def:string", "def:operator",
+  };
+  static const struct { const char *style, *which, *color; } editor[] = {
+    { "selection", "background", "editor-selection" }, { "current-line", "background", "current-line" },
+    { "line-numbers", "foreground", "line-number" },  { "cursor", "foreground", "cursor" },
+    { "search-match", "background", "search" },       { "bracket-match", "background", "bracket" },
+  };
+  /* clang-format on */
+  PluginTheme *p = g_new0(PluginTheme, 1);
+  Theme *theme = &p->theme;
+  const char *bg = pal_style_color(scheme, "text", "background"), *fg = pal_style_color(scheme, "text", "foreground");
+  const char *terminal = gtk_source_style_scheme_get_metadata(scheme, "t-code-terminal");
+  char **ansi = terminal ? g_strsplit_set(terminal, " ,;\t\n", -1) : NULL;
+  int given = 0, colors = 0;
+  GdkRGBA background;
+
+  theme->id = g_string_chunk_insert_const(plugin_strings, gtk_source_style_scheme_get_id(scheme));
+  p->scheme = theme->id;
+  theme->name = g_string_chunk_insert_const(plugin_strings, gtk_source_style_scheme_get_name(scheme));
+  background = pal_parse(bg ? bg : "#ffffff");
+  theme->light = pal_luminance(background) > 0.5;
+  theme->bg = pal_hex_of(background);
+  theme->fg = fg ? fg : theme->light ? "#000000" : "#ffffff";
+  theme->frame = pal_meta_color(scheme, "frame");
+  if (!theme->frame)
+    theme->frame = pal_hex_of(pal_mix(background, pal_parse("#000000"), theme->light ? 0.04 : 0.2));
+  theme->accent = pal_meta_color(scheme, "accent");
+  if (!theme->accent)
+    theme->accent = pal_style_color(scheme, "def:keyword def:function", "foreground");
+  if (!theme->accent)
+    theme->accent = theme->fg;
+  for (int i = 0; i < 11; i++) {
+    theme->code[i] = pal_style_color(scheme, code[i], "foreground");
+    if (!theme->code[i])
+      theme->code[i] = theme->fg;
+  }
+  for (int i = 0; ansi && ansi[i]; i++) {
+    GdkRGBA rgba;
+    if (*ansi[i] && colors < 16 && gdk_rgba_parse(&rgba, ansi[i]))
+      theme->ansi[colors++] = pal_hex_of(rgba);
+  }
+  for (int i = colors < 16 ? 0 : 16; i < 16; i++) /* all 16, or the classic ones */
+    theme->ansi[i] = theme_table[theme->light ? 1 : 0].ansi[i];
+  for (size_t i = 0; i < G_N_ELEMENTS(editor); i++) {
+    const char *color = pal_style_color(scheme, editor[i].style, editor[i].which);
+    if (color) {
+      p->given[given++] = editor[i].color;
+      p->given[given++] = color;
+    }
+  }
+  for (int k = 0; k < PAL_COUNT; k++) {
+    const char *color = pal_meta_color(scheme, color_names[k]);
+    if (color) {
+      p->given[given++] = color_names[k];
+      p->given[given++] = color;
+    }
+  }
+  theme->given = p->given;
+  g_strfreev(ansi);
+  return p;
+}
+
+static gboolean pal_known(const char *id)
+{
+  for (int i = 0; i < palette_count(); i++)
+    if (strcmp(palette_nth_id(i), id) == 0)
+      return TRUE;
+  return FALSE;
+}
+
+gboolean palette_set_styles(const char *const *dirs, const char *wanted)
+{
+  GtkSourceStyleSchemeManager *schemes = gtk_source_style_scheme_manager_get_default();
+  char *shown = g_strdup(current_theme->id);
+  gboolean was_plugin = pal_scheme_id(current_theme) != NULL;
+  const char *const *ids;
+
+  if (!plugin_dirs)
+    plugin_dirs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+  g_clear_pointer(&plugin_themes, g_ptr_array_unref);
+  g_clear_pointer(&plugin_strings, g_string_chunk_free);
+  plugin_themes = g_ptr_array_new_with_free_func(g_free);
+  plugin_strings = g_string_chunk_new(1024);
+  for (int i = 0; dirs && dirs[i]; i++)
+    if (g_hash_table_add(plugin_dirs, g_strdup(dirs[i])))
+      gtk_source_style_scheme_manager_append_search_path(schemes, dirs[i]);
+  gtk_source_style_scheme_manager_force_rescan(schemes); /* also a scheme changed since */
+  ids = gtk_source_style_scheme_manager_get_scheme_ids(schemes);
+  for (int d = 0; dirs && dirs[d]; d++)
+    for (int i = 0; ids && ids[i]; i++) {
+      GtkSourceStyleScheme *scheme = gtk_source_style_scheme_manager_get_scheme(schemes, ids[i]);
+      const char *file = gtk_source_style_scheme_get_filename(scheme);
+      char *folder = file ? g_path_get_dirname(file) : NULL;
+      if (folder && strcmp(folder, dirs[d]) == 0 && !g_str_has_prefix(ids[i], "t-code-") && !pal_known(ids[i]))
+        g_ptr_array_add(plugin_themes, pal_theme_of(scheme));
+      else if (folder && strcmp(folder, dirs[d]) == 0)
+        g_warning("Style scheme %s in %s: a theme with that id is there already; left out", ids[i], dirs[d]);
+      g_free(folder);
+    }
+  current_theme = pal_find(shown); /* the old one was freed: the same id, or Dark Classic when it went */
+  g_free(shown);
+  return was_plugin || pal_scheme_id(current_theme) || strcmp(palette_known_id(wanted), current_theme->id) != 0;
+}
+
 int palette_count(void)
 {
-  return G_N_ELEMENTS(theme_table);
+  return G_N_ELEMENTS(theme_table) + (plugin_themes ? plugin_themes->len : 0);
 }
 
 const char *palette_nth_id(int n)
 {
-  return theme_table[n].id;
+  return pal_nth(n)->id;
 }
 
 const char *palette_nth_name(int n)
 {
-  return theme_table[n].name;
+  return pal_nth(n)->name;
 }

@@ -92,6 +92,7 @@ typedef struct Plugin {
   GHashTable *debug;    /* "debug": the same, for F5 when no debugger of t-code's own takes the file */
   char *language_specs; /* "language-specs": a folder of .lang files (absolute), or NULL */
   char *snippets;       /* "snippets": a folder of .snippets files (absolute), or NULL */
+  char *styles;         /* "styles": a folder of GtkSourceView style schemes, each a color theme, or NULL */
 } Plugin;
 
 /* Whether name (a file's name) is one of patterns: ".ext" matches the end, anything else the whole

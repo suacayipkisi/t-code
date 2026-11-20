@@ -48,6 +48,7 @@
 #include "window/theme.h"
 #include "window/window.h"
 #include "broadway.h"
+#include "ed25519_sign.h"
 #include "util.h"
 #include "widgets.h"
 
@@ -1782,6 +1783,61 @@ static void test_theme_preview(void)
 
   g_set_str(&app.settings.color_theme, saved); /* back, for the other tests */
   color_theme_apply(&app, saved);
+  g_free(saved);
+}
+
+/* A plugin's "styles" folder: each style scheme in it is a color theme, its panels worked out from the
+ * scheme's colors and its metadata, its editors using the scheme itself; it goes with the folder. */
+static void test_plugin_themes(void)
+{
+  static const char scheme[] =
+      "<?xml version=\"1.0\"?>\n"
+      "<style-scheme id=\"test-oak\" name=\"Test Oak\" version=\"1.0\">\n"
+      "  <metadata><property name=\"t-code-accent\">#ff8800</property>\n"
+      "    <property name=\"t-code-terminal\">#000001 #000002 #000003 #000004 #000005 #000006 #000007 #000008\n"
+      "      #000009 #00000a #00000b #00000c #00000d #00000e #00000f #000010</property>\n"
+      "    <property name=\"t-code-link\">#123456</property></metadata>\n"
+      "  <style name=\"text\" foreground=\"#e0d0c0\" background=\"#302010\"/>\n"
+      "  <style name=\"selection\" background=\"#605040\"/>\n"
+      "  <style name=\"def:comment\" foreground=\"#889988\"/>\n"
+      "  <style name=\"def:keyword\" foreground=\"#cc6633\"/>\n"
+      "</style-scheme>\n";
+  char *saved = g_strdup(app.settings.color_theme), *dir = g_dir_make_tmp("tcode-styles-XXXXXX", NULL);
+  char *file = g_build_filename(dir, "oak.xml", NULL);
+  const char *dirs[] = { dir, NULL };
+  int built_in = palette_count();
+
+  g_assert_true(g_file_set_contents(file, scheme, -1, NULL));
+  g_assert_false(palette_set_styles(dirs, saved)); /* nothing shown changes */
+  g_assert_cmpint(palette_count(), ==, built_in + 1);
+  g_assert_cmpstr(palette_nth_id(built_in), ==, "test-oak");
+  g_assert_cmpstr(palette_nth_name(built_in), ==, "Test Oak");
+
+  color_theme_apply(&app, "test-oak");
+  g_assert_cmpstr(palette_id(), ==, "test-oak");
+  g_assert_false(palette_light());
+  g_assert_cmpstr(palette_hex(PAL_PANEL), ==, "#302010");
+  g_assert_cmpstr(palette_hex(PAL_FG), ==, "#e0d0c0");
+  g_assert_cmpstr(palette_hex(PAL_ACCENT), ==, "#ff8800");           /* t-code-accent */
+  g_assert_cmpstr(palette_hex(PAL_LINK), ==, "#123456");             /* t-code-<color> */
+  g_assert_cmpstr(palette_hex(PAL_EDITOR_SELECTION), ==, "#605040"); /* the scheme's selection */
+  g_assert_cmpstr(palette_hex(PAL_COMMENT), ==, "#889988");
+  g_assert_cmpstr(palette_hex(PAL_CONTROL), ==, "#cc6633"); /* def:statement falls back to def:keyword */
+  g_assert_cmpstr(palette_hex(PAL_STRING), ==, "#e0d0c0");  /* not set: the text's */
+  g_assert_cmpfloat_with_epsilon(palette_terminal()[15].blue, 16 / 255.0, 0.001);
+  g_assert_cmpstr(gtk_source_style_scheme_get_id(palette_scheme(&app)), ==, "test-oak");
+
+  g_assert_true(palette_set_styles(dirs, saved)); /* a plugin's theme is shown: maybe changed */
+  g_assert_cmpstr(palette_id(), ==, "test-oak");
+  g_assert_true(palette_set_styles(NULL, saved)); /* the plugin went */
+  g_assert_cmpint(palette_count(), ==, built_in);
+  g_assert_cmpstr(palette_id(), ==, "dark-classic");
+  color_theme_apply(&app, saved);
+
+  g_unlink(file);
+  g_rmdir(dir);
+  g_free(file);
+  g_free(dir);
   g_free(saved);
 }
 
@@ -3800,14 +3856,14 @@ static void test_plugins_run_question(void)
   run_for(50);
 }
 
-/* Browse: the registry's index ($TCODE_REGISTRY, a file here) lists its plugins with their review
+/* Browse: the registry's index ($TCODE_REGISTRY, a file here, signed with the test key) lists its plugins with their review
  * badges; Install on a reviewed one downloads its pinned archive (file:// here), checks it and puts it
  * in the user's plugins folder, switched on, with its record; the button then says Installed. */
 static void test_plugins_browse(void)
 {
   char *work = g_dir_make_tmp("t-code-registry-XXXXXX", NULL),
        *plugin = g_build_filename(work, "b-c0ffee", "tidy", NULL);
-  char *repo = g_build_filename(work, "repo", NULL), *tree, *index, *json, *archive;
+  char *repo = g_build_filename(work, "repo", NULL), *tree, *index, *json, *archive, *signature;
   const char *commit = "c0ffee0000000000000000000000000000000000";
   GtkWindow *plugins;
   GtkWidget *stack, *install;
@@ -3829,7 +3885,11 @@ static void test_plugins_browse(void)
       " \"commit\": \"%s\", \"tree-sha256\": \"%s\"}]}",
       repo, commit, tree, repo, commit, tree, repo, commit, tree);
   index = write_at(work, "index.json", json, -1, 0644);
+  signature = test_sign(json, strlen(json));
+  g_free(write_at(work, "index.json.sig", signature, -1, 0644));
+  g_free(signature);
   g_setenv("TCODE_REGISTRY", index, TRUE);
+  g_setenv("TCODE_REGISTRY_KEY", TEST_REGISTRY_KEY, TRUE);
 
   run_command(&app, "Plugins: Manage Plugins");
   run_for(50);
@@ -3859,6 +3919,9 @@ static void test_plugins_browse(void)
 
   /* the registry changed meanwhile: Reload fetches its index again */
   g_free(write_at(work, "index.json", "{\"plugins\": []}", -1, 0644));
+  signature = test_sign("{\"plugins\": []}", strlen("{\"plugins\": []}"));
+  g_free(write_at(work, "index.json.sig", signature, -1, 0644));
+  g_free(signature);
   GtkWidget *reload = find_widget(gtk_window_get_titlebar(plugins), GTK_TYPE_BUTTON, NULL, NULL);
   g_signal_emit_by_name(reload, "clicked"); /* Reload (activate would click it 250 ms later) */
   run_for(200);
@@ -3869,6 +3932,7 @@ static void test_plugins_browse(void)
   gtk_window_destroy(plugins);
   run_for(50);
   g_unsetenv("TCODE_REGISTRY");
+  g_unsetenv("TCODE_REGISTRY_KEY");
   const char *rm[] = { "rm", "-rf", work, NULL };
   g_spawn_sync(NULL, (char **)rm, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
   g_free(index);
@@ -4834,6 +4898,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/context-menus", test_context_menus);
   g_test_add_func("/window/switch-source-header", test_switch_source_header);
   g_test_add_func("/window/theme-preview", test_theme_preview);
+  g_test_add_func("/window/plugin-themes", test_plugin_themes);
   g_test_add_func("/window/theme-current-line", test_theme_current_line);
   g_test_add_func("/window/theme-renamed", test_theme_renamed);
   g_test_add_func("/window/preview-look", test_preview_look);

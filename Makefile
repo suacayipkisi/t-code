@@ -187,7 +187,7 @@ build/test-files: tests/test_files.c tests/util.h $(wildcard src/files/*.c) src/
 	  $(shell pkg-config --libs $(PKGS))
 
 # A whole window (every module but main.c): how tabs open and close.
-build/test-window: tests/test_window.c tests/util.h tests/widgets.h tests/broadway.h $(APP_SRC) $(APP_HDR) build/license.h build/resources.c | build
+build/test-window: tests/test_window.c tests/util.h tests/widgets.h tests/broadway.h tests/ed25519_sign.h $(APP_SRC) $(APP_HDR) build/license.h build/resources.c | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_window.c \
 	  $(filter-out src/main.c,$(APP_SRC)) build/resources.c $(shell pkg-config --libs $(PKGS))
 
@@ -197,8 +197,8 @@ build/test-about: tests/test_about.c tests/util.h src/dialogs/about.c $(APP_HDR)
 build/test-welcome: tests/test_welcome.c tests/util.h tests/widgets.h src/dialogs/welcome.c src/dialogs/welcome.h | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_welcome.c \
 	  $(shell pkg-config --libs $(PKGS))
-build/test-plugins: tests/test_plugins.c tests/util.h src/files/fileops.c src/plugins/registry.c src/plugins/plugins.c src/plugins/plugins.h src/lsp/servers.c src/lsp/servers.h $(wildcard tests/plugins/*/plugin.json) $(APP_HDR) | build
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_plugins.c src/files/fileops.c src/plugins/registry.c $(shell pkg-config --libs $(PKGS))
+build/test-plugins: tests/test_plugins.c tests/util.h src/files/fileops.c src/plugins/registry.c src/plugins/ed25519.c src/plugins/plugins.c src/plugins/plugins.h src/lsp/servers.c src/lsp/servers.h $(wildcard tests/plugins/*/plugin.json) $(APP_HDR) | build
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_plugins.c src/files/fileops.c src/plugins/registry.c src/plugins/ed25519.c $(shell pkg-config --libs $(PKGS))
 
 build/test-update: tests/test_update.c tests/util.h src/update/update.c src/update/update.h $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_update.c src/update/update.c \
@@ -216,9 +216,9 @@ build/test-children: tests/test_children.c tests/util.h src/application/children
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_children.c src/application/children.c \
 	  $(shell pkg-config --libs glib-2.0)
 
-build/test-registry: tests/test_registry.c tests/util.h src/plugins/registry.c src/plugins/registry.h | build
+build/test-registry: tests/test_registry.c tests/util.h tests/ed25519_sign.h src/plugins/registry.c src/plugins/registry.h src/plugins/ed25519.c src/plugins/ed25519.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o $@ tests/test_registry.c \
-	  src/plugins/registry.c $(shell pkg-config --libs json-glib-1.0 gio-2.0)
+	  src/plugins/registry.c src/plugins/ed25519.c $(shell pkg-config --libs json-glib-1.0 gio-2.0)
 
 build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c src/editor/recovery.h $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_recovery.c src/editor/recovery.c \
@@ -351,7 +351,7 @@ test-asan: | build
 	  tests/test_debug.c $(DAP_SRC) $(shell pkg-config --libs json-glib-1.0 gio-unix-2.0)
 	$(ASAN_ENV) build/asan/test-debug
 	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -o build/asan/test-plugins \
-	  tests/test_plugins.c src/files/fileops.c src/plugins/registry.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
+	  tests/test_plugins.c src/files/fileops.c src/plugins/registry.c src/plugins/ed25519.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
 	$(ASAN_ENV) build/asan/test-plugins
 	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o build/asan/test-update \
 	  tests/test_update.c src/update/update.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
@@ -360,7 +360,7 @@ test-asan: | build
 	  tests/test_recovery.c src/editor/recovery.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
 	$(ASAN_ENV) build/asan/test-recovery
 	$(CC) $(ASAN_FLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o build/asan/test-registry \
-	  tests/test_registry.c src/plugins/registry.c $(shell pkg-config --libs json-glib-1.0 gio-2.0)
+	  tests/test_registry.c src/plugins/registry.c src/plugins/ed25519.c $(shell pkg-config --libs json-glib-1.0 gio-2.0)
 	$(ASAN_ENV) build/asan/test-registry
 
 # System-wide install, used by the packages in packaging/ (install.sh installs into ~/.local).

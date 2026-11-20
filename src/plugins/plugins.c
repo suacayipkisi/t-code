@@ -11,7 +11,9 @@
 #include "files/fileops.h"
 #include "lsp/client/client.h"
 #include "popups/picker.h"
+#include "window/palette.h"
 #include "window/statusbar.h"
+#include "window/theme.h"
 
 #include <gio/gio.h>
 #include <json-glib/json-glib.h>
@@ -66,6 +68,7 @@ static void plugin_free(Plugin *plugin)
   g_clear_pointer(&plugin->debug, g_hash_table_unref);
   g_free(plugin->language_specs);
   g_free(plugin->snippets);
+  g_free(plugin->styles);
   registry_record_free(plugin->record);
   g_free(plugin);
 }
@@ -344,7 +347,7 @@ static GHashTable *plugin_run(JsonObject *obj, Plugin *p, const char *member)
   return run;
 }
 
-/* A folder member ("language-specs", "snippets"): relative to the plugin's folder, inside it. NULL,
+/* A folder member ("language-specs", "snippets", "styles"): relative to the plugin's folder, inside it. NULL,
  * with a warning when it is given but is not such a folder. */
 static char *plugin_folder(JsonObject *obj, const char *member, const char *plugin, const char *plugin_dir)
 {
@@ -446,6 +449,7 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
   p->debug = plugin_run(obj, p, "debug");
   p->language_specs = plugin_folder(obj, "language-specs", name, plugin_dir);
   p->snippets = plugin_folder(obj, "snippets", name, plugin_dir);
+  p->styles = plugin_folder(obj, "styles", name, plugin_dir);
   return p;
 }
 
@@ -506,6 +510,27 @@ static void add_language_specs(App *t)
       gtk_source_language_manager_append_search_path(languages, p->language_specs);
   }
   added = TRUE;
+}
+
+/* The enabled plugins' "styles" folders become color themes; the settings' theme is shown again when
+ * it came, went or may have changed. At start-up (before any widget) only the palette is set. */
+static void apply_styles(App *t, gboolean starting)
+{
+  GPtrArray *dirs = g_ptr_array_new();
+
+  for (guint i = 0; i < t->plugins->len; i++) {
+    Plugin *p = g_ptr_array_index(t->plugins, i);
+    if (p->enabled && p->styles)
+      g_ptr_array_add(dirs, p->styles);
+  }
+  g_ptr_array_add(dirs, NULL);
+  if (palette_set_styles((const char *const *)dirs->pdata, t->settings.color_theme)) {
+    if (starting)
+      palette_init(t, t->settings.color_theme);
+    else
+      color_theme_apply(t, t->settings.color_theme);
+  }
+  g_ptr_array_free(dirs, TRUE);
 }
 
 /* Turned on or off ---------------------------------------------------------------------------- */
@@ -617,6 +642,8 @@ void plugin_set_enabled(App *t, Plugin *p, gboolean enabled)
     plugin_start(t, p);
   refresh_shortcuts(t);
   lsp_reattach(t);
+  if (p->styles)
+    apply_styles(t, FALSE);
 }
 
 gboolean plugin_uninstall(App *t, Plugin *p, GError **error)
@@ -684,6 +711,7 @@ void plugins_init(App *t)
   }
   g_strfreev(disabled);
   add_language_specs(t);
+  apply_styles(t, loads == 1);
 }
 
 static void unload(App *t, gboolean quitting);

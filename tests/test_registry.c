@@ -5,6 +5,8 @@
  */
 #define _DEFAULT_SOURCE /* symlink() */
 #include "plugins/registry.h"
+#include "plugins/ed25519.h"
+#include "ed25519_sign.h"
 #include "util.h"
 
 #include <glib/gstdio.h>
@@ -159,6 +161,7 @@ static void test_records(void)
 typedef struct {
   gboolean done;
   char *error;
+  int entries; /* fetched: how many, -1 for none */
 } Result;
 
 static void on_installed(const char *error, gpointer data)
@@ -252,36 +255,144 @@ static void test_install(void)
   g_free(repo);
 }
 
-/* $TCODE_REGISTRY names a file: its entries come back; a missing one says so. */
+/* Ed25519 (RFC 8032): signatures made by the registry's tools/sign_index.py (itself checked against
+ * OpenSSL) with the seed 00 01 .. 1f; anything changed fails. */
+static void test_ed25519(void)
+{
+  static const char *const key = "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=";
+  static const char *const signatures[] = {
+    "9ca53579530654d5c3df77089ef45eda613e2fedf670e96bedac4639504e5845ef4b95d5793077233dd16817b2532e9c5525872a73a4ad74b759369a9e05c102",
+    "cc46d62d3754f41754b27b6ea2cb2c272bafa7a5a1f6062bd060f414e50caaeac2da66ad39cef4424a90236ea907b7d8057e3443dc5abfc9986967ee7213a407",
+    "e6a71601e3a52680061f33fb9042fc5ce45933ea1f707f4740cd4e818e2efb28d9b81348df9cd3e8d050805360c3dff0228ed889e160f0763f31f1646e8e8e08",
+  };
+  /* L, the group's order, little-endian: S + L is the same signature, written differently */
+  static const guint8 order[32] = { 0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,       0xd6,
+                                    0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, [31] = 0x10 };
+  GString *long_message = g_string_new(NULL);
+  gsize key_length;
+  guint8 *public_key = g_base64_decode(key, &key_length), bad_key[32];
+
+  for (int i = 0; i < 150; i++)
+    g_string_append(long_message, "t-code ");
+  const char *messages[] = { "", "abc", long_message->str };
+  for (int m = 0; m < 3; m++) {
+    guint8 signature[64];
+    for (int i = 0; i < 64; i++)
+      sscanf(signatures[m] + 2 * i, "%2hhx", &signature[i]);
+    const guint8 *text = (const guint8 *)messages[m];
+    gsize length = strlen(messages[m]);
+    g_assert_true(ed25519_verify(signature, text, length, public_key));
+    if (length) {
+      guint8 *changed = g_memdup2(text, length);
+      changed[length - 1] ^= 1;
+      g_assert_false(ed25519_verify(signature, changed, length, public_key));
+      g_free(changed);
+    }
+    signature[3] ^= 0x10; /* R */
+    g_assert_false(ed25519_verify(signature, text, length, public_key));
+    signature[3] ^= 0x10;
+    signature[40] ^= 0x01; /* S */
+    g_assert_false(ed25519_verify(signature, text, length, public_key));
+    signature[40] ^= 0x01;
+    int carry = 0; /* S + L */
+    for (int i = 0; i < 32; i++) {
+      int sum = signature[32 + i] + order[i] + carry;
+      signature[32 + i] = sum & 0xff;
+      carry = sum >> 8;
+    }
+    g_assert_false(ed25519_verify(signature, text, length, public_key));
+  }
+  memcpy(bad_key, public_key, 32);
+  bad_key[0] ^= 0x01; /* another key, or no point at all */
+  guint8 signature[64];
+  for (int i = 0; i < 64; i++)
+    sscanf(signatures[0] + 2 * i, "%2hhx", &signature[i]);
+  g_assert_false(ed25519_verify(signature, NULL, 0, bad_key));
+
+  /* registry_signed: base64 texts, spaces and a newline around them allowed */
+  const char *index = "{\"format\": 1, \"plugins\": []}\n";
+  const char *index_signature =
+      "H/jHxgz4lwJM7AJwy5P7K5qTcxw6Z8eHtSm7tD+ELR1hQOX6iy58dsM7t93TWhkBGXGa3yt4sD9bcyNaUmwkCQ==\n";
+  g_assert_true(registry_signed(index, strlen(index), index_signature, key));
+  g_assert_false(registry_signed(index, strlen(index) - 1, index_signature, key));
+  g_assert_false(registry_signed(index, strlen(index), index_signature, REGISTRY_PUBLIC_KEY));
+  g_assert_false(registry_signed(index, strlen(index), "", key));
+  g_assert_false(registry_signed(index, strlen(index), "bm90IGEgc2lnbmF0dXJl", key)); /* 15 bytes */
+  g_assert_false(registry_signed(index, strlen(index), NULL, key));
+  /* the tests' own signing (ed25519_sign.h) makes the same signatures, and good ones */
+  char *made = test_sign(index, strlen(index));
+  g_assert_cmpstr(made, ==, "H/jHxgz4lwJM7AJwy5P7K5qTcxw6Z8eHtSm7tD+ELR1hQOX6iy58dsM7t93TWhkBGXGa3yt4sD9bcyNaUmwkCQ==");
+  g_free(made);
+  for (int n = 0; n < 20; n++) {
+    char *text = g_strdup_printf("%d %s", n, n % 2 ? long_message->str : "");
+    made = test_sign(text, strlen(text));
+    g_assert_true(registry_signed(text, strlen(text), made, TEST_REGISTRY_KEY));
+    g_free(made);
+    g_free(text);
+  }
+  g_free(public_key);
+  g_string_free(long_message, TRUE);
+}
+
+/* $TCODE_REGISTRY names a file: its entries come back when its signature (the file + ".sig") is good. A
+ * checked index is kept: when the next one is not signed right, the kept one comes back with a note. */
 static void fetched(GPtrArray *entries, const char *error, gpointer data)
 {
   Result *r = data;
 
   r->done = TRUE;
-  r->error = g_strdup(error);
-  g_assert_true((entries != NULL) == (error == NULL));
-  if (entries) {
-    g_assert_cmpuint(entries->len, ==, 0);
+  g_set_str(&r->error, error);
+  r->entries = entries ? (int)entries->len : -1;
+  if (entries)
     g_ptr_array_unref(entries);
-  }
+}
+
+static void fetch_from(Result *r, const char *where)
+{
+  g_setenv("TCODE_REGISTRY", where, TRUE);
+  r->done = FALSE;
+  registry_fetch(fetched, r);
+  run_until(finished, r);
 }
 
 static void test_fetch(void)
 {
-  char *index = write_at(tmp_dir, "index.json", "{\"plugins\": []}", -1, 0644);
+  const char *signature = "H/jHxgz4lwJM7AJwy5P7K5qTcxw6Z8eHtSm7tD+ELR1hQOX6iy58dsM7t93TWhkBGXGa3yt4sD9bcyNaUmwkCQ==\n";
+  char *index = write_at(tmp_dir, "index.json", "{\"format\": 1, \"plugins\": []}\n", -1, 0644);
+  char *signature_file = write_at(tmp_dir, "index.json.sig", signature, -1, 0644);
+  char *other = write_at(tmp_dir, "other.json", "{\"format\": 1, \"plugins\": []}\n", -1, 0644);
   Result r = { 0 };
 
-  g_setenv("TCODE_REGISTRY", index, TRUE);
-  registry_fetch(fetched, &r);
-  run_until(finished, &r);
+  g_setenv("TCODE_REGISTRY_KEY", "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=", TRUE);
+  fetch_from(&r, index);
   g_assert_null(r.error);
-  r.done = FALSE;
-  g_setenv("TCODE_REGISTRY", "/nowhere/index.json", TRUE);
-  registry_fetch(fetched, &r);
-  run_until(finished, &r);
+  g_assert_cmpint(r.entries, ==, 0); /* an empty list, checked */
+
+  /* changed on the way: the kept copy, saying why */
+  g_assert_true(g_file_set_contents(index, "{\"format\": 1, \"plugins\": [], \"x\": 2}\n", -1, NULL));
+  fetch_from(&r, index);
+  g_assert_cmpint(r.entries, ==, 0);
+  g_assert_nonnull(strstr(r.error, "Showing the registry as of"));
+  g_assert_nonnull(strstr(r.error, "signature does not match"));
+  /* signed again: no note */
+  g_assert_true(g_file_set_contents(
+      signature_file, "buI+d2fT3hbX3hwy2f5AyCmi4H/KM6ecoYKTIxL9lCxBY0RpQwSiNvBi6om6UQlAlwwVoD01uBDeoO851iTPCw==", -1,
+      NULL));
+  fetch_from(&r, index);
+  g_assert_null(r.error);
+  /* t-code's own key does not sign the test index */
+  g_unsetenv("TCODE_REGISTRY_KEY");
+  fetch_from(&r, other);
+  g_assert_cmpint(r.entries, ==, -1);
+  g_assert_nonnull(strstr(r.error, "without its signature"));
+  fetch_from(&r, "/nowhere/index.json");
+  g_assert_cmpint(r.entries, ==, -1);
   g_assert_nonnull(r.error);
+
   g_free(r.error);
   g_unsetenv("TCODE_REGISTRY");
+  g_free(other);
+  g_free(signature_file);
   g_free(index);
 }
 
@@ -298,6 +409,7 @@ int main(int argc, char **argv)
   g_test_add_func("/registry/tree-hash", test_tree_hash);
   g_test_add_func("/registry/records", test_records);
   g_test_add_func("/registry/install", test_install);
+  g_test_add_func("/registry/ed25519", test_ed25519);
   g_test_add_func("/registry/fetch", test_fetch);
 
   int status = g_test_run();

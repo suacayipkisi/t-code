@@ -104,3 +104,9 @@ GtkSourceStyleScheme *palette_scheme(App *t);
 int palette_count(void);
 const char *palette_nth_id(int n);
 const char *palette_nth_name(int n);
+
+/* The themes of the plugins' "styles" folders (dirs, NULL-ended; replacing the ones given before): each
+ * GtkSourceView style scheme in them is a theme, after the built-in ones. TRUE when the colors shown
+ * must be applied again: wanted (the settings' theme) is not the one shown, or a plugin's theme was or
+ * is shown (it may have changed). The theme shown is never left freed: when it went, Dark Classic. */
+gboolean palette_set_styles(const char *const *dirs, const char *wanted);

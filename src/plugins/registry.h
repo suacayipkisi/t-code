@@ -11,8 +11,13 @@
 
 #include <gio/gio.h>
 
-/* Where the index is, unless $TCODE_REGISTRY names another (a URL or a file). */
+/* Where the index is, unless $TCODE_REGISTRY names another (a URL or a file). Its signature is beside it,
+ * at the same place plus ".sig". */
 #define REGISTRY_INDEX_URL "https://raw.githubusercontent.com/suacayipkisi/t-code-plugins/main/index.json"
+
+/* The public key (Ed25519, base64) the index is signed with; $TCODE_REGISTRY_KEY names another (a mirror
+ * with its own key, the tests). The registry's PUBLIC_KEY file holds the same. */
+#define REGISTRY_PUBLIC_KEY "lfYa9p1HxNpytjfrep5NNb2a0Rsu6AWYWPQ+iLL5qHI="
 
 typedef struct {
   char *id, *name, *description, *version, *api;
@@ -40,8 +45,13 @@ char *registry_tree_hash(const char *dir, GError **error);
 /* Where entry's commit can be downloaded: GitHub's archive of it, or <repository>/<commit>.tar.gz. */
 char *registry_archive_url(const RegistryEntry *entry);
 
-/* Fetches the index (curl, or a file) and parses it; done gets the entries (NULL and an error message
- * when it failed: offline, no curl, not an index), which it owns. */
+/* Whether signature (index.json.sig's text: base64) is key's (base64) over the index's bytes. */
+gboolean registry_signed(const char *index, gsize length, const char *signature, const char *key);
+
+/* Fetches the index and its signature (curl, or files), checks the signature and parses it; done gets the
+ * entries, which it owns, and NULL. A checked index is kept in the cache: when the fresh one cannot be had
+ * or checked, the kept one comes back with a note saying why (error). Nothing kept: NULL entries and what
+ * went wrong (offline, no curl, not signed, not an index). */
 typedef void (*RegistryFetched)(GPtrArray *entries, const char *error, gpointer data);
 void registry_fetch(RegistryFetched done, gpointer data);
 

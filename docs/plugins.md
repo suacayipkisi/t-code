@@ -8,8 +8,7 @@ This document is the plugin API, **tapi_1**: the manifest (`plugin.json`), the s
 environment, the rules that keep old plugins working, the limits of the model, and a catalog of
 plugins the API is meant to make possible.
 
-Parts marked **(planned)** are designed but not in t-code yet. They are listed so plugin authors can
-see where the API goes. Everything without that mark works today.
+Everything described here works today: tapi_1 has no planned parts left before t-code 1.0.
 
 - [Principles](#principles)
 - [Quick start](#quick-start)
@@ -113,8 +112,8 @@ The API has a version name: `tapi_1`, `tapi_2`, and so on.
 - **Plugins from before versions.** A `plugin.json` without `"api"` is a plugin written before the API
   had a version. It loads and runs as before. Its socket connections are *legacy* connections (see
   [Legacy connections](#legacy-connections)).
-- **Additions inside a version.** Until t-code 1.0, tapi_1 still grows: the **(planned)** parts below
-  join it. From 1.0 on, tapi_1 is frozen and new things go into tapi_2.
+- **Additions inside a version.** Until t-code 1.0, tapi_1 may still grow. From 1.0 on, tapi_1 is
+  frozen and new things go into tapi_2.
 - **Deprecated, never removed.** A field that is replaced keeps working. For example, `trigger` was
   replaced by `keys`: t-code still reads `trigger`, but new plugins should not use it.
 
@@ -159,7 +158,7 @@ found wins:
 | `lsp` | list | no | Language servers the plugin adds. See [Declarations](#declarations-without-a-program). |
 | `language-specs` | string | no | A folder inside the plugin's with GtkSourceView `.lang` files. |
 | `snippets` | string | no | A folder inside the plugin's with GtkSourceView `.snippets` files. |
-| `styles` | string | no, **(planned)** | A folder of style schemes. |
+| `styles` | string | no | A folder inside the plugin's with GtkSourceView style schemes (`.xml`): each one is a color theme. See [Color themes](#color-themes). |
 | `debuggers` | – | – | Not a manifest field: a plugin's debugger starts at run time with `debug-start` (its own command line, or a port where it listens), from the command `debug` names. |
 
 Each command:
@@ -182,7 +181,7 @@ plugin still loads.
 
 ### Declarations without a program
 
-`lsp`, `run`, `language-specs` and `snippets` need no program of the plugin's own (only `run` names a
+`lsp`, `run`, `language-specs`, `snippets` and `styles` need no program of the plugin's own (only `run` names a
 command, and commands need one). A plugin can be nothing but a `plugin.json` that declares a language
 server:
 
@@ -239,6 +238,46 @@ Objective-C, so a server declared for the `matlab` language does not get it eith
 `language-specs` and `snippets` name folders inside the plugin's folder. They are read when t-code
 starts (GtkSourceView reads its folders once), so a plugin installed or reloaded later brings them at
 the next start. t-code's own languages and the user's snippets come first.
+
+#### Color themes
+
+Each GtkSourceView style scheme in the `styles` folder is a color theme, listed after t-code's own in
+"Preferences: Color Theme…" and in Settings, by the scheme's `name`; its `id` is the theme's id (one
+already taken, by t-code's themes or another plugin's, is left out with a warning). Unlike language
+specs, themes follow the plugin at once: on Reload, and when it is switched on or off. Switched off
+while its theme is shown, t-code shows Dark Classic, and the plugin's theme again when it comes back.
+
+The editors use the scheme as it is. The rest of t-code (panels, tabs, the terminal, the diff gutter)
+is worked out from it:
+
+- the background and text from its `text` style; a light background makes a light theme;
+- the code's colors from `def:comment`, `def:keyword`, `def:statement`, `def:type`, `def:function`,
+  `def:identifier`, `def:constant`, `def:string`, `def:number`, `def:special-char` and
+  `def:operator` (one it does not set: the text's color);
+- the editor's selection, current line, line numbers, cursor, search matches and bracket match from
+  the styles of those names;
+- the accent (buttons, the current tab's line) from `def:keyword`.
+
+Its `<metadata>` can say more, each a `<property>` t-code reads and GtkSourceView ignores:
+
+| Property | Meaning |
+|---|---|
+| `t-code-accent` | The accent, instead of the keywords' color. |
+| `t-code-frame` | The title bar, the status bar and the gaps between panels (else a little darker than the background). |
+| `t-code-terminal` | The terminal's 16 colors, separated by spaces (else t-code's own, light or dark). |
+| `t-code-<color>` | Any one of t-code's colors as it is, by its CSS name: `t-code-link`, `t-code-selection`, `t-code-git-modified`, ... (the `--tc-<color>` variables of `theme.css`). |
+
+```xml
+<style-scheme id="oak" name="Oak" version="1.0">
+  <metadata>
+    <property name="t-code-accent">#ff8800</property>
+  </metadata>
+  <style name="text" foreground="#e0d0c0" background="#302010"/>
+  <style name="selection" background="#605040"/>
+  <style name="def:comment" foreground="#889988" italic="true"/>
+  <style name="def:keyword" foreground="#cc6633" bold="true"/>
+</style-scheme>
+```
 
 ---
 
@@ -591,8 +630,7 @@ A plugin declares what it does:
   plugin could skip the token and act as a script. Enforcement catches honest mistakes; trust comes
   from review.
 - **Plugins from before versions:** a plugin without `"api"` is not checked.
-- The Plugins window shows a plugin's permissions. **(planned)** Browse will show them before a
-  plugin is installed.
+- The Plugins window shows a plugin's permissions, and Browse shows them before a plugin is installed.
 
 ### The Plugins window
 
@@ -665,7 +703,17 @@ repository. It holds no plugin code, only pins; its README says how to publish.
   A new commit starts unreviewed again.
 - **The index.** t-code reads `index.json` from the repository's main branch over HTTPS (curl);
   `$TCODE_REGISTRY` names another URL, or a file. It holds `{"format": 1, "plugins": [...]}`, the
-  entries as above. **(planned, before 1.0)** a signature over the index, checked by t-code.
+  entries as above.
+- **The signature.** `index.json.sig`, beside the index (the same URL or file plus `.sig`), holds an
+  Ed25519 signature over the index's exact bytes, in base64. t-code checks it with the registry's
+  public key, which it carries (`$TCODE_REGISTRY_KEY`, a public key in base64, names another for a
+  mirror with its own); the registry's `PUBLIC_KEY` file holds the same. A maintainer signs the
+  index after each change (the registry's README, "Signing"); the key never goes to GitHub.
+- **When it does not check.** An index t-code checked is kept in `~/.cache/t-code/registry/`. When
+  the next one cannot be fetched, has no signature or a wrong one (changed on the way, or merged and
+  not signed yet), Browse shows the kept one and says why at the bottom ("Showing the registry as of
+  ..."). With nothing kept, it shows nothing and says why. Installing still checks each plugin's
+  tree hash against the pin of the index it came from.
 
 t-code warns before it runs an unreviewed plugin, three times:
 
@@ -691,7 +739,7 @@ Targets is JavaScript (Node.js), Open on GitHub is Perl, the rest are Python 3.
 t-code does not load them by itself (install them from Browse, or copy a folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
 `t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
 PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what it does, what t-code provides
-(**core**), what the plugin itself does, and where it stops. Some still use **(planned)** parts of tapi_1.
+(**core**), what the plugin itself does, and where it stops.
 
 ### Languages and REPLs
 
@@ -1055,7 +1103,7 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
   selection.
 
 #### Snippet packs and themes
-Declarations only: `snippets/` and `styles/*.xml` folders, no program.
+Declarations only: `snippets/` and `styles/*.xml` folders, no program (see [Color themes](#color-themes)).
 
 #### Time tracking (`wakatime`)
 - **Does:** passes `active_changed` and `did_save` to `wakatime-cli`.

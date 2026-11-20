@@ -26,6 +26,11 @@ char *toolchain_rust_features(App *t G_GNUC_UNUSED) { return NULL; }
 char *toolchain_rust_target(App *t G_GNUC_UNUSED) { return NULL; }
 char *langenv_rust_options(const char *features G_GNUC_UNUSED, const char *target G_GNUC_UNUSED) { return NULL; }
 char *json_quote(const char *text) { return g_strdup_printf("\"%s\"", text); }
+static char *styles_given;  /* the "styles" folders palette_set_styles got last, joined by spaces */
+static int themes_applied;  /* color_theme_apply calls (palette_init: at the first load) */
+gboolean palette_set_styles(const char *const *dirs, const char *wanted G_GNUC_UNUSED) { g_free(styles_given); styles_given = g_strjoinv(" ", (char **)dirs); return TRUE; }
+void palette_init(App *t G_GNUC_UNUSED, const char *id G_GNUC_UNUSED) {}
+void color_theme_apply(App *t G_GNUC_UNUSED, const char *id G_GNUC_UNUSED) { themes_applied++; }
 /* clang-format on */
 
 /* The palette's rows ("label|detail|payload"). */
@@ -701,14 +706,19 @@ static void test_enabled(void)
   write_file("config-home/t-code/plugins/switchy/plugin.json",
              "{\"name\": \"Switchy\", \"api\": \"tapi_1\", \"start\": \"project\", \"permissions\": [\"start\"],\n"
              " \"commands\": [{\"id\": \"go\", \"name\": \"Switchy: Go\", \"keys\": \"<Control><Alt>9\"}],\n"
-             " \"run\": {\".zz\": \"go\"}, \"lsp\": [{\"argv\": [\"zz-ls\"], \"extensions\": [\".zz\"]}]}",
+             " \"run\": {\".zz\": \"go\"}, \"lsp\": [{\"argv\": [\"zz-ls\"], \"extensions\": [\".zz\"]}],\n"
+             " \"styles\": \"themes\"}",
              0644);
   write_file("config-home/t-code/plugins/switchy/run.sh", "#!/bin/sh\necho up\nexec sleep 30\n", 0755);
+  write_file("config-home/t-code/plugins/switchy/themes/zz.xml", "<style-scheme id=\"zz\"/>", 0644);
   write_file("config-home/t-code/plugins.json", "{\"other\": 1, \"disabled\": [\"someone-else\"]}", 0644);
   plugins_init(&app);
   p = plugin_find(&app, "switchy");
   g_assert_true(p->enabled);
   g_assert_cmpint(p->source, ==, PLUGIN_FROM_USER);
+  g_assert_true(g_str_has_suffix(p->styles, "/switchy/themes"));
+  g_assert_nonnull(strstr(styles_given, "/switchy/themes")); /* its color themes */
+  int applied = themes_applied;
   tab.buffer = gtk_source_buffer_new(NULL);
   g_assert_cmpint(server_kind_for_tab(&tab), >=, SERVER_PLUGIN);
   g_assert_true(plugin_start(&app, p));
@@ -719,6 +729,8 @@ static void test_enabled(void)
   g_assert_false(p->enabled);
   g_assert_null(p->running);
   g_assert_cmpint(p->state, ==, PLUGIN_STOPPED);
+  g_assert_null(strstr(styles_given, "/switchy/themes")); /* its themes went */
+  g_assert_cmpint(themes_applied, ==, applied + 1);       /* the theme shown again */
   g_assert_true(g_file_get_contents(choices, &text, NULL, NULL));
   g_assert_nonnull(strstr(text, "\"other\" : 1")); /* the rest of the file stays */
   g_assert_nonnull(strstr(text, "\"someone-else\""));
