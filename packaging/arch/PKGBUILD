@@ -1,6 +1,7 @@
 # Maintainer: suacayipkisi <konuki8523@gmail.com>
-pkgname=t-code-ide
-pkgver=0.4.2
+pkgbase=t-code-ide
+pkgname=('t-code-ide' 't-code-matlab' 't-code-octave')
+pkgver=0.4.3
 pkgrel=1
 pkgdesc='Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell'
 arch=('x86_64')
@@ -33,9 +34,31 @@ check() {
   build/test-linediff
 }
 
-package() {
+package_t-code-ide() {
   cd "t-code-$pkgver"
   make DESTDIR="$pkgdir" PREFIX=/usr install
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 THIRD-PARTY.md "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY.md"
+}
+
+package_t-code-matlab() {
+  pkgdesc='MATLAB plugin for t-code: run .m files in a MATLAB session (MATLAB not included)'
+  arch=('any')
+  depends=("t-code-ide=$pkgver" 'python')
+  optdepends=()
+  conflicts=()
+  cd "t-code-$pkgver"
+  make DESTDIR="$pkgdir" PREFIX=/usr install-plugin PLUGIN=matlab
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+package_t-code-octave() {
+  pkgdesc='GNU Octave plugin for t-code: run .m files in an Octave session'
+  arch=('any')
+  depends=("t-code-ide=$pkgver" 'python')
+  optdepends=('octave: the Octave it runs')
+  conflicts=()
+  cd "t-code-$pkgver"
+  make DESTDIR="$pkgdir" PREFIX=/usr install-plugin PLUGIN=octave
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

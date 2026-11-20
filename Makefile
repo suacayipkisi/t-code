@@ -1,4 +1,4 @@
-VERSION := 0.4.2
+VERSION := 0.4.3
 PKGS    := gtk4 gtksourceview-5 json-glib-1.0 vte-2.91-gtk4 gio-unix-2.0 md4c
 # t-code: src/main.c and the feature folders (src/window, src/editor, ...).
 APP_SRC := $(wildcard src/*.c src/*/*.c src/*/*/*.c)
@@ -240,6 +240,9 @@ test: build/test-log build/test-children build/test-searchmatch build/test-detec
 	build/test-recovery
 	build/test-registry
 	for d in plugins/builtin/*/; do (cd $$d && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q) || exit 1; done
+	# each plugin carries its own copy of the shared files: they must stay the same
+	for f in plugins/builtin/*/tcode.py; do cmp -s $$f plugins/builtin/matlab/tcode.py || { echo "$$f differs"; exit 1; }; done
+	for f in plugins/builtin/*/mlang.py; do cmp -s $$f plugins/builtin/matlab/mlang.py || { echo "$$f differs"; exit 1; }; done
 
 # The tests that need no display again, under AddressSanitizer and UBSan: out-of-bounds access, use
 # after free, undefined behavior, and (LeakSanitizer, at exit) every block that was not freed.
@@ -329,10 +332,21 @@ install: build/t-code
 	  $(DESTDIR)$(DATADIR)/metainfo/io.github.suacayipkisi.tcode.metainfo.xml
 	install -Dm644 docs/t-code.1 $(DESTDIR)$(DATADIR)/man/man1/t-code.1
 
+# One plugin of plugins/builtin into $(DATADIR)/t-code/plugins/<id>, without its tests: the separate
+# packages t-code-matlab and t-code-octave (make install-plugin PLUGIN=matlab).
+install-plugin:
+	test -f plugins/builtin/$(PLUGIN)/plugin.json
+	install -d $(DESTDIR)$(DATADIR)/t-code/plugins/$(PLUGIN)
+	for f in plugins/builtin/$(PLUGIN)/*; do \
+	  case "$${f##*/}" in test_*|__pycache__) continue ;; esac; \
+	  if [ -x "$$f" ]; then mode=755; else mode=644; fi; \
+	  install -m$$mode "$$f" $(DESTDIR)$(DATADIR)/t-code/plugins/$(PLUGIN)/; \
+	done
+
 build:
 	mkdir -p build
 
 clean:
 	rm -rf build
 
-.PHONY: all clean test test-asan test-scenarios test-big install FORCE
+.PHONY: all clean test test-asan test-scenarios test-big install install-plugin FORCE

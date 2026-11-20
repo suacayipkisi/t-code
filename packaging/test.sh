@@ -9,23 +9,23 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # python3 (to talk to the socket) and pgrep. Only this version's package ($VERSION, set in the
 # container), when older ones are still in packaging/packages.
 declare -A INSTALL=(
-  ["fedora"]='dnf -y install $(ls /out/t-code-ide-$VERSION-[0-9]*.x86_64.rpm) xorg-x11-server-Xvfb dbus-daemon
+  ["fedora"]='dnf -y install $(ls /out/t-code-ide-$VERSION-[0-9]*.x86_64.rpm /out/t-code-{matlab,octave}-$VERSION-[0-9]*.noarch.rpm) xorg-x11-server-Xvfb dbus-daemon
             python3 procps-ng desktop-file-utils fontconfig util-linux'
-  ["arch"]='pacman -Syu --noconfirm && pacman -U --noconfirm $(ls /out/t-code-ide-$VERSION-[0-9]*-x86_64.pkg.tar.*) &&
+  ["arch"]='pacman -Syu --noconfirm && pacman -U --noconfirm $(ls /out/t-code-ide-$VERSION-[0-9]*-x86_64.pkg.tar.* /out/t-code-{matlab,octave}-$VERSION-[0-9]*-any.pkg.tar.*) &&
           pacman -S --noconfirm --needed xorg-server-xvfb dbus python procps-ng desktop-file-utils'
-  ["aur"]='pacman -Syu --noconfirm && pacman -U --noconfirm $(ls /out/t-code-ide-$VERSION-[0-9]*-x86_64.pkg.tar.*) &&
+  ["aur"]='pacman -Syu --noconfirm && pacman -U --noconfirm $(ls /out/t-code-ide-$VERSION-[0-9]*-x86_64.pkg.tar.* /out/t-code-{matlab,octave}-$VERSION-[0-9]*-any.pkg.tar.*) &&
           pacman -S --noconfirm --needed xorg-server-xvfb dbus python procps-ng desktop-file-utils'
   ["debian"]='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
-            $(ls /out/t-code-ide_$VERSION-[0-9]*_amd64.deb) xvfb dbus python3
+            $(ls /out/t-code-ide_$VERSION-[0-9]*_amd64.deb /out/t-code-{matlab,octave}_$VERSION-[0-9]*_all.deb) xvfb dbus python3
             procps desktop-file-utils'
   # A local repository: xbps installs from repositories only, not from a package file.
   ["void"]='xbps-install -Syu xbps && xbps-install -Syu && mkdir -p /tmp/repo &&
-          cp /out/t-code-ide-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&
-          xbps-install -y --repository=/tmp/repo t-code-ide xorg-server-xvfb dbus python3 procps-ng
+          cp /out/t-code-{ide,matlab,octave}-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&
+          xbps-install -y --repository=/tmp/repo t-code-ide t-code-matlab t-code-octave xorg-server-xvfb dbus python3 procps-ng
           desktop-file-utils fontconfig util-linux dejavu-fonts-ttf'
   ["void-musl"]='xbps-install -Syu xbps && xbps-install -Syu && mkdir -p /tmp/repo &&
-          cp /out/t-code-ide-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&
-          xbps-install -y --repository=/tmp/repo t-code-ide xorg-server-xvfb dbus python3 procps-ng
+          cp /out/t-code-{ide,matlab,octave}-${VERSION}_[0-9]*.xbps /tmp/repo/ && xbps-rindex -a /tmp/repo/*.xbps &&
+          xbps-install -y --repository=/tmp/repo t-code-ide t-code-matlab t-code-octave xorg-server-xvfb dbus python3 procps-ng
           desktop-file-utils fontconfig util-linux dejavu-fonts-ttf'
 )
 # Void has no package for the Cascadia Code font: t-code falls back to the default monospace one
@@ -39,6 +39,13 @@ test_distro() {
   run_in_container "$distro" "$out" bash -c "
     set -euo pipefail
     { ${INSTALL[$distro]//$'\n'/ }; } >/tmp/install.log 2>&1 || { tail -40 /tmp/install.log; exit 1; }
+    for plugin in matlab octave; do # the plugin packages: their files, Python that parses
+      test -f /usr/share/t-code/plugins/\$plugin/plugin.json
+      test -x /usr/share/t-code/plugins/\$plugin/\${plugin}_plugin.py
+      for f in /usr/share/t-code/plugins/\$plugin/*.py; do python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' \$f; done
+      ! ls /usr/share/t-code/plugins/\$plugin/test_* 2>/dev/null
+    done
+    echo 'plugin packages: ok'
     useradd -m tester
     runuser -u tester -- env VERSION=$VERSION NO_FONT_PACKAGE=${NO_FONT[$distro]:-} bash /src/packaging/smoke-test.sh"
 }

@@ -33,3 +33,25 @@ Description: lightweight C/C++ IDE
  parameter hints, go to definition, quick fixes), a terminal, a Search panel,
  Source Control, git comparisons and Markdown previews. Projects are built,
  run and debugged (with gdb) from the editor.
+
+Package: t-code-matlab
+Architecture: all
+Depends: ${misc:Depends},
+         t-code-ide (>= ${source:Version}),
+         python3
+Description: MATLAB plugin for t-code
+ Runs .m files in a MATLAB session (matlab -nodesktop) in a t-code terminal
+ tab, one-off in batch, or a selection at a time; run errors show as
+ diagnostics in the editor. MATLAB itself is not included: it needs the
+ user's own licensed installation.
+
+Package: t-code-octave
+Architecture: all
+Depends: ${misc:Depends},
+         t-code-ide (>= ${source:Version}),
+         python3
+Recommends: octave
+Description: GNU Octave plugin for t-code
+ Runs .m files in a GNU Octave session (octave --no-gui) in a t-code terminal
+ tab, one-off in batch, or a selection at a time; run errors show as
+ diagnostics in the editor.

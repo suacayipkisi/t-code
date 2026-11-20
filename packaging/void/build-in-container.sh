@@ -1,6 +1,7 @@
 # Runs inside a Void Linux container (packaging/build.sh void / void-musl): builds t-code from
 # /out/t-code-$VERSION.tar.gz, runs the tests that need no display, installs it into a staging
-# folder and packs that with xbps-create into /out/t-code-ide-$VERSION_<revision>.<arch>.xbps. The
+# folder and packs that with xbps-create into /out/t-code-ide-$VERSION_<revision>.<arch>.xbps (and
+# the plugins into t-code-matlab / t-code-octave-$VERSION_<revision>.noarch.xbps). The
 # same script makes the glibc and the musl package; the container decides which.
 # Not an xbps-src template: xbps-src builds in its own chroot, which a rootless container does
 # not allow. The runtime dependencies are therefore listed here by hand.
@@ -45,4 +46,21 @@ xbps-create -A "$arch" -n "t-code-ide-${VERSION}_$revision" \
   -m "suacayipkisi <konuki8523@gmail.com>" \
   -D "glib>=0 gtk4>=0 gtksourceview5>=0 json-glib>=0 vte3-gtk4>=0 libmd4c>=0 clang-tools-extra>=0 git>=0 hicolor-icon-theme>=0 librsvg>=0" \
   "$dest"
+
+# The plugins t-code-matlab and t-code-octave: noarch, each from its own staging folder.
+cd "$work/t-code-$VERSION"
+for plugin in matlab octave; do
+  rm -rf "/tmp/dest-$plugin"
+  make install-plugin DESTDIR="/tmp/dest-$plugin" PREFIX=/usr PLUGIN="$plugin"
+  install -Dm644 LICENSE "/tmp/dest-$plugin/usr/share/licenses/t-code-$plugin/LICENSE"
+done
+cd /out
+xbps-create -A noarch -n "t-code-matlab-${VERSION}_$revision" \
+  -s "MATLAB plugin for t-code: run .m files in a MATLAB session (MATLAB not included)" \
+  -H "https://github.com/suacayipkisi/t-code" -l MIT -m "suacayipkisi <konuki8523@gmail.com>" \
+  -D "t-code-ide>=${VERSION}_$revision python3>=0" /tmp/dest-matlab
+xbps-create -A noarch -n "t-code-octave-${VERSION}_$revision" \
+  -s "GNU Octave plugin for t-code: run .m files in an Octave session" \
+  -H "https://github.com/suacayipkisi/t-code" -l MIT -m "suacayipkisi <konuki8523@gmail.com>" \
+  -D "t-code-ide>=${VERSION}_$revision python3>=0" /tmp/dest-octave
 [[ -z "${HOST_OWNER:-}" ]] || chown -R "$HOST_OWNER" /out

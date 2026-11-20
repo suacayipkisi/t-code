@@ -655,8 +655,8 @@ static gboolean do_terminal_send(Client *c, const char *arg)
   VteTerminal *term = own_terminal(c, arg, &text);
 
   if (term) {
-    vte_terminal_feed_child(term, text, -1);
-    vte_terminal_feed_child(term, "\r", 1);
+    shell_type(term, text, -1);
+    shell_type(term, "\r", 1);
     answer_ok(c, NULL);
   }
   return TRUE;
@@ -668,7 +668,7 @@ static gboolean do_terminal_interrupt(Client *c, const char *arg)
   VteTerminal *term = own_terminal(c, arg, NULL);
 
   if (term) {
-    vte_terminal_feed_child(term, "\x03", 1);
+    shell_type(term, "\x03", 1);
     answer_ok(c, NULL);
   }
   return TRUE;

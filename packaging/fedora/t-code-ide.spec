@@ -1,5 +1,5 @@
 Name:           t-code-ide
-Version:        0.4.2
+Version:        0.4.3
 Release:        1%{?dist}
 Summary:        Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell
 License:        MIT
@@ -38,6 +38,30 @@ parameter hints, go to definition, quick fixes), a terminal, a Search panel,
 Source Control, git comparisons and Markdown previews. Projects are built,
 run and debugged (with gdb) from the editor.
 
+%package -n t-code-matlab
+Summary:        MATLAB plugin for t-code: run .m files in a MATLAB session
+BuildArch:      noarch
+Requires:       t-code-ide = %{version}-%{release}
+Requires:       python3
+
+%description -n t-code-matlab
+Runs .m files in a MATLAB session (matlab -nodesktop) in a t-code terminal
+tab, one-off in batch, or a selection at a time; run errors show as
+diagnostics in the editor. MATLAB itself is not included: it needs the
+user's own licensed installation.
+
+%package -n t-code-octave
+Summary:        GNU Octave plugin for t-code: run .m files in an Octave session
+BuildArch:      noarch
+Requires:       t-code-ide = %{version}-%{release}
+Requires:       python3
+Recommends:     octave
+
+%description -n t-code-octave
+Runs .m files in a GNU Octave session (octave --no-gui) in a t-code terminal
+tab, one-off in batch, or a selection at a time; run errors show as
+diagnostics in the editor.
+
 %prep
 %autosetup -n t-code-%{version}
 
@@ -46,6 +70,8 @@ run and debugged (with gdb) from the editor.
 
 %install
 %make_install PREFIX=%{_prefix} BINDIR=%{_bindir} DATADIR=%{_datadir}
+%{__make} install-plugin DESTDIR=%{buildroot} DATADIR=%{_datadir} PLUGIN=matlab
+%{__make} install-plugin DESTDIR=%{buildroot} DATADIR=%{_datadir} PLUGIN=octave
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.suacayipkisi.tcode.desktop
@@ -62,12 +88,40 @@ build/test-linediff
 %doc README.md
 %{_bindir}/t-code
 %{_mandir}/man1/t-code.1*
-%{_datadir}/t-code/
+%dir %{_datadir}/t-code
+%{_datadir}/t-code/styles/
+%{_datadir}/t-code/snippets/
+%dir %{_datadir}/t-code/plugins
 %{_datadir}/applications/io.github.suacayipkisi.tcode.desktop
 %{_datadir}/icons/hicolor/scalable/apps/io.github.suacayipkisi.tcode.svg
 %{_metainfodir}/io.github.suacayipkisi.tcode.metainfo.xml
 
+%files -n t-code-matlab
+%license LICENSE
+%{_datadir}/t-code/plugins/matlab/
+
+%files -n t-code-octave
+%license LICENSE
+%{_datadir}/t-code/plugins/octave/
+
 %changelog
+* Fri Nov 20 2026 suacayipkisi <konuki8523@gmail.com> - 0.4.3-1
+- Testing panel: CTest, pytest, go test and cargo test (GoogleTest cases too); run or debug a test from the editor gutter, go to its source
+- Several shells as tabs in the Terminal panel (Ctrl+Shift+T); Build and Run use the first
+- Source Control for Mercurial and Subversion next to git; Initialize Repository offers all three; repositories nested in a project show too
+- Plugin API tapi_1: socket commands for editing, asking, diagnostics and terminal tabs; plugins can bring language servers, Run, language specs and snippets
+- A Plugins window: switch plugins off, uninstall them, install from the registry (unreviewed ones warn first)
+- Plugins for MATLAB, GNU Octave, ShellCheck, CMake and text tools; MATLAB and Octave also as the packages t-code-matlab and t-code-octave
+- Closing t-code ends the programs plugin terminal tabs started, and only those (MATLAB gets exit first)
+- Objective-C (.m, .mm) goes to clangd; a .m file is MATLAB unless Objective-C sits next to it
+- t-code's own SVG icons for files and the interface: no Nerd Font needed
+- Panels give way when their side narrows; drag an edge to open a side
+- Completion: Tab takes the proposal, Enter starts a new line
+- Fix: big Markdown files no longer freeze the preview
+- Fix: CMakeLists.txt and Makefile are colored again
+- Fix: the Outline shows the new tab's symbols after a tab switch
+- Fix: search results stay sorted by path when grep does the search
+
 * Sat Oct 31 2026 suacayipkisi <konuki8523@gmail.com> - 0.4.2-1
 - Markdown preview: TeX math ($…$, $$…$$ and math blocks), GitHub alerts, :emoji:, footnotes, raw HTML as GitHub shows it, web and SVG images, mermaid diagrams when mmdc is installed
 - Images open in a tab that shows them; PDFs, office documents, archives, audio, video and fonts open in the desktop's default app

@@ -388,7 +388,7 @@ static gboolean is_cxx(Tab *tab)
   GtkSourceLanguage *language = gtk_source_buffer_get_language(tab->buffer);
   const char *id = language ? gtk_source_language_get_id(language) : "";
 
-  return strcmp(id, "cpp") == 0 || strcmp(id, "cpphdr") == 0;
+  return strcmp(id, "cpp") == 0 || strcmp(id, "cpphdr") == 0 || (tab->path && g_str_has_suffix(tab->path, ".mm"));
 }
 
 char *lsp_flags_hint(App *t, const char **problem)

@@ -1065,6 +1065,18 @@ static void test_socket_tapi_terminals(void)
 
 static gboolean programs_ended;
 
+/* Whether pid runs: a zombie does not (in a container whose first process reaps nothing, an orphan
+ * that ended stays one, and kill(pid, 0) still succeeds on it). */
+static gboolean process_runs(int pid)
+{
+  char *path = g_strdup_printf("/proc/%d/stat", pid), *text = NULL;
+  gboolean runs = g_file_get_contents(path, &text, NULL, NULL) && strrchr(text, ')') && strrchr(text, ')')[2] != 'Z';
+
+  g_free(text);
+  g_free(path);
+  return runs;
+}
+
 static void on_programs_ended(App *t)
 {
   programs_ended = TRUE;
@@ -1116,7 +1128,7 @@ static void test_end_programs(void)
   int helper = atoi(text);
   g_free(text);
   g_assert_cmpint(helper, >, 0);
-  g_assert_cmpint(kill(helper, 0), ==, 0);
+  g_assert_true(process_runs(helper));
   run_for(300); /* the programs' sessions are known once their spawns are done */
 
   gint64 start = g_get_monotonic_time();
@@ -1128,12 +1140,23 @@ static void test_end_programs(void)
   g_assert_true(g_file_get_contents(out, &text, NULL, NULL));
   g_assert_cmpstr(text, ==, "quit please");
   g_free(text);
-  for (int i = 0; i < 100 && kill(helper, 0) == 0; i++)
+  for (int i = 0; i < 100 && process_runs(helper); i++)
     run_for(20);
-  g_assert_cmpint(kill(helper, 0), !=, 0);
+  g_assert_false(process_runs(helper));
 
   run_until(shells_are, GINT_TO_POINTER(before));
   g_assert_cmpint(shell_count(&app), ==, before);
+
+  /* typed before the program started (no main loop turn in between): written once it has */
+  char *cat[] = { "cat", NULL };
+  VteTerminal *late = open_program(&app, "Late", cat);
+  shell_type(late, "typed early\r", -1);
+  char *late_index = g_strdup_printf("%d", before);
+  run_until(terminal_shows, (const char *const[]){ late_index, "typed early" });
+  g_assert_true(terminal_shows((const char *const[]){ late_index, "typed early" }));
+  close_shell_tab(&app, late);
+  g_free(late_index);
+
   tapi_close(&c);
   g_unlink(out);
   g_unlink(pidfile);
@@ -3734,8 +3757,26 @@ static void test_example_plugins(void)
       "        sys.exit(0)\n"
       "    handle(line, \"Undefined function or variable 'x'.\")\n"
       "    print('>> ', end='', flush=True)\n");
+  char *octave = g_build_filename(bin, "octave", NULL);
+  write_program(
+      bin, "octave",
+      "#!/usr/bin/env python3\n"
+      "import re, sys\n"
+      "for line in sys.stdin:\n"
+      "    if line.strip() == 'exit':\n"
+      "        sys.exit(0)\n"
+      "    m = re.search(r\"diary\\('([^']*)'\\); disp\\('([^']*)'\\).*run\\('([^']*)'\\).*disp\\('([^']*)'\\)\", "
+      "line)\n"
+      "    if m:\n"
+      "        folder = re.search(r\"cd\\('([^']*)'\\)\", line).group(1)\n"
+      "        with open(m.group(1), 'w') as f:\n"
+      "            f.write(f\"{m.group(2)}\\nerror: 'x' undefined near line 2, column 5\\n\"\n"
+      "                    f\"    script1 at line 2 column 1 ({folder}/{m.group(3)})\\n\"\n"
+      "                    f\"    run at line 93 column 5 (/usr/share/octave/run.m)\\n{m.group(4)}\\n\")\n"
+      "    print('>> ', end='', flush=True)\n");
   g_setenv("PATH", path_env, TRUE);
   g_setenv("TCODE_MATLAB", matlab, TRUE);
+  g_setenv("TCODE_OCTAVE", octave, TRUE);
   close_everything();
   char *builtin = g_canonicalize_filename("plugins/builtin", NULL); /* the tests run in the source tree */
   plugins_scan_dir(&app, builtin);
@@ -3743,6 +3784,7 @@ static void test_example_plugins(void)
   g_assert_nonnull(plugin_find(&app, "text-tools"));
   g_assert_nonnull(plugin_find(&app, "shellcheck"));
   g_assert_nonnull(plugin_find(&app, "matlab"));
+  g_assert_nonnull(plugin_find(&app, "octave"));
   g_assert_nonnull(plugin_find(&app, "cmake"));
 
   /* Text Tools */
@@ -3800,6 +3842,16 @@ static void test_example_plugins(void)
   g_assert_cmpint(shell_count(&app), ==, shells + 1);
   g_assert_cmpstr(shell_name(shell_at(&app, shells)), ==, "MATLAB Batch");
   close_shell_tab(&app, shell_at(&app, shells));
+  /* Octave: its own report format (each frame's file), its own tab */
+  gtk_text_buffer_set_text(GTK_TEXT_BUFFER(find_tab(&app, TAB_EDITOR, m_file)->buffer), "x = 3;\ny = x + 1;\n", -1);
+  plugin_run_command(&app, "octave", "run");
+  run_until(shows_diagnostic, (const char *const[]){ m_file, "'x' undefined near line 2, column 5" });
+  g_assert_true(shows_diagnostic((const char *const[]){ m_file, "'x' undefined near line 2, column 5" }));
+  g_assert_cmpstr(shell_name(shell_at(&app, shells)), ==, "Octave");
+  plugin_run_command(&app, "octave", "close");
+  for (int i = 0; i < 100 && shell_count(&app) > shells; i++)
+    run_for(50);
+  g_assert_cmpint(shell_count(&app), ==, shells);
   /* .m with Objective-C next to it: colored as Objective-C, and Run does not hand it to MATLAB */
   char *objc_dir = g_build_filename(app.project.root, "objc", NULL);
   char *objc_m = write_at(objc_dir, "Widget.m", "", -1, 0), *objc_h = write_at(objc_dir, "Widget.h", "", -1, 0);
@@ -3829,6 +3881,8 @@ static void test_example_plugins(void)
   plugins_reload(&app); /* back to t-code's own */
   g_setenv("PATH", old_path, TRUE);
   g_unsetenv("TCODE_MATLAB");
+  g_unsetenv("TCODE_OCTAVE");
+  g_free(octave);
   const char *rm[] = { "rm", "-rf", bin, NULL };
   g_spawn_sync(NULL, (char **)rm, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
   g_free(python);

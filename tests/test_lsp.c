@@ -1591,6 +1591,8 @@ static void test_language_routing(void)
     { "routing.jsonc", "json", "jsonc", SERVER_JSON },
     { "routing.yml", "yaml", "yaml", SERVER_YAML },
     { "routing.md", "markdown", "markdown", SERVER_MARKDOWN },
+    { "routing.m", "objc", "objective-c", SERVER_CLANGD },
+    { "routing.mm", "objc", "objective-cpp", SERVER_CLANGD },
   };
   GtkSourceLanguageManager *languages = gtk_source_language_manager_get_default();
   Tab *tabs[G_N_ELEMENTS(files)];
@@ -1614,6 +1616,7 @@ static void test_language_routing(void)
   }
   g_assert_true(servers[4] == servers[7]); /* TypeScript's serves JavaScript too */
   g_assert_true(servers[8] == servers[9]); /* .json and .jsonc */
+  g_assert_true(servers[0] == servers[12] && servers[0] == servers[13]); /* clangd: Objective-C too */
   g_assert_true(servers[1] != servers[2] && servers[2] != servers[3] && servers[3] != servers[4]);
   g_assert_true(servers[4] != servers[8] && servers[8] != servers[10] && servers[10] != servers[11]);
   for (guint i = 0; i < G_N_ELEMENTS(files); i++)

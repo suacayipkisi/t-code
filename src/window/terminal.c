@@ -131,6 +131,7 @@ typedef struct {
   gboolean program;   /* a plugin's tab: not kept in session.ini, ended with its helpers on closing */
   Children *children; /* a plugin's program and its helpers, once it started */
   char *close_text;   /* typed into a plugin's program when t-code closes (NULL: none) */
+  GString *pending;   /* typed before its program started: written once it has */
   GtkLabel *label;    /* its name on the tab */
   ShellRun *waiting;  /* a command waiting for the shell's prompt */
 } Shell;
@@ -152,6 +153,8 @@ static void shell_free(gpointer data)
 
   children_free(shell->children);
   g_free(shell->close_text);
+  if (shell->pending)
+    g_string_free(shell->pending, TRUE);
   g_free(shell);
 }
 
@@ -210,6 +213,11 @@ static void spawn_done(VteTerminal *term, GPid pid, GError *error, gpointer data
   if (shell && shell->program) {
     children_free(shell->children);
     shell->children = children_new(pid);
+  }
+  if (shell && shell->pending) { /* what a plugin typed meanwhile */
+    vte_terminal_feed_child(term, shell->pending->str, (gssize)shell->pending->len);
+    g_string_free(shell->pending, TRUE);
+    shell->pending = NULL;
   }
 }
 
@@ -749,6 +757,21 @@ void create_shell_pane(App *t)
 }
 
 /* Ending the plugins' programs ------------------------------------------------------------------ */
+
+void shell_type(VteTerminal *term, const char *text, gssize len)
+{
+  Shell *shell = shell_of(term);
+
+  if (len < 0)
+    len = (gssize)strlen(text);
+  if (shell && shell->pid <= 0) { /* the pty is not there yet: what is fed now would be lost */
+    if (!shell->pending)
+      shell->pending = g_string_new(NULL);
+    g_string_append_len(shell->pending, text, len);
+    return;
+  }
+  vte_terminal_feed_child(term, text, len);
+}
 
 void shell_set_close_text(VteTerminal *term, const char *text)
 {

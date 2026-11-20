@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""GNU Octave for t-code: an Octave session (octave --no-gui) in a terminal tab, .m files run in it,
+run errors as diagnostics. The work is mlang.py's, shared with the matlab plugin."""
+import sys
+
+sys.dont_write_bytecode = True  # no __pycache__ in the plugin's folder
+from mlang import Octave, run  # noqa: E402
+
+if __name__ == "__main__":
+    run(Octave())

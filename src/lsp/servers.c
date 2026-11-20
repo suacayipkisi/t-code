@@ -1,5 +1,5 @@
 /*
- * The language servers (see servers.h): clangd for C/C++, pylsp for Python, gopls for Go,
+ * The language servers (see servers.h): clangd for C/C++ and Objective-C, pylsp for Python, gopls for Go,
  * rust-analyzer for Rust, typescript-language-server for TypeScript and JavaScript, the JSON language
  * server, yaml-language-server, marksman for Markdown and neocmakelsp for CMake; and the ones plugins
  * declare.
@@ -43,7 +43,7 @@ static const char *const fake_argv[] = { SERVER_ARGV NULL };
 static const struct {
   const char *id, *title;
 } builtin[SERVER_NONE] = {
-  [SERVER_CLANGD] = { "clangd", "C and C++" },
+  [SERVER_CLANGD] = { "clangd", "C, C++ and Objective-C" },
   [SERVER_PYTHON] = { "pylsp", "Python" },
   [SERVER_GO] = { "gopls", "Go" },
   [SERVER_RUST] = { "rust-analyzer", "Rust" },
@@ -215,6 +215,8 @@ const char *server_language_id(ServerKind kind, Tab *tab)
   }
   if (kind == SERVER_CLANGD) {
     const char *source_id = gtk_source_language_get_id(gtk_source_buffer_get_language(tab->buffer));
+    if (strcmp(source_id, "objc") == 0)
+      return g_str_has_suffix(path, ".mm") ? "objective-cpp" : "objective-c";
     return g_str_has_prefix(source_id, "cpp") ? "cpp" : "c";
   }
   if (kind == SERVER_TYPESCRIPT) {
@@ -249,7 +251,8 @@ static ServerKind builtin_kind(Tab *tab)
   const char *id = language ? gtk_source_language_get_id(language) : "";
   const char *path = tab ? tab->path : "";
 
-  if (strcmp(id, "c") == 0 || strcmp(id, "chdr") == 0 || strcmp(id, "cpp") == 0 || strcmp(id, "cpphdr") == 0)
+  if (strcmp(id, "c") == 0 || strcmp(id, "chdr") == 0 || strcmp(id, "cpp") == 0 || strcmp(id, "cpphdr") == 0 ||
+      strcmp(id, "objc") == 0)
     return SERVER_CLANGD;
   if (g_str_has_suffix(path, ".py"))
     return SERVER_PYTHON;

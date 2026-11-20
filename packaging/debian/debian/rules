@@ -8,8 +8,11 @@ include /usr/share/dpkg/pkg-info.mk
 override_dh_auto_build:
 	dh_auto_build -- build/t-code
 
+# Several binary packages: each one installed into its own folder.
 override_dh_auto_install:
-	dh_auto_install -- PREFIX=/usr
+	dh_auto_install --destdir=debian/t-code-ide -- PREFIX=/usr
+	$(MAKE) install-plugin PREFIX=/usr PLUGIN=matlab DESTDIR=$(CURDIR)/debian/t-code-matlab
+	$(MAKE) install-plugin PREFIX=/usr PLUGIN=octave DESTDIR=$(CURDIR)/debian/t-code-octave
 	desktop-file-validate debian/t-code-ide/usr/share/applications/io.github.suacayipkisi.tcode.desktop
 
 # The other tests open windows and need a display.

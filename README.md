@@ -61,7 +61,7 @@ closes. All but clangd are optional: t-code uses them when they are on `PATH`.
 
 | Files | Server | Install |
 |---|---|---|
-| C, C++ | `clangd` | the package's dependency |
+| C, C++, Objective-C | `clangd` | the package's dependency |
 | Python | `pylsp` (also from the project's venv) | `pipx install 'python-lsp-server[all]'`, plus `python-lsp-ruff` for quick fixes |
 | Go | `gopls` | `GOTOOLCHAIN=auto go install golang.org/x/tools/gopls@latest` |
 | Rust | `rust-analyzer` | `rustup component add rust-analyzer` |

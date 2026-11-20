@@ -68,6 +68,10 @@ void run_in_shell(App *t, const char *command);
 /* cd into dir in the terminal tab showing now (kept out of the shell's history). */
 void cd_in_shell(App *t, const char *dir);
 
+/* Types text (len bytes; -1: up to its end) into a terminal tab's program; typed before the program
+ * started, it waits and is written once it has (a plugin's terminal-send right after terminal-open). */
+void shell_type(VteTerminal *term, const char *text, gssize len);
+
 /* What a plugin's tab types into its program when t-code closes, like "exit" (NULL or "": nothing;
  * socket "terminal-close-text"). */
 void shell_set_close_text(VteTerminal *term, const char *text);

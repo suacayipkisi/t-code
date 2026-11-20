@@ -607,10 +607,12 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Four of them are written and live in this
-repository under `plugins/builtin/` (MATLAB, ShellCheck, CMake, Text Tools), as working examples and as the
-registry's first entries; t-code does not load them by itself (install them from Browse, or copy a
-folder into `~/.config/t-code/plugins/`). Each one says what it does, what t-code provides
+These are plugins the API is meant to make possible. Five of them are written and live in this
+repository under `plugins/builtin/` (MATLAB, Octave, ShellCheck, CMake, Text Tools), as working examples and
+as the registry's first entries; t-code does not load them by itself (install them from Browse, or copy a
+folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
+`t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
+PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what it does, what t-code provides
 (**core**), what the plugin itself does, and where it stops. Some still use **(planned)** parts of tapi_1.
 
 ### Languages and REPLs
@@ -626,7 +628,8 @@ folder into `~/.config/t-code/plugins/`). Each one says what it does, what t-cod
     Objective-C is left alone.
   - An `lsp` entry for the MATLAB Language Server (`matlab-language-server --stdio`, installed by
     the user; until then the Plugins window shows it as not found).
-- **Plugin** (Python 3, standard library):
+- **Plugin** (Python 3, standard library; the work is in `mlang.py`, the same file as the Octave
+  plugin's, a copy in each folder that `make test` keeps identical):
   - **Session:** a "MATLAB" terminal tab running `matlab -nodesktop -nosplash` (found on `PATH` or
     in `/usr/local/MATLAB/*`, `/opt/MATLAB/*`, `~/MATLAB/*`). Its tab id is kept in
     `$XDG_RUNTIME_DIR/t-code-matlab/`, so every command reaches the same session. Its close text
@@ -648,9 +651,23 @@ folder into `~/.config/t-code/plugins/`). Each one says what it does, what t-cod
   - Needs the user's licensed MATLAB.
   - Not visible from inside the Flatpak.
 
-#### Octave (`octave`)
-- **Does:** the same as MATLAB, with `octave --no-gui`. Shares most of the MATLAB plugin's code.
-- **Limits:** no language server; diagnostics come only from run errors.
+#### Octave (`octave`, in this repository: `plugins/builtin/octave`)
+- **Does:** the same commands as MATLAB, for GNU Octave (no license needed): Run File (also `F5`),
+  Run File in Batch, Run Selection, Stop, Open / Restart / Close Session.
+- **Core:** the same as MATLAB's.
+- **Plugin:** MATLAB's `mlang.py` with an Octave flavor:
+  - **Session:** an "Octave" tab running `octave --no-gui --quiet` (`$TCODE_OCTAVE` or `octave` on
+    `PATH`), close text `exit`.
+  - **Run:** Octave has no `getReport` and its `diary` leaves stderr out, so the line prints
+    `error: <message>` and each stack frame with its file to stdout (`helper at line 2 column 3
+    (/p/lib/helper.m)`). Frames in the project become diagnostics (the first an error, the callers
+    info); Octave's own are left out. `syntax error near line 2, column 5 in file …` (older Octave:
+    `parse error near line 2 of file …`) marks that place.
+  - **Run File in Batch:** `octave --no-gui --quiet --eval '<line>'` in an "Octave Batch" shell tab.
+- **Limits:**
+  - No language server; diagnostics come only from run errors.
+  - With both MATLAB and Octave on, `F5` on a `.m` file goes to the first one found; switch the
+    other off in the Plugins window.
 
 #### Julia (`julia`)
 - **Does:** a `julia` REPL in a terminal tab. Run sends `include("file.jl")`; Send Selection sends

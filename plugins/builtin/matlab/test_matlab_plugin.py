@@ -5,7 +5,10 @@ import os
 import tempfile
 import unittest
 
-from matlab_plugin import parse_report, quoted, run_line
+from mlang import Matlab, quoted
+
+parse_report = Matlab().parse_report
+run_line = Matlab().run_line
 
 
 class Report(unittest.TestCase):
@@ -47,6 +50,7 @@ class Report(unittest.TestCase):
         self.assertIn("cd('/p/a b'); diary('/r/d.diary'); disp('S');", line)
         self.assertIn("run('x.m')", line)
         self.assertIn("disp('D'); diary off", line)
+        self.assertNotIn("\n", line)  # one line: typed into the session
 
 
 if __name__ == "__main__":
