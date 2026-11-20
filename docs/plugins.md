@@ -70,8 +70,31 @@ printf 'hello tapi_1\nsay Hello from %s\n' "${2:-nowhere}" | nc -U "$TCODE_SOCKE
 ```
 
 Run **Plugins: Reload Installed Plugins** from the command palette (`Ctrl+Shift+P`). Then press
-`Ctrl+Alt+H`, or pick "Hello: Say Hello" in the palette. The repository's `plugins/word-count/` is a
-complete example.
+`Ctrl+Alt+H`, or pick "Hello: Say Hello" in the palette. The repository's
+`plugins/builtin/word-count/` is a complete example of the same size.
+
+### A compiled language
+
+The registry takes no binaries (reviewers read source), so a plugin in Rust, Go, C or Zig ships its
+source and a small `run.sh` as its `executable`, which builds the program the first time and then
+runs it:
+
+```sh
+#!/bin/sh
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+target="${XDG_CACHE_HOME:-$HOME/.cache}/t-code-<id>"
+cargo build --release --offline --locked --quiet --manifest-path "$here/Cargo.toml" --target-dir "$target" >&2
+exec "$target/release/<program>" "$@"
+```
+
+- Build into the cache, not the plugin's folder: the folder is what the registry's tree hash covers.
+- With no dependencies (or vendored ones) the build needs no network; otherwise declare `network`.
+- Ship the lock file (`Cargo.lock`, `go.sum`) so the build never writes next to the source.
+- When the compiler is missing, say so on stderr and exit 1: the Plugins window shows the line.
+
+`plugins/builtin/todos/` is such a plugin: Rust's standard library only, a `UnixStream` that says
+`hello`, sends NUL-ended requests and reads one answer line each.
 
 ---
 
@@ -613,8 +636,9 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Six of them are written and live in this
-repository under `plugins/builtin/` (Java, MATLAB, Octave, ShellCheck, CMake, Text Tools), as working examples and
+These are plugins the API is meant to make possible. Eight of them are written and live in this
+repository under `plugins/builtin/` (Java, MATLAB, Octave, ShellCheck, CMake, Text Tools, TODO Finder,
+Word Count), as working examples and
 as the registry's first entries; t-code does not load them by itself (install them from Browse, or copy a
 folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
 `t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
@@ -802,8 +826,8 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
   `dot`) and opens it with `xdg-open`.
 - **Limits:** cannot draw inside t-code's Markdown preview; the preview is part of t-code.
 
-#### Word count (`word-count`, in this repository)
-- **Does:** today, says the count in the status bar.
+#### Word count (`word-count`, in this repository: `plugins/builtin/word-count`)
+- **Does:** says the saved file's words and lines in the status bar (`Ctrl+Alt+W`); a shell script.
 - **Could:** keep a lasting `status-set` item, updated on `did_change`.
 
 ### Build, devices, containers
@@ -888,8 +912,15 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
 
 ### Everyday tools
 
-#### TODO finder (`todos`)
-- **Does:** finds TODO / FIXME with `rg`, then lists them with `pick` or as `info` diagnostics.
+#### TODO finder (`todos`, in this repository: `plugins/builtin/todos`, in Rust)
+- **Does:** finds TODO, FIXME, XXX and HACK comments (git's file list in a repository, so ignored
+  files stay out; else a walk without hidden folders and build output). **TODO: Go to a TODO in the
+  Project** lists them in the picker (text, then file and line) and opens the chosen one; **TODO: List
+  TODOs in the Problems Panel** puts them there as `info` diagnostics; **TODO: Clear ...** removes them.
+- **Plugin:** Rust source; `run.sh` builds it once with cargo (offline, no dependencies) into
+  `~/.cache/t-code-todos/`, again when the source changes.
+- **Limits:** needs cargo for the first run; the Problems panel's list is as of the command (it does
+  not follow edits); at most 5,000 TODOs, files up to 1 MB.
 
 #### Text tools (`text-tools`, in this repository: `plugins/builtin/text-tools`)
 - **Does:** UPPER / lower / Title / snake_case / camelCase, sort (both ways), remove duplicate

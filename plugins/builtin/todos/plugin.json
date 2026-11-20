@@ -1,0 +1,14 @@
+{
+  "api": "tapi_1",
+  "id": "todos",
+  "name": "TODO Finder",
+  "provider": "t-code",
+  "version": "0.1.0",
+  "description": "TODO, FIXME, XXX and HACK comments in the project: pick one to go to it, or list them in the Problems panel. Written in Rust, built once with cargo.",
+  "executable": "run.sh",
+  "commands": [
+    { "id": "list", "name": "TODO: Go to a TODO in the Project" },
+    { "id": "problems", "name": "TODO: List TODOs in the Problems Panel" },
+    { "id": "clear", "name": "TODO: Clear the Problems Panel's TODOs" }
+  ]
+}

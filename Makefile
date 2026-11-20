@@ -239,7 +239,12 @@ test: build/test-log build/test-children build/test-searchmatch build/test-detec
 	build/test-update
 	build/test-recovery
 	build/test-registry
-	for d in plugins/builtin/*/; do (cd $$d && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q) || exit 1; done
+	for d in plugins/builtin/*/; do ls $$d/test_*.py >/dev/null 2>&1 || continue; \
+	  (cd $$d && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q) || exit 1; done
+	# plugins in Rust (todos): their own tests, when cargo is there
+	for d in plugins/builtin/*/; do test -f $$d/Cargo.toml || continue; \
+	  if command -v cargo >/dev/null; then CARGO_TARGET_DIR=$(CURDIR)/build/cargo cargo test -q --offline --locked \
+	    --manifest-path $$d/Cargo.toml || exit 1; else echo "no cargo: $$d not tested"; fi; done
 	# each plugin carries its own copy of the shared files: they must stay the same
 	for f in plugins/builtin/*/tcode.py; do cmp -s $$f plugins/builtin/matlab/tcode.py || { echo "$$f differs"; exit 1; }; done
 	for f in plugins/builtin/*/mlang.py; do cmp -s $$f plugins/builtin/matlab/mlang.py || { echo "$$f differs"; exit 1; }; done

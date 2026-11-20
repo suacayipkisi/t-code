@@ -3539,7 +3539,7 @@ static char *menu_target(GMenuModel *model, const char *label)
 }
 
 /* "Plugins: Manage Plugins" (also Settings → Plugins… in the menu bar): the plugins on the left
- * (t-code's own Word Count among them), the first one's details on the right; its switch turns it off (its command leaves the palette) and on; a
+ * (Word Count among them, installed in the user's folder), the first one's details on the right; its switch turns it off (its command leaves the palette) and on; a
  * reload keeps the window going; a second call brings the same window back. */
 static void test_plugins_window(void)
 {
@@ -3564,7 +3564,7 @@ static void test_plugins_window(void)
   run_for(20);
   g_assert_true(says(GTK_WIDGET(plugins), "Word Count"));
   g_assert_true(says(GTK_WIDGET(plugins), "tapi_1"));
-  g_assert_true(says(GTK_WIDGET(plugins), "t-code itself"));
+  g_assert_true(says(GTK_WIDGET(plugins), "your plugins folder"));
   g_assert_true(says(GTK_WIDGET(plugins), "Word Count: Count Words in Current Tab    Ctrl+Alt+W"));
 
   toggle = find_widget(gtk_window_get_child(plugins), GTK_TYPE_SWITCH, NULL, NULL);
@@ -4338,6 +4338,12 @@ int main(int argc, char **argv)
   g_assert_true(g_file_set_contents(session, "[settings]\nminimap=false\n", -1, NULL)); /* before 0.3 */
   g_free(dir);
   g_free(session);
+  /* Word Count in the user's plugins folder, as Browse installs it (plugins/builtin is not loaded) */
+  char *user_plugins = g_build_filename(config, "t-code", "plugins", NULL);
+  const char *copy[] = { "cp", "-r", "plugins/builtin/word-count", user_plugins, NULL };
+  g_mkdir_with_parents(user_plugins, 0700);
+  g_assert_true(g_spawn_sync(NULL, (char **)copy, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL));
+  g_free(user_plugins);
   session_load_settings(&app);
   app.settings.autosave = FALSE; /* edits stay unsaved for the test to see */
 

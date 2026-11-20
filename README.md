@@ -170,7 +170,7 @@ costs nothing. They live in `~/.config/t-code/plugins/<id>/` with a `plugin.json
 to t-code over `$TCODE_SOCKET`. A plugin runs with your user's rights: install only ones you trust.
 **Plugins: Manage Plugins** (command palette, or Settings → Plugins…) lists them: turn one off, start or stop it, read what
 it printed, uninstall it. The manifest, environment and socket protocol:
-[docs/plugins.md](docs/plugins.md); an example is in `plugins/word-count`.
+[docs/plugins.md](docs/plugins.md); examples (shell, Python, Rust) are in `plugins/builtin/`.
 
 ## Creating a Plugin
 

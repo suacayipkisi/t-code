@@ -4,7 +4,7 @@
   "name": "MATLAB",
   "provider": "t-code",
   "version": "0.2.0",
-  "description": "Run .m files in a MATLAB session in a terminal tab (F5 too); run errors show as diagnostics.",
+  "description": "Run .m files in a MATLAB session in a terminal tab (F5 too); run errors show as diagnostics. Needs MATLAB. Language server: install MathWorks' MATLAB Language Server yourself (matlab-language-server on PATH); the rest works without it.",
   "executable": "matlab_plugin.py",
   "permissions": ["terminal"],
   "commands": [

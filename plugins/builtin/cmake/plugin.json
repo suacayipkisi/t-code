@@ -4,7 +4,7 @@
   "name": "CMake",
   "provider": "t-code",
   "version": "0.1.0",
-  "description": "CMake presets, Configure with its errors as diagnostics, Build in a terminal tab, and cmake-language-server.",
+  "description": "CMake presets, Configure with its errors as diagnostics, Build in a terminal tab. Language server: install cmake-language-server yourself (pip install cmake-language-server); t-code's own neocmakelsp wins when it is installed.",
   "executable": "cmake_plugin.py",
   "permissions": ["terminal"],
   "commands": [

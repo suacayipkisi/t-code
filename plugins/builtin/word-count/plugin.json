@@ -1,9 +1,10 @@
 {
   "api": "tapi_1",
+  "id": "word-count",
   "name": "Word Count",
   "provider": "t-code",
-  "version": "1.1.0",
-  "description": "Counts words in the active editor buffer",
+  "version": "1.2.0",
+  "description": "Counts the words and lines of the current tab's file and says them in the status bar.",
   "executable": "wordcount.sh",
   "commands": [
     {
