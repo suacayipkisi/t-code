@@ -39,21 +39,29 @@
     <release version="0.5.0" date="2026-11-20">
       <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.5.0</url>
       <description>
-        <p>A Testing panel, terminal tabs, Mercurial and Subversion, a versioned plugin API with a Plugins window, Java, MATLAB and Octave plugins, own icons and fixes:</p>
+        <p>A Testing panel, terminal tabs, more debuggers, Mercurial and Subversion, a versioned plugin API with a Plugins window and many plugins, own icons and fixes:</p>
         <ul>
-          <li>Testing panel: CTest, pytest, go test and cargo test (GoogleTest cases too); run or debug a test from the editor gutter, go to its source</li>
-          <li>Several shells as tabs in the Terminal panel (Ctrl+Shift+T); Build and Run use the first</li>
+          <li>Testing panel: CTest, pytest, go test, cargo test and JUnit (GoogleTest cases too); run or debug a test from the panel or the editor gutter, go to its source</li>
           <li>More debugging: Python (debugpy), Go (Delve), Rust, lldb-dap as another C / C++ debugger; logpoints, a Memory View, attaching to a running process, opening a core dump</li>
-          <li>Source Control for Mercurial and Subversion next to git; Initialize Repository offers all three; repositories nested in a project show too</li>
-          <li>Plugin API tapi_1: socket commands for editing, asking, diagnostics and terminal tabs; plugins can bring language servers, Run, language specs and snippets</li>
-          <li>A Plugins window: switch plugins off, uninstall them, install from the registry (unreviewed ones warn first)</li>
-          <li>Plugins for Java (jdtls, Run with errors and exceptions as diagnostics), MATLAB, GNU Octave, ShellCheck, CMake and text tools; MATLAB and Octave also as the packages t-code-matlab and t-code-octave</li>
+          <li>Several shells as tabs in the Terminal panel (Ctrl+Shift+T); Build and Run use the first</li>
+          <li>Source Control for Mercurial and Subversion next to git: conflicts, branches, hg shelve as stash, svn changelists; Initialize Repository offers all three; repositories nested in a project show too</li>
+          <li>Plugin API tapi_1: socket commands for editing, asking, diagnostics and terminal tabs; plugins can bring language servers, Run, debuggers, color themes, language specs and snippets</li>
+          <li>A Plugins window, panel and menu: switch plugins off, uninstall them, install from the registry; the registry index is signed, unreviewed plugins warn first</li>
+          <li>Java plugin: jdtls, Run with errors and exceptions as diagnostics, JUnit tests (Maven, Gradle), debugging through java-debug, library sources</li>
+          <li>Plugins for MATLAB and GNU Octave, also as the packages t-code-matlab and t-code-octave</li>
+          <li>More plugins, written in C, C++, Go, Rust, JavaScript and Perl: CMake, ShellCheck, Format on Save, LaTeX and Typst, Spell Check, Make / just / Task / npm targets, a commit message helper, GitHub / GitLab permalinks, TODO Finder, Word Count, Pomodoro and text tools</li>
+          <li>Process Monitor: t-code's processes with their CPU and memory, by owner</li>
+          <li>A welcome window when there is no folder to open</li>
+          <li>Save a file as a template; templates are offered again for new files</li>
           <li>Closing t-code ends the programs plugin terminal tabs started, and only those (MATLAB gets exit first)</li>
           <li>Objective-C (.m, .mm) goes to clangd; a .m file is MATLAB unless Objective-C sits next to it</li>
           <li>t-code's own SVG icons for files and the interface: no Nerd Font needed</li>
           <li>Panels give way when their side narrows; drag an edge to open a side</li>
           <li>Completion: Tab takes the proposal, Enter starts a new line</li>
+          <li>Big repositories: quicker Outline, Source Control lists, conflict and semantic token scans</li>
           <li>Fix: big Markdown files no longer freeze the preview</li>
+          <li>Fix: the Terminal and right panels keep their size in a small window (they could start hidden)</li>
+          <li>Fix: Ctrl+J no longer brings back the side Ctrl+B hid</li>
           <li>Fix: CMakeLists.txt and Makefile are colored again</li>
           <li>Fix: the Outline shows the new tab's symbols after a tab switch</li>
           <li>Fix: search results stay sorted by path when grep does the search</li>

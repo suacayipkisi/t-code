@@ -106,19 +106,27 @@ build/test-linediff
 
 %changelog
 * Fri Nov 20 2026 suacayipkisi <konuki8523@gmail.com> - 0.5.0-1
-- Testing panel: CTest, pytest, go test and cargo test (GoogleTest cases too); run or debug a test from the editor gutter, go to its source
+- Testing panel: CTest, pytest, go test, cargo test and JUnit (GoogleTest cases too); run or debug a test from the panel or the editor gutter, go to its source
 - More debugging: Python (debugpy), Go (Delve), Rust, lldb-dap as another C / C++ debugger; logpoints, a Memory View, attaching to a running process, opening a core dump
 - Several shells as tabs in the Terminal panel (Ctrl+Shift+T); Build and Run use the first
-- Source Control for Mercurial and Subversion next to git; Initialize Repository offers all three; repositories nested in a project show too
-- Plugin API tapi_1: socket commands for editing, asking, diagnostics and terminal tabs; plugins can bring language servers, Run, language specs and snippets
-- A Plugins window: switch plugins off, uninstall them, install from the registry (unreviewed ones warn first)
-- Plugins for Java (jdtls, Run with errors and exceptions as diagnostics), MATLAB, GNU Octave, ShellCheck, CMake and text tools; MATLAB and Octave also as the packages t-code-matlab and t-code-octave
+- Source Control for Mercurial and Subversion next to git: conflicts, branches, hg shelve as stash, svn changelists; Initialize Repository offers all three; repositories nested in a project show too
+- Plugin API tapi_1: socket commands for editing, asking, diagnostics and terminal tabs; plugins can bring language servers, Run, debuggers, color themes, language specs and snippets
+- A Plugins window, panel and menu: switch plugins off, uninstall them, install from the registry; the registry index is signed, unreviewed plugins warn first
+- Java plugin: jdtls, Run with errors and exceptions as diagnostics, JUnit tests (Maven, Gradle), debugging through java-debug, library sources
+- Plugins for MATLAB and GNU Octave, also as the packages t-code-matlab and t-code-octave
+- More plugins, written in C, C++, Go, Rust, JavaScript and Perl: CMake, ShellCheck, Format on Save, LaTeX and Typst, Spell Check, Make / just / Task / npm targets, a commit message helper, GitHub / GitLab permalinks, TODO Finder, Word Count, Pomodoro and text tools
+- Process Monitor: t-code's processes with their CPU and memory, by owner
+- A welcome window when there is no folder to open
+- Save a file as a template; templates are offered again for new files
 - Closing t-code ends the programs plugin terminal tabs started, and only those (MATLAB gets exit first)
 - Objective-C (.m, .mm) goes to clangd; a .m file is MATLAB unless Objective-C sits next to it
 - t-code's own SVG icons for files and the interface: no Nerd Font needed
 - Panels give way when their side narrows; drag an edge to open a side
 - Completion: Tab takes the proposal, Enter starts a new line
+- Big repositories: quicker Outline, Source Control lists, conflict and semantic token scans
 - Fix: big Markdown files no longer freeze the preview
+- Fix: the Terminal and right panels keep their size in a small window (they could start hidden)
+- Fix: Ctrl+J no longer brings back the side Ctrl+B hid
 - Fix: CMakeLists.txt and Makefile are colored again
 - Fix: the Outline shows the new tab's symbols after a tab switch
 - Fix: search results stay sorted by path when grep does the search
