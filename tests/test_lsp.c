@@ -1227,6 +1227,25 @@ static void test_completion_items(void)
   g_object_unref(provider);
 }
 
+/* Tab takes a proposal (also inside a function's parameters, where the snippet would take it);
+ * Shift+Tab and Ctrl+Tab do not. Before the list is built the view has no rows to hand it to. */
+static void test_completion_tab(void)
+{
+  TcodeCompletion *provider = g_object_new(TCODE_TYPE_COMPLETION, NULL);
+  GtkWidget *view = gtk_source_view_new();
+
+  g_object_ref_sink(view);
+  g_assert_true(key_activates(GTK_SOURCE_COMPLETION_PROVIDER(provider), NULL, NULL, GDK_KEY_Tab, 0));
+  g_assert_true(key_activates(GTK_SOURCE_COMPLETION_PROVIDER(provider), NULL, NULL, GDK_KEY_Tab, GDK_LOCK_MASK));
+  g_assert_false(key_activates(GTK_SOURCE_COMPLETION_PROVIDER(provider), NULL, NULL, GDK_KEY_Tab, GDK_SHIFT_MASK));
+  g_assert_false(key_activates(GTK_SOURCE_COMPLETION_PROVIDER(provider), NULL, NULL, GDK_KEY_Tab, GDK_CONTROL_MASK));
+  g_assert_false(key_activates(GTK_SOURCE_COMPLETION_PROVIDER(provider), NULL, NULL, GDK_KEY_Return, 0));
+  g_assert_false(key_activates(GTK_SOURCE_COMPLETION_PROVIDER(provider), NULL, NULL, GDK_KEY_a, 0));
+  g_assert_null(list_box(view));
+  g_object_unref(view);
+  g_object_unref(provider);
+}
+
 /* Long signatures and types are cut, by characters, so the list stays narrow. */
 static void test_completion_shorten(void)
 {
@@ -1832,6 +1851,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/problems-panel", test_problems_panel);
   g_test_add_func("/lsp/completion-items", test_completion_items);
   g_test_add_func("/lsp/completion-shorten", test_completion_shorten);
+  g_test_add_func("/lsp/completion-tab", test_completion_tab);
   g_test_add_func("/lsp/signature-markup", test_signature_markup);
   g_test_add_func("/lsp/edits", test_edits);
   g_test_add_func("/lsp/edits-encodings", test_edits_encodings);

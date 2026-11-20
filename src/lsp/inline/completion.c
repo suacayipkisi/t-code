@@ -462,6 +462,14 @@ static gboolean is_trigger(GtkSourceCompletionProvider *provider G_GNUC_UNUSED, 
   return c == '.' || (c == '>' && previous == '-') || (c == ':' && previous == ':');
 }
 
+/* Tab takes the selected proposal, also while a function's parameters are being filled in. */
+static gboolean key_activates(GtkSourceCompletionProvider *provider G_GNUC_UNUSED,
+                              GtkSourceCompletionContext *context G_GNUC_UNUSED,
+                              GtkSourceCompletionProposal *proposal G_GNUC_UNUSED, guint key, GdkModifierType state)
+{
+  return (key == GDK_KEY_Tab || key == GDK_KEY_KP_Tab) && !(state & gtk_accelerator_get_default_mod_mask());
+}
+
 static void provider_iface_init(GtkSourceCompletionProviderInterface *iface)
 {
   iface->populate_async = populate_async;
@@ -470,6 +478,7 @@ static void provider_iface_init(GtkSourceCompletionProviderInterface *iface)
   iface->display = display;
   iface->activate = activate;
   iface->is_trigger = is_trigger;
+  iface->key_activates = key_activates;
 }
 
 static void tcode_completion_finalize(GObject *object)
@@ -497,19 +506,42 @@ static void tcode_completion_init(TcodeCompletion *self)
   self->shown = g_list_store_new(TCODE_TYPE_PROPOSAL);
 }
 
-/* Enter with the list open starts a new line: the list is closed before the view sees the key (on
- * the view's parent, as the list's own key handler on the view comes first there). Tab takes the
- * proposal (the list's own key, left as it is: a snippet being filled in takes it first). */
-static gboolean on_list_enter(GtkEventControllerKey *keys G_GNUC_UNUSED, guint key, guint code G_GNUC_UNUSED,
-                              GdkModifierType state, Tab *tab)
+/* The list's rows: a widget inside the view (the list is a popover on it); NULL before it is built. */
+static GtkWidget *list_box(GtkWidget *widget)
+{
+  if (g_str_equal(G_OBJECT_TYPE_NAME(widget), "GtkSourceCompletionListBox"))
+    return widget;
+  for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child)) {
+    GtkWidget *found = list_box(child);
+    if (found)
+      return found;
+  }
+  return NULL;
+}
+
+/* Keys while the list is open, on the view's parent: before the view's own handlers.
+ * Enter starts a new line (the list is closed first). Tab takes the proposal even while a
+ * snippet's fields are filled in: the view would give it to the snippet, which closes the list,
+ * so the key goes to the list first; with the list closed, Tab goes to the next field. */
+static gboolean on_list_key(GtkEventControllerKey *keys, guint key, guint code G_GNUC_UNUSED, GdkModifierType state,
+                            Tab *tab)
 {
   GtkSourceCompletion *completion = gtk_source_view_get_completion(tab->source);
+  GdkModifierType mods = state & gtk_accelerator_get_default_mod_mask();
+  GtkWidget *rows;
 
-  if ((key == GDK_KEY_Return || key == GDK_KEY_KP_Enter || key == GDK_KEY_ISO_Enter) &&
-      !(state & (GDK_SHIFT_MASK | GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) &&
-      g_object_get_data(G_OBJECT(completion), "t-code-shown"))
+  if (!g_object_get_data(G_OBJECT(completion), "t-code-shown"))
+    return FALSE;
+  if ((key == GDK_KEY_Return || key == GDK_KEY_KP_Enter || key == GDK_KEY_ISO_Enter) && !mods)
     gtk_source_completion_hide(completion);
-  return FALSE; /* the view gets it: a new line */
+  else if ((key == GDK_KEY_Tab || key == GDK_KEY_KP_Tab) && !mods && (rows = list_box(GTK_WIDGET(tab->source)))) {
+    /* GtkSourceView's own list hands keys to its rows the same way (deprecated in GTK 4.22, with
+     * nothing for a widget that is not an editable in its place) */
+    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+    return gtk_event_controller_key_forward(keys, rows);
+    G_GNUC_END_IGNORE_DEPRECATIONS
+  }
+  return FALSE; /* the view gets it */
 }
 
 /* Whether the list is open: GtkSourceCompletion does not tell, its signals do. */
@@ -521,7 +553,7 @@ static void on_list_shown(GtkSourceCompletion *completion, Tab *tab)
   if (parent && !g_object_get_data(G_OBJECT(parent), "t-code-enter")) { /* the first time: the page is built */
     GtkEventController *keys = gtk_event_controller_key_new();
     gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
-    g_signal_connect(keys, "key-pressed", G_CALLBACK(on_list_enter), tab);
+    g_signal_connect(keys, "key-pressed", G_CALLBACK(on_list_key), tab);
     gtk_widget_add_controller(parent, keys);
     g_object_set_data(G_OBJECT(parent), "t-code-enter", keys);
   }
