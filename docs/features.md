@@ -314,6 +314,15 @@ one crashed or was killed, and t-code's and GTK's warnings in between, each with
 when t-code was started from the desktop's menu, where no terminal shows them, or when a problem
 is noticed later. "Help: Open Log File" opens it.
 
+**Process Monitor.** "Help: Process Monitor" (also T-Code → Process Monitor…, and Processes in the
+Plugins window) shows t-code and every program it runs, as a tree: plugins' programs, language
+servers, gdb, each terminal tab's shell and what runs in it, and short-lived helpers (git, rg).
+Each has its CPU (percent of one core), memory (PSS: a shared library counts once, split between
+its users), RSS (shared pages counted in full for each process, as most system monitors show it,
+so it is bigger and its sum is more than is really used) and threads; the top totals them by owner, the biggest first, so a slow machine can be
+told apart: t-code itself, or one of its programs. **End** asks a process to quit (SIGTERM; a
+plugin's program stops the way Stop does). It looks again every 2 seconds while it is open.
+
 **Markdown preview** opens as a tab and follows the file as you type. It is drawn natively
 (md4c into a GTK text view, no browser engine) and shows what GitHub shows: all of GitHub Flavored
 Markdown (headings, lists, task lists, quotes, tables whose cells wrap, strikethrough, autolinks, every

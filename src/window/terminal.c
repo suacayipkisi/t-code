@@ -7,6 +7,7 @@
 #include "window/terminal.h"
 
 #include "application/children.h"
+#include "application/processes.h"
 #include "editor/editor.h"
 #include "editor/editorview.h"
 #include "files/files.h"
@@ -854,4 +855,16 @@ void end_programs(App *t, void (*done)(App *t))
     gtk_widget_set_visible(GTK_WIDGET(t->editors.second), FALSE);
   gtk_widget_set_visible(GTK_WIDGET(t->window), FALSE);
   g_timeout_add(END_TICK_MS, end_tick, e);
+}
+
+void terminals_own_processes(App *t, GHashTable *owners)
+{
+  for (int i = 0; i < shell_count(t); i++) {
+    Shell *shell = shell_of(shell_at(t, i));
+    if (shell && shell->pid > 0) {
+      char *label = g_strdup_printf("Terminal: %s", gtk_label_get_text(shell->label));
+      procs_own(owners, shell->pid, PROC_TERMINAL, label);
+      g_free(label);
+    }
+  }
 }

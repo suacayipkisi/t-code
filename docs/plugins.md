@@ -587,6 +587,8 @@ picked on the right.
   here.
 - **Reload** and **Open Plugins Folder** at the top: put a plugin's folder in
   `~/.config/t-code/plugins/`, press Reload, and it shows.
+- **Processes** at the top opens the Process Monitor ("Help: Process Monitor"): each plugin's
+  programs with their CPU and memory, next to t-code's other processes, and End for each.
 - **Browse:** the registry's plugins (below), fetched when the page shows (again after a minute, and
   on Reload), with a search over
   names, descriptions and categories. Each shows its version, its review badge and the permissions it

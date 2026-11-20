@@ -60,3 +60,6 @@ void debug_breakpoints_changed(App *t, const char *path);
 
 /* Ends debugging at once, without asking gdb (closing t-code, another project). */
 void debug_end(App *t);
+
+/* gdb's pid goes into owners (application/processes.h) as "Debugger: gdb" while a session runs. */
+void debug_own_processes(App *t, GHashTable *owners);

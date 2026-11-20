@@ -1,7 +1,7 @@
 /*
  * The Plugins window ("Plugins: Manage Plugins"): every plugin found, and for the one picked its
  * version, API, where it was found, on / off, Start / Stop, its commands, permissions and what it
- * brings, the last lines it printed, Open Folder and Uninstall.
+ * brings, the last lines it printed, Open Folder and Uninstall; Processes opens the Process Monitor.
  */
 #pragma once
 

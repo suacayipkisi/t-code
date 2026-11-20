@@ -84,3 +84,7 @@ void end_programs(App *t, void (*done)(App *t));
 
 /* The color theme changed: the terminal tabs and the Debug panel's terminal take its colors. */
 void terminal_apply_colors(App *t);
+
+/* Every terminal tab's shell (or plugin program) goes into owners (application/processes.h) as
+ * "Terminal: <its tab's name>". */
+void terminals_own_processes(App *t, GHashTable *owners);

@@ -37,3 +37,6 @@ JsonNode *dap_capabilities(Dap *d);
 /* Stops the debugger (killed, if it still runs) and frees it; answers still to come are dropped.
  * NULL is fine. */
 void dap_free(Dap *d);
+
+/* The debugger's pid; 0 once it exited. */
+int dap_pid(Dap *d);

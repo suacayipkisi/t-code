@@ -6,6 +6,7 @@
 #include "plugins/plugins.h"
 
 #include "application/identity.h"
+#include "application/processes.h"
 #include "editor/tabs.h"
 #include "files/fileops.h"
 #include "lsp/client/client.h"
@@ -1158,4 +1159,32 @@ void open_plugins_folder(App *t)
   g_mkdir_with_parents(dir, 0755);
   plugin_open_folder(t, dir);
   g_free(dir);
+}
+
+void plugins_own_processes(GHashTable *owners)
+{
+  for (GList *l = runs; l; l = l->next) {
+    PluginRun *run = l->data;
+    if (!run->ended && run->app) {
+      char *label = g_strdup_printf("Plugin: %s", run->name);
+      procs_own(owners, run->pid, PROC_PLUGIN, label);
+      g_free(label);
+    }
+  }
+}
+
+gboolean plugins_end_process(int pid)
+{
+  for (GList *l = runs; l; l = l->next) {
+    PluginRun *run = l->data;
+    if (run->pid == pid && !run->ended) {
+      Plugin *p = run->app ? plugin_find(run->app, run->plugin_id) : NULL;
+      if (p && p->running == run)
+        plugin_stop(p);
+      else
+        stop_run(run);
+      return TRUE;
+    }
+  }
+  return FALSE;
 }

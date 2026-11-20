@@ -8,6 +8,7 @@
 #include "plugins/manager.h"
 
 #include "application/identity.h"
+#include "dialogs/processes.h"
 #include "lsp/servers.h"
 #include "plugins/plugins.h"
 #include "plugins/registry.h"
@@ -615,6 +616,12 @@ static void on_open_plugins_folder(GtkButton *b G_GNUC_UNUSED, gpointer data G_G
   open_plugins_folder(manager->app);
 }
 
+/* What each plugin's programs use, next to t-code's other processes. */
+static void on_processes(GtkButton *b G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+{
+  show_processes(manager->app);
+}
+
 /* Browse ----------------------------------------------------------------------------------------- */
 
 static void fill_browse(void);
@@ -937,6 +944,7 @@ void show_plugins_window(App *t)
   header = gtk_header_bar_new();
   gtk_header_bar_pack_start(GTK_HEADER_BAR(header), button("Reload", G_CALLBACK(on_reload)));
   gtk_header_bar_pack_start(GTK_HEADER_BAR(header), button("Open Plugins Folder", G_CALLBACK(on_open_plugins_folder)));
+  gtk_header_bar_pack_end(GTK_HEADER_BAR(header), button("Processes", G_CALLBACK(on_processes)));
   gtk_window_set_titlebar(GTK_WINDOW(manager->window), header);
   manager->stack = gtk_stack_new();
   switcher = gtk_stack_switcher_new();

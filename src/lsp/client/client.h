@@ -107,3 +107,7 @@ void lsp_iter_at_position(Tab *tab, gint64 line, gint64 character, GtkTextIter *
 /* "file:///a%20b.c" -> "/a b.c" and back. */
 char *lsp_uri_to_path(const char *uri);
 char *lsp_path_to_uri(const char *path);
+
+/* Every running language server's pid goes into owners (application/processes.h) as
+ * "Language server: clangd". */
+void lsp_own_processes(App *t, GHashTable *owners);

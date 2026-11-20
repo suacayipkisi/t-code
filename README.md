@@ -169,7 +169,8 @@ Plugins are separate programs, started only when one of their commands runs, so 
 costs nothing. They live in `~/.config/t-code/plugins/<id>/` with a `plugin.json` manifest and talk
 to t-code over `$TCODE_SOCKET`. A plugin runs with your user's rights: install only ones you trust.
 **Plugins: Manage Plugins** (command palette, or Settings → Plugins…) lists them: turn one off, start or stop it, read what
-it printed, uninstall it. The manifest, environment and socket protocol:
+it printed, uninstall it. **Help: Process Monitor** shows what each plugin, language server and terminal
+uses (CPU, memory). The manifest, environment and socket protocol:
 [docs/plugins.md](docs/plugins.md); examples are in `plugins/builtin/`, written in different languages (Python, Rust, C, C++, Go, JavaScript, Perl) on purpose, to test
 that the plugin API works from any of them.
 

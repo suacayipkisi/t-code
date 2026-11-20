@@ -9,6 +9,7 @@
 #include "debug/debugger.h"
 #include "debug/view/debugview.h"
 #include "debug/disassembly.h"
+#include "application/processes.h"
 #include "dialogs/settings.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/gutter/diffgutter.h"
@@ -3890,6 +3891,62 @@ static void test_example_plugins(void)
   g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Word Count: 1 word, 1 line selected");
   gtk_text_buffer_undo(GTK_TEXT_BUFFER(tab->buffer)); /* the "c " goes */
   g_assert_true(text_is((const char *const[]){ text_file, "b\na\n" }));
+  /* Process Monitor (also in the T-Code menu): t-code and Word Count's program under its owner, the
+   * terminal's shell too; End stops the plugin the way Stop does (no failure) */
+  {
+    GtkWidget *bar = find_widget(GTK_WIDGET(app.window), GTK_TYPE_POPOVER_MENU_BAR, NULL, NULL);
+    char *target = menu_target(gtk_popover_menu_bar_get_menu_model(GTK_POPOVER_MENU_BAR(bar)), "Process Monitor…");
+    g_assert_cmpstr(target, ==, "Help: Process Monitor");
+    g_free(target);
+    GHashTable *owners = procs_owners_new();
+    GHashTableIter iter;
+    gpointer key, value;
+    int word_count = 0;
+    plugins_own_processes(owners);
+    g_hash_table_iter_init(&iter, owners);
+    while (g_hash_table_iter_next(&iter, &key, &value))
+      if (strcmp(((ProcOwner *)value)->label, "Plugin: Word Count") == 0)
+        word_count = GPOINTER_TO_INT(key);
+    g_hash_table_unref(owners);
+    g_assert_cmpint(word_count, >, 0);
+
+    run_command(&app, "Help: Process Monitor");
+    run_for(50);
+    GtkWindow *monitor = window_titled("Process Monitor");
+    g_assert_nonnull(monitor);
+    g_assert_true(says(GTK_WIDGET(monitor), "t-code"));
+    g_assert_true(says(GTK_WIDGET(monitor), "Plugin: Word Count"));
+    g_assert_true(says(GTK_WIDGET(monitor), "Terminal: Terminal"));
+    g_assert_true(says(GTK_WIDGET(monitor), "Memory (PSS)"));
+    g_assert_true(says(GTK_WIDGET(monitor), "RSS"));
+    char *pid = g_strdup_printf("%d", word_count);
+    GtkWidget *grid = NULL, *end = NULL;
+    for (GtkWidget *w = find_widget(GTK_WIDGET(monitor), GTK_TYPE_GRID, NULL, NULL); w && !end;
+         w = gtk_widget_get_next_sibling(w)) {
+      if (!GTK_IS_GRID(w))
+        continue;
+      grid = w;
+      for (GtkWidget *c = gtk_widget_get_first_child(grid); c && !end; c = gtk_widget_get_next_sibling(c)) {
+        int column, row;
+        gtk_grid_query_child(GTK_GRID(grid), c, &column, &row, NULL, NULL);
+        if (column == 1 && GTK_IS_LABEL(c) && strcmp(gtk_label_get_text(GTK_LABEL(c)), pid) == 0)
+          end = gtk_grid_get_child_at(GTK_GRID(grid), 7, row);
+      }
+    }
+    g_free(pid);
+    g_assert_true(GTK_IS_BUTTON(end));
+    run_command(&app, "Help: Process Monitor"); /* the same window again */
+    g_assert_true(window_titled("Process Monitor") == monitor);
+    g_signal_emit_by_name(end, "clicked");
+    for (int i = 0; i < 100 && plugin_find(&app, "word-count")->state == PLUGIN_RUNNING; i++)
+      run_for(50);
+    g_assert_cmpint(plugin_find(&app, "word-count")->state, ==, PLUGIN_STOPPED);
+    run_for(400); /* looked at again: its row is gone */
+    g_assert_false(says(GTK_WIDGET(monitor), "Plugin: Word Count"));
+    gtk_window_destroy(monitor);
+    run_for(20);
+  }
+
   /* off from here: the socket tests count the subscribers, and a project switch would start it again */
   plugin_set_enabled(&app, plugin_find(&app, "word-count"), FALSE);
   run_for(200);

@@ -7,6 +7,8 @@
 #include "lsp/channel.h"
 #include "lsp/json.h"
 
+#include <stdlib.h>
+
 struct Dap {
   GSubprocess *process;
   Channel *ch;
@@ -161,4 +163,11 @@ void dap_free(Dap *d)
   if (d->capabilities)
     json_node_unref(d->capabilities);
   g_free(d);
+}
+
+int dap_pid(Dap *d)
+{
+  const char *id = d && d->process ? g_subprocess_get_identifier(d->process) : NULL;
+
+  return id ? atoi(id) : 0;
 }

@@ -5,6 +5,7 @@
  */
 #include "lsp/client/state.h"
 
+#include "application/processes.h"
 #include "editor/editorview.h"
 #include "lsp/inline/diagnostics.h"
 #include "lsp/inline/inlay.h"
@@ -12,6 +13,7 @@
 #include "lsp/symbols/navigate.h"
 #include "window/statusbar.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -459,4 +461,17 @@ gboolean lsp_idle_stop(gpointer data)
   if (g_hash_table_size(l->docs) == 0)
     lsp_server_stop(l);
   return G_SOURCE_REMOVE;
+}
+
+void lsp_own_processes(App *t, GHashTable *owners)
+{
+  for (guint i = 0; t->lsps && i < t->lsps->len; i++) {
+    Lsp *l = g_ptr_array_index(t->lsps, i);
+    const char *id = l->process ? g_subprocess_get_identifier(l->process) : NULL;
+    if (id) {
+      char *label = g_strdup_printf("Language server: %s", server_name(l->kind));
+      procs_own(owners, atoi(id), PROC_SERVER, label);
+      g_free(label);
+    }
+  }
 }

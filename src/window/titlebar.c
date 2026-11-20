@@ -119,6 +119,7 @@ static GMenu *menu_bar_model(App *t)
   menu = g_menu_new();
   add_item(menu, "New Window", "app.new-window", NULL, NULL);
   add_command(menu, "Command Palette…", "Command Palette…", "<Control><Shift>p");
+  add_command(menu, "Process Monitor…", "Help: Process Monitor", NULL);
   add_command(menu, "Check for Updates Now", "Check for Updates Now", NULL);
   add_item(section, "Quit", "win.quit", NULL, NULL);
   g_menu_append_section(menu, NULL, G_MENU_MODEL(section));

@@ -15,6 +15,7 @@
 #define _XOPEN_SOURCE 700 /* ptsname() under -std=c23 */
 #include "debug/debugger.h"
 
+#include "application/processes.h"
 #include "debug/dap.h"
 #include "debug/view/debugview.h"
 #include "debug/disassembly.h"
@@ -1006,4 +1007,10 @@ GtkWidget *debug_panel(App *t)
   g_signal_connect(box, "destroy", G_CALLBACK(on_panel_destroyed), t);
   update_ui(t, NULL);
   return box;
+}
+
+void debug_own_processes(App *t, GHashTable *owners)
+{
+  if (t->debug.session)
+    procs_own(owners, dap_pid(t->debug.session->dap), PROC_DEBUGGER, "Debugger: gdb");
 }

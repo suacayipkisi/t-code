@@ -10,6 +10,7 @@
 #include "debug/disassembly.h"
 #include "dialogs/about.h"
 #include "dialogs/keybinds.h"
+#include "dialogs/processes.h"
 #include "dialogs/settings.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/editing/editing.h"
@@ -404,6 +405,7 @@ static const Command commands[] = {
   { "Preferences: Open User Snippets", NULL, NULL, open_user_snippets, FALSE, FALSE, FALSE },
   { "Keyboard Shortcuts", NULL, NULL, show_keybinds, FALSE, FALSE, FALSE },
   { "Help: Open Log File", NULL, NULL, open_log, FALSE, FALSE, FALSE },
+  { "Help: Process Monitor", NULL, NULL, show_processes, FALSE, FALSE, FALSE },
   { "About t-code", NULL, NULL, show_about, FALSE, FALSE, FALSE },
   { "Check for Updates Now", NULL, NULL, check_updates_now, FALSE, FALSE, FALSE },
   { "Plugins: Manage Plugins", NULL, NULL, show_plugins_window, FALSE, FALSE, FALSE },

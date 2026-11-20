@@ -175,3 +175,10 @@ void plugin_open_folder(App *t, const char *dir);
 
 /* Opens the user plugins directory in desktop file manager. */
 void open_plugins_folder(App *t);
+
+/* Every running plugin program's pid goes into owners (application/processes.h) as "Plugin: name". */
+void plugins_own_processes(GHashTable *owners);
+
+/* pid is a plugin program's: it is stopped the way Stop does (SIGTERM to it and what it started,
+ * SIGKILL 2 s later), and its end is no failure. FALSE when pid is no plugin program. */
+gboolean plugins_end_process(int pid);
