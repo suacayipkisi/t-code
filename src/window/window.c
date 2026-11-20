@@ -284,8 +284,15 @@ void build_window(App *t, GtkApplication *app)
 
   /* The editors above the bottom dock bar. */
   make_card(GTK_WIDGET(t->editors.area));
+  /* Held without asking for its smallest size (a tab bar's height, a hint's width), like the docks:
+   * the bottom or a side dragged far squeezes it instead of measuring it below its minimum. */
+  GtkWidget *editors_clip = gtk_scrolled_window_new();
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(editors_clip), GTK_POLICY_EXTERNAL, GTK_POLICY_EXTERNAL);
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(editors_clip), GTK_WIDGET(t->editors.area));
+  gtk_viewport_set_scroll_to_focus(GTK_VIEWPORT(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(editors_clip))),
+                                   FALSE);
   t->layout.vpaned = GTK_PANED(gtk_paned_new(GTK_ORIENTATION_VERTICAL));
-  gtk_paned_set_start_child(t->layout.vpaned, GTK_WIDGET(t->editors.area));
+  gtk_paned_set_start_child(t->layout.vpaned, editors_clip);
   gtk_paned_set_end_child(t->layout.vpaned, t->layout.bottom);
   gtk_paned_set_resize_end_child(t->layout.vpaned, FALSE);
   gtk_paned_set_shrink_start_child(t->layout.vpaned, TRUE);

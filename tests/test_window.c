@@ -3128,11 +3128,15 @@ static void test_panel_resize(void)
       g_test_message("%s is at least %d wide", panel_names[i], min);
     g_assert_cmpint(min, <=, 170);
   }
-  /* Nor does the editor area's hint ask for a whole sentence's width (shown here: nothing is open). */
+  /* Nor does the editor area's hint ask for a whole sentence's width (shown here: nothing is open),
+   * nor the editor area as the bottom side's neighbour for any height. */
   {
-    int min = 0;
+    int min = 0, min_height = 0;
     gtk_widget_measure(GTK_WIDGET(app.editors.area), GTK_ORIENTATION_HORIZONTAL, -1, &min, NULL, NULL, NULL);
     g_assert_cmpint(min, <=, 170);
+    gtk_widget_measure(gtk_paned_get_start_child(app.layout.vpaned), GTK_ORIENTATION_VERTICAL, -1, &min_height, NULL,
+                       NULL, NULL);
+    g_assert_cmpint(min_height, ==, 0);
   }
 
   /* The left side: dragged below its smallest width, out again, below again, released. */
@@ -3332,9 +3336,10 @@ static void test_outline(void)
   text = outline_text(&app);
   g_assert_cmpstr(text, ==, "S Shape\n  · w\n  · h\nƒ main\n");
   g_free(text);
-  GtkListBox *list = GTK_LIST_BOX(find_widget(find_widget(GTK_WIDGET(app.window), G_TYPE_NONE, NULL, "tcode-outline"),
-                                              GTK_TYPE_LIST_BOX, NULL, NULL));
-  g_signal_emit_by_name(list, "row-activated", gtk_list_box_get_row_at_index(list, 3)); /* main */
+  GtkWidget *list = find_widget(find_widget(GTK_WIDGET(app.window), G_TYPE_NONE, NULL, "tcode-outline"),
+                                GTK_TYPE_LIST_VIEW, NULL, NULL);
+  g_assert_nonnull(list);
+  g_signal_emit_by_name(list, "activate", 3); /* main */
   gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &iter,
                                    gtk_text_buffer_get_insert(GTK_TEXT_BUFFER(tab->buffer)));
   g_assert_cmpint(gtk_text_iter_get_line(&iter), ==, 4);
