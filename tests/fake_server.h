@@ -437,6 +437,22 @@ static int fake_server(void)
       }
       fake_send(reply);
       g_free(reply);
+    } else if (g_strcmp0(method, "textDocument/definition") == 0) {
+      /* jdtls' way for a library's class: a jdt:// place, its text read with a request of its own */
+      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":[{\"uri\":"
+                                    "\"jdt://contents/lib.jar/com.example/Lib.class?=fake%%2Flib.jar\","
+                                    "\"range\":{\"start\":{\"line\":1,\"character\":6},"
+                                    "\"end\":{\"line\":1,\"character\":9}}}]}",
+                                    json_int_at(message, "id", 0));
+      fake_send(reply);
+      g_free(reply);
+    } else if (g_strcmp0(method, "fake/contents") == 0 &&
+               g_str_has_prefix(json_string_at(message, "params.uri") ?: "", "jdt://contents/")) {
+      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT
+                                    ",\"result\":\"package com.example;\\nclass Lib {}\\n\"}",
+                                    json_int_at(message, "id", 0));
+      fake_send(reply);
+      g_free(reply);
     }
     g_object_unref(parser);
     g_free(body);

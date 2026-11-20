@@ -502,24 +502,27 @@ static void test_contributions(void)
   Plugin *p;
   PluginServer *s;
 
-  write_file("contributions/matlab/plugin.json",
-             "{\"name\": \"MATLAB\", \"api\": \"tapi_1\",\n"
-             " \"commands\": [{\"id\": \"matlab.run\", \"name\": \"MATLAB: Run File\"}],\n"
-             " \"run\": {\".m\": \"matlab.run\", \".mlx\": \"matlab.nope\"},\n"
-             " \"language-specs\": \"specs\", \"snippets\": \"../elsewhere\",\n"
-             " \"lsp\": [\n"
-             "  {\"argv\": [\"bin/matlab-ls\", \"--stdio\"], \"extensions\": [\".m\"], \"language-id\": \"matlab\",\n"
-             "   \"options\": {\"a\": 1}, \"settings\": {\"b\": [true]}},\n"
-             "  {\"name\": \"other\", \"argv\": [\"x\"], \"languages\": [\"octave\"],\n"
-             "   \"language-id\": {\".m\": \"octave\"}},\n"
-             "  {\"name\": \"other\", \"argv\": [\"y\"], \"languages\": [\"octave\"]},\n"
-             "  {\"name\": \"no-files\", \"argv\": [\"z\"]},\n"
-             "  {\"name\": \"no-argv\", \"extensions\": [\".m\"]},\n"
-             "  {\"name\": \"bad-options\", \"argv\": [\"z\"], \"extensions\": [\".m\"], \"options\": 3},\n"
-             "  {\"name\": \"bad-id\", \"argv\": [\"z\"], \"extensions\": [\".m\"], \"language-id\": 3},\n"
-             "  7\n"
-             " ]}",
-             0644);
+  write_file(
+      "contributions/matlab/plugin.json",
+      "{\"name\": \"MATLAB\", \"api\": \"tapi_1\",\n"
+      " \"commands\": [{\"id\": \"matlab.run\", \"name\": \"MATLAB: Run File\"}],\n"
+      " \"run\": {\".m\": \"matlab.run\", \".mlx\": \"matlab.nope\"},\n"
+      " \"debug\": {\".m\": \"matlab.run\"},\n"
+      " \"language-specs\": \"specs\", \"snippets\": \"../elsewhere\",\n"
+      " \"lsp\": [\n"
+      "  {\"argv\": [\"bin/matlab-ls\", \"--stdio\"], \"extensions\": [\".m\"], \"language-id\": \"matlab\",\n"
+      "   \"options\": {\"a\": 1}, \"settings\": {\"b\": [true]}},\n"
+      "  {\"name\": \"other\", \"argv\": [\"x\"], \"languages\": [\"octave\"],\n"
+      "   \"language-id\": {\".m\": \"octave\"}, \"uri-contents\": {\"jdt\": \"java/classFileContents\"}},\n"
+      "  {\"name\": \"other\", \"argv\": [\"y\"], \"languages\": [\"octave\"]},\n"
+      "  {\"name\": \"no-files\", \"argv\": [\"z\"]},\n"
+      "  {\"name\": \"no-argv\", \"extensions\": [\".m\"]},\n"
+      "  {\"name\": \"bad-options\", \"argv\": [\"z\"], \"extensions\": [\".m\"], \"options\": 3},\n"
+      "  {\"name\": \"bad-id\", \"argv\": [\"z\"], \"extensions\": [\".m\"], \"language-id\": 3},\n"
+      "  {\"name\": \"bad-contents\", \"argv\": [\"z\"], \"extensions\": [\".m\"], \"uri-contents\": {\"jdt\": 1}},\n"
+      "  7\n"
+      " ]}",
+      0644);
   write_file("contributions/matlab/run.sh", "#!/bin/sh\n", 0755);
   write_file("contributions/matlab/specs/matlab.lang", "<language/>", 0644);
   app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
@@ -529,6 +532,7 @@ static void test_contributions(void)
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*a language server needs \"argv\"*");
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*\"options\" and \"settings\" are JSON objects*");
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*\"language-id\" is a string*");
+  g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*\"uri-contents\" is an object of strings*");
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*a language server is not an object*");
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*\"run\" for '.mlx' does not name one of its commands*");
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*\"snippets\" is not a folder inside the plugin's*");
@@ -544,12 +548,15 @@ static void test_contributions(void)
   g_assert_cmpstr(s->language_id, ==, "matlab");
   g_assert_cmpstr(s->options, ==, "{\"a\":1}");
   g_assert_cmpstr(s->settings, ==, "{\"b\":[true]}");
+  g_assert_null(s->contents[0]);
   s = g_ptr_array_index(p->servers, 1);
   g_assert_cmpstr(s->argv[0], ==, "x");
   g_assert_cmpstr(s->languages[0], ==, "octave");
   g_assert_null(s->extensions[0]);
   g_assert_cmpstr(s->language_ids[0], ==, ".m");
   g_assert_cmpstr(s->language_ids[1], ==, "octave");
+  g_assert_cmpstr(s->contents[0], ==, "jdt");
+  g_assert_cmpstr(s->contents[1], ==, "java/classFileContents");
   g_assert_true(g_str_has_suffix(p->language_specs, "/matlab/specs"));
   g_assert_null(p->snippets);
 
@@ -558,6 +565,8 @@ static void test_contributions(void)
   g_assert_null(plugins_run_command_for(&app, "/w/script.mlx"));
   g_assert_null(plugins_run_command_for(&app, "/w/.m")); /* only a name ending in it */
   g_assert_null(plugins_run_command_for(&app, NULL));
+  g_assert_true(plugins_debug_command_for(&app, "/w/script.m") == g_ptr_array_index(p->commands, 0));
+  g_assert_null(plugins_debug_command_for(&app, "/w/script.mlx"));
 
   char *const patterns[] = { ".m", "CMakeLists.txt", NULL };
   g_assert_true(plugin_name_matches("a.m", patterns));

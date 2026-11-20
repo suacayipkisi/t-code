@@ -710,6 +710,74 @@ static void test_attachable(void)
   g_spawn_close_pid(pid);
 }
 
+/* A debugger that listens on a TCP port (java-debug inside jdtls): it reads "initialize", answers it and
+ * says "initialized". Runs in a thread of its own. */
+static gpointer listening_adapter(gpointer data)
+{
+  GSocketListener *listener = data;
+  GSocketConnection *connection = g_socket_listener_accept(listener, NULL, NULL, NULL);
+  GDataInputStream *in = g_data_input_stream_new(g_io_stream_get_input_stream(G_IO_STREAM(connection)));
+  GOutputStream *out = g_io_stream_get_output_stream(G_IO_STREAM(connection));
+  gsize length = 0;
+  char *line, *body, *reply = NULL;
+
+  while ((line = g_data_input_stream_read_line(in, NULL, NULL, NULL)) && *g_strstrip(line)) {
+    if (g_str_has_prefix(line, "Content-Length:"))
+      length = (gsize)g_ascii_strtoull(line + 15, NULL, 10);
+    g_free(line);
+  }
+  g_free(line);
+  body = g_malloc0(length + 1);
+  g_input_stream_read_all(G_INPUT_STREAM(in), body, length, NULL, NULL, NULL);
+  if (strstr(body, "\"command\":\"initialize\"") && strstr(body, "\"adapterID\":\"java\"") &&
+      strstr(body, "supportsRunInTerminalRequest")) {
+    const char *answer = "{\"seq\":1,\"type\":\"response\",\"request_seq\":1,\"command\":\"initialize\","
+                         "\"success\":true,\"body\":{\"supportsConfigurationDoneRequest\":true}}";
+    const char *event = "{\"seq\":2,\"type\":\"event\",\"event\":\"initialized\"}";
+    reply = g_strdup_printf("Content-Length: %zu\r\n\r\n%sContent-Length: %zu\r\n\r\n%s", strlen(answer), answer,
+                            strlen(event), event);
+    g_output_stream_write_all(out, reply, strlen(reply), NULL, NULL, NULL);
+  }
+  /* until the client closes */
+  while ((line = g_data_input_stream_read_line(in, NULL, NULL, NULL)))
+    g_free(line);
+  g_free(reply);
+  g_free(body);
+  g_object_unref(in);
+  g_object_unref(connection);
+  return NULL;
+}
+
+/* dap_connect: a debugger already listening on a port gets "initialize" over TCP; a port nobody listens
+ * on is the debugger going away. */
+static void test_connect(void)
+{
+  GSocketListener *listener = g_socket_listener_new();
+  GError *error = NULL;
+  guint16 port = g_socket_listener_add_any_inet_port(listener, NULL, &error);
+  Run r = new_run();
+
+  g_assert_no_error(error);
+  GThread *thread = g_thread_new("adapter", listening_adapter, listener);
+  Dap *d = dap_connect("127.0.0.1", port, "java", on_event, on_request, &r);
+  wait_event(&r, "initialized");
+  g_assert_false(r.gone);
+  g_assert_nonnull(dap_capabilities(d));
+  g_assert_true(json_node_get_boolean(json_at(dap_capabilities(d), "supportsConfigurationDoneRequest")));
+  g_assert_cmpint(dap_pid(d), ==, 0); /* not t-code's child */
+  dap_free(d);
+  g_thread_join(thread);
+  g_socket_listener_close(listener);
+  g_object_unref(listener);
+
+  /* the port is free again: nothing answers */
+  d = dap_connect("127.0.0.1", port, "java", on_event, NULL, &r);
+  wait_for(&r);
+  g_assert_true(r.gone);
+  dap_free(d);
+  free_run(&r);
+}
+
 /* A debugger that cannot start says so, and nothing is left behind. */
 static void test_missing(void)
 {
@@ -731,6 +799,7 @@ int main(int argc, char **argv)
   g_test_add_func("/dap/debugpy", test_debugpy);
   g_test_add_func("/dap/lldb", test_lldb);
   g_test_add_func("/dap/missing", test_missing);
+  g_test_add_func("/dap/connect", test_connect);
   g_test_add_func("/adapters/arguments", test_adapter_arguments);
   g_test_add_func("/adapters/lldb-names", test_lldb_names);
   g_test_add_func("/adapters/noise", test_noise);

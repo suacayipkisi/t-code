@@ -35,6 +35,10 @@ ServerKind server_by_id(const char *id);
 /* Whether a built-in server is on (Settings, Language Servers); plugins' servers always are. */
 gboolean server_enabled(App *t, ServerKind kind);
 
+/* The request that reads the text of a document in a URI scheme other than file ("jdt":
+ * "java/classFileContents", a plugin's "uri-contents"), or NULL. */
+const char *server_contents_request(ServerKind kind, const char *scheme);
+
 /* The server's program's name ("clangd", "pylsp"): for messages and the status bar. */
 const char *server_name(ServerKind kind);
 

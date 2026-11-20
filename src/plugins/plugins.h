@@ -63,6 +63,8 @@ typedef struct PluginServer {
   char **language_ids; /* or by file: pattern, id, pattern, id, ... (".jsx", "javascriptreact"); may be empty */
   char *options;       /* initializationOptions, JSON; NULL for none */
   char *settings;      /* workspace settings, JSON; NULL for none */
+  char **contents;     /* "uri-contents": scheme, request, scheme, request, ... ("jdt", "java/classFileContents"):
+                          the request that reads the text of a document in that URI scheme; may be empty */
 } PluginServer;
 
 typedef struct Plugin {
@@ -87,6 +89,7 @@ typedef struct Plugin {
   guint printed;        /* lines printed in all, to see that output changed */
   GPtrArray *servers;   /* PluginServer *: "lsp" */
   GHashTable *run;      /* "run": an extension (".m") or a file name -> one of its command ids */
+  GHashTable *debug;    /* "debug": the same, for F5 when no debugger of t-code's own takes the file */
   char *language_specs; /* "language-specs": a folder of .lang files (absolute), or NULL */
   char *snippets;       /* "snippets": a folder of .snippets files (absolute), or NULL */
 } Plugin;
@@ -166,6 +169,10 @@ void plugins_add_shortcuts(GtkShortcutController *controller, App *t);
 
 /* The plugin command Run (F5) hands file to ("run" in plugin.json), or NULL. */
 PluginCommand *plugins_run_command_for(App *t, const char *file);
+
+/* The plugin command that starts debugging file ("debug" in plugin.json: it asks for its debugger with
+ * the socket's debug-start), or NULL. */
+PluginCommand *plugins_debug_command_for(App *t, const char *file);
 
 /* Runs a plugin command asynchronously in a subprocess. */
 void plugin_run_command(App *t, const char *plugin_id, const char *command_id);

@@ -12,6 +12,7 @@
 #include "lsp/inline/diagnostics.h"
 #include "lsp/symbols/edits.h"
 #include "popups/picker.h"
+#include "window/statusbar.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -137,6 +138,85 @@ static void asked_free(Asked *asked)
   g_free(asked);
 }
 
+/* A place in a document the server keeps the text of (a library's class: jdt://...). */
+typedef struct {
+  App *app;
+  char *uri;
+  JsonNode *start;
+  gboolean utf16;
+  char *extension; /* the asking file's (".java"): the saved text's file gets it, for its language */
+} Contents;
+
+/* Where the text of uri is saved: ~/.cache/t-code/sources/<hash>/<its name><extension>. */
+static char *contents_path(const char *uri, const char *extension)
+{
+  const char *start = strstr(uri, "://") ? strstr(uri, "://") + 3 : uri;
+  gsize end = strcspn(start, "?#");
+  char *within = g_strndup(start, end), *slash = strrchr(within, '/');
+  char *name = g_uri_unescape_string(slash ? slash + 1 : within, NULL), *dot, *hash, *file, *path;
+
+  if (!name || !*name || strchr(name, '/')) {
+    g_free(name);
+    name = g_strdup("contents");
+  }
+  if ((dot = strrchr(name, '.')) && dot != name)
+    *dot = '\0';
+  hash = g_compute_checksum_for_string(G_CHECKSUM_SHA256, uri, -1);
+  hash[16] = '\0';
+  file = g_strconcat(name, extension ? extension : "", NULL);
+  path = g_build_filename(g_get_user_cache_dir(), "t-code", "sources", hash, file, NULL);
+  g_free(file);
+  g_free(hash);
+  g_free(name);
+  g_free(within);
+  return path;
+}
+
+/* The server's text of a document: saved to a file the editor shows read-only, then opened there. */
+static void on_contents(JsonNode *result, gpointer data)
+{
+  Contents *c = data;
+  const char *text = result && JSON_NODE_HOLDS_VALUE(result) ? json_node_get_string(result) : NULL;
+  char *path = contents_path(c->uri, c->extension), *dir = g_path_get_dirname(path);
+
+  if (!text || !*text) {
+    status_say(c->app, "The language server gave no text for this library's source");
+  } else if (g_mkdir_with_parents(dir, 0700) != 0 || !g_file_set_contents(path, text, -1, NULL)) {
+    status_say(c->app, "Could not save the library's source in ~/.cache/t-code/sources");
+  } else {
+    lsp_uri_alias(path, c->uri);
+    open_at(c->app, path, c->start, c->utf16);
+  }
+  g_free(dir);
+  g_free(path);
+  g_free(c->extension);
+  json_node_unref(c->start);
+  g_free(c->uri);
+  g_free(c);
+}
+
+/* Asks from's server for the text of uri, a document in another scheme than file, to open it at start;
+ * FALSE when its server cannot give it. */
+static gboolean open_contents(Tab *from, const char *uri, JsonNode *start, gboolean utf16)
+{
+  Contents *c = g_new0(Contents, 1);
+  const char *name = strrchr(from->path, '/') ? strrchr(from->path, '/') + 1 : from->path;
+  const char *dot = strrchr(name, '.');
+
+  c->app = from->app;
+  c->uri = g_strdup(uri);
+  c->start = json_node_copy(start);
+  c->utf16 = utf16;
+  c->extension = g_strdup(dot && dot != name ? dot : "");
+  if (lsp_request_contents(from, uri, on_contents, c))
+    return TRUE;
+  json_node_unref(c->start);
+  g_free(c->extension);
+  g_free(c->uri);
+  g_free(c);
+  return FALSE;
+}
+
 /* A Location, a list of them, or of LocationLinks: the first one. */
 static void on_definition(JsonNode *result, gpointer data)
 {
@@ -152,6 +232,11 @@ static void on_definition(JsonNode *result, gpointer data)
     if (from)
       remember(from);
     open_at(asked->app, path, start, asked->utf16);
+  } else if (uri && start && from) { /* jdt://: a library's class */
+    if (open_contents(from, uri, start, asked->utf16))
+      remember(from);
+    else
+      status_say(asked->app, "This definition is in a library the editor cannot open");
   }
   g_free(path);
   asked_free(asked);

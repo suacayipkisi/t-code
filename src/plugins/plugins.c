@@ -41,6 +41,7 @@ static void plugin_server_free(PluginServer *server)
   g_strfreev(server->language_ids);
   g_free(server->options);
   g_free(server->settings);
+  g_strfreev(server->contents);
   g_free(server);
 }
 
@@ -62,6 +63,7 @@ static void plugin_free(Plugin *plugin)
   if (plugin->servers)
     g_ptr_array_free(plugin->servers, TRUE);
   g_clear_pointer(&plugin->run, g_hash_table_unref);
+  g_clear_pointer(&plugin->debug, g_hash_table_unref);
   g_free(plugin->language_specs);
   g_free(plugin->snippets);
   registry_record_free(plugin->record);
@@ -222,9 +224,9 @@ static char *object_text(JsonObject *obj, const char *name, gboolean *bad)
   return json_to_string(node, FALSE);
 }
 
-/* "language-id" given as an object (file pattern -> id): pattern, id, pattern, id, ... (g_strfreev);
- * NULL when a value is not a string. */
-static char **language_ids(JsonObject *map)
+/* An object of strings ("language-id": file pattern -> id, "uri-contents": scheme -> request) as name,
+ * value, name, value, ... (g_strfreev); NULL when a value is not a string. */
+static char **string_pairs(JsonObject *map)
 {
   GList *names = json_object_get_members(map);
   GPtrArray *pairs = g_ptr_array_new();
@@ -254,7 +256,7 @@ static PluginServer *plugin_server(JsonObject *obj, const char *plugin)
   const char *problem = NULL;
 
   if (language_id && JSON_NODE_HOLDS_OBJECT(language_id))
-    s->language_ids = language_ids(json_node_get_object(language_id));
+    s->language_ids = string_pairs(json_node_get_object(language_id));
   else if (!language_id || string_member(obj, "language-id"))
     s->language_ids = g_new0(char *, 1);
 
@@ -263,6 +265,10 @@ static PluginServer *plugin_server(JsonObject *obj, const char *plugin)
   s->languages = string_list(obj, "languages");
   s->options = object_text(obj, "options", &bad);
   s->settings = object_text(obj, "settings", &bad);
+  JsonNode *contents = json_object_get_member(obj, "uri-contents");
+  s->contents = !contents                          ? g_new0(char *, 1)
+                : JSON_NODE_HOLDS_OBJECT(contents) ? string_pairs(json_node_get_object(contents))
+                                                   : NULL;
   if (!s->argv || !s->argv[0])
     problem = "needs \"argv\", a list of strings starting with the program";
   else if (!s->extensions || !s->languages)
@@ -273,6 +279,9 @@ static PluginServer *plugin_server(JsonObject *obj, const char *plugin)
     problem = "\"options\" and \"settings\" are JSON objects";
   else if (!s->language_ids)
     problem = "\"language-id\" is a string, or an object of strings by file (\".jsx\": \"javascriptreact\")";
+  else if (!s->contents)
+    problem =
+        "\"uri-contents\" is an object of strings, the request by URI scheme (\"jdt\": \"java/classFileContents\")";
   if (problem) {
     g_warning("Plugin %s: a language server %s; left out", plugin, problem);
     plugin_server_free(s);
@@ -311,23 +320,23 @@ static GPtrArray *plugin_servers(JsonObject *obj, const char *plugin)
   return servers;
 }
 
-/* "run": file extensions (or names) -> the command Run hands them to, one of p's own. */
-static GHashTable *plugin_run(JsonObject *obj, Plugin *p)
+/* "run" (or "debug"): file extensions (or names) -> the command Run (F5) hands them to, one of p's own. */
+static GHashTable *plugin_run(JsonObject *obj, Plugin *p, const char *member)
 {
-  JsonNode *node = json_object_get_member(obj, "run");
+  JsonNode *node = json_object_get_member(obj, member);
   JsonObject *map = node && JSON_NODE_HOLDS_OBJECT(node) ? json_node_get_object(node) : NULL;
   GHashTable *run = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
   GList *names = map ? json_object_get_members(map) : NULL;
 
   if (node && !map)
-    g_warning("Plugin %s: \"run\" is not an object; left out", p->name);
+    g_warning("Plugin %s: \"%s\" is not an object; left out", p->name, member);
   for (GList *l = names; l; l = l->next) {
     const char *pattern = l->data, *command = string_member(map, pattern);
     gboolean known = FALSE;
     for (guint i = 0; command && i < p->commands->len; i++)
       known |= strcmp(((PluginCommand *)g_ptr_array_index(p->commands, i))->id, command) == 0;
     if (!*pattern || strchr(pattern, '/') || !known)
-      g_warning("Plugin %s: \"run\" for '%s' does not name one of its commands; left out", p->name, pattern);
+      g_warning("Plugin %s: \"%s\" for '%s' does not name one of its commands; left out", p->name, member, pattern);
     else
       g_hash_table_insert(run, g_strdup(pattern), g_strdup(command));
   }
@@ -433,7 +442,8 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
     g_ptr_array_add(p->commands, cmd);
   }
   p->servers = plugin_servers(obj, name);
-  p->run = plugin_run(obj, p);
+  p->run = plugin_run(obj, p, "run");
+  p->debug = plugin_run(obj, p, "debug");
   p->language_specs = plugin_folder(obj, "language-specs", name, plugin_dir);
   p->snippets = plugin_folder(obj, "snippets", name, plugin_dir);
   return p;
@@ -1080,7 +1090,8 @@ void plugins_stop_project(App *t)
     plugin_stop(g_ptr_array_index(t->plugins, i));
 }
 
-PluginCommand *plugins_run_command_for(App *t, const char *file)
+/* The command of an enabled plugin whose "run" (or "debug") names file, or NULL. */
+static PluginCommand *command_for(App *t, const char *file, gboolean debug)
 {
   char *name = file ? g_path_get_basename(file) : NULL;
   PluginCommand *found = NULL;
@@ -1089,7 +1100,10 @@ PluginCommand *plugins_run_command_for(App *t, const char *file)
     Plugin *p = g_ptr_array_index(t->plugins, i);
     GHashTableIter iter;
     gpointer pattern, command;
-    g_hash_table_iter_init(&iter, p->run);
+    GHashTable *map = debug ? p->debug : p->run;
+    if (!map)
+      continue;
+    g_hash_table_iter_init(&iter, map);
     while (p->enabled && !found && g_hash_table_iter_next(&iter, &pattern, &command)) {
       char *const patterns[] = { pattern, NULL };
       for (guint c = 0; plugin_name_matches(name, patterns) && c < p->commands->len && !found; c++)
@@ -1099,6 +1113,16 @@ PluginCommand *plugins_run_command_for(App *t, const char *file)
   }
   g_free(name);
   return found;
+}
+
+PluginCommand *plugins_run_command_for(App *t, const char *file)
+{
+  return command_for(t, file, FALSE);
+}
+
+PluginCommand *plugins_debug_command_for(App *t, const char *file)
+{
+  return command_for(t, file, TRUE);
 }
 
 void plugin_run_command(App *t, const char *plugin_id, const char *command_id)

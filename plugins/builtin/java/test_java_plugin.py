@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The Java plugin's pieces: python3 test_java_plugin.py (t-code's test_window runs the plugin against
 a window, with a fake JDK). With a real JDK on PATH, a plain folder is built and run for real."""
+import json
 import os
 import shutil
 import subprocess
@@ -214,6 +215,98 @@ class Launcher(Fixture):
         self.assertIn("-Xmx1G", argv)
         self.assertFalse(any(a.startswith("-javaagent") for a in argv))
         self.assertNotEqual(launcher.workspace_dir(self.dir), launcher.workspace_dir(home))
+
+
+class FakeTcode:
+    """Answers the plugin's requests like t-code would: lsp-command from a table, the rest "ok"."""
+
+    def __init__(self, answers, file):
+        self.answers, self.file, self.sent = answers, file, []
+
+    def request(self, command, argument=""):
+        self.sent.append((command, argument))
+        return self.file if command == "get-file" else ""
+
+    def json(self, command, value):
+        self.sent.append((command, value))
+        if command == "lsp-command":
+            answer = self.answers[value["command"]]
+            if isinstance(answer, Exception):
+                raise answer
+            return json.dumps(answer)
+        if command == "pick":
+            return "0 " + value["items"][0]["label"]
+        return ""
+
+
+class Debugging(Fixture):
+    def test_launcher_adds_the_bundle(self):
+        os.environ["XDG_DATA_HOME"] = self.dir
+        try:
+            self.assertEqual(launcher.debug_bundles(), [])
+            self.put("t-code/java-debug/com.microsoft.java.debug.plugin-0.9.1.jar", "")
+            newest = self.put("t-code/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar", "")
+            self.assertEqual(launcher.debug_bundles(), [newest])
+        finally:
+            del os.environ["XDG_DATA_HOME"]
+        body = json.dumps({"method": "initialize", "params": {"initializationOptions": {"bundles": ["/a.jar"]}}})
+        options = json.loads(launcher.with_trigger_files(body.encode(), [], ["/b.jar", "/a.jar"]))
+        self.assertEqual(options["params"]["initializationOptions"]["bundles"], ["/a.jar", "/b.jar"])
+        self.assertNotIn("triggerFiles", options["params"]["initializationOptions"])
+        other = json.dumps({"method": "initialized"}).encode()
+        self.assertEqual(launcher.with_trigger_files(other, ["x"], ["/b.jar"]), other)
+
+    def test_debug_asks_jdtls_then_starts_the_debugger(self):
+        os.environ["XDG_DATA_HOME"] = self.dir
+        os.environ["XDG_RUNTIME_DIR"] = self.dir
+        self.put("t-code/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar", "")
+        app = self.put("src/com/example/App.java", "package com.example;\nclass App { public static void main(String[] a) {} }\n")
+        other = self.put("src/com/example/Other.java", "")
+        mains = [{"mainClass": "com.example.Other", "projectName": "p", "filePath": other},
+                 {"mainClass": "com.example.App", "projectName": "p", "filePath": app}]
+        t = FakeTcode({"vscode.java.resolveMainClass": mains, "vscode.java.buildWorkspace": "SUCCEED",
+                       "vscode.java.resolveClasspath": [["/m.jar"], ["/p/bin", "/lib.jar"]],
+                       "vscode.java.resolveJavaExecutable": "/jdk/bin/java",
+                       "vscode.java.startDebugSession": 41234}, app)
+        try:
+            jp.debug(t, self.dir)
+        finally:
+            del os.environ["XDG_DATA_HOME"]
+            del os.environ["XDG_RUNTIME_DIR"]
+        commands = [v["command"] for c, v in t.sent if c == "lsp-command"]
+        self.assertEqual(commands, ["vscode.java.resolveMainClass", "vscode.java.buildWorkspace",
+                                    "vscode.java.resolveClasspath", "vscode.java.resolveJavaExecutable",
+                                    "vscode.java.startDebugSession"])
+        self.assertTrue(all(v["path"] == app for c, v in t.sent if c == "lsp-command"))
+        start = [v for c, v in t.sent if c == "debug-start"][0]
+        self.assertEqual(start["connect"], "127.0.0.1:41234")
+        self.assertEqual(start["request"], "launch")
+        arguments = start["arguments"]
+        self.assertEqual(arguments["mainClass"], "com.example.App")  # the current file's
+        self.assertEqual(arguments["classPaths"], ["/p/bin", "/lib.jar"])
+        self.assertEqual(arguments["modulePaths"], ["/m.jar"])
+        self.assertEqual(arguments["javaExec"], "/jdk/bin/java")
+        self.assertEqual(arguments["console"], "integratedTerminal")
+
+    def test_debug_stops_on_build_errors_and_without_java_debug(self):
+        os.environ["XDG_DATA_HOME"] = self.dir
+        app = self.put("App.java", "class App { public static void main(String[] a) {} }\n")
+        try:
+            t = FakeTcode({}, app)
+            with mock.patch.object(jp, "install_debugger") as install:
+                jp.debug(t, self.dir)  # not installed: offered, picked
+                install.assert_called_once()
+            self.put("t-code/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar", "")
+            t = FakeTcode({"vscode.java.resolveMainClass": [{"mainClass": "App", "filePath": app}],
+                           "vscode.java.buildWorkspace": "FAILED"}, app)
+            jp.debug(t, self.dir)
+            self.assertFalse(any(c == "debug-start" for c, _ in t.sent))
+            self.assertIn(("say", "Java: the build has errors: see the Problems panel"), t.sent)
+            t = FakeTcode({"vscode.java.resolveMainClass": jp.TcodeError("failed", "no")}, app)
+            jp.debug(t, self.dir)
+            self.assertTrue(any(c == "say" and "Restart Language Servers" in v for c, v in t.sent))
+        finally:
+            del os.environ["XDG_DATA_HOME"]
 
 
 if __name__ == "__main__":

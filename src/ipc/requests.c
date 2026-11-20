@@ -390,7 +390,116 @@ static gboolean do_debug_failed(Client *c, const char *arg G_GNUC_UNUSED) { debu
 static gboolean do_say(Client *c, const char *arg) { status_say(c->app, arg); answer_ok(c, NULL); return TRUE; }
 static gboolean do_scm_message(Client *c, const char *arg) { scm_set_message(arg); answer_ok(c, NULL); return TRUE; }
 static gboolean do_lsp_refresh(Client *c, const char *arg G_GNUC_UNUSED) { lsp_reattach(c->app); answer_ok(c, NULL); return TRUE; }
+static gboolean do_lsp_restart(Client *c, const char *arg G_GNUC_UNUSED) { lsp_restart(c->app); answer_ok(c, NULL); return TRUE; }
 /* clang-format on */
+
+/* Language servers and debuggers ------------------------------------------------------------- */
+
+/* The answer to lsp-command's request: "ok <result as JSON>" (null too), or an error. */
+static void on_lsp_command(JsonNode *result, gpointer data)
+{
+  Client *c = data;
+
+  if (result) {
+    char *json = json_to_string(result, FALSE);
+    answer_ok(c, json);
+    g_free(json);
+  } else {
+    answer_error(c, "failed", "the language server said no (or went away)");
+  }
+  client_resume(c);
+  client_unref(c);
+}
+
+/* lsp-command {"command":..,"arguments":[..],"path":..}: workspace/executeCommand on the language server
+ * of path's editor (the active one without a path). */
+static gboolean do_lsp_command(Client *c, const char *arg)
+{
+  JsonNode *root = parse_json(c, arg);
+  const char *command = root ? json_string_at(root, "command") : NULL,
+             *path = root ? json_string_at(root, "path") : NULL;
+  JsonNode *arguments = root ? json_at(root, "arguments") : NULL;
+  Tab *tab = path ? find_tab(c->app, TAB_EDITOR, path) : active_editor(c->app);
+
+  if (!root)
+    return TRUE;
+  if (!command || !*command || (arguments && !JSON_NODE_HOLDS_ARRAY(arguments)) || (path && !g_path_is_absolute(path)))
+    answer_error(c, "bad-argument", "needs {\"command\": .., \"arguments\": [..], \"path\": <absolute path>}");
+  else if (!tab || !tab->view)
+    answer_error(c, "no-editor", path ? "that file is not open in an editor" : "no editor here, open a file first");
+  else if (!lsp_has(tab))
+    answer_error(c, "no-server", "that file has no language server (yet: it may still be starting)");
+  else {
+    char *quoted = json_quote(command), *list = arguments ? json_to_string(arguments, FALSE) : g_strdup("[]");
+    char *params = g_strdup_printf("{\"command\":%s,\"arguments\":%s}", quoted, list);
+    client_ref(c);
+    lsp_request(tab, "workspace/executeCommand", params, NULL, on_lsp_command, c);
+    g_free(params);
+    g_free(list);
+    g_free(quoted);
+    json_node_unref(root);
+    return FALSE;
+  }
+  json_node_unref(root);
+  return TRUE;
+}
+
+/* The strings of a JSON list, or NULL when it is not one of strings. */
+static char **string_list(JsonNode *node)
+{
+  JsonArray *array = node && JSON_NODE_HOLDS_ARRAY(node) ? json_node_get_array(node) : NULL;
+  GStrvBuilder *list;
+
+  if (!array)
+    return NULL;
+  list = g_strv_builder_new();
+  for (guint i = 0; i < json_array_get_length(array); i++) {
+    JsonNode *item = json_array_get_element(array, i);
+    if (!JSON_NODE_HOLDS_VALUE(item) || json_node_get_value_type(item) != G_TYPE_STRING) {
+      g_strv_builder_unref(list);
+      return NULL;
+    }
+    g_strv_builder_add(list, json_node_get_string(item));
+  }
+  char **strings = g_strv_builder_end(list);
+  g_strv_builder_unref(list);
+  return strings;
+}
+
+/* debug-start {"name":..,"connect":"host:port" | "argv":[..],"request":..,"arguments":{..},...}: a
+ * debugging session with the plugin's debugger. */
+static gboolean do_debug_start(Client *c, const char *arg)
+{
+  JsonNode *root = parse_json(c, arg);
+  JsonNode *arguments = root ? json_at(root, "arguments") : NULL, *argv = root ? json_at(root, "argv") : NULL;
+  char **args = string_list(argv), *json = NULL, *error = NULL;
+  const char *cwd = root ? json_string_at(root, "cwd") : NULL;
+
+  if (!root)
+    return TRUE;
+  if ((arguments && !JSON_NODE_HOLDS_OBJECT(arguments)) || (argv && !args) || (cwd && !g_path_is_absolute(cwd))) {
+    answer_error(c, "bad-argument", "\"arguments\" is an object, \"argv\" a list of strings, \"cwd\" an absolute path");
+  } else {
+    json = arguments ? json_to_string(arguments, FALSE) : NULL;
+    DebugAdapter adapter = { .name = json_string_at(root, "name"),
+                             .id = json_string_at(root, "adapter-id"),
+                             .connect = json_string_at(root, "connect"),
+                             .argv = args,
+                             .request = json_string_at(root, "request") ? json_string_at(root, "request") : "launch",
+                             .arguments = json,
+                             .cwd = cwd,
+                             .shown = json_string_at(root, "shown") };
+    if (debug_start_adapter(c->app, &adapter, &error))
+      answer_ok(c, NULL);
+    else
+      answer_error(c, strstr(error, "runs already") ? "busy" : "bad-argument", error);
+  }
+  g_free(error);
+  g_free(json);
+  g_strfreev(args);
+  json_node_unref(root);
+  return TRUE;
+}
 
 static gboolean do_project(Client *c, const char *arg)
 {
@@ -756,6 +865,9 @@ static const Request requests[] = {
   { "terminal-close-text", NEEDS_NOTHING, 0,              FALSE, do_terminal_close_text },
   { "scm-message",        NEEDS_NOTHING, 0,               FALSE, do_scm_message },
   { "lsp-refresh",        NEEDS_NOTHING, 0,               FALSE, do_lsp_refresh },
+  { "lsp-restart",        NEEDS_NOTHING, 0,               FALSE, do_lsp_restart },
+  { "lsp-command",        NEEDS_NOTHING, 0,               FALSE, do_lsp_command },
+  { "debug-start",        NEEDS_NOTHING, 0,               FALSE, do_debug_start },
   { "_debug",             NEEDS_PATH,    0,               FALSE, do_debug },
   { "_debug-failed",      NEEDS_NOTHING, 0,               FALSE, do_debug_failed },
   { "debug",              NEEDS_PATH,    0,               TRUE,  do_debug },

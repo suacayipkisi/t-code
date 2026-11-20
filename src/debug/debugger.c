@@ -26,7 +26,9 @@
 #include "debug/disassembly.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/editor.h"
+#include "editor/tabs.h"
 #include "lsp/json.h"
+#include "plugins/plugins.h"
 #include "popups/picker.h"
 #include "project/run/run.h"
 #include "project/session.h"
@@ -62,6 +64,7 @@ struct Debugger {
   App *app;
   Dap *dap;
   AdapterKind kind;
+  char *name;         /* a plugin's debugger: the name it gave ("Java"); NULL: adapter_name's */
   GSubprocess *child; /* what the debugger had started in the program's terminal (runInTerminal) */
   gboolean examining; /* a core dump: nothing runs, the stack and variables are only looked at */
   State state;
@@ -155,6 +158,12 @@ void debug_say(App *t, const char *text)
 }
 
 /* Whether the debugger said it can do capability ("supportsReadMemoryRequest"). */
+/* The debugger's name for the Debug panel ("gdb", "Java"). */
+static const char *session_name(Debugger *s)
+{
+  return s->name ? s->name : adapter_name(s->kind);
+}
+
 static gboolean can(Debugger *s, const char *capability)
 {
   JsonNode *yes = s ? json_at(dap_capabilities(s->dap), capability) : NULL;
@@ -204,6 +213,7 @@ static void finish(Debugger *s)
   }
   g_hash_table_destroy(s->sent);
   g_free(s->reason);
+  g_free(s->name);
   if (s->core)
     g_unlink(s->core);
   g_free(s->core);
@@ -421,10 +431,24 @@ static const char *crash_meaning(gboolean sanitizer, int signo)
   }
 }
 
-/* What the status calls a crash: an exception in Python, a panic in Go. */
+/* What the status calls a crash: an exception in Python (and a plugin's language: Java), a panic in Go. */
 static const char *crash_word(Debugger *s)
 {
-  return s->kind == ADAPTER_DEBUGPY ? "Exception" : s->kind == ADAPTER_DELVE ? "Panic" : "Crashed";
+  return s->kind == ADAPTER_DEBUGPY || s->kind == ADAPTER_PLUGIN ? "Exception"
+         : s->kind == ADAPTER_DELVE                              ? "Panic"
+                                                                 : "Crashed";
+}
+
+/* Whether the debugger offers the exception filter id ("uncaught": java-debug's, debugpy's). */
+static gboolean has_filter(Debugger *s, const char *id)
+{
+  JsonNode *filters = json_at(dap_capabilities(s->dap), "exceptionBreakpointFilters");
+
+  for (guint i = 0;
+       filters && JSON_NODE_HOLDS_ARRAY(filters) && i < json_array_get_length(json_node_get_array(filters)); i++)
+    if (g_strcmp0(json_string_at(json_array_get_element(json_node_get_array(filters), i), "filter"), id) == 0)
+      return TRUE;
+  return FALSE;
 }
 
 typedef struct {
@@ -517,7 +541,8 @@ static void on_stack(gpointer data, JsonNode *body, const char *error)
   memory_update(t);
   if (crash) {
     s->crashed = TRUE;
-    if (s->kind == ADAPTER_DEBUGPY || s->kind == ADAPTER_DELVE) { /* an exception, a panic: its own words */
+    if (s->kind == ADAPTER_DEBUGPY || s->kind == ADAPTER_DELVE ||
+        (s->kind == ADAPTER_PLUGIN && can(s, "supportsExceptionInfoRequest"))) { /* its own words */
       Crash *c = g_new0(Crash, 1);
       char *args = g_strdup_printf("{\"threadId\":%" G_GINT64_FORMAT "}", s->thread);
       c->app = t;
@@ -563,7 +588,7 @@ static void on_event(gpointer owner, const char *event, JsonNode *body)
 
   if (!event) { /* gdb went */
     if (s->state != ENDING)
-      say(t, TRUE, "%s ended unexpectedly", adapter_name(s->kind));
+      say(t, TRUE, "%s ended unexpectedly", session_name(s));
     finish(s);
   } else if (strcmp(event, "initialized") == 0) {
     GHashTableIter iter;
@@ -573,7 +598,8 @@ static void on_event(gpointer owner, const char *event, JsonNode *body)
       while (g_hash_table_iter_next(&iter, &path, NULL))
         send_breakpoints(s, path);
     }
-    if (s->kind == ADAPTER_DEBUGPY) /* an exception nothing catches stops it, as a crash does */
+    /* an exception nothing catches stops it, as a crash does */
+    if (s->kind == ADAPTER_DEBUGPY || (s->kind == ADAPTER_PLUGIN && has_filter(s, "uncaught")))
       dap_request(s->dap, "setExceptionBreakpoints", "{\"filters\":[\"uncaught\"]}", NULL, NULL);
     s->configured = TRUE;
     dap_request(s->dap, "configurationDone", NULL, NULL, NULL);
@@ -593,9 +619,9 @@ static void on_event(gpointer owner, const char *event, JsonNode *body)
   } else if (strcmp(event, "exited") == 0 && s->state != ENDING) { /* Stop says so itself */
     if (s->crashed)                                                /* gdb says 0 */
       say_later(t, FALSE, "The program ended: the %s killed it.",
-                s->kind == ADAPTER_DEBUGPY ? "exception"
-                : s->kind == ADAPTER_DELVE ? "panic"
-                                           : "crash");
+                s->kind == ADAPTER_DEBUGPY || s->kind == ADAPTER_PLUGIN ? "exception"
+                : s->kind == ADAPTER_DELVE                              ? "panic"
+                                                                        : "crash");
     else
       say_later(t, FALSE, "The program exited with code %d.", (int)json_int_at(body, "exitCode", 0));
   } else if (strcmp(event, "terminated") == 0) {
@@ -734,40 +760,46 @@ static char *on_adapter_request(gpointer owner, const char *command, JsonNode *a
   return g_strdup_printf("{\"processId\":%s}", g_subprocess_get_identifier(s->child));
 }
 
-/* Starts kind's debugger (python: debugpy's interpreter) in cwd and sends it request ("launch",
- * "attach") with arguments; shown goes in the terminal ("▶ demo"); again: how Restart starts it again.
- * The Debug panel says why when the debugger is not installed. */
-static Debugger *start_session(App *t, AdapterKind kind, const char *python, const char *request, const char *arguments,
-                               const char *cwd, const char *shown, DebugAgain again)
+/* Where a session's debugger is: its command line (argv), or a debugger a plugin started that listens
+ * (host:port). */
+typedef struct {
+  AdapterKind kind;
+  const char *name; /* a plugin's: its name for the debugger; NULL: adapter_name's */
+  const char *id;   /* the adapterID */
+  char **argv;
+  const char *host;
+  int port;
+} Where;
+
+/* Starts the debugger where says in cwd and sends it request ("launch", "attach") with arguments; shown
+ * goes in the terminal ("▶ demo"); again: how Restart starts it again. NULL when it cannot start (the
+ * Debug panel says why). */
+static Debugger *begin_session(App *t, const Where *where, const char *request, const char *arguments, const char *cwd,
+                               const char *shown, DebugAgain again)
 {
-  char *missing = NULL, **argv = adapter_argv(kind, ui.tty, python, &missing);
+  AdapterKind kind = where->kind;
+  DapHandle handle = adapter_owns_terminal(kind) ? NULL : on_adapter_request;
   char **env = sanitizer_env(g_get_environ());
   GError *error = NULL;
-  Debugger *s;
+  Debugger *s = g_new0(Debugger, 1);
 
-  show_sidebar_page(t, "debug");
-  if (!argv) {
-    say_text(t, TRUE, missing);
-    g_free(missing);
-    g_strfreev(env);
-    update_ui(t, "Not debugging");
-    return NULL;
-  }
-  s = g_new0(Debugger, 1);
   s->app = t;
   s->kind = kind;
+  s->name = g_strdup(where->name);
   s->again = again;
   s->state = STARTING;
   s->thread = 1;
   s->sent = g_hash_table_new_full(g_int64_hash, g_int64_equal, g_free, sent_free);
-  s->dap = dap_start((const char *const *)argv, cwd, env, kind == ADAPTER_DELVE ? ui.tty : NULL, adapter_id(kind),
-                     on_event, adapter_owns_terminal(kind) ? NULL : on_adapter_request, s, &error);
+  s->dap = where->host ? dap_connect(where->host, where->port, where->id, on_event, handle, s)
+                       : dap_start((const char *const *)where->argv, cwd, env, kind == ADAPTER_DELVE ? ui.tty : NULL,
+                                   where->id, on_event, handle, s, &error);
   if (t->debug.term) /* this run's output alone */
     vte_terminal_reset(t->debug.term, TRUE, TRUE);
   show_sidebar_page(t, "run");
   if (!s->dap) {
-    say(t, TRUE, "Could not start %s: %s", adapter_name(kind), error->message);
+    say(t, TRUE, "Could not start %s: %s", session_name(s), error->message);
     g_hash_table_destroy(s->sent);
+    g_free(s->name);
     g_clear_pointer(&s, g_free);
     update_ui(t, "Not debugging");
   } else {
@@ -779,14 +811,79 @@ static Debugger *start_session(App *t, AdapterKind kind, const char *python, con
     if (kind == ADAPTER_GDB)
       say_text(t, FALSE, shown);
     else
-      say(t, FALSE, "%s   (%s)", shown, adapter_name(kind));
+      say(t, FALSE, "%s   (%s)", shown, session_name(s));
     dap_request(s->dap, request, arguments, on_launched, s); /* answered once configurationDone went */
     update_ui(t, "Starting…");
   }
   g_clear_error(&error);
   g_strfreev(env);
+  return s;
+}
+
+/* Starts kind's debugger (python: debugpy's interpreter) in cwd and sends it request ("launch",
+ * "attach") with arguments; shown goes in the terminal ("▶ demo"); again: how Restart starts it again.
+ * The Debug panel says why when the debugger is not installed. */
+static Debugger *start_session(App *t, AdapterKind kind, const char *python, const char *request, const char *arguments,
+                               const char *cwd, const char *shown, DebugAgain again)
+{
+  char *missing = NULL, **argv = adapter_argv(kind, ui.tty, python, &missing);
+  Debugger *s;
+
+  show_sidebar_page(t, "debug");
+  if (!argv) {
+    say_text(t, TRUE, missing);
+    g_free(missing);
+    update_ui(t, "Not debugging");
+    return NULL;
+  }
+  s = begin_session(t, &(Where){ .kind = kind, .id = adapter_id(kind), .argv = argv }, request, arguments, cwd, shown,
+                    again);
   g_strfreev(argv);
   return s;
+}
+
+gboolean debug_start_adapter(App *t, const DebugAdapter *adapter, char **error)
+{
+  Where where = { .kind = ADAPTER_PLUGIN,
+                  .name = adapter->name && *adapter->name ? adapter->name : NULL,
+                  .id = adapter->id && *adapter->id ? adapter->id : adapter_id(ADAPTER_PLUGIN),
+                  .argv = adapter->argv };
+  char *host = NULL, *shown;
+  gint64 port = 0;
+
+  if (t->debug.session) {
+    *error = g_strdup("a debugging session runs already");
+    return FALSE;
+  }
+  if (adapter->connect) { /* "host:port" */
+    const char *colon = strrchr(adapter->connect, ':');
+    char *end = NULL;
+    port = colon ? g_ascii_strtoll(colon + 1, &end, 10) : 0;
+    if (!colon || colon == adapter->connect || !end || *end || port <= 0 || port > 65535) {
+      *error = g_strdup("\"connect\" is \"host:port\"");
+      return FALSE;
+    }
+    host = g_strndup(adapter->connect, colon - adapter->connect);
+    where.host = host;
+    where.port = (int)port;
+  } else if (!adapter->argv || !adapter->argv[0]) {
+    *error = g_strdup("needs \"connect\" (\"host:port\") or \"argv\"");
+    return FALSE;
+  }
+  if (!adapter->request || (strcmp(adapter->request, "launch") != 0 && strcmp(adapter->request, "attach") != 0)) {
+    g_free(host);
+    *error = g_strdup("\"request\" is \"launch\" or \"attach\"");
+    return FALSE;
+  }
+  show_sidebar_page(t, "debug");
+  shown = g_strdup_printf("▶ %s", adapter->shown && *adapter->shown ? adapter->shown : where.name ? where.name : "");
+  Debugger *s = begin_session(t, &where, adapter->request, adapter->arguments ? adapter->arguments : "{}",
+                              adapter->cwd ? adapter->cwd : t->project.root, shown, NULL);
+  g_free(shown);
+  g_free(host);
+  if (!s)
+    *error = g_strdup("the debugger did not start (the Debug panel says why)");
+  return s != NULL;
 }
 
 /* The C / C++ / Rust debugger the settings ask for. */
@@ -1264,12 +1361,40 @@ static void start_saved(App *t, gpointer data G_GNUC_UNUSED)
   debug_plan_clear(&plan);
 }
 
+/* The editors are saved: the plugin command ("<plugin id>\n<command id>") that starts debugging runs. */
+static void debug_plugin_saved(App *t, gpointer data)
+{
+  char **ids = g_strsplit(data, "\n", 2);
+
+  if (!t->closing && !t->debug.session)
+    plugin_run_command(t, ids[0], ids[1]);
+  g_strfreev(ids);
+  g_free(data);
+}
+
+/* The plugin command F5 hands the current file to ("debug" in plugin.json), or NULL. */
+static PluginCommand *plugin_debugs(App *t)
+{
+  Tab *tab = current_tab(t);
+
+  return tab && tab->kind == TAB_EDITOR ? plugins_debug_command_for(t, tab->path) : NULL;
+}
+
 void debug_start_or_continue(App *t)
 {
   DebugPlan plan;
+  PluginCommand *command;
 
   if (t->debug.session) {
     go(t, "continue");
+    return;
+  }
+  if ((command = plugin_debugs(t))) { /* the plugin starts its debugger, then asks for it (debug-start) */
+    show_sidebar_page(t, "debug");
+    if (t->debug.term)
+      vte_terminal_reset(t->debug.term, TRUE, TRUE);
+    say(t, FALSE, "%s prepares the program for debugging…", command->plugin->name);
+    save_all(t, debug_plugin_saved, g_strconcat(command->plugin->id, "\n", command->id, NULL));
     return;
   }
   plan = project_debug_plan(t);
@@ -1484,7 +1609,7 @@ GtkWidget *debug_panel(App *t)
 void debug_own_processes(App *t, GHashTable *owners)
 {
   if (t->debug.session) {
-    char *label = g_strdup_printf("Debugger: %s", adapter_name(t->debug.session->kind));
+    char *label = g_strdup_printf("Debugger: %s", session_name(t->debug.session));
     procs_own(owners, dap_pid(t->debug.session->dap), PROC_DEBUGGER, label);
     if (t->debug.session->child && g_subprocess_get_identifier(t->debug.session->child))
       procs_own(owners, atoi(g_subprocess_get_identifier(t->debug.session->child)), PROC_DEBUGGER, label);

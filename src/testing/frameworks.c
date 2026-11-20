@@ -12,6 +12,15 @@
 #define SOURCE_MAX_FILES 50000             /* read when looking for a test's definition */
 #define SOURCE_MAX_DEPTH 16
 
+/* A Java method's declaration up to its name (then the group of the name and "("): annotations,
+ * modifiers, type parameters and a return type before it, so a call or "return f(" is not one. */
+#define JAVA_METHOD                                                                                                    \
+  "^[ \\t]*(?:@[\\w.]+(?:\\([^)\\n]*\\))?[ \\t]+)*"                                                                    \
+  "(?:(?:public|protected|private|static|final|abstract|synchronized|default)[ \\t]+)*"                                \
+  "(?:<[^>\\n]*>[ \\t]*)?(?!return\\b|new\\b|throw\\b|else\\b|case\\b|yield\\b)"                                       \
+  "[\\w.$]+(?:<[^=;()\\n]*>)?(?:\\[\\])*[ \\t]+"
+#define JAVA_TEST_ANNOTATION "@(?:\\w+\\.)*(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\\b"
+
 void test_case_free(gpointer data)
 {
   TestCase *test = data;
@@ -58,7 +67,7 @@ void test_source_free(gpointer data)
 
 const char *test_kind_name(TestKind kind)
 {
-  static const char *const names[TEST_KINDS] = { "CTest", "pytest", "go test", "cargo test" };
+  static const char *const names[TEST_KINDS] = { "CTest", "pytest", "go test", "cargo test", "JUnit" };
 
   return kind < TEST_KINDS ? names[kind] : "";
 }
@@ -167,6 +176,9 @@ GPtrArray *test_sources(const char *root)
     add_source(sources, TEST_GO, root, NULL);
   if (exists_in(root, "Cargo.toml"))
     add_source(sources, TEST_CARGO, root, NULL);
+  if (exists_in(root, "pom.xml") || exists_in(root, "build.gradle") || exists_in(root, "build.gradle.kts") ||
+      exists_in(root, "settings.gradle") || exists_in(root, "settings.gradle.kts"))
+    add_source(sources, TEST_JUNIT, root, NULL);
   return sources;
 }
 
@@ -199,11 +211,30 @@ static void add_cargo_flags(GPtrArray *argv, const char *flags)
   g_strfreev(words);
 }
 
+/* JUnit: the lines of the Java files holding a test annotation that the listing reads (parse_junit_list):
+ * packages, classes, test annotations and what may be a method's declaration. grep exits with 1 when
+ * nothing matches, xargs with 123 when one of its greps did. */
+static const char junit_list_script[] =
+    "grep -rlZE --include='*.java' --exclude-dir=.git --exclude-dir=target --exclude-dir=build "
+    "--exclude-dir=node_modules --exclude-dir=.gradle --exclude-dir=out -e \"$1\" . | "
+    "xargs -0 -r grep -HnE -e '^[[:space:]]*package[[:space:]]' "
+    "-e '(class|interface|enum|record)[[:space:]]+[[:alnum:]_$]' "
+    "-e '[[:alnum:]_$][[:alnum:]_$<>.,?]*[[:space:]]+[[:alnum:]_$]+[[:space:]]*[(]' "
+    "-e \"$1\"; s=$?; [ $s -le 1 ] || [ $s -eq 123 ]";
+
 char **test_list_argv(const TestSource *source, const char *python, const char *cargo_flags)
 {
   GPtrArray *argv = argv_new();
 
   switch (source->kind) {
+    case TEST_JUNIT:
+      for (const char *const *a = (const char *const[]){ "sh", "-c", junit_list_script, "sh",
+                                                         "@([[:alnum:]_]+[.])*(Test|ParameterizedTest|RepeatedTest|"
+                                                         "TestFactory|TestTemplate)([^[:alnum:]_]|$)",
+                                                         NULL };
+           *a; a++)
+        argv_add(argv, *a);
+      break;
     case TEST_CTEST:
       for (const char *const *a =
                (const char *const[]){ "ctest", "--test-dir", source->dir, "--show-only=json-v1", NULL };
@@ -276,12 +307,76 @@ static char *gtest_filter(GPtrArray *tests)
   return filter ? g_string_free(filter, FALSE) : NULL;
 }
 
+/* JUnit through Maven (mvnw when the project has it) or Gradle (gradlew): $1 the report, $2 Maven's -Dtest
+ * ("a.B#c+d,e.F": empty for all), then Gradle's --tests arguments. The reports written by this run
+ * (newer than a mark made first) become one report. Gradle's cleanTest: an up-to-date test task would
+ * not run. */
+static const char junit_run_script[] =
+    "r=\"$1\"; t=\"$2\"; shift 2; : > \"$r.start\"; "
+    "if [ -f pom.xml ]; then m=mvn; [ -x ./mvnw ] && m=./mvnw; "
+    "\"$m\" -B test ${t:+-Dtest=\"$t\"} -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false; s=$?; "
+    "p='*/surefire-reports/TEST-*.xml'; "
+    "else g=gradle; [ -x ./gradlew ] && g=./gradlew; "
+    "\"$g\" --console=plain cleanTest test \"$@\"; s=$?; p='*/test-results/*/TEST-*.xml'; fi; "
+    "{ echo '<testsuites>'; find . -path \"$p\" -newer \"$r.start\" -exec sed '/^<?xml/d' {} +; "
+    "echo '</testsuites>'; } > \"$r\"; rm -f \"$r.start\"; exit $s";
+
+/* The JUnit tests as Maven's -Dtest ("a.B#c+d,e.F#g") and as Gradle's --tests arguments (added to argv). */
+static char *junit_filters(GPtrArray *tests, GPtrArray *gradle)
+{
+  GString *filter = g_string_new(NULL);
+  GHashTable *classes = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+  GPtrArray *order = g_ptr_array_new();
+
+  for (guint i = 0; tests && i < tests->len; i++) { /* the methods of each class, the classes in order */
+    const TestCase *test = tests->pdata[i];
+    const char *hash = strchr(test->id, '#');
+    if (!hash)
+      continue;
+    char *cls = g_strndup(test->id, hash - test->id);
+    GString *methods = g_hash_table_lookup(classes, cls);
+    if (!methods) {
+      methods = g_string_new(hash + 1);
+      g_hash_table_insert(classes, cls, methods);
+      g_ptr_array_add(order, methods);
+      g_string_prepend_c(methods, '#');
+      g_string_prepend(methods, cls);
+    } else {
+      g_string_append_printf(methods, "+%s", hash + 1);
+      g_free(cls);
+    }
+    argv_add(gradle, "--tests");
+    char *dotted = g_strdup(test->id);
+    dotted[hash - test->id] = '.';
+    g_ptr_array_add(gradle, dotted);
+  }
+  for (guint i = 0; i < order->len; i++) {
+    if (filter->len)
+      g_string_append_c(filter, ',');
+    g_string_append(filter, ((GString *)order->pdata[i])->str);
+    g_string_free(order->pdata[i], TRUE);
+  }
+  g_ptr_array_free(order, TRUE);
+  g_hash_table_destroy(classes);
+  return g_string_free(filter, FALSE);
+}
+
 char **test_run_argv(const TestSource *source, const char *python, const char *cargo_flags, GPtrArray *tests,
                      const char *report)
 {
   GPtrArray *argv = argv_new();
 
   switch (source->kind) {
+    case TEST_JUNIT: {
+      GPtrArray *gradle = argv_new();
+      for (const char *const *a = (const char *const[]){ "sh", "-c", junit_run_script, "sh", report, NULL }; *a; a++)
+        argv_add(argv, *a);
+      g_ptr_array_add(argv, junit_filters(tests, gradle));
+      for (guint i = 0; i < gradle->len; i++)
+        argv_add(argv, gradle->pdata[i]);
+      g_ptr_array_free(gradle, TRUE);
+      break;
+    }
     case TEST_CTEST:
       /* What runs is what is built: build first, as Build would. */
       argv_add(argv, "sh");
@@ -510,6 +605,114 @@ static void parse_cargo(GPtrArray *tests, char **lines)
   }
 }
 
+/* A class the JUnit listing is in. */
+typedef struct {
+  int indent;
+  char *name;
+  gboolean abstract; /* or an interface: its tests run in other classes */
+} JavaClass;
+
+static void java_class_clear(gpointer data)
+{
+  g_free(((JavaClass *)data)->name);
+}
+
+/* The classes a line indented by indent is no longer in. */
+static void java_classes_leave(GArray *classes, int indent)
+{
+  while (classes->len && g_array_index(classes, JavaClass, classes->len - 1).indent >= indent)
+    g_array_remove_index(classes, classes->len - 1);
+}
+
+/* grep's "./path/File.java:12:text" lines of the Java files holding a test annotation (in the order of
+ * the files' lines): a test is a method declared after a test annotation, in a class that is not
+ * abstract. A nested class (indented more) is "Outer$Nested"; a line indented as much as a class, or
+ * less, has left it. */
+static void parse_junit_list(GPtrArray *tests, char **lines)
+{
+  GRegex *line_re = g_regex_new("^(?:\\./)?(.+?):(\\d+):(.*)$", G_REGEX_RAW, 0, NULL);
+  GRegex *package_re = g_regex_new("^package\\s+([\\w.]+)\\s*;", G_REGEX_RAW, 0, NULL);
+  GRegex *class_re = g_regex_new("^(?:@[\\w.]+(?:\\([^)]*\\))?\\s+)*((?:(?:public|protected|private|static|final|"
+                                 "abstract|sealed|non-sealed|strictfp)\\s+)*)(class|interface|enum|record)\\s+"
+                                 "([\\w$]+)",
+                                 G_REGEX_RAW, 0, NULL);
+  GRegex *annotation_re = g_regex_new(JAVA_TEST_ANNOTATION, G_REGEX_RAW, 0, NULL);
+  GRegex *method_re = g_regex_new(JAVA_METHOD "(\\w+)\\s*\\(", G_REGEX_RAW, 0, NULL);
+  GArray *classes = g_array_new(FALSE, TRUE, sizeof(JavaClass));
+  char *file = NULL, *package = NULL;
+  gboolean pending = FALSE;
+
+  g_array_set_clear_func(classes, java_class_clear);
+  for (int i = 0; lines[i]; i++) {
+    GMatchInfo *m = NULL;
+    if (!g_regex_match(line_re, lines[i], 0, &m)) {
+      g_match_info_free(m);
+      continue;
+    }
+    char *path = g_match_info_fetch(m, 1), *number = g_match_info_fetch(m, 2), *text = g_match_info_fetch(m, 3);
+    g_match_info_free(m);
+    if (g_strcmp0(path, file) != 0) {
+      g_set_str(&file, path);
+      g_clear_pointer(&package, g_free);
+      g_array_set_size(classes, 0);
+      pending = FALSE;
+    }
+    int indent = 0;
+    for (const char *c = text; *c == ' ' || *c == '\t'; c++)
+      indent += *c == '\t' ? 4 : 1;
+    const char *code = text + strspn(text, " \t");
+    GMatchInfo *pm = NULL, *cm = NULL, *mm = NULL;
+    if (g_str_has_prefix(code, "//") || g_str_has_prefix(code, "*") || g_str_has_prefix(code, "/*")) {
+      /* a comment */
+    } else if (g_regex_match(package_re, code, 0, &pm)) {
+      g_free(package);
+      package = g_match_info_fetch(pm, 1);
+    } else if (g_regex_match(class_re, code, 0, &cm)) {
+      char *modifiers = g_match_info_fetch(cm, 1), *what = g_match_info_fetch(cm, 2);
+      JavaClass cls = { indent, g_match_info_fetch(cm, 3),
+                        strstr(modifiers, "abstract") != NULL || strcmp(what, "interface") == 0 };
+      java_classes_leave(classes, indent);
+      g_array_append_val(classes, cls);
+      pending = FALSE;
+      g_free(what);
+      g_free(modifiers);
+    } else if ((pending |= g_regex_match(annotation_re, code, 0, NULL)) && g_regex_match(method_re, text, 0, &mm)) {
+      pending = FALSE;
+      java_classes_leave(classes, indent);
+      if (classes->len && !g_array_index(classes, JavaClass, classes->len - 1).abstract) {
+        char *method = g_match_info_fetch(mm, 1);
+        GString *cls = g_string_new(package);
+        if (cls->len)
+          g_string_append_c(cls, '.');
+        for (guint c = 0; c < classes->len; c++)
+          g_string_append_printf(cls, c ? "$%s" : "%s", g_array_index(classes, JavaClass, c).name);
+        char *id = g_strdup_printf("%s#%s", cls->str, method);
+        TestCase *test = test_new(TEST_JUNIT, id, cls->str, method);
+        test->file = g_strdup(path);
+        test->line = (int)g_ascii_strtoll(number, NULL, 10);
+        g_ptr_array_add(tests, test);
+        g_free(id);
+        g_string_free(cls, TRUE);
+        g_free(method);
+      }
+    }
+    g_match_info_free(mm);
+    g_match_info_free(cm);
+    g_match_info_free(pm);
+    g_free(text);
+    g_free(number);
+    g_free(path);
+  }
+  g_array_unref(classes);
+  g_free(package);
+  g_free(file);
+  g_regex_unref(method_re);
+  g_regex_unref(annotation_re);
+  g_regex_unref(class_re);
+  g_regex_unref(package_re);
+  g_regex_unref(line_re);
+}
+
 GPtrArray *test_parse_list(TestKind kind, const char *out)
 {
   GPtrArray *tests = g_ptr_array_new_with_free_func(test_case_free), *unique;
@@ -526,11 +729,13 @@ GPtrArray *test_parse_list(TestKind kind, const char *out)
       parse_pytest(tests, lines);
     else if (kind == TEST_GO)
       parse_go(tests, lines);
+    else if (kind == TEST_JUNIT)
+      parse_junit_list(tests, lines);
     else
       parse_cargo(tests, lines);
     g_strfreev(lines);
   }
-  /* cargo lists a test once per program it is in */
+  /* cargo lists a test once per program it is in; a JUnit method may be overloaded */
   seen = g_hash_table_new(g_str_hash, g_str_equal);
   unique = g_ptr_array_new_with_free_func(test_case_free);
   for (guint i = 0; i < tests->len; i++) {
@@ -582,7 +787,8 @@ static void set_state(Result *result, TestState state)
     result->state = state;
 }
 
-/* JUnit XML (CTest, pytest): one testcase element per test. */
+/* JUnit XML (CTest, pytest, JUnit): one testcase element per test (a parameterized JUnit test: one per
+ * case, the worst wins). */
 typedef struct {
   GHashTable *results;
   TestKind kind;
@@ -665,9 +871,15 @@ static void junit_end(GMarkupParseContext *context G_GNUC_UNUSED, const char *el
   junit->in_case = FALSE;
   if (!junit->name)
     return;
-  char *key = junit->kind == TEST_PYTEST
-                  ? g_strconcat(junit->classname ? junit->classname : "", "::", junit->name, NULL)
-                  : g_strdup(junit->name);
+  char *key;
+  if (junit->kind == TEST_PYTEST) {
+    key = g_strconcat(junit->classname ? junit->classname : "", "::", junit->name, NULL);
+  } else if (junit->kind == TEST_JUNIT) { /* "method", Gradle's "method()", a parameterized "method(int)[1]" */
+    gsize len = strcspn(junit->name, "([");
+    key = g_strdup_printf("%s#%.*s", junit->classname ? junit->classname : "", (int)len, junit->name);
+  } else {
+    key = g_strdup(junit->name);
+  }
   Result *result = result_at(junit->results, key);
   set_state(result, junit->state);
   /* CTest's message is only "Failed": the text says more */
@@ -782,7 +994,7 @@ guint test_apply_results(TestKind kind, GPtrArray *tests, const char *out, const
   GHashTable *results = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, result_free);
   guint applied = 0;
 
-  if (kind == TEST_CTEST || kind == TEST_PYTEST) {
+  if (kind == TEST_CTEST || kind == TEST_PYTEST || kind == TEST_JUNIT) {
     if (report)
       parse_junit(results, kind, report);
   } else if (kind == TEST_GO) {
@@ -889,6 +1101,10 @@ static char *definition_pattern(const TestCase *test)
       start = g_strrstr(test->id, "::");
       name = g_strdup(start ? start + 2 : test->id);
       break;
+    case TEST_JUNIT: /* "package.Class#method" */
+      start = strchr(test->id, '#');
+      name = g_strdup(start ? start + 1 : test->id);
+      break;
     default: break;
   }
   if (!pattern && name && *name) {
@@ -899,6 +1115,8 @@ static char *definition_pattern(const TestCase *test)
       pattern = g_strdup_printf("^func\\s+%s\\s*\\(", n);
     else if (test->kind == TEST_CARGO)
       pattern = g_strdup_printf("^[ \\t]*(pub(\\([^)]*\\))?\\s+)?(async\\s+)?fn\\s+%s\\s*[<(]", n);
+    else if (test->kind == TEST_JUNIT)
+      pattern = g_strdup_printf(JAVA_METHOD "%s\\s*\\(", n);
     g_free(n);
   }
   g_free(suite);
@@ -953,6 +1171,7 @@ static gboolean source_of_kind(TestKind kind, const char *name)
     case TEST_PYTEST: return g_str_has_suffix(name, ".py");
     case TEST_GO: return g_str_has_suffix(name, "_test.go");
     case TEST_CARGO: return g_str_has_suffix(name, ".rs");
+    case TEST_JUNIT: return g_str_has_suffix(name, ".java");
     default: return FALSE;
   }
 }
@@ -1045,9 +1264,9 @@ char *test_find_source(const char *root, const TestCase *test, int *line)
   char *listed = NULL;
 
   *line = 0;
-  if (test->file) /* pytest's file is relative to the project; CTest's add_test absolute */
+  if (test->file) /* pytest's and JUnit's file is relative to the project; CTest's add_test absolute */
     listed = g_path_is_absolute(test->file) ? g_strdup(test->file) : g_build_filename(root, test->file, NULL);
-  if (listed && test->kind == TEST_PYTEST) {
+  if (listed && (test->kind == TEST_PYTEST || test->kind == TEST_JUNIT)) {
     char *text = NULL;
     if (g_file_get_contents(listed, &text, NULL, NULL))
       *line = test_definition_line(test, text);
@@ -1104,7 +1323,8 @@ static char *go_module(const char *root)
 
 /* Adds the names test is defined under in the file rel (relative to the project) to keys, for kind's
  * definitions in it: GoogleTest's "Suite.Name", pytest's function and class names (when its id is of
- * this file), go's function (when its package is the file's folder: package), Rust's function. */
+ * this file), go's function (when its package is the file's folder: package), Rust's function, JUnit's
+ * method (when the listing found it in this file). */
 static void add_test_keys(GHashTable *keys, const TestCase *test, guint index, const char *rel, const char *package)
 {
   char *suite = NULL, *name = NULL;
@@ -1137,6 +1357,11 @@ static void add_test_keys(GHashTable *keys, const TestCase *test, guint index, c
       start = g_strrstr(test->id, "::");
       add_key(keys, g_strdup(start ? start + 2 : test->id), index);
       break;
+    case TEST_JUNIT: /* "package.Class#method", when the listing found it in this file */
+      start = strchr(test->id, '#');
+      if (start && g_strcmp0(test->file, rel) == 0)
+        add_key(keys, g_strdup(start + 1), index);
+      break;
     default: break;
   }
   g_free(suite);
@@ -1149,6 +1374,7 @@ static const char *const definition_patterns[TEST_KINDS] = {
   [TEST_PYTEST] = "^[ \\t]*(?:(?:async\\s+)?def|class)\\s+(\\w+)\\s*[(:]",
   [TEST_GO] = "^func\\s+(\\w+)\\s*\\(",
   [TEST_CARGO] = "^[ \\t]*(?:pub(?:\\([^)]*\\))?\\s+)?(?:async\\s+)?fn\\s+(\\w+)\\s*[<(]",
+  [TEST_JUNIT] = JAVA_METHOD "(\\w+)\\s*\\(",
 };
 
 /* Adds the lines of text where kind's definitions in keys are. */

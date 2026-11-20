@@ -30,14 +30,36 @@ static void lsp_unref(Lsp *l)
     g_free(l);
 }
 
+/* Documents a server holds the text of (jdt://...), saved to files: path -> uri and back. */
+static GHashTable *uri_of_path, *path_of_uri;
+
 char *lsp_uri_to_path(const char *uri)
 {
-  return g_filename_from_uri(uri, NULL, NULL);
+  const char *path = path_of_uri && uri ? g_hash_table_lookup(path_of_uri, uri) : NULL;
+
+  return path ? g_strdup(path) : g_filename_from_uri(uri, NULL, NULL);
 }
 
 char *lsp_path_to_uri(const char *path)
 {
-  return g_filename_to_uri(path, NULL, NULL);
+  const char *uri = uri_of_path && path ? g_hash_table_lookup(uri_of_path, path) : NULL;
+
+  return uri ? g_strdup(uri) : g_filename_to_uri(path, NULL, NULL);
+}
+
+void lsp_uri_alias(const char *path, const char *uri)
+{
+  if (!uri_of_path) {
+    uri_of_path = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    path_of_uri = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+  }
+  g_hash_table_insert(uri_of_path, g_strdup(path), g_strdup(uri));
+  g_hash_table_insert(path_of_uri, g_strdup(uri), g_strdup(path));
+}
+
+gboolean lsp_is_alias(const char *path)
+{
+  return uri_of_path && path && g_hash_table_contains(uri_of_path, path);
 }
 
 /* Sending ------------------------------------------------------------------------------------ */
@@ -146,7 +168,8 @@ gboolean lsp_wants(Tab *tab)
 {
   ServerKind kind = server_kind_for_tab(tab);
 
-  return !tab->view->readonly && !tab->compare.with && kind != SERVER_NONE && server_installed(tab->app, kind);
+  return (!tab->view->readonly || lsp_is_alias(tab->path)) && !tab->compare.with && kind != SERVER_NONE &&
+         server_installed(tab->app, kind);
 }
 
 const char *lsp_missing_server(Tab *tab)
@@ -463,6 +486,22 @@ void lsp_request(Tab *tab, const char *method, const char *params, GCancellable 
   doc->use = ++doc->lsp->use;
   doc_flush(doc);
   lsp_send(doc->lsp, tab, method, params, cancel, reply, data);
+}
+
+gboolean lsp_request_contents(Tab *tab, const char *uri, LspReply reply, gpointer data)
+{
+  Doc *doc = doc_of(tab);
+  char *scheme = g_uri_parse_scheme(uri);
+  const char *method = doc ? server_contents_request(doc->lsp->kind, scheme) : NULL;
+
+  g_free(scheme);
+  if (!method)
+    return FALSE;
+  char *quoted = json_quote(uri), *params = g_strdup_printf("{\"uri\":%s}", quoted);
+  lsp_request(tab, method, params, NULL, reply, data);
+  g_free(params);
+  g_free(quoted);
+  return TRUE;
 }
 
 JsonNode *lsp_capability(Tab *tab, const char *path)

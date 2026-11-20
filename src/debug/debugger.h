@@ -22,7 +22,8 @@ void debug_say(App *t, const char *text);
 /* gdb, for the Run and Debug panel's requests; NULL when not debugging. */
 struct Dap *debug_dap(App *t);
 
-/* F5: builds the project and starts debugging it; while the program is stopped, it goes on. */
+/* F5: builds the project and starts debugging it (a file a plugin debugs, "debug" in plugin.json: that
+ * plugin's command starts it); while the program is stopped, it goes on. */
 void debug_start_or_continue(App *t);
 
 /* F6: stops the running program where it is. */
@@ -56,6 +57,23 @@ void debug_launch(App *t, const char *path);
 
 /* How Restart starts a session again (builds and launches what it debugged). */
 typedef void (*DebugAgain)(App *t);
+
+/* A debugger a plugin started or names (the control socket's debug-start). */
+typedef struct {
+  const char *name;      /* shown in the Debug panel ("Java"); NULL: "debugger" */
+  const char *id;        /* the adapterID "initialize" names; NULL: "plugin" */
+  const char *connect;   /* "host:port" where it listens (java-debug inside jdtls), or NULL: ... */
+  char **argv;           /* ... its command line, speaking DAP on stdin / stdout */
+  const char *request;   /* "launch" or "attach" */
+  const char *arguments; /* its arguments, a JSON object (NULL: {}) */
+  const char *cwd;       /* where argv runs (NULL: the project's folder) */
+  const char *shown;     /* after "▶ " in the program's terminal (NULL: name) */
+} DebugAdapter;
+
+/* Starts debugging with adapter, which gets the breakpoints like the built-in ones and may start the
+ * program in the Debug panel's terminal (runInTerminal). FALSE with *error (free it) when a session runs
+ * already or adapter says too little. */
+gboolean debug_start_adapter(App *t, const DebugAdapter *adapter, char **error);
 
 /* Debugs program with args (NULL-terminated; NULL: none) in cwd, already built (a test of the Testing
  * panel's); again: what Restart does instead of F5. Nothing when a session goes on or gdb is missing

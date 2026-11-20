@@ -132,7 +132,8 @@ remembered. Makefiles always get tabs.
 lldb-dap" in Settings → C / C++). A Python file runs under debugpy (`python3 -m pip install
 debugpy`, the project's interpreter), a Go package under Delve (`go install
 github.com/go-delve/delve/cmd/dlv@latest`), both without a build in the shell; each says how to
-install it when it is missing. A click left of a line number (or `F9`) puts a breakpoint there, a
+install it when it is missing. A plugin may bring a debugger for its language: the Java plugin's
+`F5` debugs the main class through java-debug, inside jdtls. A click left of a line number (or `F9`) puts a breakpoint there, a
 right click asks for a condition or a log message: a logpoint (a diamond) prints `i = {i}` with
 the value in the Debug panel each time the line runs, and the program goes on. When it stops, the line is marked, and the Run and Debug panel shows the
 variables (the ones that changed in color, arrays and structs opened like folders), watch
@@ -173,8 +174,10 @@ project's tests as a tree: CTest's (a CMake build folder: `build/` or another on
 folder; GoogleTest cases come under their suite, whether through `gtest_discover_tests` or from a
 GoogleTest program that CTest runs as one test: its cases are listed with `--gtest_list_tests` and
 run through CTest with GoogleTest's filter), pytest's (under
-their file, with the project's Python), `go test`'s (under their package) and `cargo test`'s (under
-their module). Each test shows its last result: ✓ passed, ✗ failed, - skipped, ○ not run. ▶ on a row
+their file, with the project's Python), `go test`'s (under their package), `cargo test`'s (under
+their module) and JUnit's (a Maven or Gradle project: JUnit 4 and 5 test methods under their class,
+found in the Java files; run through `mvn test -Dtest=…` or `gradle test --tests …`, `mvnw` /
+`gradlew` when the project has them, their XML reports read). Each test shows its last result: ✓ passed, ✗ failed, - skipped, ○ not run. ▶ on a row
 (shown on hover) runs that test or group; the header has Run All, Run Failed, Stop and Refresh (also
 "Test: Run All Tests", "Test: Run Failed Tests", "Test: Refresh Tests" and "Test: Stop" in the
 command palette). Runs save the changed files first and go on in the background, one at a time; CTest
@@ -184,7 +187,7 @@ on Refresh, and after a run (go and cargo compile to list). The list stays while
 CTest test also has a debug button (shown on hover): the project is built, then gdb runs the test's
 command (a GoogleTest case with its `--gtest_filter`) in the folder CTest would, stopping at your
 breakpoints; Restart builds and debugs that test again. A double click on a test opens its source at
-the line that defines it (`TEST(Suite, Name)`, `def test_…`, `func Test…`, `fn …`; a CTest test
+the line that defines it (`TEST(Suite, Name)`, `def test_…`, `func Test…`, `fn …`, a JUnit method; a CTest test
 without one opens its `add_test` line). Once the tests are listed, an open file shows ▶ in the gutter
 on each line that defines one (and on a `CMakeLists.txt`'s `add_test` lines), colored by its last
 result: a click runs that test (a pytest class: its tests), a right click offers Run, Debug (a CTest

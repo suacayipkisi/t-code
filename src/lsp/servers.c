@@ -85,7 +85,7 @@ gboolean server_enabled(App *t, ServerKind kind)
 typedef struct {
   char *key; /* "<plugin id>/<server name>" */
   char *name, *dir, *language_id, *options, *settings;
-  char **argv, **language_ids;
+  char **argv, **language_ids, **contents;
 } Declared;
 
 static GPtrArray *declared; /* Declared *; the one at i is kind SERVER_PLUGIN + i (never removed) */
@@ -126,6 +126,8 @@ static ServerKind declare(Plugin *p, PluginServer *s)
   d->argv = g_strdupv(s->argv);
   g_strfreev(d->language_ids);
   d->language_ids = g_strdupv(s->language_ids);
+  g_strfreev(d->contents);
+  d->contents = g_strdupv(s->contents);
   return SERVER_PLUGIN + i;
 }
 
@@ -168,6 +170,16 @@ static const char *const *server_command(ServerKind kind)
     default: return NULL;
   }
 #endif
+}
+
+const char *server_contents_request(ServerKind kind, const char *scheme)
+{
+  Declared *d = declared_of(kind);
+
+  for (int i = 0; d && d->contents && scheme && d->contents[i] && d->contents[i + 1]; i += 2)
+    if (strcmp(d->contents[i], scheme) == 0)
+      return d->contents[i + 1];
+  return NULL;
 }
 
 const char *server_name(ServerKind kind)

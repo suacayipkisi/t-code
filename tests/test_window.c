@@ -861,6 +861,21 @@ static void test_socket_tapi_editing(void)
   scm_set_message(NULL);
 
   tapi_expect(&c, "lsp-refresh", "ok"); /* a plugin installed its language server */
+  tapi_expect(&c, "lsp-restart", "ok"); /* ... or a bundle its server loads when it starts */
+  /* a plugin's language server command, a plugin's debugger: what they need */
+  text = tapi(&c, "lsp-command {\"arguments\": []}");
+  g_assert_true(g_str_has_prefix(text, "error bad-argument "));
+  g_free(text);
+  tapi_expect(&c, "lsp-command {\"command\": \"x\", \"path\": \"/nowhere/A.java\"}",
+              "error no-editor that file is not open in an editor");
+  tapi_expect(&c, "debug-start {}", "error bad-argument needs \"connect\" (\"host:port\") or \"argv\"");
+  tapi_expect(&c, "debug-start {\"connect\": \"5005\"}", "error bad-argument \"connect\" is \"host:port\"");
+  tapi_expect(&c, "debug-start {\"connect\": \"localhost:5005\", \"request\": \"run\"}",
+              "error bad-argument \"request\" is \"launch\" or \"attach\"");
+  text = tapi(&c, "debug-start {\"argv\": [1]}");
+  g_assert_true(g_str_has_prefix(text, "error bad-argument "));
+  g_free(text);
+  g_assert_false(debug_active(&app));
 
   tapi_close(&c);
   close_everything();

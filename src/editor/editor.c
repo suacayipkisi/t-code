@@ -620,8 +620,8 @@ void open_file_at(App *t, const char *path, int line, int column)
 
   if (open_other(t, path))
     return;
-  if (!existing) {
-    open_editor(t, path, line, column, FALSE);
+  if (!existing) { /* a library's source a language server gave (jdt://): only to read */
+    open_editor(t, path, line, column, lsp_is_alias(path));
     return;
   }
   select_tab(existing);

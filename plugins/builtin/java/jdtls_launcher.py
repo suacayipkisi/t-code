@@ -21,6 +21,9 @@ project's folder, speaks LSP on stdin / stdout and needs nothing but Python 3's 
                 which jdtls learns where the packages start; t-code's options are the same for
                 every project. The launcher reads initialize, adds them, and execs jdtls with a
                 cat passing the rest of stdin on.
+    debugger    java-debug (Java: Install Debugger puts its jar in ~/.local/share/t-code/java-debug)
+                goes into initialize's "bundles" the same way: jdtls loads it and starts its
+                debug adapter when the plugin asks (vscode.java.startDebugSession).
 """
 import glob
 import json
@@ -49,6 +52,20 @@ def data_home():
 
 def cache_home():
     return os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+
+
+def debug_dir():
+    """Where Java: Install Debugger puts java-debug's jar (com.microsoft.java.debug.plugin-*.jar)."""
+    return os.path.join(data_home(), "t-code", "java-debug")
+
+
+def debug_bundles():
+    """java-debug's jar, the newest one, as a list for initialize's "bundles" (empty: not installed)."""
+    def version(path):
+        found = re.search(r"-(\d+(?:\.\d+)*)\.jar$", path)
+        return [int(n) for n in found.group(1).split(".")] if found else []
+    jars = glob.glob(os.path.join(debug_dir(), "com.microsoft.java.debug.plugin-*.jar"))
+    return sorted(jars, key=version)[-1:]
 
 
 def download_dir():
@@ -214,15 +231,20 @@ def read_message(fd):
     return header, body
 
 
-def with_trigger_files(body, files):
-    """initialize's body with the files in its initializationOptions; anything else as it was."""
+def with_trigger_files(body, files, bundles=()):
+    """initialize's body with the files (and the bundles: java-debug) in its initializationOptions;
+    anything else as it was."""
     try:
         message = json.loads(body)
         if message.get("method") != "initialize":
             return body
         params = message.setdefault("params", {})
         options = params.get("initializationOptions") or {}
-        options.setdefault("triggerFiles", files)
+        if files:
+            options.setdefault("triggerFiles", files)
+        if bundles:
+            known = list(options.get("bundles") or [])
+            options["bundles"] = known + [b for b in bundles if b not in known]
         params["initializationOptions"] = options
         return json.dumps(message, separators=(",", ":")).encode()
     except (ValueError, AttributeError):
@@ -291,11 +313,11 @@ def main():
         os.unlink(wipe_flag(project))
     os.makedirs(workspace_dir(project), exist_ok=True)
     argv = command(project, home, java)
-    files = trigger_files(project)
-    message = read_message(0) if files and shutil.which("cat") else None
+    files, bundles = trigger_files(project), debug_bundles()
+    message = read_message(0) if (files or bundles) and shutil.which("cat") else None
     if not message:
         os.execv(argv[0], argv)
-    body = with_trigger_files(message[1], files)
+    body = with_trigger_files(message[1], files, bundles)
     exec_with_first(argv, b"Content-Length: %d\r\n\r\n" % len(body) + body)
 
 

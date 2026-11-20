@@ -1,28 +1,29 @@
 /*
  * The test frameworks the Testing panel knows (GLib only): finding them in a project, the commands
  * that list and run their tests, and reading those commands' answers. CTest (GoogleTest cases come
- * through gtest_discover_tests), pytest, go test and cargo test.
+ * through gtest_discover_tests), pytest, go test, cargo test and JUnit (through Maven or Gradle).
  */
 #pragma once
 
 #include <glib.h>
 
-typedef enum { TEST_CTEST, TEST_PYTEST, TEST_GO, TEST_CARGO, TEST_KINDS } TestKind;
+typedef enum { TEST_CTEST, TEST_PYTEST, TEST_GO, TEST_CARGO, TEST_JUNIT, TEST_KINDS } TestKind;
 
 typedef enum { TEST_UNKNOWN, TEST_RUNNING, TEST_PASSED, TEST_FAILED, TEST_SKIPPED } TestState;
 
 /* A test, as its framework listed it and its last run left it. */
 typedef struct {
   TestKind kind;
-  char *id;        /* what runs it: CTest's name, pytest's node id, "package\tTestName", cargo's path */
+  char *id;        /* what runs it: CTest's name, pytest's node id, "package\tTestName", cargo's path,
+                      JUnit's "package.Class#method" ("Outer$Nested" for a nested class) */
   char *group;     /* the row it is under: a suite, file, package or module */
   char *name;      /* its own row */
   TestState state; /* TEST_UNKNOWN until it ran */
   char *output;    /* the last run's: its output and why it failed, or NULL */
   char **command;  /* CTest's: the command it runs (what gdb debugs), or NULL */
   char *cwd;       /* CTest's: where it runs (its WORKING_DIRECTORY), or NULL: the build folder */
-  char *file;      /* where the listing says it is defined (CTest's add_test, pytest's file: relative to the
-                      project), or NULL */
+  char *file;      /* where the listing says it is defined (CTest's add_test; pytest's and JUnit's file,
+                      relative to the project), or NULL */
   int line;        /* in file (1-based), 0: unknown */
   char *runner;    /* a GoogleTest case of a CTest test running a whole GoogleTest program: that test's name
                       (CTest runs it, GoogleTest's filter chooses the cases), else NULL */
@@ -38,10 +39,11 @@ typedef struct {
 /* The frameworks of the project at root (TestSource, freed with the array), in TestKind order: CTest
  * for a build folder CMake configured with tests (build/, or another folder right in root; a
  * CMakeLists.txt without one: a hint), pytest for its configuration or test_*.py files (in root or
- * tests/), go for go.mod, cargo for Cargo.toml. Reads only small files. */
+ * tests/), go for go.mod, cargo for Cargo.toml, JUnit for a Maven or Gradle build file. Reads only small
+ * files. */
 GPtrArray *test_sources(const char *root);
 
-/* "CTest", "pytest", "go test", "cargo test". */
+/* "CTest", "pytest", "go test", "cargo test", "JUnit". */
 const char *test_kind_name(TestKind kind);
 
 /* The command that lists source's tests (NULL-terminated, g_strfreev). python: pytest's interpreter
@@ -52,7 +54,8 @@ char **test_list_argv(const TestSource *source, const char *python, const char *
 GPtrArray *test_parse_list(TestKind kind, const char *out);
 
 /* The command that runs tests (TestCase of source's kind; NULL: all of them), its report going to
- * the file report (CTest, pytest: JUnit XML; go test and cargo test answer on stdout). CTest builds
+ * the file report (CTest, pytest, JUnit: JUnit XML, Surefire's or Gradle's reports put together for JUnit;
+ * go test and cargo test answer on stdout). CTest builds
  * first, and its GoogleTest programs also write JSON reports into the folder "<report>.gtest/" (see
  * test_apply_gtest); the GoogleTest cases among tests go into their filter. */
 char **test_run_argv(const TestSource *source, const char *python, const char *cargo_flags, GPtrArray *tests,
@@ -69,7 +72,7 @@ char **test_build_argv(const TestSource *source);
 gboolean test_is_program(const char *path);
 
 /* The line (1-based) of text, a source file's, where test is defined (GoogleTest's TEST(Suite, Name),
- * pytest's def, go's func, Rust's fn), 0: none. */
+ * pytest's def, go's func, Rust's fn, a JUnit test's method), 0: none. */
 int test_definition_line(const TestCase *test, const char *text);
 
 /* Where test is defined in the project at root: the file (absolute; g_free) and *line (0: unknown), or
@@ -85,7 +88,7 @@ typedef struct {
 
 /* The lines of text, the file at path (absolute) in the project at root, where tests (TestCase) are
  * defined: GoogleTest's TEST(Suite, Name), pytest's def or class (a class: each of its tests), go's func
- * in its package's folder, Rust's fn, and for CTest the add_test / gtest_discover_tests line of a
+ * in its package's folder, Rust's fn, a JUnit test's method in its file, and for CTest the add_test / gtest_discover_tests line of a
  * CMakeLists.txt. TestLine, sorted by line then test: a line may define several (a parameterized test's
  * instances, a class's tests). Reads only text (and go.mod for a go file). */
 GArray *test_lines(GPtrArray *tests, const char *root, const char *path, const char *text);

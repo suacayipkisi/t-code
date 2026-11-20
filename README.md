@@ -11,7 +11,7 @@ A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) 
 **New in 0.5.0:** a Testing panel, terminals as tabs, Mercurial and Subversion, a plugin registry with
 fifteen plugins, a Process Monitor, t-code's own icons and quicker big repositories.
 
-- Testing panel: CTest (with GoogleTest cases), pytest, go test and cargo test; run or debug one test,
+- Testing panel: CTest (with GoogleTest cases), pytest, go test, cargo test and JUnit (Maven, Gradle); run or debug one test,
   a group or all, ▶ in the editor gutter next to each test, a double click goes to its source
 - Terminal tabs in the shell panel (`Ctrl+Shift+T`): the first one runs Build and Run, each can be renamed
 - Source Control for Mercurial and Subversion repositories next to git, and the repositories nested in a project
@@ -58,7 +58,7 @@ can be dragged to another dock.
   pointer, disassembly, a memory view; attaching to a running process, opening a core dump.
 - **Build, Run and Test** in the shell: CMake, Meson, Make or a single C/C++ file; Cargo, Go, Node,
   Maven, Gradle, Python and scripts; or your own [project tasks](docs/tasks.md).
-- **Testing panel**: CTest and GoogleTest, pytest, go test and cargo test; run or debug a single
+- **Testing panel**: CTest and GoogleTest, pytest, go test, cargo test and JUnit; run or debug a single
   test from the panel or the ▶ in the editor gutter.
 - **Git**: Source Control panel (commit, push, pull, stage hunks), branches, stash, line blame,
   merge conflict buttons, compare with HEAD or a commit from the file's history, git colors in the

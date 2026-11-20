@@ -10,7 +10,13 @@ not installed already. Started with the project, the plugin offers that install 
 Run, Build, Test and Clean type one line into the plugin's "Java" terminal tab: `sh <script>`, a
 script in $XDG_RUNTIME_DIR/t-code-java that builds, runs and keeps the build's output and the
 program's stderr. The plugin waits for the script's end, then turns javac's and Maven's errors,
-failed tests and the exception's stack frames in the project into diagnostics."""
+failed tests and the exception's stack frames in the project into diagnostics.
+
+Debug (F5 on a .java file, plugin.json's "debug") goes through java-debug, a jdtls bundle (Java:
+Install Debugger downloads it from Maven Central; the launcher hands it to jdtls): over the socket's
+lsp-command the plugin asks jdtls for the main class, its classpath, a build and a debug adapter's
+port, then hands that port to t-code's debugger with debug-start. The program runs in the Debug
+panel's terminal (runInTerminal)."""
 import hashlib
 import json
 import os
@@ -29,6 +35,7 @@ import jdtls_launcher as launcher  # noqa: E402
 from tcode import Tcode, TcodeError  # noqa: E402
 
 MILESTONES = "https://download.eclipse.org/jdtls/milestones/"
+DEBUG_REPOSITORY = "https://repo1.maven.org/maven2/com/microsoft/java/com.microsoft.java.debug.plugin/"
 GRADLE_FILES = ("build.gradle", "build.gradle.kts")
 SETTINGS_FILES = ("settings.gradle", "settings.gradle.kts")
 SKIP_DIRS = {".git", ".hg", ".svn", "target", "build", "out", "bin", ".gradle", ".idea", ".mvn", "node_modules"}
@@ -612,6 +619,145 @@ def clean_workspace(t, project):
     t.request("say", "Java: jdtls starts from scratch next time: run Restart Language Servers")
 
 
+# Debugging --------------------------------------------------------------------------------------
+
+
+def lsp(t, path, command, *arguments):
+    """workspace/executeCommand on jdtls (the server of path's editor), its result decoded."""
+    return json.loads(t.json("lsp-command", {"command": command, "arguments": list(arguments), "path": path}))
+
+
+def pick_main_class(t, project, path, mains):
+    """The main class to debug among jdtls' (dicts with mainClass, projectName, filePath): the current
+    file's, else the only one, else the one picked (the last pick first). None: none or canceled."""
+    if not mains:
+        t.request("say", "Java: no main method found to debug")
+        return None
+    for main in mains:
+        if main.get("filePath") and os.path.realpath(main["filePath"]) == os.path.realpath(path):
+            return main
+    if len(mains) == 1:
+        return mains[0]
+    state = load_state(project)
+    mains = sorted(mains, key=lambda m: m.get("mainClass") != state.get("debug-main"))
+    items = [{"label": m.get("mainClass", "?"),
+              "detail": os.path.relpath(m["filePath"], project) if m.get("filePath") else m.get("projectName", "")}
+             for m in mains]
+    try:
+        index = int(t.json("pick", {"title": "Debug which main class?", "items": items}).split(" ", 1)[0])
+    except TcodeError as e:
+        if e.code == "canceled":
+            return None
+        raise
+    state = load_state(project)
+    state["debug-main"] = mains[index].get("mainClass")
+    save_state(project, state)
+    return mains[index]
+
+
+def launch_arguments(main, paths, java, project):
+    """java-debug's launch arguments: the class, its classpath and module path, run in the Debug
+    panel's terminal."""
+    modules, classes = (list(paths) + [[], []])[:2] if isinstance(paths, list) else ([], [])
+    arguments = {"mainClass": main["mainClass"], "projectName": main.get("projectName", ""),
+                 "modulePaths": modules or [], "classPaths": classes or [], "cwd": project,
+                 "console": "integratedTerminal", "args": "", "vmArgs": "", "encoding": "UTF-8",
+                 "stopOnEntry": False}
+    if isinstance(java, str) and java:
+        arguments["javaExec"] = java
+    return arguments
+
+
+def debug(t, project):
+    """F5 on a .java file: java-debug starts the main class under t-code's debugger."""
+    path = current_java_file(t)
+    if not path:
+        t.request("say", "Java: open a .java file first")
+        return
+    if not launcher.debug_bundles():
+        items = [{"label": "Install java-debug", "detail": "the Java debugger for jdtls, about 1 MB"},
+                 {"label": "Not now"}]
+        try:
+            if t.json("pick", {"title": "Java: debugging needs java-debug", "items": items}).startswith("0 "):
+                install_debugger(t)
+        except TcodeError:
+            pass
+        return
+    try:
+        main = pick_main_class(t, project, path, lsp(t, path, "vscode.java.resolveMainClass") or [])
+        if not main:
+            return
+        built = lsp(t, path, "vscode.java.buildWorkspace",
+                    json.dumps({"mainClass": main["mainClass"], "projectName": main.get("projectName", ""),
+                                "isFullBuild": False}))
+        if built in ("FAILED", "WITH_ERROR", 0, 2):
+            t.request("say", "Java: the build has errors: see the Problems panel")
+            return
+        paths = lsp(t, path, "vscode.java.resolveClasspath", main["mainClass"], main.get("projectName", ""))
+        try:
+            java = lsp(t, path, "vscode.java.resolveJavaExecutable", main["mainClass"], main.get("projectName", ""))
+        except TcodeError:
+            java = None
+        port = lsp(t, path, "vscode.java.startDebugSession")
+    except TcodeError as e:
+        if e.code == "failed":  # jdtls does not know the commands: java-debug is not loaded yet
+            t.request("say", "Java: jdtls has not loaded java-debug: run Restart Language Servers, then F5 again")
+            return
+        raise
+    if not isinstance(port, int):
+        t.request("say", "Java: java-debug gave no port to debug with")
+        return
+    t.json("debug-start", {"name": "Java", "adapter-id": "java", "connect": f"127.0.0.1:{port}",
+                           "request": "launch", "arguments": launch_arguments(main, paths, java, project),
+                           "shown": main["mainClass"]})
+
+
+def install_debugger(t):
+    """Downloads java-debug's newest release from Maven Central (its SHA-512, else SHA-1, checked)
+    into the launcher's folder; jdtls loads it when it starts again."""
+    t.request("status-set", "jdtls java-debug: looking for the newest release…")
+    try:
+        metadata = fetch(DEBUG_REPOSITORY + "maven-metadata.xml").decode("utf-8", "replace")
+        release = re.search(r"<release>([^<]+)</release>", metadata)
+        versions = re.findall(r"<version>([^<]+)</version>", metadata)
+        version = release.group(1) if release else (versions[-1] if versions else None)
+        if not version or not re.fullmatch(r"[\w.-]+", version):
+            raise OSError("no java-debug release found on Maven Central")
+        name = f"com.microsoft.java.debug.plugin-{version}.jar"
+        url = f"{DEBUG_REPOSITORY}{version}/{name}"
+        t.request("status-set", f"jdtls java-debug {version}: downloading")
+        data = fetch(url, timeout=60)
+        for suffix, algorithm in ((".sha512", "sha512"), (".sha1", "sha1")):
+            try:
+                expected = fetch(url + suffix).decode().split()[0].lower()
+                break
+            except OSError:
+                expected = None
+        if not expected or hashlib.new(algorithm, data).hexdigest() != expected:
+            raise OSError("the download's checksum does not match: try again")
+        folder = launcher.debug_dir()
+        os.makedirs(folder, exist_ok=True)
+        temporary = os.path.join(folder, name + ".new")
+        with open(temporary, "wb") as f:
+            f.write(data)
+        os.replace(temporary, os.path.join(folder, name))
+        for old in os.listdir(folder):
+            if old != name and old.startswith("com.microsoft.java.debug.plugin-"):
+                os.unlink(os.path.join(folder, old))
+    except OSError as e:
+        t.request("status-clear", "jdtls")
+        t.request("say", f"Java: couldn't download java-debug: {getattr(e, 'reason', e)}")
+        return False
+    t.request("status-clear", "jdtls")
+    install_launcher()  # one that hands the bundle to jdtls
+    try:
+        t.request("lsp-restart")  # jdtls loads bundles when it starts
+        t.request("say", f"Java: java-debug {version} installed; F5 debugs once jdtls has read the project")
+    except TcodeError:
+        t.request("say", f"Java: java-debug {version} installed: run Restart Language Servers, then F5")
+    return True
+
+
 # Installing the language server -----------------------------------------------------------------
 
 
@@ -792,6 +938,10 @@ def main(command):
             stop(t, project)
         elif command == "install":
             install(t)
+        elif command == "debug":
+            debug(t, project)
+        elif command == "install-debugger":
+            install_debugger(t)
         elif command == "clean-workspace":
             clean_workspace(t, project)
     except TcodeError as e:

@@ -1806,6 +1806,89 @@ static void test_plugin_server(void)
   g_ptr_array_unref(servers);
 }
 
+/* A definition in a library's class (jdtls' jdt://): its text comes from the plugin's "uri-contents"
+ * request, is saved under ~/.cache/t-code/sources with the asking file's extension and opened there; the
+ * file means the jdt:// document to the server from then on. */
+static void test_uri_contents(void)
+{
+  char *argv[] = { "/proc/self/exe", "--fake-server", NULL }, *extensions[] = { ".java", NULL }, *none[] = { NULL };
+  char *contents[] = { "jdt", "fake/contents", NULL };
+  PluginServer server = { .name = "fake-java",
+                          .argv = argv,
+                          .extensions = extensions,
+                          .languages = none,
+                          .language_ids = none,
+                          .contents = contents };
+  GPtrArray *servers = g_ptr_array_new();
+  Plugin plugin = { .id = "fake", .dir = "/tmp", .servers = servers, .enabled = TRUE };
+  const char *uri = "jdt://contents/lib.jar/com.example/Lib.class?=fake%2Flib.jar";
+  GtkTextIter cursor;
+
+  lsp_stop(&app);
+  g_ptr_array_add(servers, &server);
+  app.plugins = g_ptr_array_new();
+  g_ptr_array_add(app.plugins, &plugin);
+  app.settings.servers_off = 1u << SERVER_CLANGD; /* new_tab colors it as C */
+  Tab *tab = new_tab("/tmp/t-code-test/Use.java", "class Use { Lib lib; }\n");
+  page_test_tabs[0] = tab;
+  page_test_tab_count = 1;
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  g_assert_cmpstr(server_contents_request(doc_of(tab)->lsp->kind, "jdt"), ==, "fake/contents");
+  g_assert_null(server_contents_request(doc_of(tab)->lsp->kind, "file"));
+
+  g_clear_pointer(&opened_path, g_free);
+  cursor = iter_at(tab, 0, 13);
+  gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(tab->buffer), &cursor);
+  go_to_definition(tab);
+  gint64 deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+  while (!opened_path && g_get_monotonic_time() < deadline)
+    g_main_context_iteration(NULL, TRUE);
+  g_assert_nonnull(opened_path);
+  char *dir = g_build_filename(g_get_user_cache_dir(), "t-code", "sources", NULL), *text = NULL;
+  g_assert_true(g_str_has_prefix(opened_path, dir));
+  g_assert_true(g_str_has_suffix(opened_path, "/Lib.java"));
+  g_assert_cmpint(opened_line, ==, 2);
+  g_assert_cmpint(opened_column, ==, 7);
+  g_assert_true(g_file_get_contents(opened_path, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, "package com.example;\nclass Lib {}\n");
+  g_assert_true(lsp_is_alias(opened_path));
+  char *back = lsp_path_to_uri(opened_path), *path = lsp_uri_to_path(uri);
+  g_assert_cmpstr(back, ==, uri);
+  g_assert_cmpstr(path, ==, opened_path);
+  g_assert_false(lsp_is_alias(tab->path));
+
+  /* its read-only editor gets the server, which hears of it as the jdt:// document */
+  Tab *lib = new_tab(opened_path, text);
+  editor_view_free(lib->view);
+  g_object_unref(lib->page);
+  lib->page = g_object_ref_sink(editor_page());
+  editor_view_init(lib, TRUE);
+  gtk_text_buffer_set_text(GTK_TEXT_BUFFER(lib->buffer), text, -1);
+  g_assert_true(lsp_wants(lib));
+  char *document = lsp_document_params(lib);
+  g_assert_nonnull(strstr(document, "jdt://contents/lib.jar"));
+  g_free(document);
+
+  free_tab(lib);
+  picker_test_tab = tab;
+  g_unlink(opened_path);
+  char *hashed = g_path_get_dirname(opened_path);
+  g_rmdir(hashed);
+  g_rmdir(dir); /* when nothing else is in it */
+  g_free(hashed);
+  g_free(path);
+  g_free(back);
+  g_free(text);
+  g_free(dir);
+  page_test_tab_count = 0;
+  free_tab(tab);
+  lsp_stop(&app);
+  app.settings.servers_off = 0;
+  g_clear_pointer(&app.plugins, g_ptr_array_unref);
+  g_ptr_array_unref(servers);
+}
+
 int main(int argc, char **argv)
 {
   if (argc > 1 && strcmp(argv[1], "--fake-server") == 0)
@@ -1825,6 +1908,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/reload", test_reload);
   g_test_add_func("/lsp/hover", test_hover);
   g_test_add_func("/lsp/plugin-server", test_plugin_server);
+  g_test_add_func("/lsp/uri-contents", test_uri_contents);
   g_test_add_func("/lsp/hover-fixes", test_hover_fixes);
   g_test_add_func("/lsp/hover-marked", test_hover_marked);
   g_test_add_func("/lsp/toolchain-options", test_toolchain_options);

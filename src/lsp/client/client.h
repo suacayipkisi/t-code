@@ -104,9 +104,21 @@ void lsp_iter_at_encoding(Tab *tab, JsonNode *position, GtkTextIter *iter, gbool
 /* The same from the line and character. */
 void lsp_iter_at_position(Tab *tab, gint64 line, gint64 character, GtkTextIter *iter);
 
-/* "file:///a%20b.c" -> "/a b.c" and back. */
+/* "file:///a%20b.c" -> "/a b.c" and back; a URI given an alias goes to its file and back. */
 char *lsp_uri_to_path(const char *uri);
 char *lsp_path_to_uri(const char *path);
+
+/* The file path holds the text of uri, a document a server keeps (jdt://...): the server hears of the
+ * file as uri, and uri means the file, until t-code quits. Its read-only editor gets the server too. */
+void lsp_uri_alias(const char *path, const char *uri);
+
+/* Whether path holds the text of such a URI. */
+gboolean lsp_is_alias(const char *path);
+
+/* Asks tab's server for the text of uri, a document in a scheme other than file, with the request
+ * its plugin names for that scheme ("uri-contents"); reply gets a string (or NULL). FALSE (reply is
+ * not called) when the server names none. */
+gboolean lsp_request_contents(Tab *tab, const char *uri, LspReply reply, gpointer data);
 
 /* Every running language server's pid goes into owners (application/processes.h) as
  * "Language server: clangd". */

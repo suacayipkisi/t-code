@@ -20,6 +20,7 @@
 #include "files/opentabs.h"
 #include "git/gitstatus.h"
 #include "git/scm/scm.h"
+#include "lsp/client/client.h"
 #include "lsp/servers.h"
 #include "window/palette.h"
 #include "window/secondwindow.h"
@@ -590,6 +591,8 @@ void session_save(App *t)
       if (i == current) /* counted among the kept tabs (an old version: the one before it) */
         active = MAX(kept - (tab->compare.with ? 1 : 0), 0);
       if (tab->compare.with) /* old versions in a comparison live in a temp folder */
+        continue;
+      if (tab->kind == TAB_EDITOR && lsp_is_alias(tab->path)) /* a library's source: the server gave it */
         continue;
       tabs[kept++] = tab->kind == TAB_PREVIEW ? g_strconcat(PREVIEW_PREFIX, tab->path, NULL) : g_strdup(tab->path);
     }

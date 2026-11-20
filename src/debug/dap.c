@@ -24,6 +24,7 @@ struct Dap {
   Channel *ch;       /* NULL while a debugger that dials in has not yet */
   GPtrArray *queued; /* the messages sent before it did (char *) */
   GSocketListener *listener;
+  GIOStream *connection; /* a debugger that dialed in, or that t-code connected to: closed at once at the end */
   char *socket_path;
   GCancellable *cancel; /* the accept and the wait for the process */
   gint64 seq;           /* the last request's number */
@@ -186,9 +187,9 @@ static void on_accepted(GObject *source, GAsyncResult *result, gpointer data)
     return;
   }
   d = data;
+  d->connection = G_IO_STREAM(connection);
   connect_channel(d, g_io_stream_get_input_stream(G_IO_STREAM(connection)),
                   g_io_stream_get_output_stream(G_IO_STREAM(connection)), G_OBJECT(connection));
-  g_object_unref(connection); /* the channel holds it */
 }
 
 /* A debugger that dials in ended before it did. */
@@ -222,6 +223,67 @@ static gboolean listen_socket(Dap *d, GError **error)
   return ok;
 }
 
+/* The connection to a debugger that listens is made (or failed: it went away). */
+static void on_connected(GObject *source, GAsyncResult *result, gpointer data)
+{
+  GError *error = NULL;
+  GSocketConnection *connection = g_socket_client_connect_to_host_finish(G_SOCKET_CLIENT(source), result, &error);
+  gboolean cancelled = g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+  Dap *d;
+
+  g_clear_error(&error);
+  if (cancelled) /* dap_free */
+    return;
+  d = data;
+  if (!connection) {
+    d->on_event(d->owner, NULL, NULL);
+    return;
+  }
+  d->connection = G_IO_STREAM(connection);
+  connect_channel(d, g_io_stream_get_input_stream(G_IO_STREAM(connection)),
+                  g_io_stream_get_output_stream(G_IO_STREAM(connection)), G_OBJECT(connection));
+}
+
+/* "initialize", the first request: the client and what it can do. */
+static void send_initialize(Dap *d, const char *adapter_id)
+{
+  char *id = json_quote(adapter_id ? adapter_id : "gdb");
+  char *initialize = g_strdup_printf("{\"clientID\":\"t-code\",\"clientName\":\"t-code\",\"adapterID\":%s,"
+                                     "\"linesStartAt1\":true,\"columnsStartAt1\":true,\"pathFormat\":\"path\","
+                                     "\"supportsVariableType\":true,\"supportsMemoryReferences\":true%s}",
+                                     id, d->on_request ? ",\"supportsRunInTerminalRequest\":true" : "");
+
+  dap_request(d, "initialize", initialize, NULL, NULL);
+  g_free(initialize);
+  g_free(id);
+}
+
+static Dap *dap_new(DapEvent on_event, DapHandle on_request, gpointer owner)
+{
+  Dap *d = g_new0(Dap, 1);
+
+  d->pending = g_hash_table_new_full(g_int64_hash, g_int64_equal, NULL, drop_pending);
+  d->queued = g_ptr_array_new_with_free_func(g_free);
+  d->cancel = g_cancellable_new();
+  d->on_event = on_event;
+  d->on_request = on_request;
+  d->owner = owner;
+  return d;
+}
+
+Dap *dap_connect(const char *host, int port, const char *adapter_id, DapEvent on_event, DapHandle on_request,
+                 gpointer owner)
+{
+  Dap *d = dap_new(on_event, on_request, owner);
+  GSocketClient *client = g_socket_client_new();
+
+  g_socket_client_set_timeout(client, 10);
+  g_socket_client_connect_to_host_async(client, host, (guint16)port, d->cancel, on_connected, d);
+  g_object_unref(client); /* the connecting holds it */
+  send_initialize(d, adapter_id);
+  return d;
+}
+
 /* Child setup: the debugger in a session of its own, whose controlling terminal tty is. */
 static void take_terminal(gpointer tty)
 {
@@ -240,15 +302,8 @@ Dap *dap_start(const char *const *argv, const char *cwd, char **env, const char 
   gboolean dials = FALSE;
   GSubprocessLauncher *launcher;
   GPtrArray *args = g_ptr_array_new_with_free_func(g_free);
-  Dap *d = g_new0(Dap, 1);
-  char *id, *initialize;
+  Dap *d = dap_new(on_event, on_request, owner);
 
-  d->pending = g_hash_table_new_full(g_int64_hash, g_int64_equal, NULL, drop_pending);
-  d->queued = g_ptr_array_new_with_free_func(g_free);
-  d->cancel = g_cancellable_new();
-  d->on_event = on_event;
-  d->on_request = on_request;
-  d->owner = owner;
   for (int i = 0; argv[i]; i++)
     dials |= strstr(argv[i], SOCKET_ARG) != NULL;
   if (dials && !listen_socket(d, error)) {
@@ -287,14 +342,7 @@ Dap *dap_start(const char *const *argv, const char *cwd, char **env, const char 
   else
     connect_channel(d, g_subprocess_get_stdout_pipe(d->process), g_subprocess_get_stdin_pipe(d->process),
                     G_OBJECT(d->process));
-  id = json_quote(adapter_id ? adapter_id : "gdb");
-  initialize = g_strdup_printf("{\"clientID\":\"t-code\",\"clientName\":\"t-code\",\"adapterID\":%s,"
-                               "\"linesStartAt1\":true,\"columnsStartAt1\":true,\"pathFormat\":\"path\","
-                               "\"supportsVariableType\":true,\"supportsMemoryReferences\":true%s}",
-                               id, on_request ? ",\"supportsRunInTerminalRequest\":true" : "");
-  dap_request(d, "initialize", initialize, NULL, NULL);
-  g_free(initialize);
-  g_free(id);
+  send_initialize(d, adapter_id);
   return d;
 }
 
@@ -309,6 +357,10 @@ void dap_free(Dap *d)
   }
   if (d->ch)
     channel_close(d->ch); /* holds the process, or the connection */
+  if (d->connection) {    /* the other side hears of the end now, not once the channel's read is done */
+    g_io_stream_close(d->connection, NULL, NULL);
+    g_object_unref(d->connection);
+  }
   if (d->listener) {
     g_socket_listener_close(d->listener);
     g_object_unref(d->listener);

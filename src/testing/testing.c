@@ -384,7 +384,7 @@ static void rebuild(void)
     errors |= testing.errors[kind] != NULL;
   gtk_label_set_text(testing.note, testing.sources && !testing.sources->len
                                        ? "No tests found. The panel looks for CTest (a CMake build folder), pytest, "
-                                         "go test and cargo test in the project folder."
+                                         "go test, cargo test and JUnit (Maven, Gradle) in the project folder."
                                        : "No tests listed.");
   gtk_widget_set_visible(GTK_WIDGET(testing.note), empty && !errors);
   update_summary();
@@ -503,7 +503,8 @@ static Job *job_new(const TestSource *source, gboolean listing, GPtrArray *tests
   if (listing) {
     job->argv = test_list_argv(source, python, flags);
   } else {
-    job->report = source->kind == TEST_CTEST || source->kind == TEST_PYTEST ? report_path() : NULL;
+    job->report =
+        source->kind == TEST_CTEST || source->kind == TEST_PYTEST || source->kind == TEST_JUNIT ? report_path() : NULL;
     job->argv = test_run_argv(source, python, flags, tests, job->report);
   }
   g_free(flags);

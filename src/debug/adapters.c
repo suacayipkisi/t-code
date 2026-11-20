@@ -30,6 +30,7 @@ static const struct {
   [ADAPTER_DELVE]   = { "Delve", "go",
                         "Delve is not installed: run \"go install github.com/go-delve/delve/cmd/dlv@latest\" (or install "
                         "\"delve\") to debug Go." },
+  [ADAPTER_PLUGIN]  = { "debugger", "plugin", "The plugin's debugger did not start." },
 };
 /* clang-format on */
 
@@ -197,6 +198,7 @@ char **adapter_argv(AdapterKind kind, const char *tty, const char *python, char 
         g_strv_builder_addv(argv, (const char **)args);
       }
       break;
+    case ADAPTER_PLUGIN: break; /* the plugin gives it */
   }
   result = program ? g_strv_builder_end(argv) : NULL;
   if (!program && missing)
@@ -280,6 +282,7 @@ char *adapter_launch(AdapterKind kind, const AdapterTarget *target)
       add_string(json, "stdoutTo", target->tty);
       add_string(json, "stderrTo", target->tty);
       break;
+    case ADAPTER_PLUGIN: break;
   }
   return close_object(json);
 }
@@ -297,6 +300,7 @@ char *adapter_attach(AdapterKind kind, int pid, const char *program, const char 
       break;
     case ADAPTER_DEBUGPY: g_string_append_printf(json, ",\"processId\":%d,\"justMyCode\":true", pid); break;
     case ADAPTER_DELVE: g_string_append_printf(json, ",\"mode\":\"local\",\"processId\":%d", pid); break;
+    case ADAPTER_PLUGIN: break;
   }
   return close_object(json);
 }

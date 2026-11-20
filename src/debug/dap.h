@@ -33,6 +33,11 @@ typedef char *(*DapHandle)(gpointer owner, const char *command, JsonNode *argume
 Dap *dap_start(const char *const *argv, const char *cwd, char **env, const char *tty, const char *adapter_id,
                DapEvent on_event, DapHandle on_request, gpointer owner, GError **error);
 
+/* The same for a debugger that already runs and listens on host:port (TCP: java-debug inside jdtls). It
+ * connects in the background; a failure comes as the debugger going away (on_event with NULL). */
+Dap *dap_connect(const char *host, int port, const char *adapter_id, DapEvent on_event, DapHandle on_request,
+                 gpointer owner);
+
 /* Sends command with arguments (a JSON object, or NULL for none); reply (may be NULL) gets the
  * answer. */
 void dap_request(Dap *d, const char *command, const char *arguments, DapReply reply, gpointer data);

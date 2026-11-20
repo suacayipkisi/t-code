@@ -3,8 +3,8 @@
   "id": "java",
   "name": "Java",
   "provider": "t-code",
-  "version": "0.1.0",
-  "description": "jdtls (completion, errors, navigation, refactoring), Run (F5 too), Build, Test and Clean for Maven, Gradle and plain folders, with errors and exceptions as diagnostics. Language server: run Java: Install Language Server once (downloads jdtls; needs a JDK 21+).",
+  "version": "0.2.0",
+  "description": "jdtls (completion, errors, navigation, refactoring), Run, Debug (F5, through java-debug), Build, Test and Clean for Maven, Gradle and plain folders, with errors and exceptions as diagnostics; library classes open as read-only sources. Language server: run Java: Install Language Server once (downloads jdtls; needs a JDK 21+).",
   "executable": "java_plugin.py",
   "start": "project",
   "permissions": ["terminal", "network", "start"],
@@ -14,19 +14,23 @@
     { "id": "test", "name": "Java: Run Tests" },
     { "id": "clean", "name": "Java: Clean" },
     { "id": "stop", "name": "Java: Stop (Ctrl+C)" },
+    { "id": "debug", "name": "Java: Debug (F5)" },
     { "id": "install", "name": "Java: Install Language Server (jdtls)" },
+    { "id": "install-debugger", "name": "Java: Install Debugger (java-debug)" },
     { "id": "clean-workspace", "name": "Java: Clean Language Server Workspace" }
   ],
   "run": { ".java": "run" },
+  "debug": { ".java": "debug" },
   "lsp": [
     {
       "name": "jdtls",
       "argv": ["t-code-jdtls"],
       "languages": ["java"],
       "language-id": "java",
+      "uri-contents": { "jdt": "java/classFileContents" },
       "options": {
         "extendedClientCapabilities": {
-          "classFileContentsSupport": false,
+          "classFileContentsSupport": true,
           "progressReportProvider": false,
           "resolveAdditionalTextEditsSupport": false
         },

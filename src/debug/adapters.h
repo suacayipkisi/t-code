@@ -1,6 +1,7 @@
 /*
  * The debuggers t-code drives over the Debug Adapter Protocol, and how each one is started and told
- * what to debug: gdb and lldb-dap (C, C++, Rust), debugpy (Python), Delve (Go). GLib and json-glib only.
+ * what to debug: gdb and lldb-dap (C, C++, Rust), debugpy (Python), Delve (Go), and one a plugin starts
+ * (its own command line or port, its own launch arguments: java-debug). GLib and json-glib only.
  */
 #pragma once
 
@@ -11,6 +12,8 @@ typedef enum {
   ADAPTER_LLDB,
   ADAPTER_DEBUGPY,
   ADAPTER_DELVE,
+  ADAPTER_PLUGIN, /* a plugin says how it starts and what it is told (debug-start); none of the calls below
+                     but adapter_name / adapter_id / adapter_owns_terminal / adapter_noise know more of it */
 } AdapterKind;
 
 /* What a session debugs. Only program is needed; the rest may be NULL. */

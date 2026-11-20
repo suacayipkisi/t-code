@@ -1,5 +1,5 @@
 /* Tests for the test frameworks of the Testing panel (src/testing/frameworks.c): reading their
- * listings and results from recorded output, then real CTest, pytest, go and cargo projects (each
+ * listings and results from recorded output, then real CTest, pytest, go, cargo and Maven projects (each
  * skipped when its tool is missing; pytest's interpreter is $TCODE_TEST_PYTHON or python3). */
 #include "testing/frameworks.h"
 
@@ -474,6 +474,135 @@ static void test_cargo_recorded(void)
   g_ptr_array_unref(tests);
 }
 
+/* The Java source the JUnit tests read: a nested class, an abstract one, annotations before and on the
+ * method's line, a JUnit 4 test, a comment and a call that only look like tests. */
+static const char junit_source[] = "package com.example;\n"                                              /* 1 */
+                                   "\n"                                                                  /* 2 */
+                                   "import org.junit.jupiter.api.*;\n"                                   /* 3 */
+                                   "\n"                                                                  /* 4 */
+                                   "class CalcTest {\n"                                                  /* 5 */
+                                   "  @Test\n"                                                           /* 6 */
+                                   "  @DisplayName(\"adds (two)\")\n"                                    /* 7 */
+                                   "  void adds() {\n"                                                   /* 8 */
+                                   "    assertEquals(2, add(1, 1));\n"                                   /* 9 */
+                                   "  }\n"                                                               /* 10 */
+                                   "  // @Test void commented() {}\n"                                    /* 11 */
+                                   "  @ParameterizedTest @ValueSource(ints = {1}) void each(int x) {}\n" /* 12 */
+                                   "  private int add(int a, int b) { return a + b; }\n"                 /* 13 */
+                                   "  @Nested\n"                                                         /* 14 */
+                                   "  class Inner {\n"                                                   /* 15 */
+                                   "    @Test public void deep() {}\n"                                   /* 16 */
+                                   "  }\n"                                                               /* 17 */
+                                   "  @org.junit.Test\n"                                                 /* 18 */
+                                   "  public void old() throws Exception {}\n"                           /* 19 */
+                                   "}\n"                                                                 /* 20 */
+                                   "abstract class Base {\n"                                             /* 21 */
+                                   "  @Test void inherited() {}\n"                                       /* 22 */
+                                   "}\n";                                                                /* 23 */
+
+/* grep's lines of junit_source, as the listing script prints them. */
+static char *junit_grep_lines(const char *path)
+{
+  char **lines = g_strsplit(junit_source, "\n", -1);
+  GString *out = g_string_new(NULL);
+
+  for (int i = 0; lines[i]; i++)
+    if (*lines[i])
+      g_string_append_printf(out, "./%s:%d:%s\n", path, i + 1, lines[i]);
+  g_strfreev(lines);
+  return g_string_free(out, FALSE);
+}
+
+static void test_junit_recorded(void)
+{
+  char *out = junit_grep_lines("src/test/java/com/example/CalcTest.java");
+  GPtrArray *tests = test_parse_list(TEST_JUNIT, out);
+  static const char report[] =
+      "<testsuites>\n"
+      "<testsuite name=\"com.example.CalcTest\" tests=\"3\">\n"
+      "  <testcase name=\"adds()\" classname=\"com.example.CalcTest\"/>\n"
+      "  <testcase name=\"each(int)[1]\" classname=\"com.example.CalcTest\"/>\n"
+      "  <testcase name=\"each(int)[2]\" classname=\"com.example.CalcTest\">"
+      "<failure message=\"expected: &lt;1&gt; but was: &lt;2&gt;\">org.opentest4j.AssertionFailedError: expected"
+      "</failure></testcase>\n"
+      "  <testcase name=\"old\" classname=\"com.example.CalcTest\"><skipped/></testcase>\n"
+      "</testsuite>\n"
+      "<testsuite name=\"com.example.CalcTest$Inner\">"
+      "<testcase name=\"deep\" classname=\"com.example.CalcTest$Inner\"><system-out>said</system-out></testcase>"
+      "</testsuite>\n"
+      "</testsuites>\n";
+
+  g_assert_cmpuint(tests->len, ==, 4);
+  assert_test(tests, "com.example.CalcTest#adds", "com.example.CalcTest", "adds");
+  assert_test(tests, "com.example.CalcTest#each", "com.example.CalcTest", "each");
+  assert_test(tests, "com.example.CalcTest$Inner#deep", "com.example.CalcTest$Inner", "deep");
+  assert_test(tests, "com.example.CalcTest#old", "com.example.CalcTest", "old"); /* after the nested class */
+  g_assert_cmpstr(find(tests, "com.example.CalcTest#adds")->file, ==, "src/test/java/com/example/CalcTest.java");
+  g_assert_cmpint(find(tests, "com.example.CalcTest#adds")->line, ==, 8);
+  g_assert_cmpint(find(tests, "com.example.CalcTest#each")->line, ==, 12);
+  g_assert_cmpuint(test_apply_results(TEST_JUNIT, tests, "", report), ==, 4);
+  assert_state(tests, "com.example.CalcTest#adds", TEST_PASSED, NULL);
+  assert_state(tests, "com.example.CalcTest#each", TEST_FAILED, "AssertionFailedError"); /* one case failed */
+  assert_state(tests, "com.example.CalcTest#old", TEST_SKIPPED, NULL);
+  assert_state(tests, "com.example.CalcTest$Inner#deep", TEST_PASSED, "said");
+
+  /* the gutter's lines and the definition */
+  char *root = g_strdup("/p"), *path = g_strdup("/p/src/test/java/com/example/CalcTest.java");
+  GArray *lines = test_lines(tests, root, path, junit_source);
+  g_assert_cmpuint(lines->len, ==, 4);
+  g_assert_cmpint(g_array_index(lines, TestLine, 0).line, ==, 8);
+  g_assert_cmpint(g_array_index(lines, TestLine, 1).line, ==, 12);
+  g_assert_cmpint(g_array_index(lines, TestLine, 2).line, ==, 16);
+  g_assert_cmpint(g_array_index(lines, TestLine, 3).line, ==, 19);
+  g_array_unref(lines);
+  g_assert_cmpint(test_definition_line(find(tests, "com.example.CalcTest#old"), junit_source), ==, 19);
+  g_assert_true(test_file_may_define(path));
+  g_free(path);
+  g_free(root);
+  g_ptr_array_unref(tests);
+  g_free(out);
+}
+
+/* The listing command over real files: only those with a test annotation, build output left out. */
+static void test_junit_listing(void)
+{
+  put("j/pom.xml", "<project/>\n");
+  put("j/src/test/java/com/example/CalcTest.java", junit_source);
+  put("j/src/main/java/com/example/Calc.java", "package com.example;\nclass Calc { int add(int a) { return a; } }\n");
+  put("j/target/test-classes/Copy.java", junit_source);
+  char *root = path_of("j");
+  GPtrArray *sources = test_sources(root);
+  TestSource *source = sources->pdata[sources->len - 1];
+  g_assert_cmpint(source->kind, ==, TEST_JUNIT);
+  char **argv = test_list_argv(source, NULL, NULL), *out = run(argv, root);
+  GPtrArray *tests = test_parse_list(TEST_JUNIT, out);
+  g_assert_cmpuint(tests->len, ==, 4);
+  g_assert_cmpstr(find(tests, "com.example.CalcTest$Inner#deep")->file, ==, "src/test/java/com/example/CalcTest.java");
+  int line = 0;
+  char *found = test_find_source(root, find(tests, "com.example.CalcTest$Inner#deep"), &line),
+       *expected = path_of("j/src/test/java/com/example/CalcTest.java");
+  g_assert_cmpstr(found, ==, expected);
+  g_assert_cmpint(line, ==, 16);
+  g_free(expected);
+  g_free(found);
+  g_ptr_array_unref(tests);
+  g_free(out);
+  g_strfreev(argv);
+  /* no test anywhere: an empty listing, not a failure */
+  char *calc = path_of("j/src/test/java/com/example/CalcTest.java");
+  g_assert_cmpint(g_unlink(calc), ==, 0);
+  g_free(calc);
+  argv = test_list_argv(source, NULL, NULL);
+  int status = -1;
+  g_assert_true(g_spawn_sync(root, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, &out, NULL, &status, NULL));
+  g_assert_true(g_spawn_check_wait_status(status, NULL));
+  g_assert_cmpstr(out, ==, "");
+  g_free(out);
+  g_strfreev(argv);
+  g_ptr_array_unref(sources);
+  g_free(root);
+}
+
 static void test_commands(void)
 {
   TestSource ctest = { TEST_CTEST, "/p/build", NULL }, go = { TEST_GO, "/p", NULL }, cargo = { TEST_CARGO, "/p", NULL };
@@ -616,9 +745,9 @@ static void test_gtest_cases_real(void)
     return;
   }
   put("gt/CMakeLists.txt", "cmake_minimum_required(VERSION 3.21)\nproject(g CXX)\nenable_testing()\n"
-                          "find_package(GTest REQUIRED)\nadd_executable(math math.cc)\n"
-                          "target_link_libraries(math GTest::gtest_main)\nadd_test(NAME math COMMAND math)\n"
-                          "add_executable(plain plain.cc)\nadd_test(NAME plain COMMAND plain)\n");
+                           "find_package(GTest REQUIRED)\nadd_executable(math math.cc)\n"
+                           "target_link_libraries(math GTest::gtest_main)\nadd_test(NAME math COMMAND math)\n"
+                           "add_executable(plain plain.cc)\nadd_test(NAME plain COMMAND plain)\n");
   put("gt/math.cc",
       "#include <gtest/gtest.h>\nTEST(Math, Adds) { EXPECT_EQ(2, 1 + 1); }\n"
       "TEST(Math, Breaks) { EXPECT_EQ(3, 1 + 1) << \"wrong sum\"; }\n"
@@ -744,6 +873,47 @@ static void test_go_real(void)
   g_free(root);
 }
 
+/* A Maven project with JUnit 5 (needs mvn and Maven Central, or the artifacts in ~/.m2): one test run
+ * alone, then all of them. */
+static void test_junit_real(void)
+{
+  if (!have("mvn"))
+    return;
+  put("m/pom.xml",
+      "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n<modelVersion>4.0.0</modelVersion>\n"
+      "<groupId>com.example</groupId><artifactId>m</artifactId><version>1</version>\n"
+      "<properties><maven.compiler.release>17</maven.compiler.release>"
+      "<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>\n"
+      "<dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId>"
+      "<version>5.11.4</version><scope>test</scope></dependency></dependencies>\n"
+      "<build><plugins><plugin><groupId>org.apache.maven.plugins</groupId>"
+      "<artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version></plugin></plugins></build>\n"
+      "</project>\n");
+  put("m/src/test/java/com/example/CalcTest.java",
+      "package com.example;\nimport static org.junit.jupiter.api.Assertions.*;\nimport org.junit.jupiter.api.*;\n"
+      "import org.junit.jupiter.params.ParameterizedTest;\nimport org.junit.jupiter.params.provider.ValueSource;\n"
+      "class CalcTest {\n  @Test void ok() { System.out.println(\"fine\"); }\n"
+      "  @Test void bad() { assertEquals(1, 2, \"broken here\"); }\n"
+      "  @ParameterizedTest @ValueSource(ints = {1, 2}) void each(int x) { assertTrue(x < 2); }\n"
+      "  @Nested class Inner { @Test void deep() {} }\n  @Disabled @Test void later() {}\n}\n");
+  char *root = path_of("m");
+  GPtrArray *sources = test_sources(root);
+  TestSource *source = sources->pdata[sources->len - 1];
+  GPtrArray *tests = list_and_run(source, NULL, (const char *const[]){ "com.example.CalcTest#bad", NULL });
+  g_assert_cmpuint(tests->len, ==, 5);
+  assert_state(tests, "com.example.CalcTest#bad", TEST_FAILED, "broken here");
+  assert_state(tests, "com.example.CalcTest#ok", TEST_UNKNOWN, NULL);
+  g_ptr_array_unref(tests);
+  tests = list_and_run(source, NULL, NULL);
+  assert_state(tests, "com.example.CalcTest#ok", TEST_PASSED, NULL);
+  assert_state(tests, "com.example.CalcTest#each", TEST_FAILED, NULL);
+  assert_state(tests, "com.example.CalcTest$Inner#deep", TEST_PASSED, NULL);
+  assert_state(tests, "com.example.CalcTest#later", TEST_SKIPPED, NULL);
+  g_ptr_array_unref(tests);
+  g_ptr_array_unref(sources);
+  g_free(root);
+}
+
 static void test_cargo_real(void)
 {
   if (!have("cargo"))
@@ -782,12 +952,15 @@ int main(int argc, char **argv)
   g_test_add_func("/frameworks/pytest-recorded", test_pytest_recorded);
   g_test_add_func("/frameworks/go-recorded", test_go_recorded);
   g_test_add_func("/frameworks/cargo-recorded", test_cargo_recorded);
+  g_test_add_func("/frameworks/junit-recorded", test_junit_recorded);
+  g_test_add_func("/frameworks/junit-listing", test_junit_listing);
   g_test_add_func("/frameworks/commands", test_commands);
   g_test_add_func("/frameworks/ctest", test_ctest_real);
   g_test_add_func("/frameworks/gtest-cases", test_gtest_cases_real);
   g_test_add_func("/frameworks/pytest", test_pytest_real);
   g_test_add_func("/frameworks/go", test_go_real);
   g_test_add_func("/frameworks/cargo", test_cargo_real);
+  g_test_add_func("/frameworks/junit", test_junit_real);
   status = g_test_run();
 
   char *rm[] = { "rm", "-rf", tmp, NULL };

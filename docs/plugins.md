@@ -154,12 +154,13 @@ found wins:
 | `commands` | list | no | The commands the plugin adds (below). A plugin without commands needs no program. |
 | `start` | string | no | `"project"`: start the plugin when a project opens and stop it when the project closes, for plugins that listen to events. Needs the `start` permission. Without it, the plugin runs only when one of its commands is run. |
 | `permissions` | list | no | What the plugin does: `"edit"`, `"terminal"`, `"network"`, `"start"`. See [Permissions](#permissions). |
-| `run` | object | no | Files that Run (`F5` / Run button) hands to one of the plugin's commands: `{ ".m": "matlab.run" }`. See [Declarations](#declarations-without-a-program). |
+| `run` | object | no | Files that Run (`Ctrl+F5` / Run button) hands to one of the plugin's commands: `{ ".m": "matlab.run" }`. See [Declarations](#declarations-without-a-program). |
+| `debug` | object | no | Files that Debug (`F5`) hands to one of the plugin's commands, which starts its debugger with `debug-start`: `{ ".java": "debug" }`. The same patterns as `run`. |
 | `lsp` | list | no | Language servers the plugin adds. See [Declarations](#declarations-without-a-program). |
 | `language-specs` | string | no | A folder inside the plugin's with GtkSourceView `.lang` files. |
 | `snippets` | string | no | A folder inside the plugin's with GtkSourceView `.snippets` files. |
 | `styles` | string | no, **(planned)** | A folder of style schemes. |
-| `debuggers` | list | no, **(planned, maybe tapi_2)** | Debug adapters (DAP) the plugin adds: argv, languages, launch template. |
+| `debuggers` | – | – | Not a manifest field: a plugin's debugger starts at run time with `debug-start` (its own command line, or a port where it listens), from the command `debug` names. |
 
 Each command:
 
@@ -210,6 +211,7 @@ Each `lsp` entry:
 | `language-id` | string or object | no | The LSP `languageId` of its files. A string for all of them, or by file: `{ ".jsx": "javascriptreact", ".js": "javascript" }`. Defaults to GtkSourceView's id (`c`, `cpp`, `python`, `rust`), which is the LSP one for most languages. |
 | `options` | object | no | Sent as `initializationOptions`. |
 | `settings` | object | no | Sent with `workspace/didChangeConfiguration` after `initialize`, and when the server asks (`workspace/configuration`). |
+| `uri-contents` | object | no | For places the server gives in a URI scheme other than `file`: the request that reads such a document's text, by scheme: `{ "jdt": "java/classFileContents" }`. The request gets `{"uri": …}` and answers a string. Go to Definition into such a place saves the text in `~/.cache/t-code/sources/` (with the asking file's extension) and opens it read-only; the server hears of that file by its own URI, so hover and Go to Definition work inside it too. |
 
 - **One server per file.** A built-in server that is on and installed wins; turn it off in Settings →
   Language Servers to let a plugin's take its files. Where t-code has no built-in server (`.m`,
@@ -226,7 +228,7 @@ Each `lsp` entry:
 - **Reloading** (Plugins: Reload Installed Plugins) moves the open files to the servers the plugins
   declare now.
 
-`run` maps files (the same patterns as `extensions`) to one of the plugin's command ids. Run (`F5`,
+`run` maps files (the same patterns as `extensions`) to one of the plugin's command ids. Run (`Ctrl+F5`,
 the Run button) on such a file saves every editor, then runs that command with the file as `$2`, in
 place of t-code's own runner. A project's `.t-code/tasks.json` still wins: it says what Run does.
 A `.m` file t-code takes for Objective-C never goes to a plugin's `run`. It does so when the text has
@@ -445,6 +447,21 @@ start (`[line, col]`).
 | Command | Argument | Answer | What it does |
 |---|---|---|---|
 | `lsp-refresh` | – | `ok` | Looks again for the open files' language servers: a plugin that just installed its server's program uses it, so the files already open get the server without a reload. |
+| `lsp-restart` | – | `ok` | Restarts every language server with the open files (Restart Language Servers): for something a server reads only when it starts, such as a bundle jdtls loads. |
+| `lsp-command` | `{"command":"…","arguments":[…],"path":"/abs/file"}` | `ok <result as JSON>` | `workspace/executeCommand` on the language server of the editor showing `path` (without `path`: the active editor's). The result comes on one line, `null` too. `error no-editor` when the file is not open, `error no-server` while it has no server (yet), `error failed` when the server answers with an error. |
+
+**Debugging:**
+
+| Command | Argument | Answer | What it does |
+|---|---|---|---|
+| `debug-start` | `{"name":"Java","connect":"127.0.0.1:5005","request":"launch","arguments":{…}}` | `ok` | Starts a debugging session with the plugin's debugger: `connect` is `host:port` where it listens (TCP), or `argv` its command line (DAP on stdin / stdout, run in `cwd`, an absolute path, the project's folder without one). `request` is `launch` (the default) or `attach`, `arguments` its arguments as the debugger wants them. `adapter-id` is the `adapterID` of `initialize` (default `plugin`), `name` shows in the Debug panel and `shown` after "▶" in its terminal. `error busy` while a session runs. |
+
+- **Like a built-in one:** the session gets the breakpoints (conditions and logpoints too), the stack,
+  variables, watch, stepping and the evaluate line, like gdb's. The debugger may start the program
+  in the Debug panel's terminal (`runInTerminal`), where it reads and writes; an `uncaught` exception
+  filter is turned on when the debugger has one.
+- **From F5:** a file the plugin's `debug` names gets that command on `F5` (the editors saved first);
+  the command prepares (builds, finds its port) and ends with `debug-start`. Restart runs it again.
 
 **Terminal tabs:**
 
@@ -671,8 +688,9 @@ PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what
 - **Does:** Java with what C gets from clangd, through the Eclipse JDT Language Server (jdtls):
   errors as you type, completion (with imports), hover with Javadoc, signature help, go to
   definition, references, rename, formatting, outline, call and type hierarchy, semantic colors,
-  inlay hints and quick fixes. Run (also `F5` on a `.java` file), Build, Run Tests, Clean and Stop for
-  Maven, Gradle and plain folders. Install Language Server and Clean Language Server Workspace.
+  inlay hints and quick fixes. Run (also `Ctrl+F5` on a `.java` file), Debug (`F5`), Build, Run
+  Tests, Clean and Stop for Maven, Gradle and plain folders; library classes open as read-only
+  sources. Install Language Server, Install Debugger and Clean Language Server Workspace.
 - **Core:**
   - An `lsp` entry for `t-code-jdtls` (the plugin's launcher, in `~/.local/bin` once installed;
     until then the Plugins window shows it as not found). jdtls answers hover with MarkedStrings
@@ -680,6 +698,12 @@ PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what
     both.
   - `"run": {".java": "run"}`, terminal tabs, `diagnostics-set`, `pick`, `status-set`, and
     `lsp-refresh`, so files already open get the server right after the install.
+  - `"debug": {".java": "debug"}`, `lsp-command` and `debug-start` for `F5`; `lsp-restart` after
+    Install Debugger.
+  - `"uri-contents": {"jdt": "java/classFileContents"}` (with `classFileContentsSupport` in its
+    options): Go to Definition into a library's class opens its source (or jdtls' decompiled
+    text) read-only.
+  - The Testing panel lists and runs JUnit tests itself (a Maven or Gradle project).
   - `"start": "project"`: with jdtls ready the plugin exits at once; without it, the first `.java`
     file that opens asks once whether to install it.
 - **Plugin** (Python 3, standard library):
@@ -707,10 +731,17 @@ PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what
     `[ERROR] File.java:[12,5]`, Surefire's and Gradle's failed tests, and the uncaught exception's
     frames in the project (the first an error, each `Caused by` too, the callers info).
   - **Run Tests:** `mvn test` / `gradle test`, only the current class when it is a test.
+  - **Debug:** Install Debugger downloads java-debug's newest release from Maven Central (about
+    1 MB, its SHA-512 or SHA-1 checked) into `~/.local/share/t-code/java-debug/`; the launcher adds
+    it to jdtls' `bundles`, and the plugin restarts the servers. `F5` (or Java: Debug) asks jdtls
+    over `lsp-command` for the main class (the current file's, else the only one, else the one
+    picked), a build (errors stop it: the Problems panel shows them), the classpath, the Java
+    program and a debug adapter's port (`vscode.java.startDebugSession`), then starts t-code's
+    debugger on that port with `debug-start`. The program runs in the Debug panel's terminal.
 - **Limits:**
-  - No debugger: the API has no `debuggers` yet (java-debug runs inside jdtls).
-  - The Testing panel does not list JUnit tests; Run Tests runs them in the terminal.
-  - Opening a class from a library jar (`jdt://` sources) is not supported.
+  - A JUnit test cannot be debugged from the Testing panel yet; `F5` debugs a main class.
+  - Abstract test classes' tests are not listed (their subclasses run them); Gradle's names for
+    parameterized cases do not map to their method.
   - A Maven module that needs its sibling modules builds from its own folder.
 
 #### MATLAB (`matlab`, in this repository: `plugins/builtin/matlab`)
@@ -947,10 +978,10 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
 ### Debug adapters (declarations only, no program)
 
 #### debugpy, delve, codelldb, lldb-dap
-- **Does:** each plugin declares its adapter with a `debuggers` entry: argv, languages and a launch
-  template. t-code already speaks DAP, so other adapters than gdb arrive this way.
-- **Core:** t-code's debugger still holds some gdb-only assumptions that must be lifted first. This
-  may land in tapi_2.
+- **Does:** a plugin starts its adapter with `debug-start` (its command line, or a port), from the
+  command its `debug` names for `F5`. debugpy, Delve and lldb-dap are built in; codelldb would come
+  this way.
+- **Core:** done for tapi_1 (`debug-start`, `"debug"`); the Java plugin is the first user.
 
 ### Git and forges
 
