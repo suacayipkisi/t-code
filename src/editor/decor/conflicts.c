@@ -187,7 +187,17 @@ static void conflicts_scan(Conflicts *c)
   conflicts_clear(c);
   if (c->tab->view->readonly)
     return;
-  gtk_text_buffer_get_start_iter(c->buffer, &from);
+  /* Nearly no file has a conflict: one strstr over the text is far quicker than GtkTextIter's search
+   * (a few milliseconds instead of a second for 3 MB). */
+  GtkTextIter end_iter;
+  gtk_text_buffer_get_bounds(c->buffer, &from, &end_iter);
+  char *text = gtk_text_buffer_get_text(c->buffer, &from, &end_iter, TRUE);
+  gboolean any = strstr(text, "<<<<<<<") != NULL;
+  g_free(text);
+  if (!any) {
+    gtk_widget_queue_draw(GTK_WIDGET(c->tab->source));
+    return;
+  }
   while (gtk_text_iter_forward_search(&from, "<<<<<<<", GTK_TEXT_SEARCH_TEXT_ONLY, &found, NULL, NULL)) {
     int start = gtk_text_iter_get_line(&found), base = -1, middle = -1, end = -1, line;
     if (!gtk_text_iter_starts_line(&found) || marker_at(c->buffer, start) != '<') {

@@ -2896,7 +2896,8 @@ static gboolean button_on(const char *page)
 }
 
 /* The interface uses t-code's own icons (assets/icons/ui, built in): the panels' tabs, the status
- * bar and the window controls GTK makes, whose theme icons titlebar.c swaps. */
+ * bar, the window controls GTK makes, whose theme icons titlebar.c swaps, and t-code's icon left of
+ * the menus. */
 static gboolean controls_owned(gconstpointer data G_GNUC_UNUSED)
 {
   GtkWidget *close = find_widget(GTK_WIDGET(app.window), GTK_TYPE_BUTTON, NULL, "close");
@@ -2918,6 +2919,18 @@ static void test_own_icons(void)
   g_assert_true(gtk_icon_theme_has_icon(theme, "tcode-error-symbolic"));
   run_until(controls_owned, NULL);
   g_assert_true(controls_owned(NULL));
+
+  GtkWidget *titlebar = gtk_window_get_titlebar(app.window);
+  GtkWidget *logo = find_widget(titlebar, GTK_TYPE_IMAGE, "t-code", NULL);
+  GtkWidget *menus = find_widget(titlebar, GTK_TYPE_POPOVER_MENU_BAR, NULL, NULL);
+  graphene_point_t logo_at, menus_at;
+  g_assert_nonnull(logo);
+  g_assert_nonnull(menus);
+  g_assert_cmpstr(gtk_image_get_icon_name(GTK_IMAGE(logo)), ==, "tcode-logo");
+  g_assert_true(gtk_icon_theme_has_icon(theme, "tcode-logo"));
+  g_assert_true(gtk_widget_compute_point(logo, titlebar, &GRAPHENE_POINT_INIT(0, 0), &logo_at));
+  g_assert_true(gtk_widget_compute_point(menus, titlebar, &GRAPHENE_POINT_INIT(0, 0), &menus_at));
+  g_assert_cmpfloat(logo_at.x, <, menus_at.x);
 }
 
 /* The first terminal tab's folder (shell_folders lists the others) is where dir is. */

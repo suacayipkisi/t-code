@@ -1468,11 +1468,12 @@ static void test_snippet_text(void)
 }
 
 /* Semantic tokens get their colors through the server's legend; a readonly variable is a
- * constant, a type without a color (comment) gets none. */
+ * constant, a type without a color (comment) gets none; positions count the server's units (UTF-8
+ * bytes here) past wide characters. */
 static void test_semantic_colors(void)
 {
-  Tab *tab = new_tab("/tmp/t-code-test/semantic.c", "int f; int v; int c; // x\n");
-  JsonNode *tokens = json_of("{\"data\":[0,4,1,0,0, 0,7,1,1,0, 0,7,1,1,2, 0,4,4,2,0]}");
+  Tab *tab = new_tab("/tmp/t-code-test/semantic.c", "int f; int v; int c; // x\n/* ğ😀 */ int w;\n");
+  JsonNode *tokens = json_of("{\"data\":[0,4,1,0,0, 0,7,1,1,0, 0,7,1,1,2, 0,4,4,2,0, 1,17,1,1,0]}");
   GtkTextTagTable *table = gtk_text_buffer_get_tag_table(GTK_TEXT_BUFFER(tab->buffer));
   GtkTextIter at;
 
@@ -1494,6 +1495,10 @@ static void test_semantic_colors(void)
     g_free(name);
   }
   g_slist_free(tags);
+  gtk_text_buffer_get_iter_at_offset(GTK_TEXT_BUFFER(tab->buffer), &at, 39); /* w, at byte 17 of its line */
+  g_assert_true(gtk_text_iter_has_tag(&at, gtk_text_tag_table_lookup(table, "semantic-variable")));
+  gtk_text_iter_backward_char(&at); /* the space before it */
+  g_assert_false(gtk_text_iter_has_tag(&at, gtk_text_tag_table_lookup(table, "semantic-variable")));
   json_node_unref(tokens);
   free_tab(tab);
 }

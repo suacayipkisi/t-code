@@ -189,12 +189,47 @@ static void legend_clear(Legend *legend)
 
 /* Colors the tokens on lines from_line to to_line (both included; -1: to the end). The numbers are
  * five per token: line and start relative to the token before, length, type, modifiers. */
+/* Walks the text to token positions: the tokens come in the text's order, so each walk goes on from
+ * the last one on its line instead of from the line's start (lsp_iter_at_position's way, which took
+ * seconds for a file of 60000 lines). */
+typedef struct {
+  GtkTextBuffer *buffer;
+  int lines;
+  gboolean utf16;
+  gint64 line, at; /* where iter is: a line (-1: nowhere yet) and a character in it */
+  GtkTextIter iter;
+} Walker;
+
+/* The iter at character on line, as lsp_iter_at_position finds it. */
+static void walk_to(Walker *w, gint64 line, gint64 character, GtkTextIter *out)
+{
+  if (line >= w->lines) {
+    gtk_text_buffer_get_end_iter(w->buffer, out);
+    return;
+  }
+  if (line != w->line || character < w->at) {
+    gtk_text_buffer_get_iter_at_line(w->buffer, &w->iter, (int)MAX(line, 0));
+    w->line = line;
+    w->at = 0;
+  }
+  while (!gtk_text_iter_ends_line(&w->iter)) {
+    gunichar c = gtk_text_iter_get_char(&w->iter);
+    gint64 width = w->utf16 ? (c >= 0x10000 ? 2 : 1) : g_unichar_to_utf8(c, NULL);
+    if (w->at + width > character)
+      break;
+    w->at += width;
+    gtk_text_iter_forward_char(&w->iter);
+  }
+  *out = w->iter;
+}
+
 static void color_tokens(Tab *tab, GArray *data, gint64 from_line, gint64 to_line)
 {
   GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
   const guint32 *n = (const guint32 *)data->data;
   gint64 line = 0, start = 0;
   Legend legend;
+  Walker walker = { buffer, gtk_text_buffer_get_line_count(buffer), lsp_utf16(tab), -1, 0, { 0 } };
 
   legend_init(&legend, tab);
   for (guint i = 0; i + 4 < data->len; i += 5) {
@@ -208,8 +243,8 @@ static void color_tokens(Tab *tab, GArray *data, gint64 from_line, gint64 to_lin
       continue;
     if (legend.variable[n[i + 3]] && (n[i + 4] & legend.readonly))
       tag = legend.constant;
-    lsp_iter_at_position(tab, line, start, &from);
-    lsp_iter_at_position(tab, line, start + n[i + 2], &to);
+    walk_to(&walker, line, start, &from);
+    walk_to(&walker, line, start + n[i + 2], &to);
     gtk_text_buffer_apply_tag(buffer, tag, &from, &to);
   }
   raise_tags(gtk_text_buffer_get_tag_table(buffer));

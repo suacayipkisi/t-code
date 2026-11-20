@@ -223,6 +223,30 @@ static void test_no_commits(void)
   g_assert_cmpstr(tab_title(), ==, "SOURCE CONTROL  1");
 }
 
+/* git status runs again (after a save, every 10 seconds): when it says the same, the change rows stay
+ * as they are; a new change builds them again. */
+static void test_same_status(void)
+{
+  open_with_commits();
+  GtkWidget *first = gtk_widget_get_first_child(GTK_WIDGET(list(1)));
+  poll_branch(&app);
+  for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC; branch_busy && g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, FALSE);
+  g_assert_false(branch_busy);
+  g_assert_true(gtk_widget_get_first_child(GTK_WIDGET(list(1))) == first);
+  g_assert_cmpstr(tab_title(), ==, "SOURCE CONTROL  2");
+
+  char *path = g_build_filename(with_commits, "c.txt", NULL);
+  g_assert_true(g_file_set_contents(path, "c\n", -1, NULL));
+  poll_branch(&app);
+  wait_for(1, 3);
+  g_assert_cmpstr(tab_title(), ==, "SOURCE CONTROL  3");
+  g_assert_true(g_unlink(path) == 0);
+  g_free(path);
+  poll_branch(&app);
+  wait_for(1, 2);
+}
+
 /* A git log asked for in the last project answers after the switch: it is not shown. */
 static void test_late_log(void)
 {
@@ -1069,6 +1093,7 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/repository", test_repository);
   g_test_add_func("/scm/no-git", test_no_git);
   g_test_add_func("/scm/no-commits", test_no_commits);
+  g_test_add_func("/scm/same-status", test_same_status);
   g_test_add_func("/scm/late-log", test_late_log);
   g_test_add_func("/scm/late-status", test_late_status);
   g_test_add_func("/scm/head-moves", test_head_moves);

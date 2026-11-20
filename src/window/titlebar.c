@@ -235,9 +235,15 @@ GtkWidget *title_bar(App *t)
   GtkWidget *right_btn = gtk_button_new_from_icon_name("tcode-sidebar-right-symbolic");
   GtkWidget *bottom_btn = gtk_button_new_from_icon_name("tcode-panel-bottom-symbolic");
   GtkWidget *split = gtk_toggle_button_new();
+  GtkWidget *logo = gtk_image_new_from_icon_name("tcode-logo"); /* from the resources: also when not installed */
 
   add_menu_actions(t);
   g_signal_connect(header, "realize", G_CALLBACK(on_header_realize), NULL);
+  /* t-code's icon, left of the menus. */
+  gtk_image_set_pixel_size(GTK_IMAGE(logo), 18);
+  gtk_widget_set_tooltip_text(logo, "t-code");
+  gtk_widget_set_margin_start(logo, 4);
+  gtk_header_bar_pack_start(GTK_HEADER_BAR(header), logo);
   gtk_header_bar_pack_start(GTK_HEADER_BAR(header), menu_bar);
   g_object_unref(model);
 

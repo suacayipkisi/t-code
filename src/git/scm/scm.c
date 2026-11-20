@@ -88,6 +88,19 @@ static void add_change(GPtrArray *list, const char *path, const char *old_path, 
   g_ptr_array_add(list, c);
 }
 
+/* Whether two lists of changes say the same. */
+static gboolean same_changes(GPtrArray *a, GPtrArray *b)
+{
+  if (a->len != b->len)
+    return FALSE;
+  for (guint i = 0; i < a->len; i++) {
+    const Change *x = a->pdata[i], *y = b->pdata[i];
+    if (x->code != y->code || strcmp(x->path, y->path) != 0 || g_strcmp0(x->old_path, y->old_path) != 0)
+      return FALSE;
+  }
+  return TRUE;
+}
+
 /* Sorts changes by path. */
 static int compare_changes(gconstpointer a, gconstpointer b)
 {
@@ -165,16 +178,17 @@ static void update_buttons(void)
 
 /* Takes the output of "git status --porcelain=v2 --branch -z --untracked-files=all" (NULL: not a
  * repository, or git failed). */
-static void show_changes(App *t);
+static void show_changes(App *t, gboolean refill);
 
 void scm_update(App *t, const char *out, gsize size)
 {
   char *head = NULL;
+  GPtrArray *staged, *changes;
 
   if (!scm.app || t->closing)
     return;
-  g_ptr_array_set_size(scm.staged, 0);
-  g_ptr_array_set_size(scm.changes, 0);
+  staged = g_ptr_array_new_with_free_func((GDestroyNotify)change_free);
+  changes = g_ptr_array_new_with_free_func((GDestroyNotify)change_free);
   g_clear_pointer(&scm.upstream, g_free);
   scm.ahead = scm.behind = 0;
   scm.initial = FALSE;
@@ -193,7 +207,7 @@ void scm_update(App *t, const char *out, gsize size)
     } else if (g_str_has_prefix(record, "# branch.ab ")) {
       sscanf(record + 12, "+%d -%d", &scm.ahead, &scm.behind);
     } else if (record[0] == '?' && len > 2 && record[len - 1] != '/') { /* "dir/": a nested repository */
-      add_change(scm.changes, record + 2, NULL, 'U');
+      add_change(changes, record + 2, NULL, 'U');
     } else if ((record[0] == '1' || record[0] == '2' || record[0] == 'u') && len > 4) {
       /* "1 XY sub mH mI mW hH hI path", "2 ... Xscore path\0orig", "u XY sub m1 m2 m3 mW h1 h2 h3 path" */
       int skip = record[0] == '1' ? 8 : record[0] == '2' ? 9 : 10;
@@ -208,21 +222,34 @@ void scm_update(App *t, const char *out, gsize size)
         p += olen + 1;
       }
       if (path && record[0] == 'u') {
-        add_change(scm.changes, path, NULL, '!');
+        add_change(changes, path, NULL, '!');
       } else if (path) {
         char x = record[2], y = record[3];
         if (x != '.')
-          add_change(scm.staged, path, orig, x == 'T' ? 'M' : x);
+          add_change(staged, path, orig, x == 'T' ? 'M' : x);
         if (y != '.') /* hg and svn: renames are unstaged too */
-          add_change(scm.changes, path, scm_kind() != VCS_GIT ? orig : NULL, y == 'T' ? 'M' : y);
+          add_change(changes, path, scm_kind() != VCS_GIT ? orig : NULL, y == 'T' ? 'M' : y);
       }
       g_free(orig);
     }
     g_free(record);
   }
-  g_ptr_array_sort(scm.staged, compare_changes);
-  g_ptr_array_sort(scm.changes, compare_changes);
-  show_changes(t);
+  g_ptr_array_sort(staged, compare_changes);
+  g_ptr_array_sort(changes, compare_changes);
+  /* git status runs after each save and change on disk: with thousands of changed files the lists
+   * are built again only when they differ (their rows point at the Changes they show). */
+  if (same_changes(staged, scm.staged) && same_changes(changes, scm.changes)) {
+    g_ptr_array_unref(staged);
+    g_ptr_array_unref(changes);
+    show_changes(t, FALSE);
+  } else {
+    GPtrArray *old_staged = scm.staged, *old_changes = scm.changes;
+    scm.staged = staged;
+    scm.changes = changes;
+    show_changes(t, TRUE);
+    g_ptr_array_unref(old_staged);
+    g_ptr_array_unref(old_changes);
+  }
   gtk_widget_set_sensitive(scm.commit, out != NULL);
   gtk_widget_set_sensitive(scm.push, out != NULL && !scm.initial);
   gtk_widget_set_sensitive(scm.pull, out != NULL && scm.upstream != NULL);
@@ -253,14 +280,16 @@ void scm_update(App *t, const char *out, gsize size)
   }
 }
 
-/* Fills the Staged Changes and Changes lists, their counts and the tab's badge, and the buttons
- * from scm.staged / scm.changes. */
-static void show_changes(App *t)
+/* Fills the Staged Changes and Changes lists (refill: their rows too), their counts and the tab's
+ * badge, and the buttons from scm.staged / scm.changes. */
+static void show_changes(App *t, gboolean refill)
 {
   char *title;
 
-  scm_fill_changes(scm.staged_list, scm.staged, TRUE);
-  scm_fill_changes(scm.changes_list, scm.changes, FALSE);
+  if (refill) {
+    scm_fill_changes(scm.staged_list, scm.staged, TRUE);
+    scm_fill_changes(scm.changes_list, scm.changes, FALSE);
+  }
   gtk_widget_set_visible(scm.staged_box, scm.staged->len > 0);
   title = g_strdup_printf("CHANGES  %u", scm.changes->len);
   gtk_label_set_text(scm.changes_title, title);
@@ -722,6 +751,6 @@ void scm_reset(void)
   g_clear_pointer(&scm.upstream, g_free);
   scm.ahead = scm.behind = 0;
   scm.initial = FALSE;
-  show_changes(scm.app);
+  show_changes(scm.app, TRUE);
   context_menu_clear_list(scm.commits_list);
 }

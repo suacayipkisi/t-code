@@ -59,15 +59,18 @@ $(APP_BIN): $(APP_OBJ) Makefile | build
 # color). They stay SVG: the icon theme draws them at each size and scale.
 ICON_SVG := $(wildcard assets/icons/dark/*.svg assets/icons/light/*.svg)
 UI_SVG   := $(wildcard assets/icons/ui/*.svg)
-build/resources.xml: $(ICON_SVG) $(UI_SVG) Makefile | build
+# t-code's own icon too, as scalable/apps/tcode-logo.svg (the top left dock's header shows it).
+LOGO_SVG := desktop/io.github.suacayipkisi.tcode.svg
+build/resources.xml: $(ICON_SVG) $(UI_SVG) $(LOGO_SVG) Makefile | build
 	@( echo '<?xml version="1.0" encoding="UTF-8"?>'; \
 	   echo '<gresources><gresource prefix="/io/github/suacayipkisi/tcode/icons">'; \
 	   for f in $(ICON_SVG); do n=$$(basename $$f .svg); case $$f in */light/*) n=$$n-light;; esac; \
 	     echo "<file alias=\"scalable/apps/tcode-file-$$n.svg\">$$f</file>"; done; \
 	   for f in $(UI_SVG); do \
 	     echo "<file alias=\"scalable/actions/tcode-$$(basename $$f .svg)-symbolic.svg\">$$f</file>"; done; \
+	   echo "<file alias=\"scalable/apps/tcode-logo.svg\">$(LOGO_SVG)</file>"; \
 	   echo '</gresource></gresources>' ) > $@
-build/resources.c: build/resources.xml $(ICON_SVG) $(UI_SVG)
+build/resources.c: build/resources.xml $(ICON_SVG) $(UI_SVG) $(LOGO_SVG)
 	glib-compile-resources --sourcedir=. --generate-source --target=$@ $<
 $(OBJ_DIR)/resources.o: build/resources.c
 	@mkdir -p $(dir $@)
