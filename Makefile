@@ -264,6 +264,7 @@ test: build/test-log build/test-children build/test-searchmatch build/test-detec
 	    --manifest-path $$d/Cargo.toml || exit 1; else echo "no cargo: $$d not tested"; fi; done
 	# each plugin carries its own copy of the shared files: they must stay the same
 	for f in plugins/builtin/*/tcode.py; do cmp -s $$f plugins/builtin/matlab/tcode.py || { echo "$$f differs"; exit 1; }; done
+	for f in plugins/builtin/*/tcode.go; do cmp -s $$f plugins/builtin/format-on-save/tcode.go || { echo "$$f differs"; exit 1; }; done
 	for f in plugins/builtin/*/mlang.py; do cmp -s $$f plugins/builtin/matlab/mlang.py || { echo "$$f differs"; exit 1; }; done
 
 # The tests that need no display again, under AddressSanitizer and UBSan: out-of-bounds access, use

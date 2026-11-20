@@ -1,0 +1,12 @@
+{
+  "api": "tapi_1",
+  "id": "commit-msg",
+  "name": "Commit Message Helper",
+  "provider": "t-code",
+  "version": "0.1.0",
+  "description": "Guesses the Conventional Commits type and scope of the staged files (fix(lsp): ...), asks for the subject and fills Source Control's message box. Written in Go, built once with go.",
+  "executable": "run.sh",
+  "commands": [
+    { "id": "write", "name": "Commit: Write the Message for the Staged Files" }
+  ]
+}

@@ -639,11 +639,11 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Thirteen of them are written and live in this
+These are plugins the API is meant to make possible. Fourteen of them are written and live in this
 repository under `plugins/builtin/` (Java, MATLAB, Octave, ShellCheck, CMake, Text Tools, TODO Finder,
-Word Count, Format on Save, Targets, LaTeX and Typst, Pomodoro, Open on GitHub / GitLab), as working examples and
+Word Count, Format on Save, Targets, LaTeX and Typst, Pomodoro, Open on GitHub / GitLab, Commit Message Helper), as working examples and
 as the registry's first entries. They are written in different languages on purpose, to test that
-tapi_1 works the same from any of them: TODO Finder and LaTeX are Rust, Word Count is C++, Pomodoro is C, Format on Save is Go,
+tapi_1 works the same from any of them: TODO Finder and LaTeX are Rust, Word Count is C++, Pomodoro is C, Format on Save and the Commit Message Helper are Go,
 Targets is JavaScript (Node.js), Open on GitHub is Perl, the rest are Python 3.
 t-code does not load them by itself (install them from Browse, or copy a folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
 `t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
@@ -946,10 +946,18 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
   - Create PR: runs `gh pr create` in a terminal tab.
 - **Limits:** no review UI or comment panel.
 
-#### Commit message helper (`commit-msg`)
-- **Does:** fills Source Control's message box with `scm-message`, from a conventional-commit
-  template or a language model.
-- **Limits:** the user still commits.
+#### Commit message helper (`commit-msg`, in this repository: `plugins/builtin/commit-msg`, in Go)
+- **Does:** **Commit: Write the Message for the Staged Files** looks at the staged files and offers
+  the Conventional Commits type they look like first in `pick` (only docs: `docs`; only tests:
+  `test`; CI files: `ci`; build and packaging files: `build`; a new source file: `feat`; else
+  `fix`), with the scope they share (`src/lsp/…` → `lsp`, `plugins/builtin/java/…` → `java`,
+  preferring scopes the history used), then asks for the subject (`ask`) and fills Source Control's
+  message box with `scm-message`: `feat(lsp): hover for Java`. A repository whose last commits are
+  mostly not Conventional Commits gets the subject alone; closing the question leaves the prefix in
+  the box to type after.
+- **Plugin:** Go, standard library (the same `tcode.go` as Format on Save); `run.sh` builds it with
+  `go` into `~/.cache/t-code-commit-msg/`.
+- **Limits:** a guess from paths, not from what the change does; the user still commits.
 
 ### Everyday tools
 
