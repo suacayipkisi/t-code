@@ -13,6 +13,7 @@
 #include "dialogs/keybinds.h"
 #include "dialogs/processes.h"
 #include "dialogs/settings.h"
+#include "dialogs/templates.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/editing/editing.h"
 #include "editor/editor.h"
@@ -21,6 +22,7 @@
 #include "editor/editing/multicursor.h"
 #include "editor/preview/preview.h"
 #include "editor/tabs.h"
+#include "files/files.h"
 #include "lsp/client/client.h"
 #include "lsp/inline/completion.h"
 #include "git/scm/scm.h"
@@ -88,6 +90,8 @@ static void toggle_shell(App *t) { toggle_pane(t, t->shell.panel); }
 static void new_terminal_cmd(App *t) { open_shell(t, NULL); }
 static void show_scm(App *t) { show_sidebar_page(t, "scm"); }
 static void show_search(App *t) { show_sidebar_page(t, "search"); }
+static void save_as_template(App *t) { show_save_template(t, NULL); }
+static void new_from_template(App *t) { show_sidebar_page(t, "files"); files_new_from_template(t); }
 static void show_run(App *t) { show_sidebar_page(t, "run"); }
 static void show_problems_cmd(App *t) { toggle_panel(t, "problems"); }
 static void git_checkout(App *t G_GNUC_UNUSED) { scm_switch_branch(); }
@@ -405,6 +409,9 @@ static const Command commands[] = {
   { "Zoom In", "<Control>equal|<Control>plus|<Control>KP_Add", "Ctrl+=", zoom_in, FALSE, TRUE, FALSE },
   { "Zoom Out", "<Control>minus|<Control>KP_Subtract", "Ctrl+-", zoom_out, FALSE, TRUE, FALSE },
   { "Reset Zoom", "<Control>0|<Control>KP_0", "Ctrl+0", zoom_reset, FALSE, TRUE, FALSE },
+  { "Template: Save File as Template…", NULL, NULL, save_as_template, FALSE, FALSE, FALSE },
+  { "Template: New File from Template…", NULL, NULL, new_from_template, FALSE, FALSE, FALSE },
+  { "Template: Delete Template…", NULL, NULL, pick_template_to_delete, FALSE, FALSE, FALSE },
   { "Open Folder…", "<Control><Shift>o", "Ctrl+Shift+O", choose_folder, FALSE, FALSE, FALSE },
   { "Settings…", "<Control>comma", "Ctrl+,", show_settings, FALSE, FALSE, FALSE },
   { "Preferences: Color Theme…", NULL, NULL, color_theme_pick, FALSE, FALSE, FALSE },

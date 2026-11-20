@@ -4,6 +4,7 @@
  */
 #include "editor/tabmenu.h"
 
+#include "dialogs/templates.h"
 #include "editor/editor.h"
 #include "editor/preview/preview.h"
 #include "editor/tabs.h"
@@ -190,6 +191,14 @@ static void on_reveal(gpointer data)
   }
 }
 
+static void on_save_template(gpointer data)
+{
+  Tab *tab = target_tab(data);
+
+  if (tab)
+    show_save_template(tab->app, tab);
+}
+
 void tab_menu(Tab *tab, GtkWidget *widget, double x, double y)
 {
   MenuItem items[16];
@@ -220,5 +229,7 @@ void tab_menu(Tab *tab, GtkWidget *widget, double x, double y)
   items[n++] = (MenuItem){ "Copy Relative Path", on_copy_relative };
   if (g_file_test(tab->path, G_FILE_TEST_EXISTS) && !tab->compare.with)
     items[n++] = (MenuItem){ "Reveal in Files", on_reveal };
+  if (tab->kind == TAB_EDITOR && !tab->compare.with)
+    items[n++] = (MenuItem){ "Save as Template…", on_save_template };
   context_menu(widget, x, y, items, n, target, g_free);
 }

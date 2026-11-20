@@ -4,6 +4,7 @@
  */
 #include "files/panel.h"
 
+#include "dialogs/templates.h"
 #include "editor/editor.h"
 #include "editor/preview/preview.h"
 #include "files/fileops.h"
@@ -66,7 +67,15 @@ static void on_ask_activate(GtkEntry *entry, gpointer data G_GNUC_UNUSED)
 
 /* File operations ---------------------------------------------------------------------------- */
 
-static void create_answered(App *t, const char *dir, const char *name, gboolean folder)
+/* A new file from a template: where it goes and its text, between the questions. */
+static struct {
+  char *dir, *name; /* New File's answer, while the templates for it are offered */
+  char *text;       /* the picked template's text, while the new file's name is asked */
+  gsize length;
+} pending;
+
+/* Makes name in dir (a folder when folder is set or it ends in "/"), with text in it when text is set. */
+static void create_answered(App *t, const char *dir, const char *name, gboolean folder, const char *text, gsize length)
 {
   GError *error = NULL;
   char *made;
@@ -75,21 +84,100 @@ static void create_answered(App *t, const char *dir, const char *name, gboolean 
     files_say_error(error);
     return;
   }
+  gboolean file = !folder && !g_str_has_suffix(name, "/");
+  if (file && text && !g_file_set_contents(made, text, (gssize)length, &error))
+    files_say_error(error); /* made, but empty */
   files_show_path(made);
   files_schedule_git();
-  if (!folder && !g_str_has_suffix(name, "/"))
+  if (file)
     open_file(t, made);
   g_free(made);
 }
 
+/* New File's answer: made at once, or after a template is picked when some suit its name. */
+static void on_template_for_answer(App *t, const Template *tpl)
+{
+  gsize length = 0;
+  GError *error = NULL;
+  char *text = tpl ? template_contents(tpl, &length, &error) : NULL;
+
+  if (tpl && !text)
+    files_say_error(error);
+  else if (pending.dir && pending.name)
+    create_answered(t, pending.dir, pending.name, FALSE, text, length);
+  g_clear_pointer(&pending.dir, g_free);
+  g_clear_pointer(&pending.name, g_free);
+  g_free(text);
+}
+
 static void on_new_file(App *t, const char *dir, const char *name)
 {
-  create_answered(t, dir, name, FALSE);
+  if (!g_str_has_suffix(name, "/")) {
+    g_set_str(&pending.dir, dir);
+    g_set_str(&pending.name, name);
+    if (pick_template(t, name, on_template_for_answer))
+      return;
+    g_clear_pointer(&pending.dir, g_free);
+    g_clear_pointer(&pending.name, g_free);
+  }
+  create_answered(t, dir, name, FALSE, NULL, 0);
 }
 
 static void on_new_folder(App *t, const char *dir, const char *name)
 {
-  create_answered(t, dir, name, TRUE);
+  create_answered(t, dir, name, TRUE, NULL, 0);
+}
+
+static void on_new_from_template(App *t, const char *dir, const char *name)
+{
+  create_answered(t, dir, name, FALSE, pending.text, pending.length);
+  g_clear_pointer(&pending.text, g_free);
+}
+
+/* "New File from Template…": the template picked, then the new file's name asked (the template's
+ * file name at first) in the folder of files.menu_path's or the selected row's path. */
+static void on_template_for_new(App *t, const Template *tpl)
+{
+  GError *error = NULL;
+
+  if (!tpl)
+    return;
+  g_free(pending.text);
+  pending.text = template_contents(tpl, &pending.length, &error);
+  if (!pending.text) {
+    files_say_error(error);
+    return;
+  }
+  const char *rel = files_relative(pending.dir, t->project.root);
+  char *question = g_strdup_printf("New file from \"%s\" in %s/", tpl->name, *rel ? rel : ".");
+  char *dir = g_strdup(pending.dir);
+  ask(question, dir, tpl->file, TRUE, on_new_from_template);
+  g_free(question);
+  g_free(dir);
+}
+
+/* The template picker for a new file in path's folder (NULL: the root). */
+static void files_ask_template(const char *path)
+{
+  g_free(pending.dir);
+  pending.dir = path ? files_folder_of(path) : g_strdup(files.app->project.root);
+  g_clear_pointer(&pending.name, g_free);
+  if (!pick_template(files.app, NULL, on_template_for_new))
+    files_say(FALSE, "No templates yet: \"Template: Save File as Template…\" makes one from an open file");
+}
+
+void files_new_from_template(App *t G_GNUC_UNUSED)
+{
+  GtkTreeListRow *row = files_selected_row();
+  GFileInfo *info = row ? info_of(row) : NULL;
+  char *path = info ? info_path(info) : NULL;
+
+  files_ask_template(path);
+  g_free(path);
+  if (info)
+    g_object_unref(info);
+  if (row)
+    g_object_unref(row);
 }
 
 /* New File… / New Folder… in path's folder (NULL: the root). */
@@ -256,6 +344,8 @@ static void on_menu_action(GSimpleAction *action, GVariant *param G_GNUC_UNUSED,
     file_history(t, path);
   } else if (strcmp(name, "new-file") == 0 || strcmp(name, "new-folder") == 0) {
     files_ask_create(path, strcmp(name, "new-folder") == 0);
+  } else if (strcmp(name, "new-from-template") == 0) {
+    files_ask_template(path);
   } else if (strcmp(name, "terminal") == 0) {
     cd_in_shell(t, dir);
   } else if (strcmp(name, "cut") == 0 || strcmp(name, "copy") == 0) {
@@ -291,8 +381,9 @@ static void add_section(GMenu *menu, const char *const *items)
 /* The menu for path (NULL: the empty space) at (x, y) in the panel. */
 void files_show_menu(const char *path, double x, double y)
 {
-  static const char *const create[] = { "New File…",        "new-file", "New Folder…", "new-folder",
-                                        "Open in Terminal", "terminal", NULL };
+  static const char *const create[] = { "New File…",         "new-file",    "New File from Template…",
+                                        "new-from-template", "New Folder…", "new-folder",
+                                        "Open in Terminal",  "terminal",    NULL };
   static const char *const clipboard[] = { "Cut", "cut", "Copy", "copy", "Paste", "paste", NULL };
   static const char *const paths[] = { "Copy Path", "copy-path", "Copy Relative Path", "copy-relative", NULL };
   static const char *const change[] = { "Rename…", "rename", "Delete", "delete", NULL };
@@ -418,9 +509,11 @@ GtkPopover *files_ask_new(void)
 
 void files_add_actions(void)
 {
-  static const char *const names[] = { "open",    "open-side", "open-window",   "preview",  "project", "compare",
-                                       "history", "new-file",  "new-folder",    "terminal", "cut",     "copy",
-                                       "paste",   "copy-path", "copy-relative", "rename",   "delete" };
+  static const char *const names[] = {
+    "open",    "open-side", "open-window",       "preview",       "project",  "compare",
+    "history", "new-file",  "new-from-template", "new-folder",    "terminal", "cut",
+    "copy",    "paste",     "copy-path",         "copy-relative", "rename",   "delete"
+  };
   GSimpleActionGroup *group = g_simple_action_group_new();
 
   for (size_t i = 0; i < G_N_ELEMENTS(names); i++) {

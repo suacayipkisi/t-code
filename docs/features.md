@@ -276,6 +276,14 @@ A click opens a file in a temporary tab (its name in italics) that the next clic
 replaces, so browsing does not pile up tabs; editing the file or double-clicking it (in the tree or
 on the tab) keeps it, and a middle click opens it to the side.
 
+**File templates.** "Save as Template…" on a tab's right-click menu (or "Template: Save File as
+Template…") asks for a name and a short description and keeps the file's text, unsaved changes too,
+in `~/.config/t-code/templates/` (a template with the same name is replaced). Making a new file with
+the same extension (or the same name, like `Makefile`) then offers "Empty File" and those templates;
+"New File from Template…" in the Files panel's right-click menu (or "Template: New File from
+Template…") picks one first and asks the name after, the template's file name filled in. "Template:
+Delete Template…" removes one.
+
 **Split editor.** `Ctrl+\` (or the title bar button) puts a second group of tabs next to the
 first. New files open in the group you are in; "Open to the Side" in the Files panel opens a
 file straight into the right group. Tabs can be dragged between the groups, and the right group
@@ -412,7 +420,7 @@ palette) finds any command by name.
 | files       | `Ctrl+X` / `Ctrl+C` / `Ctrl+V`         | cut / copy / paste files and folders      |
 | files       | drag a row onto a folder / the editors | move it there / open it                   |
 | files       | `.` / `R`                              | hide / show dotfiles (shown by default) / read the tree again |
-| files       | right click                            | Open, Open to the Side, Open Preview, Compare with HEAD, File History, New File/Folder, Open in Terminal, Cut/Copy/Paste, Copy (Relative) Path, Rename, Delete, Open Folder as Project |
+| files       | right click                            | Open, Open to the Side, Open Preview, Compare with HEAD, File History, New File/Folder, New File from Template, Open in Terminal, Cut/Copy/Paste, Copy (Relative) Path, Rename, Delete, Open Folder as Project |
 | editor      | `Ctrl+S` / `Ctrl+W`                    | save / close this tab                     |
 | editor      | `Ctrl+F` / `Ctrl+H`, `F3` / `Shift+F3` | find / replace, next / previous           |
 | editor      | `Ctrl+/`, `Shift+Alt+↓`, `Ctrl+Shift+K` | comment lines, duplicate, delete them    |

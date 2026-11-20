@@ -2,8 +2,8 @@
  * Tests for the Files panel (src/files/files.c, rows.c and actions.c, included for their static functions) on a temporary
  * project: the tree's order, opening files (temporary tabs), folders read only once open and freed when closed, watched folders
  * (but not build output) updating by themselves, open folders kept
- * when the tree is read again, new files revealed and opened, moving into a folder, dotfiles and git
- * colors. Needs a display; skipped without one.
+ * when the tree is read again, new files revealed and opened, new files from templates, moving into a
+ * folder, dotfiles and git colors. Needs a display; skipped without one.
  */
 #include "files/actions.c"
 #include "files/files.c"
@@ -48,6 +48,24 @@ void open_project(App *t G_GNUC_UNUSED, const char *root G_GNUC_UNUSED) {}
 void cd_in_shell(App *t G_GNUC_UNUSED, const char *dir G_GNUC_UNUSED) {}
 GBytes *git_status_of_own(const char *top G_GNUC_UNUSED, GBytes *out) { return out ? g_bytes_ref(out) : NULL; }
 /* clang-format on */
+
+/* dialogs/templates.c's stand-in: the templates in template_root that suit for_name (NULL: all) are
+ * kept in offered, with then and for_name, for the test to pick one. */
+static char *template_root, *offered_for;
+static GPtrArray *offered;
+static TemplatePicked offered_then;
+
+gboolean pick_template(App *t G_GNUC_UNUSED, const char *for_name, TemplatePicked then)
+{
+  g_clear_pointer(&offered, g_ptr_array_unref);
+  offered = templates_list(template_root ? template_root : "/nonexistent");
+  for (guint i = offered->len; for_name && i-- > 0;)
+    if (!template_matches(offered->pdata[i], for_name))
+      g_ptr_array_remove_index(offered, i);
+  g_set_str(&offered_for, for_name);
+  offered_then = offered->len ? then : NULL;
+  return offered->len > 0;
+}
 
 /* The open editors (tabs.c's stand-in), for the problems' colors. */
 static Tab *open_editors[2];
@@ -268,6 +286,76 @@ static void test_create(void)
   wanted_selection = "docs";
   g_assert_true(wait_for(selection_is));
   g_free(dir);
+  forget_project();
+}
+
+static char *read_project_file(const char *name)
+{
+  char *path = g_build_filename(app.project.root, name, NULL), *text = NULL;
+
+  g_assert_true(g_file_get_contents(path, &text, NULL, NULL));
+  g_free(path);
+  return text;
+}
+
+/* New File offers the templates that suit the name (none: made at once); "New File from Template…"
+ * picks one, then asks the name with the template's file name filled in. */
+static void test_templates(void)
+{
+  char *text;
+
+  project();
+  template_root = g_build_filename(app.project.root, "build", "templates", NULL);
+  g_assert_true(templates_save(template_root, "C main", "a program", "main.c", "int main(void) {}\n", -1, NULL));
+
+  on_new_file(&app, app.project.root, "notes.txt"); /* no template for .txt */
+  g_assert_null(offered_then);
+  wanted_selection = "notes.txt";
+  g_assert_true(wait_for(selection_is));
+
+  on_new_file(&app, app.project.root, "tool.c");
+  g_assert_nonnull(offered_then);
+  g_assert_cmpstr(offered_for, ==, "tool.c");
+  g_assert_cmpuint(offered->len, ==, 1);
+  char *tool = g_build_filename(app.project.root, "tool.c", NULL);
+  g_assert_false(g_file_test(tool, G_FILE_TEST_EXISTS)); /* not before the pick */
+  offered_then(&app, offered->pdata[0]);
+  text = read_project_file("tool.c");
+  g_assert_cmpstr(text, ==, "int main(void) {}\n");
+  g_free(text);
+  g_assert_true(g_str_has_prefix(opened, "open ") && g_str_has_suffix(opened, "/tool.c"));
+
+  on_new_file(&app, app.project.root, "empty.c");
+  offered_then(&app, NULL); /* "Empty File" */
+  text = read_project_file("empty.c");
+  g_assert_cmpstr(text, ==, "");
+  g_free(text);
+
+  char *src = g_build_filename(app.project.root, "src", "util.c", NULL);
+  files_ask_template(src);
+  g_assert_null(offered_for); /* every template */
+  offered_then(&app, offered->pdata[0]);
+  g_assert_true(gtk_widget_get_visible(GTK_WIDGET(files.ask)));
+  g_assert_cmpstr(gtk_editable_get_text(GTK_EDITABLE(files.ask_entry)), ==, "main.c");
+  g_assert_cmpstr(gtk_label_get_text(files.ask_label), ==, "New file from \"C main\" in src/");
+  gtk_editable_set_text(GTK_EDITABLE(files.ask_entry), "start.c");
+  on_ask_activate(files.ask_entry, NULL);
+  text = read_project_file("src/start.c");
+  g_assert_cmpstr(text, ==, "int main(void) {}\n");
+  g_free(text);
+
+  GPtrArray *list = templates_list(template_root);
+  g_assert_true(template_delete(list->pdata[0], NULL));
+  g_ptr_array_unref(list);
+  g_clear_pointer(&opened, g_free);
+  files_ask_template(NULL); /* none left: said under the tree */
+  g_assert_null(offered_then);
+
+  g_clear_pointer(&offered, g_ptr_array_unref);
+  g_clear_pointer(&offered_for, g_free);
+  g_clear_pointer(&template_root, g_free);
+  g_free(src);
+  g_free(tool);
   forget_project();
 }
 
@@ -497,6 +585,7 @@ int main(int argc, char **argv)
   g_test_add_func("/files/busy-folders", test_busy_folders);
   g_test_add_func("/files/read-again", test_read_again);
   g_test_add_func("/files/create", test_create);
+  g_test_add_func("/files/templates", test_templates);
   g_test_add_func("/files/cut-paste", test_cut_paste);
   g_test_add_func("/files/open", test_open);
   g_test_add_func("/files/double-click", test_double_click);

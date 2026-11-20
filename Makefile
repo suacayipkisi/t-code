@@ -182,8 +182,8 @@ build/test-fileops: tests/test_fileops.c tests/util.h $(FILES_GIO) $(FILES_GIO:.
 	  $(shell pkg-config --libs gio-2.0)
 
 # The Files panel; tests/test_files.c includes src/files/files.c, rows.c and actions.c for their static functions.
-build/test-files: tests/test_files.c tests/util.h $(wildcard src/files/*.c) src/git/vcs.c src/window/palette.c build/resources.c $(APP_HDR) | build
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_files.c $(FILES_GIO) src/git/vcs.c src/window/palette.c build/resources.c \
+build/test-files: tests/test_files.c tests/util.h $(wildcard src/files/*.c) src/git/vcs.c src/window/palette.c src/project/templates.c build/resources.c $(APP_HDR) | build
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_files.c $(FILES_GIO) src/git/vcs.c src/window/palette.c src/project/templates.c build/resources.c \
 	  $(shell pkg-config --libs $(PKGS))
 
 # A whole window (every module but main.c): how tabs open and close.
@@ -204,6 +204,10 @@ build/test-update: tests/test_update.c tests/util.h src/update/update.c src/upda
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_update.c src/update/update.c \
 	  $(shell pkg-config --libs $(PKGS))
 
+build/test-templates: tests/test_templates.c tests/util.h src/project/templates.c src/project/templates.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_templates.c src/project/templates.c \
+	  $(shell pkg-config --libs glib-2.0)
+
 build/test-processes: tests/test_processes.c tests/util.h src/application/processes.c src/application/processes.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_processes.c src/application/processes.c \
 	  $(shell pkg-config --libs glib-2.0)
@@ -221,13 +225,14 @@ build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c sr
 	  $(shell pkg-config --libs $(PKGS))
 
 
-test: build/test-log build/test-children build/test-processes build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
+test: build/test-log build/test-children build/test-processes build/test-templates build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
       build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-repos build/test-vcs build/test-frameworks build/test-testing build/test-files build/test-window build/test-about build/test-welcome \
       build/test-plugins build/test-update build/test-recovery build/test-registry
 	build/test-searchmatch
 	build/test-log
 	build/test-children
 	build/test-processes
+	build/test-templates
 	build/test-detect
 	build/test-langenv
 	build/test-lspinstall
@@ -308,6 +313,9 @@ test-asan: | build
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-processes \
 	  tests/test_processes.c src/application/processes.c $(shell pkg-config --libs glib-2.0)
 	$(ASAN_ENV) build/asan/test-processes
+	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-templates \
+	  tests/test_templates.c src/project/templates.c $(shell pkg-config --libs glib-2.0)
+	$(ASAN_ENV) build/asan/test-templates
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags gio-2.0) -o build/asan/test-searchmatch \
 	  tests/test_searchmatch.c src/search/searchmatch.c $(shell pkg-config --libs gio-2.0)
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-detect \

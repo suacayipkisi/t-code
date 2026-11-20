@@ -1,7 +1,7 @@
 /*
  * The Files panel: the project's folder tree (a GtkListView over folder.c's lists), with file icons
  * and git colors, a right-click menu (open, open to the side, preview, compare, history,
- * new file / folder, cut / copy / paste, copy path, rename, delete, open in terminal) and drag and
+ * new file / folder (from a template too), cut / copy / paste, copy path, rename, delete, open in terminal) and drag and
  * drop. Only open folders are read and watched; a closed folder's rows are freed.
  */
 #pragma once
@@ -34,3 +34,7 @@ void files_stop(App *t);
 
 /* Opens the folders on the way to path and selects it ("Reveal in Files"). */
 void files_reveal(App *t, const char *path);
+
+/* "New File from Template…": picks a template, then asks the new file's name in the selected row's
+ * folder (the project's root when none). */
+void files_new_from_template(App *t);
