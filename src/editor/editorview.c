@@ -132,6 +132,10 @@ GtkSourceLanguage *editor_language(const char *path, const char *text)
 
   if (language && g_strcmp0(gtk_source_language_get_id(language), "chdr") == 0 && text && is_cxx_text(text, -1))
     language = gtk_source_language_manager_get_language(languages, "cpphdr");
+  else if (is_objc_m(path, text)) /* .m is MATLAB's too: GtkSourceView may take either */
+    language = gtk_source_language_manager_get_language(languages, "objc");
+  else if (g_str_has_suffix(path, ".m") && gtk_source_language_manager_get_language(languages, "matlab"))
+    language = gtk_source_language_manager_get_language(languages, "matlab");
   g_free(name);
   g_free(type);
   return language;

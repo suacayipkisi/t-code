@@ -60,3 +60,45 @@ gboolean is_cxx_text(const char *text, gssize len)
   /* Only the start: a header says what it is early on. (C23 has constexpr too.) */
   return g_regex_match_full(cxx, text, MIN(len < 0 ? (gssize)strlen(text) : len, 65536), 0, 0, NULL, NULL);
 }
+
+/* A .mm file in folder, or stem.h: Objective-C lives there. */
+static gboolean objc_folder(const char *folder, const char *stem)
+{
+  char *header = g_strconcat(stem, ".h", NULL);
+  GDir *dir = g_dir_open(folder, 0, NULL);
+  const char *name;
+  gboolean found = FALSE;
+
+  while (dir && !found && (name = g_dir_read_name(dir)))
+    found = g_str_has_suffix(name, ".mm") || strcmp(name, header) == 0;
+  if (dir)
+    g_dir_close(dir);
+  g_free(header);
+  return found;
+}
+
+gboolean is_objc_m(const char *path, const char *text)
+{
+  static GRegex *objc, *matlab;
+
+  if (!g_str_has_suffix(path, ".m"))
+    return FALSE;
+  if (!objc) {
+    objc = g_regex_new("^\\s*(#import|#include|@interface|@implementation|@protocol)\\b",
+                       G_REGEX_MULTILINE | G_REGEX_OPTIMIZE | G_REGEX_RAW, 0, NULL);
+    matlab = g_regex_new("^\\s*(%|function\\b)", G_REGEX_MULTILINE | G_REGEX_OPTIMIZE | G_REGEX_RAW, 0, NULL);
+  }
+  if (text) {
+    gssize len = MIN((gssize)strlen(text), 65536);
+    if (g_regex_match_full(objc, text, len, 0, 0, NULL, NULL))
+      return TRUE;
+    if (g_regex_match_full(matlab, text, len, 0, 0, NULL, NULL))
+      return FALSE;
+  }
+  char *folder = g_path_get_dirname(path), *base = g_path_get_basename(path);
+  base[strlen(base) - 2] = '\0';
+  gboolean found = objc_folder(folder, base);
+  g_free(base);
+  g_free(folder);
+  return found;
+}

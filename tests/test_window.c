@@ -1063,6 +1063,86 @@ static void test_socket_tapi_terminals(void)
   g_free(dir);
 }
 
+static gboolean programs_ended;
+
+static void on_programs_ended(App *t)
+{
+  programs_ended = TRUE;
+  gtk_widget_set_visible(GTK_WIDGET(t->window), TRUE); /* the test goes on in this window */
+}
+
+static gboolean flag_set(gconstpointer flag)
+{
+  return *(const gboolean *)flag;
+}
+
+/* The file holds a whole line (a pid written with echo). */
+static gboolean line_written(gconstpointer path)
+{
+  char *text = NULL;
+  gboolean done = g_file_get_contents(path, &text, NULL, NULL) && strchr(text, '\n');
+
+  g_free(text);
+  return done;
+}
+
+/* t-code closes: a plugin's program with a close text gets it typed and ends by itself; one without
+ * gets SIGTERM at once, and so does its helper in a new session; neither keeps t-code waiting. */
+static void test_end_programs(void)
+{
+  char *out = g_build_filename(app.project.root, "close-text.out", NULL);
+  char *pidfile = g_build_filename(app.project.root, "helper.pid", NULL);
+  TapiConn c = tapi_connect("hello tapi_1");
+  int before = shell_count(&app);
+  char *answer, *polite, *rough, *request, *text = NULL;
+
+  request = g_strdup_printf("terminal-open Polite -- sh -c 'read line; printf %%s \"$line\" > %s'", out);
+  answer = tapi(&c, request);
+  g_assert_true(g_str_has_prefix(answer, "ok "));
+  polite = g_strdup(answer + 3);
+  g_free(answer);
+  g_free(request);
+  request = g_strdup_printf("terminal-open Rough -- sh -c 'setsid sleep 300 & echo $! > %s; wait'", pidfile);
+  answer = tapi(&c, request);
+  rough = g_strdup(answer + 3);
+  g_free(answer);
+  g_free(request);
+  request = g_strdup_printf("terminal-close-text %s quit please", polite);
+  tapi_expect(&c, request, "ok");
+  g_free(request);
+  tapi_expect(&c, "terminal-close-text 9999 exit", "error bad-argument no terminal tab with that id is yours");
+  run_until(line_written, pidfile);
+  g_assert_true(g_file_get_contents(pidfile, &text, NULL, NULL));
+  int helper = atoi(text);
+  g_free(text);
+  g_assert_cmpint(helper, >, 0);
+  g_assert_cmpint(kill(helper, 0), ==, 0);
+  run_for(300); /* the programs' sessions are known once their spawns are done */
+
+  gint64 start = g_get_monotonic_time();
+  programs_ended = FALSE;
+  end_programs(&app, on_programs_ended);
+  run_until(flag_set, &programs_ended);
+  g_assert_true(programs_ended);
+  g_assert_cmpint(g_get_monotonic_time() - start, <, 2 * G_USEC_PER_SEC);
+  g_assert_true(g_file_get_contents(out, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, "quit please");
+  g_free(text);
+  for (int i = 0; i < 100 && kill(helper, 0) == 0; i++)
+    run_for(20);
+  g_assert_cmpint(kill(helper, 0), !=, 0);
+
+  run_until(shells_are, GINT_TO_POINTER(before));
+  g_assert_cmpint(shell_count(&app), ==, before);
+  tapi_close(&c);
+  g_unlink(out);
+  g_unlink(pidfile);
+  g_free(polite);
+  g_free(rough);
+  g_free(pidfile);
+  g_free(out);
+}
+
 static gboolean no_socket_event_clients(gconstpointer data G_GNUC_UNUSED);
 
 /* The next event called name on a subscribed connection (the others before it are skipped). */
@@ -3638,14 +3718,21 @@ static void test_example_plugins(void)
       bin, "matlab",
       "#!/usr/bin/env python3\n"
       "import re, sys\n"
-      "for line in sys.stdin:\n"
+      "def handle(line, message):\n"
       "    m = re.search(r\"diary\\('([^']*)'\\); disp\\('([^']*)'\\).*run\\('([^']*)'\\).*disp\\('([^']*)'\\)\", "
       "line)\n"
       "    if m:\n"
       "        stem = m.group(3)[:-2]\n"
       "        with open(m.group(1), 'w') as f:\n"
-      "            f.write(f\"{m.group(2)}\\nUndefined function or variable 'x'.\\n\\n\"\n"
+      "            f.write(f\"{m.group(2)}\\n{message}\\n\\n\"\n"
       "                    f\"Error in {stem} (line 2)\\ny = x + 1;\\n{m.group(4)}\\n\")\n"
+      "if sys.argv[1:2] == ['-batch']:\n"
+      "    handle(sys.argv[2], 'Batch: undefined x.')\n"
+      "    sys.exit(0)\n"
+      "for line in sys.stdin:\n"
+      "    if line.strip() == 'exit':\n"
+      "        sys.exit(0)\n"
+      "    handle(line, \"Undefined function or variable 'x'.\")\n"
       "    print('>> ', end='', flush=True)\n");
   g_setenv("PATH", path_env, TRUE);
   g_setenv("TCODE_MATLAB", matlab, TRUE);
@@ -3693,10 +3780,37 @@ static void test_example_plugins(void)
   run_until(shows_diagnostic, (const char *const[]){ m_file, "Undefined function or variable 'x'." });
   g_assert_cmpint(shell_count(&app), ==, shells + 1);
   g_assert_cmpstr(shell_name(shell_at(&app, shells)), ==, "MATLAB");
-  plugin_run_command(&app, "matlab", "close");
+  /* Restart: the session types exit, ends by itself and a new one opens in its place */
+  VteTerminal *session = shell_at(&app, shells);
+  g_object_add_weak_pointer(G_OBJECT(session), (gpointer *)&session); /* NULL once its tab is gone */
+  plugin_run_command(&app, "matlab", "restart");
+  for (int i = 0; i < 100 && (shell_count(&app) != shells + 1 || session); i++)
+    run_for(50);
+  g_assert_null(session);
+  g_assert_cmpint(shell_count(&app), ==, shells + 1);
+  plugin_run_command(&app, "matlab", "close"); /* exit, typed: the fake MATLAB ends, its tab closes */
   for (int i = 0; i < 100 && shell_count(&app) > shells; i++)
     run_for(50);
   g_assert_cmpint(shell_count(&app), ==, shells);
+  /* Run in Batch: matlab -batch in a shell tab, its error a diagnostic again */
+  gtk_text_buffer_set_text(GTK_TEXT_BUFFER(find_tab(&app, TAB_EDITOR, m_file)->buffer), "x = 2;\ny = x + 1;\n", -1);
+  plugin_run_command(&app, "matlab", "batch");
+  run_until(shows_diagnostic, (const char *const[]){ m_file, "Batch: undefined x." });
+  g_assert_true(shows_diagnostic((const char *const[]){ m_file, "Batch: undefined x." }));
+  g_assert_cmpint(shell_count(&app), ==, shells + 1);
+  g_assert_cmpstr(shell_name(shell_at(&app, shells)), ==, "MATLAB Batch");
+  close_shell_tab(&app, shell_at(&app, shells));
+  /* .m with Objective-C next to it: colored as Objective-C, and Run does not hand it to MATLAB */
+  char *objc_dir = g_build_filename(app.project.root, "objc", NULL);
+  char *objc_m = write_at(objc_dir, "Widget.m", "", -1, 0), *objc_h = write_at(objc_dir, "Widget.h", "", -1, 0);
+  g_assert_cmpstr(gtk_source_language_get_id(editor_language(objc_m, "")), ==, "objc");
+  g_assert_cmpstr(gtk_source_language_get_id(editor_language(m_file, "x = 1;\n")), ==, "matlab");
+  g_unlink(objc_h);
+  g_unlink(objc_m);
+  g_rmdir(objc_dir);
+  g_free(objc_h);
+  g_free(objc_m);
+  g_free(objc_dir);
 
   /* CMake */
   g_assert_true(g_file_set_contents(lists, "project(x)\nfoo_bar()\n", -1, NULL));
@@ -4165,6 +4279,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/socket-tapi-pick", test_socket_tapi_pick);
   g_test_add_func("/window/socket-tapi-diagnostics", test_socket_tapi_diagnostics);
   g_test_add_func("/window/socket-tapi-terminals", test_socket_tapi_terminals);
+  g_test_add_func("/window/end-programs", test_end_programs);
   g_test_add_func("/window/socket-events", test_socket_events);
   g_test_add_func("/window/socket-stalled-subscriber", test_socket_stalled_subscriber);
   g_test_add_func("/window/update-check-now", test_update_check_now);

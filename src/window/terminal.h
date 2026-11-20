@@ -68,5 +68,15 @@ void run_in_shell(App *t, const char *command);
 /* cd into dir in the terminal tab showing now (kept out of the shell's history). */
 void cd_in_shell(App *t, const char *dir);
 
+/* What a plugin's tab types into its program when t-code closes, like "exit" (NULL or "": nothing;
+ * socket "terminal-close-text"). */
+void shell_set_close_text(VteTerminal *term, const char *text);
+
+/* t-code closes: the plugins' programs still running in terminal tabs get their close text, up to 10
+ * seconds to end, then SIGHUP + SIGTERM for them and their helpers (the program's session and
+ * descendants, never anything found by name), SIGKILL 2 seconds later; the windows hide meanwhile.
+ * done(t) runs once they are gone (at once when there are none). */
+void end_programs(App *t, void (*done)(App *t));
+
 /* The color theme changed: the terminal tabs and the Debug panel's terminal take its colors. */
 void terminal_apply_colors(App *t);

@@ -82,6 +82,34 @@ static void put(const char *folder, const char *name, const char *text)
   g_free(path);
 }
 
+/* .m: Objective-C by its text, else by a .mm or a same-named header next to it; MATLAB otherwise. */
+static void test_objc_m(void)
+{
+  char *dir = g_dir_make_tmp("t-code-objc-XXXXXX", NULL);
+  char *plain = g_build_filename(dir, "plain", "script.m", NULL);
+  char *klass = g_build_filename(dir, "objc", "Widget.m", NULL);
+  char *mixed = g_build_filename(dir, "mixed", "other.m", NULL);
+
+  put(dir, "plain/script.m", "x = 1;\n");
+  put(dir, "plain/helper.h", "int helper(void);\n"); /* a MEX header: another name */
+  put(dir, "objc/Widget.h", "@interface Widget\n@end\n");
+  put(dir, "mixed/thing.mm", "");
+  g_assert_false(is_objc_m(plain, NULL));
+  g_assert_false(is_objc_m(plain, "x = 1;\n"));
+  g_assert_true(is_objc_m(plain, "#import <Foundation/Foundation.h>\n"));
+  g_assert_true(is_objc_m(plain, "\n@implementation Widget\n@end\n"));
+  g_assert_true(is_objc_m(klass, NULL));
+  g_assert_true(is_objc_m(klass, ""));
+  g_assert_false(is_objc_m(klass, "% a MATLAB script\nx = 1;\n"));
+  g_assert_false(is_objc_m(klass, "function y = f(x)\ny = x;\nend\n"));
+  g_assert_true(is_objc_m(mixed, NULL));
+  g_assert_false(is_objc_m("/nowhere/a.c", "#import <x.h>\n"));
+  g_free(mixed);
+  g_free(klass);
+  g_free(plain);
+  g_free(dir);
+}
+
 /* The indentation config says for root/name. */
 static const char *config_of(const char *root, const char *name, IndentStyle *style)
 {
@@ -202,6 +230,7 @@ int main(int argc, char **argv)
   g_test_add_func("/detect/nothing-to-go-by", test_nothing_to_go_by);
   g_test_add_func("/detect/crlf", test_crlf);
   g_test_add_func("/detect/cxx-headers", test_cxx_headers);
+  g_test_add_func("/detect/objc-m", test_objc_m);
   g_test_add_func("/detect/editorconfig", test_editorconfig);
   g_test_add_func("/detect/clang-format", test_clang_format);
   g_test_add_func("/blocks/heads", test_blocks);

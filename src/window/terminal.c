@@ -6,6 +6,7 @@
 #define _DEFAULT_SOURCE /* kill() under -std=c23 with musl */
 #include "window/terminal.h"
 
+#include "application/children.h"
 #include "editor/editor.h"
 #include "editor/editorview.h"
 #include "files/files.h"
@@ -125,11 +126,13 @@ typedef struct ShellRun ShellRun;
 /* What t-code keeps about a terminal tab (its "t-code-shell" data; term_clear() checks for it). */
 typedef struct {
   App *app;
-  GPid pid;          /* its shell; 0 until it started and once it exited */
-  gboolean first;    /* the first tab: never closed, its shell starts again when it exits */
-  gboolean program;  /* a plugin's program, not a shell: not kept in session.ini */
-  GtkLabel *label;   /* its name on the tab */
-  ShellRun *waiting; /* a command waiting for the shell's prompt */
+  GPid pid;           /* its shell; 0 until it started and once it exited */
+  gboolean first;     /* the first tab: never closed, its shell starts again when it exits */
+  gboolean program;   /* a plugin's tab: not kept in session.ini, ended with its helpers on closing */
+  Children *children; /* a plugin's program and its helpers, once it started */
+  char *close_text;   /* typed into a plugin's program when t-code closes (NULL: none) */
+  GtkLabel *label;    /* its name on the tab */
+  ShellRun *waiting;  /* a command waiting for the shell's prompt */
 } Shell;
 
 static struct {
@@ -141,6 +144,15 @@ static struct {
 static Shell *shell_of(VteTerminal *term)
 {
   return g_object_get_data(G_OBJECT(term), "t-code-shell");
+}
+
+static void shell_free(gpointer data)
+{
+  Shell *shell = data;
+
+  children_free(shell->children);
+  g_free(shell->close_text);
+  g_free(shell);
 }
 
 static VteTerminal *nth_shell(App *t, int i)
@@ -195,6 +207,10 @@ static void spawn_done(VteTerminal *term, GPid pid, GError *error, gpointer data
   }
   if (shell)
     shell->pid = pid;
+  if (shell && shell->program) {
+    children_free(shell->children);
+    shell->children = children_new(pid);
+  }
 }
 
 /* program (NULL: $SHELL first, like most terminals; then the login shell from the user database).
@@ -385,7 +401,7 @@ static VteTerminal *add_tab(App *t, const char *name, const char *dir, gboolean 
   shell->first = first;
   shell->program = program != NULL;
   shell->label = GTK_LABEL(gtk_label_new(name ? name : fallback));
-  g_object_set_data_full(G_OBJECT(term), "t-code-shell", shell, g_free);
+  g_object_set_data_full(G_OBJECT(term), "t-code-shell", shell, shell_free);
   gtk_widget_add_css_class(GTK_WIDGET(term), "tcode-shell");
   vte_terminal_set_clear_background(term, FALSE);
   g_signal_connect(term, "child-exited", G_CALLBACK(on_shell_exited), t);
@@ -430,6 +446,7 @@ VteTerminal *open_program(App *t, const char *name, char **argv)
 {
   VteTerminal *term = add_tab(t, name, NULL, FALSE, argv);
 
+  shell_of(term)->program = TRUE; /* also without argv: the plugin's shell */
   gtk_notebook_set_current_page(t->shell.tabs, gtk_notebook_page_num(t->shell.tabs, GTK_WIDGET(term)));
   set_pane_visible(t, t->shell.panel, TRUE);
   return term;
@@ -729,4 +746,89 @@ void create_shell_pane(App *t)
   gtk_popover_set_child(ui.rename, GTK_WIDGET(ui.entry));
   gtk_popover_set_position(ui.rename, GTK_POS_BOTTOM);
   gtk_widget_set_parent(GTK_WIDGET(ui.rename), t->shell.panel);
+}
+
+/* Ending the plugins' programs ------------------------------------------------------------------ */
+
+void shell_set_close_text(VteTerminal *term, const char *text)
+{
+  Shell *shell = shell_of(term);
+
+  g_free(shell->close_text);
+  shell->close_text = text && *text ? g_strdup(text) : NULL;
+}
+
+enum {
+  END_TICK_MS = 100,
+  END_POLITE_TICKS = 100, /* 10 s for the close text: MATLAB takes 2 s to quit, and an end by signal is a crash to it */
+  END_TERM_TICKS = 20,    /* 2 s after SIGTERM, SIGKILL */
+  END_GIVE_UP_TICKS = 10  /* 1 s after SIGKILL, t-code goes anyway */
+};
+
+typedef struct {
+  App *app;
+  void (*done)(App *t);
+  GPtrArray *terms; /* the tabs whose program still runs */
+  int ticks;
+} Ending;
+
+/* SIGHUP + SIGTERM after the close text's time (at once without one), SIGKILL 2 s later; TRUE once
+ * they all are gone or t-code gave up on them. */
+static gboolean end_step(Ending *e)
+{
+  int left = 0;
+
+  for (guint i = 0; i < e->terms->len; i++) {
+    Shell *shell = shell_of(e->terms->pdata[i]);
+    int term_at = shell->close_text ? END_POLITE_TICKS : 0;
+    int sig = e->ticks == term_at ? SIGTERM : e->ticks == term_at + END_TERM_TICKS ? SIGKILL : 0;
+    if (sig == SIGTERM) /* a shell ignores SIGTERM; a closing terminal means SIGHUP anyway */
+      children_signal(shell->children, SIGHUP);
+    left += children_signal(shell->children, sig);
+  }
+  return left == 0 || e->ticks > END_POLITE_TICKS + END_TERM_TICKS + END_GIVE_UP_TICKS;
+}
+
+static gboolean end_tick(gpointer data)
+{
+  Ending *e = data;
+
+  e->ticks++;
+  if (!end_step(e))
+    return G_SOURCE_CONTINUE;
+  e->done(e->app);
+  g_ptr_array_unref(e->terms);
+  g_free(e);
+  return G_SOURCE_REMOVE;
+}
+
+void end_programs(App *t, void (*done)(App *t))
+{
+  Ending *e = g_new0(Ending, 1);
+  int n = t->shell.tabs ? shell_count(t) : 0;
+
+  e->app = t;
+  e->done = done;
+  e->terms = g_ptr_array_new_with_free_func(g_object_unref);
+  for (int i = 0; i < n; i++) {
+    VteTerminal *term = nth_shell(t, i);
+    Shell *shell = shell_of(term);
+    if (!shell->program || !shell->children || children_signal(shell->children, 0) == 0)
+      continue;
+    if (shell->close_text) {
+      vte_terminal_feed_child(term, shell->close_text, -1);
+      vte_terminal_feed_child(term, "\r", 1);
+    }
+    g_ptr_array_add(e->terms, g_object_ref(term));
+  }
+  if (e->terms->len == 0 || end_step(e)) {
+    g_ptr_array_unref(e->terms);
+    g_free(e);
+    done(t);
+    return;
+  }
+  if (t->editors.second)
+    gtk_widget_set_visible(GTK_WIDGET(t->editors.second), FALSE);
+  gtk_widget_set_visible(GTK_WIDGET(t->window), FALSE);
+  g_timeout_add(END_TICK_MS, end_tick, e);
 }

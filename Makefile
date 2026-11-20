@@ -198,6 +198,10 @@ build/test-update: tests/test_update.c tests/util.h src/update/update.c src/upda
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_update.c src/update/update.c \
 	  $(shell pkg-config --libs $(PKGS))
 
+build/test-children: tests/test_children.c tests/util.h src/application/children.c src/application/children.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_children.c src/application/children.c \
+	  $(shell pkg-config --libs glib-2.0)
+
 build/test-registry: tests/test_registry.c tests/util.h src/plugins/registry.c src/plugins/registry.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o $@ tests/test_registry.c \
 	  src/plugins/registry.c $(shell pkg-config --libs json-glib-1.0 gio-2.0)
@@ -207,11 +211,12 @@ build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c sr
 	  $(shell pkg-config --libs $(PKGS))
 
 
-test: build/test-log build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
+test: build/test-log build/test-children build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
       build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-repos build/test-vcs build/test-frameworks build/test-testing build/test-files build/test-window build/test-about \
       build/test-plugins build/test-update build/test-recovery build/test-registry
 	build/test-searchmatch
 	build/test-log
+	build/test-children
 	build/test-detect
 	build/test-langenv
 	build/test-lspinstall
@@ -258,6 +263,9 @@ test-asan: | build
 	$(CC) $(ASAN_FLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o build/asan/test-log \
 	  tests/test_log.c $(shell pkg-config --libs glib-2.0)
 	$(ASAN_ENV) build/asan/test-log
+	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-children \
+	  tests/test_children.c src/application/children.c $(shell pkg-config --libs glib-2.0)
+	$(ASAN_ENV) build/asan/test-children
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags gio-2.0) -o build/asan/test-searchmatch \
 	  tests/test_searchmatch.c src/search/searchmatch.c $(shell pkg-config --libs gio-2.0)
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-detect \

@@ -58,15 +58,21 @@ static void on_window_destroy(GtkWidget *window G_GNUC_UNUSED, App *t)
   plugins_stop(t);
 }
 
+static void destroy_windows(App *t)
+{
+  if (t->editors.second) /* its tabs go with it, as the main window's do */
+    gtk_window_destroy(t->editors.second);
+  gtk_window_destroy(t->window);
+}
+
 /* The window's close button, once nothing unsaved is left (or the user said to drop it): the
- * session is saved, then the window goes; its tabs stop their editors on the way. */
+ * session is saved, the plugins' programs in terminal tabs end, then the window goes; its tabs stop
+ * their editors on the way. */
 static void close_window(App *t, const char *arg G_GNUC_UNUSED)
 {
   session_save(t);
   t->closing = TRUE;
-  if (t->editors.second) /* its tabs go with it, as the main window's do */
-    gtk_window_destroy(t->editors.second);
-  gtk_window_destroy(t->window);
+  end_programs(t, destroy_windows);
 }
 
 /* The window manager asks to close: TRUE keeps the window until unless_unsaved() has asked about

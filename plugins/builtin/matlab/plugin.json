@@ -3,15 +3,17 @@
   "id": "matlab",
   "name": "MATLAB",
   "provider": "t-code",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Run .m files in a MATLAB session in a terminal tab (F5 too); run errors show as diagnostics.",
   "executable": "matlab_plugin.py",
   "permissions": ["terminal"],
   "commands": [
     { "id": "run", "name": "MATLAB: Run File" },
+    { "id": "batch", "name": "MATLAB: Run File in Batch (no session)" },
     { "id": "selection", "name": "MATLAB: Run Selection" },
     { "id": "stop", "name": "MATLAB: Stop (Ctrl+C)" },
     { "id": "session", "name": "MATLAB: Open Session" },
+    { "id": "restart", "name": "MATLAB: Restart Session" },
     { "id": "close", "name": "MATLAB: Close Session" }
   ],
   "run": { ".m": "run" },

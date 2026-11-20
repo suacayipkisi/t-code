@@ -674,6 +674,19 @@ static gboolean do_terminal_interrupt(Client *c, const char *arg)
   return TRUE;
 }
 
+/* terminal-close-text <id> [text]: what is typed into the tab when t-code closes (no text: nothing). */
+static gboolean do_terminal_close_text(Client *c, const char *arg)
+{
+  const char *text = NULL;
+  VteTerminal *term = own_terminal(c, arg, &text);
+
+  if (term) {
+    shell_set_close_text(term, text);
+    answer_ok(c, NULL);
+  }
+  return TRUE;
+}
+
 static gboolean do_terminal_close(Client *c, const char *arg)
 {
   VteTerminal *term = own_terminal(c, arg, NULL);
@@ -738,6 +751,7 @@ static const Request requests[] = {
   { "terminal-send",      NEEDS_NOTHING, 0,               FALSE, do_terminal_send },
   { "terminal-interrupt", NEEDS_NOTHING, 0,               FALSE, do_terminal_interrupt },
   { "terminal-close",     NEEDS_NOTHING, 0,               FALSE, do_terminal_close },
+  { "terminal-close-text", NEEDS_NOTHING, 0,              FALSE, do_terminal_close_text },
   { "scm-message",        NEEDS_NOTHING, 0,               FALSE, do_scm_message },
   { "_debug",             NEEDS_PATH,    0,               FALSE, do_debug },
   { "_debug-failed",      NEEDS_NOTHING, 0,               FALSE, do_debug_failed },

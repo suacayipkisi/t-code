@@ -17,6 +17,7 @@
 #include "project/project.h"
 #include "project/session.h"
 #include "window/window.h"
+#include "window/terminal.h"
 
 #include <glib-unix.h>
 #include <signal.h>
@@ -119,21 +120,35 @@ static void on_shutdown(GApplication *app G_GNUC_UNUSED, App *t)
   g_clear_pointer(&t->plugin_diagnostics, g_hash_table_unref);
 }
 
-/* SIGTERM / SIGINT: save the session and quit normally, so the socket file is removed. The window
- * goes like on a normal close: its tabs stop their editors, the terminals hang up on theirs. */
-static gboolean on_signal(gpointer data)
-{
-  App *t = data;
+static gboolean ending; /* the plugins' programs end, the window is hidden but still there */
 
-  if (t->window && !t->closing) { /* closing: the window is gone already */
-    session_save(t);
-    t->closing = TRUE;
+static void quit_now(App *t)
+{
+  if (ending) {
+    ending = FALSE;
     if (t->editors.second)
       gtk_window_destroy(t->editors.second);
     gtk_window_destroy(t->window);
   }
-  t->closing = TRUE;
   g_application_quit(g_application_get_default());
+}
+
+/* SIGTERM / SIGINT: save the session and quit normally, so the socket file is removed. The window
+ * goes like on a normal close: the plugins' programs in terminal tabs end first, its tabs stop their
+ * editors, the terminals hang up on theirs. A second signal while they end quits at once. */
+static gboolean on_signal(gpointer data)
+{
+  App *t = data;
+
+  if (t->window && !t->closing) {
+    session_save(t);
+    t->closing = TRUE;
+    ending = TRUE;
+    end_programs(t, quit_now);
+    return G_SOURCE_REMOVE;
+  }
+  t->closing = TRUE; /* closing: the window is gone already, unless its programs are still ending */
+  quit_now(t);
   return G_SOURCE_REMOVE;
 }
 

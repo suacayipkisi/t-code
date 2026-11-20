@@ -203,6 +203,10 @@ Each `lsp` entry:
 `run` maps files (the same patterns as `extensions`) to one of the plugin's command ids. Run (`F5`,
 the Run button) on such a file saves every editor, then runs that command with the file as `$2`, in
 place of t-code's own runner. A project's `.t-code/tasks.json` still wins: it says what Run does.
+A `.m` file t-code takes for Objective-C never goes to a plugin's `run`. It does so when the text has
+`#import`, `@interface` or `@implementation` at a line's start, or (with no `%` comment or `function`
+line) a `.mm` file or a header of the same name sits next to it. Such a file is colored as
+Objective-C, so a server declared for the `matlab` language does not get it either.
 
 `language-specs` and `snippets` name folders inside the plugin's folder. They are read when t-code
 starts (GtkSourceView reads its folders once), so a plugin installed or reloaded later brings them at
@@ -418,8 +422,17 @@ start (`[line, col]`).
 | `terminal-send` | `<id> <text>` | `ok` | Types the text into the plugin's tab and presses Enter. |
 | `terminal-interrupt` | `<id>` | `ok` | Sends Ctrl+C to the plugin's tab. |
 | `terminal-close` | `<id>` | `ok` | Closes the plugin's tab; its program gets SIGHUP. |
+| `terminal-close-text` | `<id> [text]` | `ok` | The text typed (with Enter) into the plugin's tab when t-code closes, like `exit`; no text: nothing. |
 
 - **Lifetime:** a plugin's tab closes by itself when its program exits.
+- **When t-code closes:** the window hides and each plugin tab whose program still runs gets its close
+  text. After up to 10 seconds (at once without a close text), the program and its helpers get SIGHUP
+  and SIGTERM, and SIGKILL 2 seconds later. Helpers are the processes in the program's session
+  (also those in their own process group) and its descendants (also those that started a new
+  session). Nothing is ever ended by name, so the same program started elsewhere keeps running. A
+  helper that leaves the session and its parent too (a double fork) is not found.
+- **A close text matters:** some programs take an end by signal for a crash. MATLAB does: its crash
+  reporter (double-forked, so t-code cannot find it) writes a dump and stays. After `exit` it goes.
 - **Not restored:** it is not brought back with the project's other terminal tabs.
 - **Ownership:** a plugin can only send to and close its own tabs.
 
@@ -604,23 +617,31 @@ folder into `~/.config/t-code/plugins/`). Each one says what it does, what t-cod
 
 #### MATLAB (`matlab`, in this repository: `plugins/builtin/matlab`)
 - **Does:** write and run `.m` code without the MATLAB desktop: Run File (also `F5` on a `.m` file),
-  Run Selection, Stop, Open / Close Session.
+  Run File in Batch, Run Selection, Stop, Open / Restart / Close Session.
 - **Core:**
-  - Terminal tabs (`terminal-open`, `terminal-send`, `terminal-interrupt`, `terminal-close`).
+  - Terminal tabs (`terminal-open`, `terminal-send`, `terminal-interrupt`, `terminal-close`,
+    `terminal-close-text`), and ending the session with t-code (its figure windows included).
   - `"run": {".m": "run"}`, so `F5` / Run on a `.m` file runs the plugin's command.
-  - GtkSourceView's own `matlab` language (no language specs needed).
+  - GtkSourceView's own `matlab` language (no language specs needed); a `.m` file taken for
+    Objective-C is left alone.
   - An `lsp` entry for the MATLAB Language Server (`matlab-language-server --stdio`, installed by
     the user; until then the Plugins window shows it as not found).
 - **Plugin** (Python 3, standard library):
   - **Session:** a "MATLAB" terminal tab running `matlab -nodesktop -nosplash` (found on `PATH` or
     in `/usr/local/MATLAB/*`, `/opt/MATLAB/*`, `~/MATLAB/*`). Its tab id is kept in
-    `$XDG_RUNTIME_DIR/t-code-matlab/`, so every command reaches the same session.
+    `$XDG_RUNTIME_DIR/t-code-matlab/`, so every command reaches the same session. Its close text
+    is `exit`, so MATLAB saves its history and frees the license when t-code closes.
   - **Run:** `save`, then one line into the session: a `diary` file, the file run inside
     `try` / `catch` with `getReport`, and markers around it. The plugin waits for the end marker, turns
     `Error in foo (line 12)` and `Error: File: … Line: 3 Column: 5` into `diagnostics-set` (the
     first frame an error, the callers info), and clears them on the next run.
+  - **Run File in Batch:** the same line given to `matlab -batch` in a "MATLAB Batch" shell tab: no
+    session is kept, and its memory goes when the run ends. Its errors become diagnostics the same way.
   - **Run Selection:** `get-selection`, then each line with `terminal-send`.
-  - **Stop:** `terminal-interrupt` (Ctrl+C). It closes only its own tab.
+  - **Stop:** `terminal-interrupt` (Ctrl+C).
+  - **Close / Restart:** types `exit` and waits up to 10 seconds for the tab to close by itself,
+    then closes it. Restart then opens a new session, which frees the memory MATLAB's graphics
+    engine held. Both act only on the plugin's own tab.
 - **Limits:**
   - No workspace or variables panel; a variable list could show through `pick`.
   - Plot windows are MATLAB's own.

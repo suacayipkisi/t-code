@@ -2,15 +2,19 @@
 """MATLAB for t-code: a MATLAB session in a terminal tab (the plugin's own), .m files run in it.
 
 Run saves the file and sends one line to the session: it records the output in a diary file, runs
-the file inside try / catch and prints markers around it. This program then waits for the end
+the file inside try / catch and prints markers around it. Run in Batch sends the same line to
+`matlab -batch` in a shell tab instead: no session kept, its memory freed when it ends. This program then waits for the end
 marker, reads MATLAB's errors from the diary ("Error in foo (line 12)", "Error: File: ... Line: 3
 Column: 5") and hands them to t-code as diagnostics. Each command is its own run of this program;
-the session's tab id is kept in $XDG_RUNTIME_DIR, under the plugin's token."""
+the session's tab id is kept in $XDG_RUNTIME_DIR, under the plugin's token. When t-code closes, the
+session gets "exit" typed (MATLAB saves its history and frees the license), then t-code ends what
+is left of it."""
 import glob
 import hashlib
 import json
 import os
 import re
+import shlex
 import sys
 import tempfile
 import time
@@ -20,6 +24,7 @@ sys.dont_write_bytecode = True  # no __pycache__ in the plugin's folder
 from tcode import Tcode, TcodeError  # noqa: E402
 
 WAIT_SECONDS = 3600  # a run that takes longer than this gets no diagnostics
+QUIT_SECONDS = 10  # how long Close / Restart give MATLAB's "exit" before the tab is closed
 
 
 def runtime_dir():
@@ -33,17 +38,25 @@ def state_file():
     return os.path.join(runtime_dir(), hashlib.sha256(token.encode()).hexdigest()[:16] + ".json")
 
 
-def load_tab():
+def load_state():
     try:
         with open(state_file()) as f:
-            return json.load(f).get("tab")
+            state = json.load(f)
+            return state if isinstance(state, dict) else {}
     except (OSError, ValueError):
-        return None
+        return {}
 
 
-def save_tab(tab):
+def load_tab(key="tab"):
+    """The terminal tab id kept under key: "tab" for the session, "batch" for Run in Batch's shell."""
+    return load_state().get(key)
+
+
+def save_tab(tab, key="tab"):
+    state = load_state()
+    state[key] = tab
     with open(state_file(), "w") as f:
-        json.dump({"tab": tab}, f)
+        json.dump(state, f)
 
 
 def find_matlab():
@@ -72,8 +85,40 @@ def open_session(t):
         t.request("say", "MATLAB not found: put matlab on your PATH (or install it in /usr/local/MATLAB)")
         return None
     tab = t.request("terminal-open", f"MATLAB -- {json.dumps(matlab)} -nodesktop -nosplash")
+    t.request("terminal-close-text", f"{tab} exit")
     save_tab(tab)
     return tab
+
+
+def tab_open(t, tab):
+    """Whether the plugin's tab is still there (a request only an open tab of ours answers ok)."""
+    try:
+        t.request("terminal-close-text", f"{tab} exit")
+        return True
+    except TcodeError as e:
+        if e.code != "bad-argument":
+            raise
+        return False
+
+
+def close_session(t):
+    """Types exit into the session and waits for its tab to close by itself (MATLAB saves its history
+    and frees the license); after QUIT_SECONDS the tab is closed. False when none was open."""
+    tab = load_tab()
+    save_tab(None)
+    if not tab or not tab_open(t, tab):
+        return False
+    t.request("terminal-send", f"{tab} exit")
+    deadline = time.monotonic() + QUIT_SECONDS
+    while time.monotonic() < deadline:
+        time.sleep(0.3)
+        if not tab_open(t, tab):
+            return True
+    try:
+        t.request("terminal-close", tab)
+    except TcodeError:
+        pass
+    return True
 
 
 def send(t, line):
@@ -161,18 +206,9 @@ def wait_for(diary, start, done):
     return None
 
 
-def run_file(t):
-    path = t.request("get-file")
-    if not path.endswith(".m"):
-        t.request("say", "MATLAB runs .m files: open one first")
-        return
-    t.request("save")
-    t.request("diagnostics-clear")
-    diary = os.path.join(runtime_dir(), f"{uuid.uuid4().hex}.diary")
-    start, done = f"__tcode_start_{uuid.uuid4().hex[:8]}__", f"__tcode_done_{uuid.uuid4().hex[:8]}__"
-    if not send(t, run_line(path, diary, start, done)):
-        return
-    t.close()  # the wait may be long: no connection held meanwhile
+def report_errors(path, diary, start, done):
+    """Waits for the run's end marker in the diary, then hands MATLAB's errors to t-code (on a new
+    connection: the wait may be long) and says how the run went."""
     report = wait_for(diary, start, done)
     try:
         os.unlink(diary)
@@ -186,6 +222,47 @@ def run_file(t):
         t.json("diagnostics-set", {"path": file, "items": items})
     errors = sum(1 for items in found.values() for d in items if d["severity"] == "error")
     t.request("say", f"MATLAB: {os.path.basename(path)} {'stopped with an error' if errors else 'ran fine'}")
+
+
+def run_file(t):
+    path = t.request("get-file")
+    if not path.endswith(".m"):
+        t.request("say", "MATLAB runs .m files: open one first")
+        return
+    t.request("save")
+    t.request("diagnostics-clear")
+    diary = os.path.join(runtime_dir(), f"{uuid.uuid4().hex}.diary")
+    start, done = f"__tcode_start_{uuid.uuid4().hex[:8]}__", f"__tcode_done_{uuid.uuid4().hex[:8]}__"
+    if not send(t, run_line(path, diary, start, done)):
+        return
+    t.close()  # the wait may be long: no connection held meanwhile
+    report_errors(path, diary, start, done)
+
+
+def run_batch(t):
+    """The file in `matlab -batch` (no session: output only) in the plugin's shell tab, then its
+    errors as diagnostics like Run's."""
+    path = t.request("get-file")
+    if not path.endswith(".m"):
+        t.request("say", "MATLAB runs .m files: open one first")
+        return
+    matlab = find_matlab()
+    if not matlab:
+        t.request("say", "MATLAB not found: put matlab on your PATH (or install it in /usr/local/MATLAB)")
+        return
+    t.request("save")
+    t.request("diagnostics-clear")
+    diary = os.path.join(runtime_dir(), f"{uuid.uuid4().hex}.diary")
+    start, done = f"__tcode_start_{uuid.uuid4().hex[:8]}__", f"__tcode_done_{uuid.uuid4().hex[:8]}__"
+    line = f"{shlex.quote(matlab)} -batch {shlex.quote(run_line(path, diary, start, done))}"
+    tab = load_tab("batch")
+    if tab and tab_open(t, tab):
+        t.request("terminal-send", f"{tab} {line}")  # its shell is at its prompt by now
+    else:  # the line as the new tab's program (a shell just started may drop what is typed), then a shell
+        program = shlex.quote(f'{line}; exec "${{SHELL:-sh}}"')
+        save_tab(t.request("terminal-open", f"MATLAB Batch -- sh -c {program}"), "batch")
+    t.close()
+    report_errors(path, diary, start, done)
 
 
 def run_selection(t):
@@ -205,16 +282,22 @@ def main(command):
             run_file(t)
         elif command == "selection":
             run_selection(t)
+        elif command == "batch":
+            run_batch(t)
         elif command == "session":
             open_session(t)
-        elif command in ("stop", "close"):
+        elif command == "close":
+            if not close_session(t):
+                t.request("say", "No MATLAB session is open")
+        elif command == "restart":
+            close_session(t)  # frees what MATLAB's graphics engine held
+            if open_session(t):
+                t.request("say", "MATLAB: started again")
+        elif command == "stop":
             tab = load_tab()
             try:
-                if tab and command == "stop":
+                if tab:
                     t.request("terminal-interrupt", tab)
-                elif tab:
-                    t.request("terminal-close", tab)
-                    save_tab(None)
                 else:
                     t.request("say", "No MATLAB session is open")
             except TcodeError:

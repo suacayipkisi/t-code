@@ -472,12 +472,15 @@ static void run_plugin_saved(App *t, gpointer data)
 }
 
 /* The plugin command Run hands the current file to ("run" in plugin.json), unless a tasks.json
- * says what Run does; NULL when none. */
+ * says what Run does, or the file is a .m taken for Objective-C (".m" is MATLAB's too); NULL when
+ * none. */
 static PluginCommand *plugin_runs(App *t)
 {
   static const char *const tasks[] = { ".t-code/tasks.json", "t-code.json", NULL };
   Tab *tab = current_tab(t);
-  const char *file = tab && tab->kind == TAB_EDITOR ? tab->path : NULL;
+  GtkSourceLanguage *language = tab && tab->kind == TAB_EDITOR ? gtk_source_buffer_get_language(tab->buffer) : NULL;
+  gboolean objc = language && strcmp(gtk_source_language_get_id(language), "objc") == 0;
+  const char *file = tab && tab->kind == TAB_EDITOR && !objc ? tab->path : NULL;
   PluginCommand *command = file ? plugins_run_command_for(t, file) : NULL;
   char *dir = command ? g_path_get_dirname(file) : NULL, *task = dir ? find_up(dir, tasks) : NULL;
 
