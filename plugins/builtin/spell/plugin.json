@@ -1,0 +1,16 @@
+{
+  "api": "tapi_1",
+  "id": "spell",
+  "name": "Spell Check",
+  "provider": "t-code",
+  "version": "0.1.0",
+  "description": "Underlines misspelled words in Markdown and text files and in source files' comments when they open or are saved; fixes the word at the cursor from hunspell's suggestions. Needs hunspell and a dictionary; written in C++, built once with the system's C++ compiler.",
+  "executable": "run.sh",
+  "start": "project",
+  "permissions": ["start", "edit"],
+  "commands": [
+    { "id": "fix", "name": "Spell: Fix the Word at the Cursor", "keys": "<Control><Alt>s" },
+    { "id": "add", "name": "Spell: Add the Word at the Cursor to My Dictionary" },
+    { "id": "check", "name": "Spell: Check This File" }
+  ]
+}

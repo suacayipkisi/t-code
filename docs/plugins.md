@@ -639,11 +639,11 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Fourteen of them are written and live in this
+These are plugins the API is meant to make possible. Fifteen of them are written and live in this
 repository under `plugins/builtin/` (Java, MATLAB, Octave, ShellCheck, CMake, Text Tools, TODO Finder,
-Word Count, Format on Save, Targets, LaTeX and Typst, Pomodoro, Open on GitHub / GitLab, Commit Message Helper), as working examples and
+Word Count, Format on Save, Targets, LaTeX and Typst, Pomodoro, Open on GitHub / GitLab, Commit Message Helper, Spell Check), as working examples and
 as the registry's first entries. They are written in different languages on purpose, to test that
-tapi_1 works the same from any of them: TODO Finder and LaTeX are Rust, Word Count is C++, Pomodoro is C, Format on Save and the Commit Message Helper are Go,
+tapi_1 works the same from any of them: TODO Finder and LaTeX are Rust, Word Count and Spell Check are C++, Pomodoro is C, Format on Save and the Commit Message Helper are Go,
 Targets is JavaScript (Node.js), Open on GitHub is Perl, the rest are Python 3.
 t-code does not load them by itself (install them from Browse, or copy a folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
 `t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
@@ -813,10 +813,21 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
 - **Limits:** the active file only (requests act on the active editor); a file typed in while the
   formatter ran is left for the next save; the formatter itself is not installed by the plugin.
 
-#### Spell check (`spell`)
-- **Does:** checks comments, strings and Markdown with `hunspell`. Findings are `hint` diagnostics.
-- **Plugin:** Fix Spelling offers suggestions with `pick` and writes the chosen one with `edit`.
-- **Limits:** suggestions cannot appear in the right-click menu.
+#### Spell check (`spell`, in this repository: `plugins/builtin/spell`, in C++)
+- **Does:** when a file opens or is saved, checks all of a Markdown, text or reST file (fenced and
+  inline code, link targets, tags and URLs left out) and the comments of a source file (`//` and
+  `/* */`, or `#`) with `hunspell -a`; a word it does not know becomes an `info` diagnostic with up
+  to five suggestions. camelCase, ALLCAPS, words with digits or underscores, paths and words under
+  three letters are left alone. **Spell: Fix the Word at the Cursor** (`Ctrl+Alt+S`) offers the
+  suggestions with `pick` and writes the chosen one with `edit`; **Add the Word at the Cursor to My
+  Dictionary** keeps it in `~/.config/t-code-spell/words`; **Check This File** checks the unsaved
+  text now.
+- **Plugin:** C++17 and POSIX; starts with the project. Dictionaries: `dictionaries=en_US,tr_TR` in
+  `~/.config/t-code-spell/settings`, else the language of `$LANG` with `en_US` (a word is right
+  when either knows it). `run.sh` builds it with the system's C++ compiler into
+  `~/.cache/t-code-spell/`.
+- **Limits:** strings in code are not checked; suggestions cannot appear in the right-click menu;
+  the underlines follow the last check (open, save, Check This File), not each keystroke.
 
 ### Documents
 
