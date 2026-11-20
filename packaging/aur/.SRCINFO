@@ -23,7 +23,7 @@ pkgbase = t-code-ide
 	optdepends = subversion: Source Control in Subversion working copies
 	conflicts = t-code
 	source = t-code-0.5.0.tar.gz::https://github.com/suacayipkisi/t-code/archive/refs/tags/v0.5.0.tar.gz
-	sha256sums = 88fb28513761ec18e3855fed89c63bbc526b96004872720978812d3ce521919c
+	sha256sums = c88fc737a54a88f535da798b36bf8920af9b2904954115fc1e86112d20f1f5f1
 
 pkgname = t-code-ide
 
