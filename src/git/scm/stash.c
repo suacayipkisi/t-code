@@ -1,12 +1,14 @@
 /*
  * git stash for the Source Control panel (see scm.h): stashing the changes (with a message typed in
  * the picker), and popping, applying or dropping a stash picked from the list. The editors are saved
- * first, as git works on the files on disk; the panel's note says how it went.
+ * first, as git works on the files on disk; the panel's note says how it went. In Mercurial the
+ * same goes through hg shelve and hg unshelve (a shelve is picked by its name).
  */
 #include "git/scm/scm.h"
 
 #include "editor/editor.h"
 #include "git/scm/state.h"
+#include "git/vcs.h"
 #include "popups/picker.h"
 #include "window/window.h"
 
@@ -18,22 +20,45 @@ static GPtrArray *stashes;       /* "stash@{0}\t2 hours ago\tOn main: message", 
 /* git answered a stash command: its own words when it did nothing ("No local changes to save"). */
 static void on_stashed(gboolean ok, const char *out, const char *err, gpointer data)
 {
-  if (!ok) {
+  if (!ok && out && strstr(out, "nothing changed")) /* hg shelve with no changes */
+    scm_set_note("No local changes to stash", FALSE);
+  else if (!ok) {
     scm_set_note(*err ? err : "git stash failed", TRUE); /* a pop that conflicts: the stash stays */
     show_sidebar_page(scm.app, "scm");
   } else
     scm_set_note(g_str_has_prefix(out, "No local changes") ? "No local changes to stash" : data, FALSE);
 }
 
-/* The editors are saved: git stash runs as payload says ("push\tmessage", "push-u\tmessage" with the
- * untracked files, "pop\tstash@{0}", "apply\t...", "drop\t..."). */
-static void on_saved_for_stash(App *t G_GNUC_UNUSED, gpointer data)
+/* hg: the arguments of payload's shelve command (see on_saved_for_stash); *done: the note. */
+static void hg_shelve_args(GPtrArray *args, const char *verb, const char *arg, const char **done)
 {
-  char *verb = data, *arg = strchr(verb, '\t');
-  GPtrArray *args = g_ptr_array_new();
-  const char *done = "Stashed";
+  if (g_str_has_prefix(verb, "push")) {
+    g_ptr_array_add(args, "shelve");
+    if (strcmp(verb, "push-u") == 0)
+      g_ptr_array_add(args, "--unknown");
+    if (*arg) {
+      g_ptr_array_add(args, "-m");
+      g_ptr_array_add(args, (gpointer)arg);
+    }
+  } else if (strcmp(verb, "drop") == 0) {
+    g_ptr_array_add(args, "shelve");
+    g_ptr_array_add(args, "--delete");
+    g_ptr_array_add(args, "--");
+    g_ptr_array_add(args, (gpointer)arg);
+    *done = "Dropped the stash";
+  } else {
+    g_ptr_array_add(args, "unshelve");
+    if (strcmp(verb, "apply") == 0)
+      g_ptr_array_add(args, "--keep"); /* the shelve stays */
+    g_ptr_array_add(args, "--name");
+    g_ptr_array_add(args, (gpointer)arg);
+    *done = strcmp(verb, "pop") == 0 ? "Popped the stash" : "Applied the stash";
+  }
+}
 
-  *arg++ = '\0';
+/* git: the arguments of payload's stash command; *done: the note. */
+static void git_stash_args(GPtrArray *args, const char *verb, const char *arg, const char **done)
+{
   g_ptr_array_add(args, "stash");
   if (g_str_has_prefix(verb, "push")) {
     g_ptr_array_add(args, "push");
@@ -41,15 +66,30 @@ static void on_saved_for_stash(App *t G_GNUC_UNUSED, gpointer data)
       g_ptr_array_add(args, "--include-untracked");
     if (*arg) { /* else git's own message: "WIP on main: ..." */
       g_ptr_array_add(args, "-m");
-      g_ptr_array_add(args, arg);
+      g_ptr_array_add(args, (gpointer)arg);
     }
   } else {
-    g_ptr_array_add(args, verb);
-    g_ptr_array_add(args, arg);
-    done = strcmp(verb, "pop") == 0     ? "Popped the stash"
-           : strcmp(verb, "apply") == 0 ? "Applied the stash"
-                                        : "Dropped the stash";
+    g_ptr_array_add(args, (gpointer)verb);
+    g_ptr_array_add(args, (gpointer)arg);
+    *done = strcmp(verb, "pop") == 0     ? "Popped the stash"
+            : strcmp(verb, "apply") == 0 ? "Applied the stash"
+                                         : "Dropped the stash";
   }
+}
+
+/* The editors are saved: git stash (hg shelve / unshelve) runs as payload says ("push\tmessage",
+ * "push-u\tmessage" with the untracked files, "pop\tstash@{0}", "apply\t...", "drop\t..."). */
+static void on_saved_for_stash(App *t G_GNUC_UNUSED, gpointer data)
+{
+  char *verb = data, *arg = strchr(verb, '\t');
+  GPtrArray *args = g_ptr_array_new();
+  const char *done = "Stashed";
+
+  *arg++ = '\0';
+  if (scm_kind() == VCS_HG)
+    hg_shelve_args(args, verb, arg, &done);
+  else
+    git_stash_args(args, verb, arg, &done);
   g_ptr_array_add(args, NULL);
   scm_set_note(NULL, FALSE);
   scm_run_git((const char *const *)args->pdata, NULL, FALSE, on_stashed, (gpointer)done);
@@ -78,7 +118,7 @@ static void stash_choose(App *t, const char *payload)
 
 void scm_stash(void)
 {
-  if (scm_git_only("Stash"))
+  if (scm_kind() != VCS_HG && scm_git_only("Stash"))
     return;
   if (!scm.app || !scm.app->project.scm_top)
     return;
@@ -106,11 +146,13 @@ static void stashes_query(App *t, const char *text, guint generation)
   }
 }
 
-/* "git stash list" answered. */
+/* "git stash list" (hg shelve --list) answered. */
 static void on_stashes(gboolean ok, const char *out, const char *err G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
 {
-  char **lines = g_strsplit(ok ? out : "", "\n", -1);
+  char *hg = ok && scm_kind() == VCS_HG ? vcs_git_stashes(out) : NULL;
+  char **lines = g_strsplit(hg ? hg : ok ? out : "", "\n", -1);
 
+  g_free(hg);
   if (stashes)
     g_ptr_array_unref(stashes);
   stashes = g_ptr_array_new_with_free_func(g_free);
@@ -154,14 +196,15 @@ void scm_pick_stash(StashAction action)
 {
   static const char *const prompts[] = { "Pick a stash to pop", "Pick a stash to apply", "Pick a stash to drop" };
   const char *args[] = { "stash", "list", "--format=%gd%x09%cr%x09%gs", NULL };
+  const char *shelves[] = { "shelve", "--list", NULL };
 
-  if (scm_git_only("Stash"))
+  if (scm_kind() != VCS_HG && scm_git_only("Stash"))
     return;
 
   if (!scm.app || !scm.app->project.scm_top)
     return;
   stash_action = action;
   g_clear_pointer(&stashes, g_ptr_array_unref);
-  scm_run_git(args, NULL, TRUE, on_stashes, NULL);
+  scm_run_git(scm_kind() == VCS_HG ? shelves : args, NULL, TRUE, on_stashes, NULL);
   picker_open(scm.app, prompts[action], stashes_query, stashes_choose);
 }

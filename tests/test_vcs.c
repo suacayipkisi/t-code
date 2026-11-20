@@ -368,6 +368,14 @@ static void test_recorded_branches(void)
   g_assert_true(g_str_has_suffix(lines[1], "\tr4 · ada"));
   g_strfreev(lines);
   g_free(out);
+  out = vcs_git_stashes("default-01      (1s ago)    changes to: first\n"
+                        "my work         (2h ago)    \n"
+                        "a-very-long-shelve-name(3W ago)  half done (really)\n"
+                        "old             (2024-01-05) x\n");
+  g_assert_cmpstr(out, ==,
+                  "default-01\t1s ago\tchanges to: first\nmy work\t2h ago\tmy work\n"
+                  "a-very-long-shelve-name\t3W ago\thalf done (really)\nold\t2024-01-05\tx\n");
+  g_free(out);
   char *url = vcs_svn_branch_url("trunk");
   g_assert_cmpstr(url, ==, "^/trunk");
   g_free(url);

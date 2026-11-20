@@ -102,6 +102,10 @@ char *vcs_git_branches(VcsKind kind, const char *out, const char *current);
 /* svn: the "^/" URL of a branch from that list ("trunk" or a folder in branches/). */
 char *vcs_svn_branch_url(const char *name);
 
+/* hg shelve --list ("name   (2h ago)    message" a line, newest first) as the stash picker reads
+ * git stash list: "name TAB 2h ago TAB message" a line. */
+char *vcs_git_stashes(const char *out);
+
 /* svn info --xml's repository-relative URL of the working copy ("^/trunk"), NULL when missing. */
 char *vcs_svn_url(const char *info);
 

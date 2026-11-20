@@ -985,6 +985,68 @@ static void test_hg_branches(void)
   g_free(top);
 }
 
+/* Mercurial's stash is hg shelve: a shelve with a message, popped by its name (hg unshelve); one with
+ * the unknown files, applied (it stays); stashing nothing says so. */
+static void test_hg_shelve(void)
+{
+  if (!have("hg")) {
+    g_test_skip("no hg");
+    return;
+  }
+  const char *const list[] = { "hg", "shelve", "--list", NULL };
+  char *top = make_dir("hg-shelve", "s.txt"), *file = g_build_filename(top, "s.txt", NULL),
+       *unknown = g_build_filename(top, "new.txt", NULL), *left;
+  tool(top, "hg", (const char *[]){ "init", NULL });
+  tool(top, "hg", (const char *[]){ "commit", "-A", "-m", "first", NULL });
+  open_project_at(top);
+  wait_for(2, 1);
+  picked_rows = g_ptr_array_new_with_free_func(g_free);
+
+  g_file_set_contents(file, "two\n", -1, NULL);
+  scm_stash();
+  picker_pick("push\thalf done");
+  g_assert_true(wait_file(file, "one\n"));
+  scm_pick_stash(STASH_POP);
+  wait_rows(1);
+  g_assert_true(g_str_has_prefix(picked_rows->pdata[0], "half done\tdefault · "));
+  g_assert_true(g_str_has_suffix(picked_rows->pdata[0], "\tdefault"));
+  picker_pick("default");
+  g_assert_true(wait_file(file, "two\n"));
+  left = wait_out(top, list, "");
+  g_assert_cmpstr(left, ==, "");
+  g_free(left);
+
+  g_file_set_contents(unknown, "new\n", -1, NULL);
+  scm_stash();
+  picker_pick("push-u\t");
+  g_assert_true(wait_file(unknown, NULL));
+  g_assert_true(wait_file(file, "one\n"));
+  scm_pick_stash(STASH_APPLY);
+  wait_rows(1);
+  picker_pick("default");
+  g_assert_true(wait_file(unknown, "new\n"));
+  g_assert_true(wait_file(file, "two\n"));
+  left = tool_out(top, list);
+  g_assert_true(g_str_has_prefix(left, "default "));
+  g_free(left);
+
+  tool(top, "hg", (const char *[]){ "revert", "--all", "--no-backup", NULL });
+  g_unlink(unknown);
+  run_for(300);
+  scm_stash();
+  picker_pick("push\t");
+  for (gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+       g_strcmp0(gtk_label_get_text(scm.note), "No local changes to stash") != 0 && g_get_monotonic_time() < end;)
+    run_for(50);
+  g_assert_cmpstr(gtk_label_get_text(scm.note), ==, "No local changes to stash");
+
+  g_ptr_array_free(picked_rows, TRUE);
+  picked_rows = NULL;
+  g_free(unknown);
+  g_free(file);
+  g_free(top);
+}
+
 /* Subversion's branches: trunk and the folders in branches/; a new one is copied on the server and
  * switched to (svn switch), and switching back works. */
 static void test_svn_branches(void)
@@ -1329,6 +1391,7 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/hg-merge", test_hg_merge);
   g_test_add_func("/scm/hg-branches", test_hg_branches);
   g_test_add_func("/scm/svn-branches", test_svn_branches);
+  g_test_add_func("/scm/hg-shelve", test_hg_shelve);
   g_test_add_func("/scm/svn-conflict", test_svn_conflict);
   g_test_add_func("/scm/svn", test_svn);
   g_test_add_func("/scm/svn-init", test_svn_init);

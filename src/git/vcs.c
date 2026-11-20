@@ -750,6 +750,35 @@ char *vcs_git_branches(VcsKind kind, const char *out, const char *current)
   return g_string_free(lines, FALSE);
 }
 
+/* Shelves --------------------------------------------------------------------------------------- */
+
+char *vcs_git_stashes(const char *out)
+{
+  /* "name" padded to 16 (a longer one runs into the age), "(age)" padded to 12, the description;
+   * the age is hg's abbreviated one ("3d ago", "1h from now") or a date. */
+  GRegex *line = g_regex_new("^(.+?) *\\(([0-9]+[YMWdhms] (?:ago|from now)|in the distant future|"
+                             "[0-9]{4}-[0-9]{2}-[0-9]{2})\\) *(.*)$",
+                             0, 0, NULL);
+  GString *lines = g_string_new(NULL);
+  char **records = g_strsplit(out ? out : "", "\n", -1);
+
+  for (int i = 0; records[i]; i++) {
+    GMatchInfo *match = NULL;
+    if (g_regex_match(line, records[i], 0, &match)) {
+      char *name = g_match_info_fetch(match, 1), *age = g_match_info_fetch(match, 2),
+           *message = g_strstrip(g_match_info_fetch(match, 3));
+      g_string_append_printf(lines, "%s\t%s\t%s\n", name, age, *message ? message : name);
+      g_free(message);
+      g_free(age);
+      g_free(name);
+    }
+    g_match_info_free(match);
+  }
+  g_strfreev(records);
+  g_regex_unref(line);
+  return g_string_free(lines, FALSE);
+}
+
 /* Versions ------------------------------------------------------------------------------------- */
 
 char *vcs_rev(VcsKind kind, const char *rev)
