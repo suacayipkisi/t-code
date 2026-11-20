@@ -85,6 +85,7 @@ struct App {
     gboolean pressed;    /* a mouse button is down in the window (a paned may be being dragged) */
     guint snapped;       /* a bit per side dragged below its smallest size: it hides on release */
     int sizes[3];        /* each side's last size that was big enough, given back when it shows again */
+    guint placed;        /* a bit per side (bottom, right) given its size at its paned's first allocation */
     GtkWidget *edges[3]; /* thin strips on the left, bottom and right edges: dragging one shows that hidden side */
   } layout;
 

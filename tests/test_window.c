@@ -2720,9 +2720,17 @@ static void test_opens_at_left_edge(void)
 }
 
 /* The first run (no session.ini yet): Files shows on the left, the shell below the editors, Outline,
- * Hierarchy and Testing on the right. */
+ * Hierarchy and Testing on the right. The bottom and the right side get their own size once their
+ * paned has one (a position from the top squeezed the shell to nothing in a low window). */
 static void test_first_run_layout(void)
 {
+  int max = 0;
+
+  g_assert_cmpuint(app.layout.placed, ==, 7);
+  g_object_get(app.layout.vpaned, "max-position", &max, NULL);
+  g_assert_cmpint(max, >, 440);
+  g_assert_cmpint(gtk_widget_get_height(app.layout.bottom), ==, 240);
+  g_assert_cmpint(gtk_widget_get_width(app.layout.right), ==, 280);
   g_assert_cmpint(panel_dock(&app, "files"), ==, 0);
   g_assert_cmpstr(gtk_stack_get_visible_child_name(app.dock.stacks[0]), ==, "files");
   g_assert_cmpint(panel_dock(&app, "shell"), ==, 4);

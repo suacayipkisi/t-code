@@ -149,7 +149,7 @@ static void on_paned_position(GtkPaned *paned, GParamSpec *spec G_GNUC_UNUSED, A
   GtkWidget *pane = side_widget(t, side);
   int size = side_size(t, side);
 
-  if (!pane || !gtk_widget_get_visible(pane) || !side_can_snap(t, side))
+  if (!pane || !gtk_widget_get_visible(pane) || !side_can_snap(t, side) || !(t->layout.placed & (1u << side)))
     return;
   if (t->layout.pressed) {
     if (size >= side_snap[side]) {
@@ -164,6 +164,27 @@ static void on_paned_position(GtkPaned *paned, GParamSpec *spec G_GNUC_UNUSED, A
     set_side_size(t, side, side_remembered(t, side));
     set_pane_visible(t, pane, FALSE);
   }
+}
+
+/* The bottom and the right side keep their own size (layout.sizes, from the session), not a
+ * position from the top or left, which squeezed them to nothing in a window smaller than the one
+ * it was saved in. It is given once the paned knows its size; the editors keep at least 200 px. */
+static void on_paned_first_size(GtkPaned *paned, GParamSpec *spec G_GNUC_UNUSED, App *t)
+{
+  int side = paned == t->layout.vpaned ? 1 : 2;
+  int max = 0;
+
+  g_object_get(paned, "max-position", &max, NULL);
+  if (max <= 200 || (t->layout.placed & (1u << side)))
+    return;
+  int size = side_remembered(t, side);
+  if (max - size < 200)
+    size = max / 3;
+  if (!side_can_snap(t, side))
+    size = 34; /* every bottom dock collapsed: only their tab bars */
+  t->layout.placed |= 1u << side;
+  set_side_size(t, side, size);
+  g_signal_handlers_disconnect_by_func(paned, on_paned_first_size, t);
 }
 
 void end_pane_drag(App *t)
@@ -298,7 +319,7 @@ void build_window(App *t, GtkApplication *app)
   gtk_paned_set_shrink_start_child(t->layout.vpaned, TRUE);
   gtk_paned_set_shrink_end_child(t->layout.vpaned, TRUE);
   g_signal_connect(t->layout.vpaned, "notify::position", G_CALLBACK(on_paned_position), t);
-  gtk_paned_set_position(t->layout.vpaned, 620);
+  g_signal_connect(t->layout.vpaned, "notify::max-position", G_CALLBACK(on_paned_first_size), t);
 
   /* The right sidebar right of the center area. */
   t->layout.rpaned = GTK_PANED(gtk_paned_new(GTK_ORIENTATION_HORIZONTAL));
@@ -308,7 +329,7 @@ void build_window(App *t, GtkApplication *app)
   gtk_paned_set_shrink_start_child(t->layout.rpaned, TRUE);
   gtk_paned_set_shrink_end_child(t->layout.rpaned, TRUE);
   g_signal_connect(t->layout.rpaned, "notify::position", G_CALLBACK(on_paned_position), t);
-  gtk_paned_set_position(t->layout.rpaned, 840);
+  g_signal_connect(t->layout.rpaned, "notify::max-position", G_CALLBACK(on_paned_first_size), t);
 
   /* The left sidebar left of them. */
   t->layout.hpaned = GTK_PANED(gtk_paned_new(GTK_ORIENTATION_HORIZONTAL));
@@ -319,6 +340,7 @@ void build_window(App *t, GtkApplication *app)
   gtk_paned_set_shrink_end_child(t->layout.hpaned, TRUE);
   g_signal_connect(t->layout.hpaned, "notify::position", G_CALLBACK(on_paned_position), t);
   gtk_paned_set_position(t->layout.hpaned, 280);
+  t->layout.placed = 1u; /* the left side's position is its size */
   gtk_widget_set_vexpand(GTK_WIDGET(t->layout.hpaned), TRUE);
   gtk_widget_add_css_class(GTK_WIDGET(t->layout.hpaned), "tcode-workspace");
   g_signal_connect(t->layout.hpaned, "notify::position", G_CALLBACK(on_layout_changed), t);

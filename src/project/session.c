@@ -342,8 +342,8 @@ void session_apply_window(App *t)
   if (shell >= 0)
     gtk_stack_set_visible_child_name(t->dock.stacks[shell], "shell");
   gtk_paned_set_position(t->layout.hpaned, MAX(get_int(kf, "window", "files-width", 280), 80));
-  gtk_paned_set_position(t->layout.rpaned, CLAMP(get_int(kf, "window", "right-position", 840), 200, 1600));
-  gtk_paned_set_position(t->layout.vpaned, CLAMP(get_int(kf, "window", "editor-height", 620), 120, 1200));
+  t->layout.sizes[1] = CLAMP(get_int(kf, "window", "bottom-size", 240), 100, 1200); /* given at the first size */
+  t->layout.sizes[2] = CLAMP(get_int(kf, "window", "right-size", 280), 170, 1600);
   gtk_paned_set_position(GTK_PANED(t->layout.left), MAX(get_int(kf, "window", "sidebar-split", 400), 80));
   gtk_paned_set_position(GTK_PANED(t->layout.right), MAX(get_int(kf, "window", "right-split", 400), 80));
   if (gtk_widget_get_visible(t->layout.left))
@@ -542,10 +542,10 @@ void session_save(App *t)
     g_free(order[i]);
   if (gtk_widget_get_visible(t->layout.left) && gtk_paned_get_position(t->layout.hpaned) >= 48)
     g_key_file_set_integer(kf, "window", "files-width", gtk_paned_get_position(t->layout.hpaned));
-  if (gtk_widget_get_visible(t->layout.right) && gtk_widget_get_width(t->layout.right) >= 48)
-    g_key_file_set_integer(kf, "window", "right-position", gtk_paned_get_position(t->layout.rpaned));
-  if (gtk_widget_get_visible(t->layout.bottom) && gtk_widget_get_height(t->layout.bottom) >= 48)
-    g_key_file_set_integer(kf, "window", "editor-height", gtk_paned_get_position(t->layout.vpaned));
+  if (gtk_widget_get_visible(t->layout.right) && gtk_widget_get_width(t->layout.right) >= 170)
+    g_key_file_set_integer(kf, "window", "right-size", gtk_widget_get_width(t->layout.right));
+  if (gtk_widget_get_visible(t->layout.bottom) && gtk_widget_get_height(t->layout.bottom) >= 100)
+    g_key_file_set_integer(kf, "window", "bottom-size", gtk_widget_get_height(t->layout.bottom));
   if (gtk_widget_get_visible(t->dock.cards[0]) && gtk_widget_get_visible(t->dock.cards[1]))
     g_key_file_set_integer(kf, "window", "sidebar-split", gtk_paned_get_position(GTK_PANED(t->layout.left)));
   if (gtk_widget_get_visible(t->dock.cards[8]) && gtk_widget_get_visible(t->dock.cards[9]))
