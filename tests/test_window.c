@@ -3586,6 +3586,64 @@ static void test_plugins_window(void)
   g_assert_null(window_titled("Plugins"));
 }
 
+/* The first-run question about the plugin called name, or NULL. */
+static GtkWindow *question_of(const char *name)
+{
+  char *title = g_strdup_printf("Last heads-up before %s runs", name);
+  GtkWindow *found = NULL;
+
+  for (guint i = 0; i < g_list_model_get_n_items(gtk_window_get_toplevels()); i++) {
+    GtkWindow *window = g_list_model_get_item(gtk_window_get_toplevels(), i);
+    if (gtk_widget_get_visible(GTK_WIDGET(window)) && says(GTK_WIDGET(window), title))
+      found = window;
+    g_object_unref(window);
+  }
+  g_free(title);
+  return found;
+}
+
+/* The first run's question goes over the main window when the Plugins window, still open, is behind it
+ * (over that one it went unseen and the command seemed dead); asked again meanwhile, the status bar
+ * says the question is open instead of nothing. */
+static void test_plugins_run_question(void)
+{
+  Plugin quiet = { .id = "quiet", .name = "Quiet", .provider = "" };
+  GtkWindow *plugins, *question = NULL;
+  GtkWidget *not_now;
+
+  run_command(&app, "Plugins: Manage Plugins");
+  run_for(50);
+  plugins = window_titled("Plugins");
+  g_assert_nonnull(plugins);
+  gtk_window_present(app.window);
+  run_for(50);
+  plugins_confirm_run(&app, &quiet, "go");
+  run_for(50);
+  question = question_of("Quiet");
+  g_assert_nonnull(question);
+  g_assert_true(gtk_window_get_transient_for(question) == app.window);
+
+  plugins_confirm_run(&app, &quiet, "go"); /* while it is open */
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Quiet waits for your answer: its question is open");
+
+  not_now = gtk_widget_get_ancestor(label_under(GTK_WIDGET(question), "Not Now"), GTK_TYPE_BUTTON);
+  g_assert_nonnull(not_now);
+  gtk_widget_activate(not_now);
+  for (int i = 0; i < 40 && question_of("Quiet"); i++)
+    run_for(50);
+  g_assert_null(question_of("Quiet"));
+  status_say(&app, "");
+  plugins_confirm_run(&app, &quiet, "go"); /* answered: it asks again */
+  run_for(50);
+  question = question_of("Quiet");
+  g_assert_nonnull(question);
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "");
+  gtk_widget_activate(gtk_widget_get_ancestor(label_under(GTK_WIDGET(question), "Not Now"), GTK_TYPE_BUTTON));
+  run_for(50);
+  gtk_window_destroy(plugins);
+  run_for(50);
+}
+
 /* Browse: the registry's index ($TCODE_REGISTRY, a file here) lists its plugins with their review
  * badges; Install on a reviewed one downloads its pinned archive (file:// here), checks it and puts it
  * in the user's plugins folder, switched on, with its record; the button then says Installed. */
@@ -4355,6 +4413,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/open-user-files", test_open_user_files);
   g_test_add_func("/window/settings-pages", test_settings_pages);
   g_test_add_func("/window/plugins-window", test_plugins_window);
+  g_test_add_func("/window/plugins-run-question", test_plugins_run_question);
   g_test_add_func("/window/plugins-browse", test_plugins_browse);
   g_test_add_func("/window/example-plugins", test_example_plugins);
   g_test_add_func("/window/panel-menu", test_panel_buttons);

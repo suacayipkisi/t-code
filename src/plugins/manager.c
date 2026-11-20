@@ -268,8 +268,12 @@ void plugins_confirm_run(App *t, Plugin *p, const char *command_id)
 
   if (!asking)
     asking = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
-  if (g_hash_table_contains(asking, p->id)) /* one question at a time */
+  if (g_hash_table_contains(asking, p->id)) { /* one question at a time, never a silent key */
+    char *said = g_strdup_printf("%s waits for your answer: its question is open", p->name);
+    status_say(t, said);
+    g_free(said);
     return;
+  }
   g_hash_table_add(asking, g_strdup(p->id));
   q = g_new0(Question, 1);
   q->app = t;
@@ -283,7 +287,11 @@ void plugins_confirm_run(App *t, Plugin *p, const char *command_id)
   gtk_alert_dialog_set_buttons(dialog, buttons);
   gtk_alert_dialog_set_cancel_button(dialog, 0);
   gtk_alert_dialog_set_default_button(dialog, 0);
-  gtk_alert_dialog_choose(dialog, manager ? GTK_WINDOW(manager->window) : t->window, NULL, on_run_answer, q);
+  /* over the window the command came from: the Plugins window only when it is the one in front
+   * (open behind the editor, it would hide the question, and every later run would wait on it) */
+  GtkWindow *parent =
+      manager && gtk_window_is_active(GTK_WINDOW(manager->window)) ? GTK_WINDOW(manager->window) : t->window;
+  gtk_alert_dialog_choose(dialog, parent, NULL, on_run_answer, q);
   g_object_unref(dialog);
 }
 
