@@ -1,6 +1,6 @@
 pkgbase = t-code-ide
 	pkgdesc = Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell
-	pkgver = 0.5.0
+	pkgver = 0.5.1
 	pkgrel = 1
 	url = https://github.com/suacayipkisi/t-code
 	arch = x86_64
@@ -22,7 +22,7 @@ pkgbase = t-code-ide
 	optdepends = mercurial: Source Control in Mercurial repositories
 	optdepends = subversion: Source Control in Subversion working copies
 	conflicts = t-code
-	source = t-code-0.5.0.tar.gz::https://github.com/suacayipkisi/t-code/archive/refs/tags/v0.5.0.tar.gz
+	source = t-code-0.5.1.tar.gz::https://github.com/suacayipkisi/t-code/archive/refs/tags/v0.5.1.tar.gz
 	sha256sums = c88fc737a54a88f535da798b36bf8920af9b2904954115fc1e86112d20f1f5f1
 
 pkgname = t-code-ide
@@ -30,7 +30,7 @@ pkgname = t-code-ide
 pkgname = t-code-matlab
 	pkgdesc = MATLAB plugin for t-code: run .m files in a MATLAB session (MATLAB not included)
 	arch = any
-	depends = t-code-ide=0.5.0
+	depends = t-code-ide=0.5.1
 	depends = python
 	optdepends = 
 	conflicts = 
@@ -38,7 +38,7 @@ pkgname = t-code-matlab
 pkgname = t-code-octave
 	pkgdesc = GNU Octave plugin for t-code: run .m files in an Octave session
 	arch = any
-	depends = t-code-ide=0.5.0
+	depends = t-code-ide=0.5.1
 	depends = python
 	optdepends = octave: the Octave it runs
 	conflicts = 

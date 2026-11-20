@@ -2,7 +2,7 @@
 
 A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) and other color themes.
 
-### Jump => [Latest Release v0.5.0](https://github.com/suacayipkisi/t-code/releases/tag/v0.5.0) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md)
+### Jump => [Latest Release v0.5.1](https://github.com/suacayipkisi/t-code/releases/tag/v0.5.1) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md)
 
 ![t-code 0.4 in the Dark Classic color theme with the rounded look](docs/dark_classic-rounded.png)
 

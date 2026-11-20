@@ -36,6 +36,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.5.1" date="2026-11-21">
+      <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.5.1</url>
+      <description>
+        <p>A fix for 0.5.0:</p>
+        <ul>
+          <li>No crash when a plugin command ends at once, which a busy machine made likely</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.5.0" date="2026-11-21">
       <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.5.0</url>
       <description>

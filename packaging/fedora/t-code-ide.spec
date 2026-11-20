@@ -1,5 +1,5 @@
 Name:           t-code-ide
-Version:        0.5.0
+Version:        0.5.1
 Release:        1%{?dist}
 Summary:        Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell
 License:        MIT
@@ -105,6 +105,9 @@ build/test-linediff
 %{_datadir}/t-code/plugins/octave/
 
 %changelog
+* Sat Nov 21 2026 suacayipkisi <konuki8523@gmail.com> - 0.5.1-1
+- Fix: no crash when a plugin command ends at once, which a busy machine made likely
+
 * Sat Nov 21 2026 suacayipkisi <konuki8523@gmail.com> - 0.5.0-1
 - Testing panel: CTest, pytest, go test, cargo test and JUnit (GoogleTest cases too); run or debug a test from the panel or the editor gutter, go to its source
 - More debugging: Python (debugpy), Go (Delve), Rust, lldb-dap as another C / C++ debugger; logpoints, a Memory View, attaching to a running process, opening a core dump

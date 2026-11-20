@@ -1,7 +1,7 @@
 # Maintainer: suacayipkisi <konuki8523@gmail.com>
 pkgbase=t-code-ide
 pkgname=('t-code-ide' 't-code-matlab' 't-code-octave')
-pkgver=0.5.0
+pkgver=0.5.1
 pkgrel=1
 pkgdesc='Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell'
 arch=('x86_64')
