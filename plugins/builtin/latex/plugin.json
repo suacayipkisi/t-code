@@ -1,0 +1,15 @@
+{
+  "api": "tapi_1",
+  "id": "latex",
+  "name": "LaTeX and Typst",
+  "provider": "t-code",
+  "version": "0.1.0",
+  "description": "Builds a LaTeX or Typst document when one of its files is saved, with its errors in Problems and its state in the status bar; opens the PDF. Needs latexmk, tectonic or pdflatex, or typst; written in Rust, built once with cargo.",
+  "executable": "run.sh",
+  "start": "project",
+  "permissions": ["start"],
+  "commands": [
+    { "id": "build", "name": "LaTeX: Build This Document" },
+    { "id": "open", "name": "LaTeX: Open the PDF" }
+  ]
+}

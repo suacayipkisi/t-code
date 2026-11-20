@@ -639,11 +639,11 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Ten of them are written and live in this
+These are plugins the API is meant to make possible. Eleven of them are written and live in this
 repository under `plugins/builtin/` (Java, MATLAB, Octave, ShellCheck, CMake, Text Tools, TODO Finder,
-Word Count, Format on Save, Targets), as working examples and
+Word Count, Format on Save, Targets, LaTeX and Typst), as working examples and
 as the registry's first entries. They are written in different languages on purpose, to test that
-tapi_1 works the same from any of them: TODO Finder is Rust, Word Count is C++, Format on Save is Go,
+tapi_1 works the same from any of them: TODO Finder and LaTeX are Rust, Word Count is C++, Format on Save is Go,
 Targets is JavaScript (Node.js), the rest are Python 3.
 t-code does not load them by itself (install them from Browse, or copy a folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
 `t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
@@ -820,20 +820,20 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
 
 ### Documents
 
-#### LaTeX (`latex`)
-- **Does:** on `did_save`, runs `latexmk -pdf -interaction=nonstopmode`.
-- **Plugin:**
-  - Turns `! Undefined control sequence` / `l.42` lines from the `.log` into diagnostics.
-  - View PDF opens zathura or okular.
-  - Forward Search runs `zathura --synctex-forward line:col:file`.
-  - Inverse search (PDF → code): set zathura's `--synctex-editor-command` to
-    `t-code --send "open %{input}:%{line}"`.
-- **Core:** an `lsp` entry for texlab.
-- **Limits:** the PDF cannot show inside t-code.
-
-#### Typst (`typst`)
-- **Does:** keeps `typst watch` running and turns its errors into diagnostics.
-- **Core:** an `lsp` entry for tinymist.
+#### LaTeX and Typst (`latex`, in this repository: `plugins/builtin/latex`, in Rust)
+- **Does:** builds a document when one of its files is saved: LaTeX with `latexmk -pdf` (else
+  `tectonic`, else `pdflatex`, all with `-file-line-error` or the like), Typst with `typst compile
+  --diagnostic-format short`. Its errors and warnings go to the Problems panel; a status bar item
+  says `LaTeX: building…`, `LaTeX: ok`, `LaTeX: 2 errors`, or what to install. **LaTeX: Build This
+  Document** builds now; **LaTeX: Open the PDF** opens it with `xdg-open`.
+- **Plugin:** starts with the project. The document is the file a chapter names (`% !TEX root =
+  main.tex`), the file itself when it has a `\documentclass`, else the `main.tex` (or the only file
+  with a `\documentclass`) of its folder or the project's; for Typst, a `main.typ` there, else the
+  file. `run.sh` builds it with cargo, offline, into `~/.cache/t-code-latex/`.
+- **Limits:** the PDF cannot show inside t-code; no SyncTeX jumps yet (inverse search from zathura
+  works without the plugin: `--synctex-editor-command 't-code --send "open %{input}:%{line}"'`); no
+  language server entry (texlab, tinymist): add one in a plugin of your own; a build ends after five
+  minutes.
 
 #### Diagrams (`diagrams`)
 - **Does:** renders a Mermaid, PlantUML or Graphviz file or selection to SVG (`mmdc`, `plantuml`,
