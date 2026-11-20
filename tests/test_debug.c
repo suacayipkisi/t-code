@@ -10,6 +10,7 @@
 #include "debug/adapters.h"
 #include "debug/dap.h"
 #include "lsp/json.h"
+#include "util.h"
 
 #include <fcntl.h>
 #include <glib/gstdio.h>
@@ -563,6 +564,36 @@ static void test_lldb(void)
   g_free(dir);
 }
 
+/* lldb-dap is found under a versioned name (the newest), never as any other program on PATH. */
+static void test_lldb_names(void)
+{
+  char *dir = g_dir_make_tmp("t-code-lldb-names-XXXXXX", NULL), *old = g_strdup(g_getenv("PATH")), *missing = NULL;
+  char *other = write_at(dir, "gcc", "#!/bin/sh\n", -1, 0755);
+
+  g_setenv("PATH", dir, TRUE);
+  char **argv = adapter_argv(ADAPTER_LLDB, NULL, NULL, &missing);
+  g_assert_null(argv); /* gcc is not lldb-dap */
+  g_assert_nonnull(missing);
+  g_clear_pointer(&missing, g_free);
+
+  char *older = write_at(dir, "lldb-dap-18", "#!/bin/sh\n", -1, 0755);
+  char *newer = write_at(dir, "lldb-dap-19", "#!/bin/sh\n", -1, 0755);
+  argv = adapter_argv(ADAPTER_LLDB, NULL, NULL, &missing);
+  g_assert_nonnull(argv);
+  g_assert_cmpstr(argv[0], ==, newer);
+  g_strfreev(argv);
+  g_free(missing);
+
+  g_setenv("PATH", old, TRUE);
+  for (char **path = (char *[]){ other, older, newer, NULL }; *path; path++) {
+    g_remove(*path);
+    g_free(*path);
+  }
+  g_rmdir(dir);
+  g_free(dir);
+  g_free(old);
+}
+
 /* The debuggers' own console chatter is left out; a logpoint's line is not. */
 static void test_noise(void)
 {
@@ -701,6 +732,7 @@ int main(int argc, char **argv)
   g_test_add_func("/dap/lldb", test_lldb);
   g_test_add_func("/dap/missing", test_missing);
   g_test_add_func("/adapters/arguments", test_adapter_arguments);
+  g_test_add_func("/adapters/lldb-names", test_lldb_names);
   g_test_add_func("/adapters/noise", test_noise);
   g_test_add_func("/adapters/core-dumps", test_core_dumps);
   g_test_add_func("/adapters/attachable", test_attachable);

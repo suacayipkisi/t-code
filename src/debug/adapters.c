@@ -93,7 +93,9 @@ static char *find_lldb(void)
       const char *name;
       size_t length = strlen(names[n]);
       while (dir && (name = g_dir_read_name(dir))) {
-        int version = strncmp(name, names[n], length) == 0 && name[length] == '-' ? atoi(name + length + 1) : 0;
+        if (strncmp(name, names[n], length) != 0 || name[length] != '-' || !g_ascii_isdigit(name[length + 1]))
+          continue; /* not lldb-dap-<version> */
+        int version = atoi(name + length + 1);
         if (version > best) {
           char *candidate = g_build_filename(dirs[i], name, NULL);
           if (g_file_test(candidate, G_FILE_TEST_IS_EXECUTABLE)) {
