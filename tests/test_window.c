@@ -3890,6 +3890,9 @@ static void test_example_plugins(void)
   g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Word Count: 1 word, 1 line selected");
   gtk_text_buffer_undo(GTK_TEXT_BUFFER(tab->buffer)); /* the "c " goes */
   g_assert_true(text_is((const char *const[]){ text_file, "b\na\n" }));
+  /* off from here: the socket tests count the subscribers, and a project switch would start it again */
+  plugin_set_enabled(&app, plugin_find(&app, "word-count"), FALSE);
+  run_for(200);
 
   /* ShellCheck */
   g_assert_true(g_file_set_contents(script, "#!/bin/sh\necho $1\n", -1, NULL));
