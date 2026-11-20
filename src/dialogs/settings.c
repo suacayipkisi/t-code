@@ -405,6 +405,9 @@ void show_settings(App *t)
   add_row(GTK_GRID(grid), &row, "clang-tidy checks",
           "clangd also reports what the project's .clang-tidy asks for (more CPU while typing)",
           setting_switch(&t->settings.clang_tidy, lsp_restart_clangd));
+  add_row(GTK_GRID(grid), &row, "Debug with lldb-dap",
+          "F5 debugs C, C++ and Rust with lldb-dap instead of gdb (gdb when lldb-dap is not installed)",
+          setting_switch(&t->settings.lldb, NULL));
 
   grid = add_page(GTK_STACK(stack), "servers", "Language Servers", &row);
   for (int kind = 0; kind < SERVER_NONE; kind++) {

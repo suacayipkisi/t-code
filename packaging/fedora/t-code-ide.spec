@@ -107,6 +107,7 @@ build/test-linediff
 %changelog
 * Fri Nov 20 2026 suacayipkisi <konuki8523@gmail.com> - 0.5.0-1
 - Testing panel: CTest, pytest, go test and cargo test (GoogleTest cases too); run or debug a test from the editor gutter, go to its source
+- More debugging: Python (debugpy), Go (Delve), Rust, lldb-dap as another C / C++ debugger; logpoints, a Memory View, attaching to a running process, opening a core dump
 - Several shells as tabs in the Terminal panel (Ctrl+Shift+T); Build and Run use the first
 - Source Control for Mercurial and Subversion next to git; Initialize Repository offers all three; repositories nested in a project show too
 - Plugin API tapi_1: socket commands for editing, asking, diagnostics and terminal tabs; plugins can bring language servers, Run, language specs and snippets

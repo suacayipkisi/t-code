@@ -1,21 +1,36 @@
 /*
  * The Debug Adapter Protocol client (see dap.h). Requests are numbered (seq); an answer names the
- * request it answers (request_seq) and goes to that request's reply.
+ * request it answers (request_seq) and goes to that request's reply. A debugger that dials in (Delve)
+ * gets a socket of its own; what is sent before it came waits in queued.
  */
+#define _DEFAULT_SOURCE /* getpid(), setsid(), TIOCSCTTY */
 #include "debug/dap.h"
 
 #include "lsp/channel.h"
 #include "lsp/json.h"
 
+#include <fcntl.h>
+#include <gio/gunixsocketaddress.h>
+#include <glib/gstdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
+#define SOCKET_ARG "{socket}"
 
 struct Dap {
   GSubprocess *process;
-  Channel *ch;
-  gint64 seq;          /* the last request's number */
-  GHashTable *pending; /* seq -> Pending */
+  Channel *ch;       /* NULL while a debugger that dials in has not yet */
+  GPtrArray *queued; /* the messages sent before it did (char *) */
+  GSocketListener *listener;
+  char *socket_path;
+  GCancellable *cancel; /* the accept and the wait for the process */
+  gint64 seq;           /* the last request's number */
+  GHashTable *pending;  /* seq -> Pending */
   JsonNode *capabilities;
   DapEvent on_event;
+  DapHandle on_request;
   gpointer owner;
 };
 
@@ -36,16 +51,36 @@ static void drop_pending(gpointer data)
   g_free(p);
 }
 
-/* The debugger asked something itself (runInTerminal, startDebugging): none of it is done here. */
-static void refuse(Dap *d, JsonNode *message)
+/* One message to the debugger, now or once it dialed in. */
+static void send_message(Dap *d, const char *body)
 {
-  char *command = json_quote(json_string_at(message, "command") ? json_string_at(message, "command") : "");
-  char *body = g_strdup_printf("{\"seq\":%" G_GINT64_FORMAT ",\"type\":\"response\",\"request_seq\":%" G_GINT64_FORMAT
-                               ",\"command\":%s,\"success\":false,\"message\":\"not supported\"}",
-                               ++d->seq, json_int_at(message, "seq", 0), command);
+  if (d->ch)
+    channel_send(d->ch, body);
+  else
+    g_ptr_array_add(d->queued, g_strdup(body));
+}
 
-  channel_send(d->ch, body);
+/* The debugger asked something itself (runInTerminal): the owner answers it, or it is refused. */
+static void answer(Dap *d, JsonNode *message)
+{
+  const char *name = json_string_at(message, "command");
+  char *command = json_quote(name ? name : ""), *error = NULL;
+  char *result = d->on_request && name ? d->on_request(d->owner, name, json_at(message, "arguments"), &error) : NULL;
+  char *body, *why = json_quote(error ? error : "not supported");
+
+  if (result)
+    body = g_strdup_printf("{\"seq\":%" G_GINT64_FORMAT ",\"type\":\"response\",\"request_seq\":%" G_GINT64_FORMAT
+                           ",\"command\":%s,\"success\":true,\"body\":%s}",
+                           ++d->seq, json_int_at(message, "seq", 0), command, result);
+  else
+    body = g_strdup_printf("{\"seq\":%" G_GINT64_FORMAT ",\"type\":\"response\",\"request_seq\":%" G_GINT64_FORMAT
+                           ",\"command\":%s,\"success\":false,\"message\":%s}",
+                           ++d->seq, json_int_at(message, "seq", 0), command, why);
+  send_message(d, body);
   g_free(body);
+  g_free(why);
+  g_free(result);
+  g_free(error);
   g_free(command);
 }
 
@@ -70,7 +105,12 @@ static void on_message(gpointer owner, const char *text)
       Pending done = *p;
       JsonNode *success = json_at(message, "success");
       gboolean ok = success && JSON_NODE_HOLDS_VALUE(success) && json_node_get_boolean(success);
-      const char *error = json_string_at(message, "message");
+      /* the details, when there are any: "Failed to launch: <why>" (Delve, debugpy) */
+      const char *short_error = json_string_at(message, "message"),
+                 *details = json_string_at(message, "body.error.format");
+      char *error = details && g_strcmp0(details, short_error) != 0
+                        ? g_strdup_printf("%s%s%s", short_error ? short_error : "", short_error ? ": " : "", details)
+                        : g_strdup(short_error);
       g_hash_table_steal(d->pending, &seq);
       g_free(p);
       if (ok && g_strcmp0(json_string_at(message, "command"), "initialize") == 0 && json_at(message, "body"))
@@ -79,16 +119,17 @@ static void on_message(gpointer owner, const char *text)
         done.reply(done.data, ok ? json_at(message, "body") : NULL, ok ? NULL : (error ? error : "failed"));
       if (done.destroy)
         done.destroy(done.data);
+      g_free(error);
     }
   } else if (g_strcmp0(type, "event") == 0 && json_string_at(message, "event")) {
     d->on_event(d->owner, json_string_at(message, "event"), json_at(message, "body"));
   } else if (g_strcmp0(type, "request") == 0) {
-    refuse(d, message);
+    answer(d, message);
   }
   g_object_unref(parser);
 }
 
-/* gdb exited (or its pipes broke). */
+/* The debugger exited (or its pipes, or its socket, broke). */
 static void on_closed(gpointer owner)
 {
   Dap *d = owner;
@@ -111,7 +152,7 @@ void dap_request_full(Dap *d, const char *command, const char *arguments, DapRep
 
   *p = (Pending){ d->seq, reply, data, destroy };
   g_hash_table_insert(d->pending, &p->seq, p);
-  channel_send(d->ch, body);
+  send_message(d, body);
   g_free(body);
   g_free(quoted);
 }
@@ -121,34 +162,139 @@ JsonNode *dap_capabilities(Dap *d)
   return d ? d->capabilities : NULL;
 }
 
-Dap *dap_start(const char *const *argv, const char *cwd, char **env, DapEvent on_event, gpointer owner, GError **error)
+/* A channel over in and out (of keep), reading. */
+static void connect_channel(Dap *d, GInputStream *in, GOutputStream *out, GObject *keep)
 {
-  GSubprocessLauncher *launcher = g_subprocess_launcher_new(
-      G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
-  GSubprocess *process;
-  Dap *d;
-
-  g_subprocess_launcher_set_cwd(launcher, cwd);
-  if (env)
-    g_subprocess_launcher_set_environ(launcher, env);
-  process = g_subprocess_launcher_spawnv(launcher, argv, error);
-  g_object_unref(launcher);
-  if (!process)
-    return NULL;
-  d = g_new0(Dap, 1);
-  d->process = process;
-  d->pending = g_hash_table_new_full(g_int64_hash, g_int64_equal, NULL, drop_pending);
-  d->on_event = on_event;
-  d->owner = owner;
-  d->ch =
-      channel_new(g_subprocess_get_stdout_pipe(process), g_subprocess_get_stdin_pipe(process), G_OBJECT(process), d);
+  d->ch = channel_new(in, out, keep, d);
   d->ch->message = on_message;
   d->ch->on_closed = on_closed;
   channel_read(d->ch);
-  dap_request(d, "initialize",
-              "{\"clientID\":\"t-code\",\"clientName\":\"t-code\",\"adapterID\":\"gdb\",\"linesStartAt1\":true,"
-              "\"columnsStartAt1\":true,\"pathFormat\":\"path\",\"supportsVariableType\":true}",
-              NULL, NULL);
+  for (guint i = 0; i < d->queued->len; i++)
+    channel_send(d->ch, g_ptr_array_index(d->queued, i));
+  g_ptr_array_set_size(d->queued, 0);
+}
+
+/* The debugger dialed in. */
+static void on_accepted(GObject *source, GAsyncResult *result, gpointer data)
+{
+  GError *error = NULL;
+  GSocketConnection *connection = g_socket_listener_accept_finish(G_SOCKET_LISTENER(source), result, NULL, &error);
+  Dap *d;
+
+  if (!connection) { /* dap_free cancelled it, or the socket broke (the process's end tells) */
+    g_error_free(error);
+    return;
+  }
+  d = data;
+  connect_channel(d, g_io_stream_get_input_stream(G_IO_STREAM(connection)),
+                  g_io_stream_get_output_stream(G_IO_STREAM(connection)), G_OBJECT(connection));
+  g_object_unref(connection); /* the channel holds it */
+}
+
+/* A debugger that dials in ended before it did. */
+static void on_process_gone(GObject *source, GAsyncResult *result, gpointer data)
+{
+  if (!g_subprocess_wait_finish(G_SUBPROCESS(source), result, NULL)) /* dap_free */
+    return;
+  Dap *d = data;
+  if (!d->ch)
+    d->on_event(d->owner, NULL, NULL);
+}
+
+/* Listens on a socket of its own for a debugger that dials in; its path goes to d->socket_path. */
+static gboolean listen_socket(Dap *d, GError **error)
+{
+  static int count;
+  char *name = g_strdup_printf("t-code-dap-%d-%d.sock", (int)getpid(), ++count);
+  GSocketAddress *address;
+  gboolean ok;
+
+  d->socket_path = g_build_filename(g_get_user_runtime_dir(), name, NULL);
+  g_free(name);
+  g_unlink(d->socket_path);
+  address = g_unix_socket_address_new(d->socket_path);
+  d->listener = g_socket_listener_new();
+  ok = g_socket_listener_add_address(d->listener, address, G_SOCKET_TYPE_STREAM, G_SOCKET_PROTOCOL_DEFAULT, NULL, NULL,
+                                     error);
+  g_object_unref(address);
+  if (ok)
+    g_socket_listener_accept_async(d->listener, d->cancel, on_accepted, d);
+  return ok;
+}
+
+/* Child setup: the debugger in a session of its own, whose controlling terminal tty is. */
+static void take_terminal(gpointer tty)
+{
+  int fd;
+
+  setsid();
+  if ((fd = open(tty, O_RDWR)) >= 0) {
+    ioctl(fd, TIOCSCTTY, 0);
+    close(fd);
+  }
+}
+
+Dap *dap_start(const char *const *argv, const char *cwd, char **env, const char *tty, const char *adapter_id,
+               DapEvent on_event, DapHandle on_request, gpointer owner, GError **error)
+{
+  gboolean dials = FALSE;
+  GSubprocessLauncher *launcher;
+  GPtrArray *args = g_ptr_array_new_with_free_func(g_free);
+  Dap *d = g_new0(Dap, 1);
+  char *id, *initialize;
+
+  d->pending = g_hash_table_new_full(g_int64_hash, g_int64_equal, NULL, drop_pending);
+  d->queued = g_ptr_array_new_with_free_func(g_free);
+  d->cancel = g_cancellable_new();
+  d->on_event = on_event;
+  d->on_request = on_request;
+  d->owner = owner;
+  for (int i = 0; argv[i]; i++)
+    dials |= strstr(argv[i], SOCKET_ARG) != NULL;
+  if (dials && !listen_socket(d, error)) {
+    dap_free(d);
+    g_ptr_array_free(args, TRUE);
+    return NULL;
+  }
+  for (int i = 0; argv[i]; i++) {
+    const char *at = strstr(argv[i], SOCKET_ARG);
+    g_ptr_array_add(args, at ? g_strdup_printf("%.*sunix:%s%s", (int)(at - argv[i]), argv[i], d->socket_path,
+                                               at + strlen(SOCKET_ARG))
+                             : g_strdup(argv[i]));
+  }
+  g_ptr_array_add(args, NULL);
+  launcher = g_subprocess_launcher_new(dials ? G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_SILENCE
+                                             : G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE |
+                                                   G_SUBPROCESS_FLAGS_STDERR_SILENCE);
+  g_subprocess_launcher_set_cwd(launcher, cwd);
+  if (env)
+    g_subprocess_launcher_set_environ(launcher, env);
+  /* Its stdin is that terminal too (Delve hands its own fd 0 to its programs' foreground), else not
+   * t-code's, if it has one */
+  if (dials)
+    g_subprocess_launcher_set_stdin_file_path(launcher, tty ? tty : "/dev/null");
+  if (tty) /* the string lives until the spawn returned */
+    g_subprocess_launcher_set_child_setup(launcher, take_terminal, (gpointer)tty, NULL);
+  d->process = g_subprocess_launcher_spawnv(launcher, (const char *const *)args->pdata, error);
+  g_object_unref(launcher);
+  g_ptr_array_free(args, TRUE);
+  if (!d->process) {
+    dap_free(d);
+    return NULL;
+  }
+  if (dials)
+    g_subprocess_wait_async(d->process, d->cancel, on_process_gone, d);
+  else
+    connect_channel(d, g_subprocess_get_stdout_pipe(d->process), g_subprocess_get_stdin_pipe(d->process),
+                    G_OBJECT(d->process));
+  id = json_quote(adapter_id ? adapter_id : "gdb");
+  initialize = g_strdup_printf("{\"clientID\":\"t-code\",\"clientName\":\"t-code\",\"adapterID\":%s,"
+                               "\"linesStartAt1\":true,\"columnsStartAt1\":true,\"pathFormat\":\"path\","
+                               "\"supportsVariableType\":true,\"supportsMemoryReferences\":true%s}",
+                               id, on_request ? ",\"supportsRunInTerminalRequest\":true" : "");
+  dap_request(d, "initialize", initialize, NULL, NULL);
+  g_free(initialize);
+  g_free(id);
   return d;
 }
 
@@ -156,9 +302,22 @@ void dap_free(Dap *d)
 {
   if (!d)
     return;
-  g_subprocess_force_exit(d->process); /* the program goes with it: gdb has it killed when it dies */
-  channel_close(d->ch);                /* holds the process */
-  g_object_unref(d->process);
+  g_cancellable_cancel(d->cancel);
+  if (d->process) {
+    g_subprocess_force_exit(d->process); /* the program goes with it: gdb has it killed when it dies */
+    g_object_unref(d->process);
+  }
+  if (d->ch)
+    channel_close(d->ch); /* holds the process, or the connection */
+  if (d->listener) {
+    g_socket_listener_close(d->listener);
+    g_object_unref(d->listener);
+  }
+  if (d->socket_path)
+    g_unlink(d->socket_path);
+  g_free(d->socket_path);
+  g_object_unref(d->cancel);
+  g_ptr_array_free(d->queued, TRUE);
   g_hash_table_destroy(d->pending);
   if (d->capabilities)
     json_node_unref(d->capabilities);

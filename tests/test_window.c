@@ -9,6 +9,7 @@
 #include "debug/debugger.h"
 #include "debug/view/debugview.h"
 #include "debug/disassembly.h"
+#include "debug/memory.h"
 #include "application/processes.h"
 #include "dialogs/settings.h"
 #include "editor/gutter/breakpoints.h"
@@ -1792,6 +1793,36 @@ static char *test_command_for(const char *path)
   return project_test_command(&app);
 }
 
+/* The Memory View's dump: eight bytes a line with their address and characters, and the bytes that
+ * changed since the last pause under it. */
+static void test_memory_dump(void)
+{
+  const guchar now[10] = { 'h', 'i', 0, 0, 6, 0, 0, 0, 0xff, 'z' },
+               before[10] = { 'h', 'i', 0, 0, 5, 0, 0, 0, 0xff, 'z' };
+  char *text = memory_dump_text("p", 0x1000, now, sizeof now, before);
+
+  g_assert_cmpstr(text, ==,
+                  "p at 0x1000: 10 bytes, read again at each pause\n\n"
+                  "0x000000001000  68 69 00 00  06 00 00 00  hi......\n"
+                  "0x000000001008  ff 7a                     .z\n"
+                  "\nChanged since the last pause:\n"
+                  "  0x000000001004  05 -> 06\n");
+  g_free(text);
+  text = memory_dump_text("p", 0x1000, now, sizeof now, NULL);
+  g_assert_null(strstr(text, "Changed"));
+  g_free(text);
+}
+
+/* How F5 debugs the current file's project. */
+static DebugWay debug_way(void)
+{
+  DebugPlan plan = project_debug_plan(&app);
+  DebugWay way = plan.way;
+
+  debug_plan_clear(&plan);
+  return way;
+}
+
 /* A script runs with its interpreter (a Python file in a folder with a Makefile too), Build checks
  * its syntax; an executable with "#!" runs itself; C still goes to make. */
 static void test_run_scripts(void)
@@ -1810,7 +1841,12 @@ static void test_run_scripts(void)
   g_assert_true(g_file_set_contents(c, "int main(void) { return 0; }\n", -1, NULL));
 
   command = command_for(py, TRUE);
-  g_assert_false(project_can_debug(&app));
+  DebugPlan plan = project_debug_plan(&app); /* debugpy runs it in its folder, no build */
+  g_assert_cmpint(plan.way, ==, DEBUG_PYTHON);
+  g_assert_cmpstr(plan.program, ==, py);
+  g_assert_null(plan.module);
+  g_assert_cmpstr(plan.cwd, ==, dir);
+  debug_plan_clear(&plan);
   summary = project_summary(&app);
   g_assert_cmpstr(summary, ==, "python3: it's.py");
   g_free(summary);
@@ -1838,7 +1874,7 @@ static void test_run_scripts(void)
   g_free(command);
 
   command = command_for(c, TRUE);
-  g_assert_true(project_can_debug(&app));
+  g_assert_cmpint(debug_way(), ==, DEBUG_BUILT);
   g_assert_nonnull(strstr(command, "make"));
   g_free(command);
 
@@ -1942,7 +1978,7 @@ static void test_run_tests(void)
   char *summary = project_summary(&app);
   g_assert_cmpstr(summary, ==, "Meson: meson project");
   g_free(summary);
-  g_assert_true(project_can_debug(&app));
+  g_assert_cmpint(debug_way(), ==, DEBUG_BUILT);
   command = project_test_command(&app);
   g_assert_nonnull(strstr(command, "meson test -C"));
   g_free(command);
@@ -2019,12 +2055,16 @@ static void test_run_tests(void)
 }
 
 /* Whether Run's command for path contains part (and, when program is installed, what running it
- * prints contains output). */
+ * prints contains output); F5 debugs Rust as it is built, Python and Go with their own debuggers. */
 static void check_run(const char *path, const char *part, const char *program, const char *output)
 {
   char *command = command_for(path, TRUE), *found = program ? g_find_program_in_path(program) : NULL;
 
-  g_assert_false(project_can_debug(&app));
+  g_assert_cmpint(debug_way(), ==,
+                  g_str_has_suffix(path, ".rs")   ? DEBUG_BUILT
+                  : g_str_has_suffix(path, ".py") ? DEBUG_PYTHON
+                  : g_str_has_suffix(path, ".go") ? DEBUG_GO
+                                                  : DEBUG_CANNOT);
   if (!strstr(command, part))
     g_error("%s: no \"%s\" in: %s", path, part, command);
   if (found && output) {
@@ -3520,7 +3560,7 @@ static void test_settings_pages(void)
     g_assert_true(GTK_IS_SCROLLED_WINDOW(page));
     switches += count_of(page, GTK_TYPE_SWITCH);
   }
-  g_assert_cmpint(switches, ==, 15 + SERVER_NONE); /* none lost on the way; one per built-in server */
+  g_assert_cmpint(switches, ==, 16 + SERVER_NONE); /* none lost on the way; one per built-in server */
   g_assert_cmpstr(gtk_stack_get_visible_child_name(stack), ==, "general");
 
   gtk_stack_set_visible_child_name(stack, "appearance");
@@ -4625,6 +4665,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/socket-stalled-subscriber", test_socket_stalled_subscriber);
   g_test_add_func("/window/update-check-now", test_update_check_now);
   g_test_add_func("/window/status-say", test_status_say);
+  g_test_add_func("/window/memory-dump", test_memory_dump);
   g_test_add_func("/window/no-lsp", test_no_lsp);
   g_test_add_func("/window/outline", test_outline);
   g_test_add_func("/window/second-window", test_second_window);

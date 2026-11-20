@@ -97,7 +97,7 @@ gboolean find_language_project(Project *p, const char *start)
 /* A Python file's module name when it is inside its root's packages ("app.cli" for app/cli.py with
  * app/__init__.py; "app" for app/__main__.py), else NULL: it then runs as a file. Relative imports
  * (from .core import x) work only when it runs as a module. */
-static char *python_module(const char *root, const char *file)
+char *python_module(const char *root, const char *file)
 {
   size_t len = strlen(root);
   char *at, *module;
@@ -143,7 +143,7 @@ char *script_command(const Project *p, Goal goal)
   char *what;
 
   if (goal == GOAL_DEBUG) /* the debugger does not ask (project_can_debug) */
-    what = g_strdup("echo 't-code: debugging is for C and C++ programs; Ctrl+F5 runs this file'; false");
+    what = g_strdup("echo 't-code: F5 debugs C, C++, Rust, Python and Go; Ctrl+F5 runs this file'; false");
   else if (goal == GOAL_RUN) /* in a subshell: the shell stays in its own directory */
   {
     char *module = p->python ? python_module(p->python, p->file) : NULL,
@@ -180,10 +180,13 @@ char *rustc_command(const char *file, Goal goal)
   char *out_dir = g_build_filename(dir, "build", NULL), *out = g_build_filename(out_dir, base, NULL);
   char *qdir = g_shell_quote(dir), *qfile = g_shell_quote(file), *qout_dir = g_shell_quote(out_dir);
   char *qout = g_shell_quote(out);
+  char *debug = goal == GOAL_DEBUG ? send_verb("_debug", qout) : NULL;
   char *cmd = goal == GOAL_RUN ? g_strdup_printf("mkdir -p %s && rustc -g -o %s %s && (cd %s && %s)", qout_dir, qout,
                                                  qfile, qdir, qout)
+              : debug          ? g_strdup_printf("mkdir -p %s && rustc -g -o %s %s && %s", qout_dir, qout, qfile, debug)
                                : g_strdup_printf("mkdir -p %s && rustc -g -o %s %s", qout_dir, qout, qfile);
 
+  g_free(debug);
   g_free(qout);
   g_free(qout_dir);
   g_free(qfile);
@@ -323,9 +326,17 @@ char *language_command(const Project *p, Goal goal)
       char *target = cargo_target(p->root, p->file), *where = cargo_root(p->root), *qwhere = g_shell_quote(where);
       program = "cargo";
       const char *flags = p->cargo_flags ? p->cargo_flags : "";
-      cmd = goal == GOAL_TEST  ? g_strdup_printf("(cd %s && cargo test%s)", qwhere, flags)
-            : goal == GOAL_RUN ? g_strdup_printf("(cd %s && cargo run%s%s)", qwhere, target, flags)
-                               : g_strdup_printf("(cd %s && cargo build%s%s)", qwhere, target, flags);
+      if (goal == GOAL_DEBUG) { /* the program cargo built: its "executable" in cargo's JSON lines */
+        char *debug = send_verb("_debug", "\"$exe\"");
+        cmd = g_strdup_printf("exe=$(cd %s && cargo build%s%s --message-format=json-render-diagnostics"
+                              " | sed -n 's/.*\"executable\":\"\\([^\"]*\\)\".*/\\1/p' | tail -1)"
+                              " && [ -n \"$exe\" ] && %s",
+                              qwhere, target, flags, debug);
+        g_free(debug);
+      } else
+        cmd = goal == GOAL_TEST  ? g_strdup_printf("(cd %s && cargo test%s)", qwhere, flags)
+              : goal == GOAL_RUN ? g_strdup_printf("(cd %s && cargo run%s%s)", qwhere, target, flags)
+                                 : g_strdup_printf("(cd %s && cargo build%s%s)", qwhere, target, flags);
       g_free(qwhere);
       g_free(where);
       g_free(target);
@@ -382,9 +393,9 @@ char *language_command(const Project *p, Goal goal)
     }
     default: break;
   }
-  if (goal == GOAL_DEBUG) {
+  if (goal == GOAL_DEBUG && p->kind != PROJECT_CARGO) {
     g_free(cmd);
-    cmd = g_strdup("echo 't-code: debugging is for C and C++ programs; Ctrl+F5 runs this file'; false");
+    cmd = g_strdup("echo 't-code: F5 debugs C, C++, Rust, Python and Go; Ctrl+F5 runs this file'; false");
   } else if (program) {
     cmd = if_installed(program, cmd);
   }

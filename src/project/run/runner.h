@@ -58,11 +58,13 @@ char *send_verb(const char *verb, const char *what);
 char *if_installed(const char *program, char *what);
 
 /* languages.c: how file runs when it is a script (NULL: not one) and its interpreter's program
- * ("go" for "go run"; the caller frees it); a Python file's project root; a file of another language
+ * ("go" for "go run"; the caller frees it); a Python file's project root and its module name there
+ * ("app.cli", NULL: it runs as a file); a file of another language
  * than C / C++ in its project or alone (FALSE: none). */
 const Script *script_of(const char *file);
 char *script_program(const Script *script);
 char *python_root(const char *start);
+char *python_module(const char *root, const char *file);
 gboolean find_language_project(Project *p, const char *start);
 
 /* languages.c: the commands for a script, a Rust file alone and another language's project (Cargo,

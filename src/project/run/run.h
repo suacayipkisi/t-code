@@ -19,9 +19,26 @@ char *project_test_command(App *t);
 /* Saves changed files, then runs the project test command in the shell. */
 void run_project_tests(App *t);
 
-/* Whether F5 can debug what Build builds: C / C++ (CMake, Make, a file alone; with nothing to build
- * it says so), not another language's file or project, which Ctrl+F5 runs. */
-gboolean project_can_debug(App *t);
+/* How F5 debugs the current file's project. */
+typedef enum {
+  DEBUG_CANNOT, /* another language's: Ctrl+F5 runs it */
+  DEBUG_BUILT,  /* C, C++, Rust: build_for_debug() builds it, then the program goes to the debugger */
+  DEBUG_PYTHON, /* debugpy runs the file (or module) itself */
+  DEBUG_GO,     /* Delve builds and runs the package (or file) itself */
+} DebugWay;
+
+typedef struct {
+  DebugWay way;
+  char *program;    /* PYTHON: the file; GO: the package's folder, or a file alone */
+  char *module;     /* PYTHON: "app.cli" when the file is in its project's packages, else NULL */
+  char *cwd;        /* PYTHON, GO: where it runs (as Ctrl+F5 runs it) */
+  char *python;     /* PYTHON: the project's interpreter, or NULL: python3 */
+  char *pythonpath; /* PYTHON: the project's root, which goes into PYTHONPATH, or NULL */
+} DebugPlan;
+
+/* How F5 debugs the current file's project (free with debug_plan_clear). */
+DebugPlan project_debug_plan(App *t);
+void debug_plan_clear(DebugPlan *plan);
 
 /* Saves every changed file, then builds the project in the shell for the debugger: once it built,
  * the program goes to debug_launch() (debug/debugger.h). Returns the folder the program is to run

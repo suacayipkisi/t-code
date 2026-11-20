@@ -40,8 +40,7 @@ Flatpak / Snap / AUR / AppImage packages;
 
 **0.3** the debugger, quick fixes, folding, sticky scroll and color themes. 
 
-**Next (0.6):** more of Mercurial and Subversion, more debuggers (debugpy, lldb-dap, delve) with
-logpoints and attaching to a process, and project templates.
+**Next (0.6):** more of Mercurial and Subversion, and project templates.
 
 ## What it has
 
@@ -54,8 +53,9 @@ can be dragged to another dock.
   hints, go to definition, references, rename, format, quick fixes (also as buttons on a problem),
   folding, sticky scroll, breadcrumbs, colors by meaning, find and replace, a minimap and the git
   diff gutter; the Outline panel and call / type hierarchy.
-- **Debugging** with gdb (`F5`): breakpoints (with conditions), stepping, variables, watch, call
-  stack, values under the pointer, disassembly.
+- **Debugging** (`F5`) with gdb or lldb-dap (C, C++, Rust), debugpy (Python) and Delve (Go):
+  breakpoints (with conditions), logpoints, stepping, variables, watch, call stack, values under the
+  pointer, disassembly, a memory view; attaching to a running process, opening a core dump.
 - **Build, Run and Test** in the shell: CMake, Meson, Make or a single C/C++ file; Cargo, Go, Node,
   Maven, Gradle, Python and scripts; or your own [project tasks](docs/tasks.md).
 - **Testing panel**: CTest and GoogleTest, pytest, go test and cargo test; run or debug a single
@@ -146,7 +146,8 @@ Building the packages yourself: [docs/packaging.md](docs/packaging.md).
 ### From the source
 
 Needs `gcc` 14 (C23), `make` and the GTK4, GtkSourceView 5 (5.16+), json-glib, VTE and md4c
-headers; at run time `clangd`, `git`, the Cascadia Code font, optionally `ripgrep` and `gdb` 14+.
+headers; at run time `clangd`, `git`, the Cascadia Code font, optionally `ripgrep`, `gdb` 14+ (or
+`lldb-dap`), `debugpy` and `dlv`.
 
 ```sh
 sudo dnf install gtk4-devel gtksourceview5-devel json-glib-devel vte291-gtk4-devel md4c-devel

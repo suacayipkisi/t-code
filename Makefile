@@ -141,10 +141,10 @@ build/test-log: tests/test_log.c tests/util.h src/application/log.c src/applicat
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_log.c $(shell pkg-config --libs glib-2.0)
 
 # The debugger's protocol client against gdb (skipped without one).
-DAP_SRC := src/debug/dap.c src/lsp/channel.c src/lsp/json.c
-build/test-debug: tests/test_debug.c tests/util.h $(DAP_SRC) src/debug/dap.h src/lsp/channel.h src/lsp/json.h | build
-	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o $@ tests/test_debug.c $(DAP_SRC) \
-	  $(shell pkg-config --libs json-glib-1.0 gio-2.0)
+DAP_SRC := src/debug/dap.c src/debug/adapters.c src/lsp/channel.c src/lsp/json.c
+build/test-debug: tests/test_debug.c tests/util.h $(DAP_SRC) src/debug/dap.h src/debug/adapters.h src/lsp/channel.h src/lsp/json.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0 gio-unix-2.0) -o $@ tests/test_debug.c $(DAP_SRC) \
+	  $(shell pkg-config --libs json-glib-1.0 gio-unix-2.0)
 
 SCM_SRC := $(wildcard src/git/scm/*.c)
 build/test-scm: tests/test_scm.c tests/util.h $(SCM_SRC) src/git/gitstatus.c src/git/repos.c src/git/vcs.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | build
@@ -339,8 +339,8 @@ test-asan: | build
 	  tests/test_frameworks.c src/testing/frameworks.c $(shell pkg-config --libs json-glib-1.0)
 	$(ASAN_ENV) build/asan/test-frameworks
 	$(ASAN_ENV) build/asan/test-fileops
-	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o build/asan/test-debug \
-	  tests/test_debug.c $(DAP_SRC) $(shell pkg-config --libs json-glib-1.0 gio-2.0)
+	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags json-glib-1.0 gio-unix-2.0) -o build/asan/test-debug \
+	  tests/test_debug.c $(DAP_SRC) $(shell pkg-config --libs json-glib-1.0 gio-unix-2.0)
 	$(ASAN_ENV) build/asan/test-debug
 	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -o build/asan/test-plugins \
 	  tests/test_plugins.c src/files/fileops.c src/plugins/registry.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)

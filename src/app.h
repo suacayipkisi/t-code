@@ -202,6 +202,7 @@ struct App {
     gboolean clang_tidy;     /* clangd also runs the project's .clang-tidy checks */
     guint servers_off;       /* built-in language servers turned off: bit 1 << ServerKind (lsp/servers.h) */
     gboolean format_on_save; /* Ctrl+S formats the file with clangd first */
+    gboolean lldb;           /* C, C++ and Rust debug with lldb-dap instead of gdb (debug/adapters.h) */
     char *font;              /* editors and the shell, a Pango font description */
     char *files_font;        /* the Files panel */
     gboolean square;         /* the square theme (flat panels, lines between them), not rounded cards */

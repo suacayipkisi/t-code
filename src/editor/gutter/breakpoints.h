@@ -1,7 +1,8 @@
 /*
  * Breakpoints in the editor: a red dot left of the line numbers, put and taken away by a click there
  * (a faint one shows under the pointer) or F9; a right click there asks for a condition ("i == 3":
- * it stops only when that is true). They move with the text as it is edited, and stay
+ * it stops only when that is true) or a log message (a logpoint, a diamond: "i = {i}" is printed in the
+ * Debug panel each time the line runs, and the program goes on). They move with the text as it is edited, and stay
  * for files that are not open (t->debug.breakpoints, kept in the session per project). While the
  * program is stopped, the line it stopped at has a yellow arrow and a yellow background.
  */
@@ -15,6 +16,7 @@ typedef struct Breakpoints Breakpoints;
 typedef struct {
   int line;        /* 1-based */
   char *condition; /* it stops only when this C expression is true ("i == 3"), or NULL: always */
+  char *log;       /* a logpoint: this is printed instead of stopping ("i = {i}"), or NULL */
 } Breakpoint;
 
 /* Puts the dots' column into tab's gutter (editorview.c). */
@@ -39,6 +41,13 @@ void breakpoint_set_condition(Tab *tab, int line, const char *condition);
 /* The condition of the breakpoint on line (0-based), or NULL. */
 const char *breakpoint_condition(Tab *tab, int line);
 
+/* Sets the log message of the breakpoint on line (0-based), making one when there is none (its
+ * condition stays); NULL: it stops again. */
+void breakpoint_set_log(Tab *tab, int line, const char *log);
+
+/* The log message of the breakpoint on line (0-based), or NULL. */
+const char *breakpoint_log(Tab *tab, int line);
+
 /* Takes the breakpoint on line (1-based) of path away, also when the file is not open. */
 void breakpoint_remove(App *t, const char *path, int line);
 
@@ -53,11 +62,12 @@ GArray *breakpoints_in(App *t, const char *path);
 void breakpoints_remove_all(App *t);
 
 /* Every breakpoint as "line:path", for the session (free with g_strfreev); NULL when there are none.
- * *conditions gets their conditions in the same order ("" for none; free it too). */
-char **breakpoints_save(App *t, char ***conditions);
+ * *conditions and *logs get their conditions and log messages in the same order ("" for none; free
+ * them too). */
+char **breakpoints_save(App *t, char ***conditions, char ***logs);
 
 /* Puts back what breakpoints_save() gave (another project's go); NULL: none. */
-void breakpoints_restore(App *t, char **saved, char **conditions);
+void breakpoints_restore(App *t, char **saved, char **conditions, char **logs);
 
 /* The program stopped at line (1-based) of path: the editors showing it mark it. path NULL: it runs
  * again (or ended), the mark goes. */

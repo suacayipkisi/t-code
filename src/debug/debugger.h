@@ -1,8 +1,10 @@
 /*
- * Debugging with gdb: F5 builds the project in the shell and starts the program under
- * gdb, which stops it at the breakpoints (editor/gutter/breakpoints.c) or where it crashes; the editor
- * then shows that line, and F10 / F11 / Shift+F11 go on one step at a time, F5 to the next stop.
- * The Debug panel holds the buttons for all that over a terminal the program reads and writes.
+ * Debugging: F5 builds the project in the shell and starts the program under gdb (or lldb-dap; a
+ * Python file under debugpy, a Go package under Delve), which stops it at the breakpoints
+ * (editor/gutter/breakpoints.c) or where it crashes; the editor then shows that line, and F10 / F11 /
+ * Shift+F11 go on one step at a time, F5 to the next stop. The Debug panel holds the buttons for all
+ * that over a terminal the program reads and writes. The debugger may also attach to a running
+ * process, or open a core dump (the memory a crashed program left).
  */
 #pragma once
 
@@ -36,6 +38,14 @@ void debug_stop(App *t);
 
 /* Ctrl+Shift+F5: ends it, then builds and starts again. */
 void debug_restart(App *t);
+
+/* "Debug: Attach to Process…": picks one of the user's running processes and attaches to it; Stop
+ * then leaves it running. */
+void debug_attach(App *t);
+
+/* "Debug: Open Core Dump…": picks a crash systemd-coredump kept (or a core file, then its program) and
+ * shows where it crashed, with its stack and variables. */
+void debug_open_core(App *t);
 
 /* Asks which program F5 debugs in a project built by a Makefile (it is remembered). */
 void debug_select_program(App *t);

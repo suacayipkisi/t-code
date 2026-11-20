@@ -1,5 +1,6 @@
 /*
- * Debugging with gdb (see debugger.h). A session goes:
+ * Debugging (see debugger.h), with gdb by default; lldb-dap, debugpy and Delve go the same way over
+ * the Debug Adapter Protocol (debug/adapters.c says how each one starts). A session goes:
  *   F5          the project is built in the shell (project/run.c); the build ends with
  *               "t-code --send '_debug <program>'", and the control socket calls debug_launch()
  *   launch      gdb starts ("gdb -i dap", debug/dap.c) with the program's terminal as its
@@ -10,13 +11,17 @@
  *   F10 ...     next / stepIn / stepOut / continue, with the stopped thread
  *   terminated  the program ended: gdb is stopped too (one gdb per run)
  * Shift+F5 asks gdb to end the program ("disconnect"), and kills it when it does not within END_MS.
+ * The other debuggers have the program started in its terminal by t-code (runInTerminal). A session may
+ * also attach to a running process, or open a core dump (a crashed program's memory, saved).
  */
 #define _DEFAULT_SOURCE
 #define _XOPEN_SOURCE 700 /* ptsname() under -std=c23 */
 #include "debug/debugger.h"
 
 #include "application/processes.h"
+#include "debug/adapters.h"
 #include "debug/dap.h"
+#include "debug/memory.h"
 #include "debug/view/debugview.h"
 #include "debug/disassembly.h"
 #include "editor/gutter/breakpoints.h"
@@ -29,7 +34,9 @@
 #include "window/window.h"
 
 #include <fcntl.h>
+#include <signal.h>
 #include <stdarg.h>
+#include <sys/ioctl.h>
 #include <glib/gstdio.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +48,8 @@
 #define STACK_LEVELS 50 /* frames asked for to find one with a file */
 #define PROGRAM_DEPTH 4 /* folders deep a Makefile's programs are looked for */
 #define MAX_PROGRAMS 200
+#define EVALUATE_GDB "Evaluate while paused: a[i], sum / n, *p   (-exec runs a gdb command)"
+#define EVALUATE "Evaluate while paused: a[i], sum / n, len(items)"
 
 typedef enum {
   STARTING, /* gdb starts, the program is not running yet */
@@ -52,8 +61,13 @@ typedef enum {
 struct Debugger {
   App *app;
   Dap *dap;
+  AdapterKind kind;
+  GSubprocess *child; /* what the debugger had started in the program's terminal (runInTerminal) */
+  gboolean examining; /* a core dump: nothing runs, the stack and variables are only looked at */
   State state;
   gboolean configured; /* the breakpoints went before the start: each change goes on its own now */
+  gboolean attached;   /* to a process that ran before: Stop leaves it running */
+  char *core;          /* a core dump taken out of systemd-coredump for this session, deleted at its end */
   gint64 thread;       /* the thread that stopped last, which the steps go on with */
   char *reason;        /* why it stopped last ("breakpoint", "step", "signal") */
   gboolean crashed;    /* it stopped on a crash: its end is that crash's */
@@ -66,11 +80,14 @@ struct Debugger {
 /* The Debug panel, and what is between F5 and the start. One per window (one window per process). */
 static struct {
   GtkWidget *status;
-  GtkWidget *start, *pause, *over, *into, *out, *restart, *stop, *assembly;
+  GtkWidget *start, *pause, *over, *into, *out, *restart, *stop, *assembly, *memory;
+  GtkWidget *evaluate;
   char *tty;     /* the terminal's device: the program's stdin, stdout and stderr */
   char *cwd;     /* where the program being built for debugging will run; NULL: none is */
   char *pick_in; /* the folder the program picker lists */
   GPtrArray *programs;
+  char *core;        /* a core file whose program the program picker asks for, or NULL: F5's */
+  GPtrArray *listed; /* the attach and core dump pickers' rows (Attachable, CoreDump) */
 } ui;
 
 /* The terminal ------------------------------------------------------------------------------- */
@@ -136,23 +153,32 @@ void debug_say(App *t, const char *text)
   say_text(t, TRUE, text);
 }
 
+/* Whether the debugger said it can do capability ("supportsReadMemoryRequest"). */
+static gboolean can(Debugger *s, const char *capability)
+{
+  JsonNode *yes = s ? json_at(dap_capabilities(s->dap), capability) : NULL;
+
+  return yes && JSON_NODE_HOLDS_VALUE(yes) && json_node_get_boolean(yes);
+}
+
 /* The panel's buttons and status follow the session. */
 static void update_ui(App *t, const char *status)
 {
   Debugger *s = t->debug.session;
-  gboolean stopped = s && s->state == STOPPED;
+  gboolean stopped = s && s->state == STOPPED, moves = stopped && !s->examining;
 
   if (!ui.start)
     return;
-  gtk_widget_set_sensitive(ui.start, !s || stopped);
+  gtk_widget_set_sensitive(ui.start, !s || moves);
   gtk_widget_set_tooltip_text(ui.start, stopped ? "Continue (F5)" : "Start Debugging (F5)");
   gtk_widget_set_sensitive(ui.pause, s && s->state == RUNNING);
-  gtk_widget_set_sensitive(ui.over, stopped);
-  gtk_widget_set_sensitive(ui.into, stopped);
-  gtk_widget_set_sensitive(ui.out, stopped);
-  gtk_widget_set_sensitive(ui.restart, s != NULL);
+  gtk_widget_set_sensitive(ui.over, moves);
+  gtk_widget_set_sensitive(ui.into, moves);
+  gtk_widget_set_sensitive(ui.out, moves);
+  gtk_widget_set_sensitive(ui.restart, s != NULL && !s->examining && !s->attached);
   gtk_widget_set_sensitive(ui.stop, s != NULL);
-  gtk_widget_set_sensitive(ui.assembly, stopped);
+  gtk_widget_set_sensitive(ui.assembly, stopped && s->kind == ADAPTER_GDB); /* gdb's "disassemble /s" */
+  gtk_widget_set_sensitive(ui.memory, stopped && can(s, "supportsReadMemoryRequest"));
   if (status)
     gtk_label_set_text(GTK_LABEL(ui.status), status);
 }
@@ -169,8 +195,17 @@ static void finish(Debugger *s)
   t->debug.session = NULL;
   g_clear_handle_id(&s->end_id, g_source_remove);
   dap_free(s->dap);
+  if (s->child) { /* the program the debugger had started, with what it started in turn */
+    const char *id = g_subprocess_get_identifier(s->child);
+    if (id)
+      kill(-atoi(id), SIGKILL);
+    g_object_unref(s->child);
+  }
   g_hash_table_destroy(s->sent);
   g_free(s->reason);
+  if (s->core)
+    g_unlink(s->core);
+  g_free(s->core);
   g_free(s);
   if (t->closing) { /* the tabs are gone */
     g_clear_pointer(&t->debug.stop_path, g_free);
@@ -178,6 +213,7 @@ static void finish(Debugger *s)
     breakpoints_show_stop(t, NULL, 0);
     debug_view_ended(t);
     disassembly_ended(t);
+    memory_ended(t);
   }
   update_ui(t, "Not debugging");
   if (again && !t->closing) {
@@ -210,11 +246,14 @@ static void end_session(Debugger *s)
     finish(s);
     return;
   }
+  gboolean attached = s->attached;
   s->state = ENDING;
   breakpoints_show_stop(s->app, NULL, 0);
-  say(s->app, FALSE, "Stopped.");
+  say(s->app, FALSE, attached ? "Detached: the process goes on." : "Stopped.");
   update_ui(s->app, "Stopping…");
-  dap_request(s->dap, "disconnect", "{\"terminateDebuggee\":true}", on_disconnected, s);
+  /* a process attached to goes on without the debugger */
+  dap_request(s->dap, "disconnect", attached ? "{\"terminateDebuggee\":false}" : "{\"terminateDebuggee\":true}",
+              on_disconnected, s);
   s->end_id = g_timeout_add(END_MS, on_end_timeout, s);
 }
 
@@ -317,12 +356,15 @@ static void send_breakpoints(Debugger *s, const char *path)
   g_string_append_printf(args, "%s},\"breakpoints\":[", quoted);
   for (guint i = 0; lines && i < lines->len; i++) {
     Breakpoint *b = &g_array_index(lines, Breakpoint, i);
-    char *condition = b->condition ? json_quote(b->condition) : NULL;
+    char *condition = b->condition ? json_quote(b->condition) : NULL, *log = b->log ? json_quote(b->log) : NULL;
     g_string_append_printf(args, "%s{\"line\":%d", i ? "," : "", b->line);
     if (condition)
       g_string_append_printf(args, ",\"condition\":%s", condition);
+    if (log)
+      g_string_append_printf(args, ",\"logMessage\":%s", log);
     g_string_append(args, "}");
     g_free(condition);
+    g_free(log);
   }
   g_string_append(args, "]}");
   Asked *a = g_new0(Asked, 1);
@@ -378,6 +420,12 @@ static const char *crash_meaning(gboolean sanitizer, int signo)
   }
 }
 
+/* What the status calls a crash: an exception in Python, a panic in Go. */
+static const char *crash_word(Debugger *s)
+{
+  return s->kind == ADAPTER_DEBUGPY ? "Exception" : s->kind == ADAPTER_DELVE ? "Panic" : "Crashed";
+}
+
 typedef struct {
   App *app;
   char *where; /* "average.c:8 (in average)" */
@@ -394,6 +442,16 @@ static void crash_free(gpointer data)
 static void say_crash(App *t, const char *where, gboolean sanitizer, int signo)
 {
   say_later(t, TRUE, "■ The program crashed at %s: %s.", where, crash_meaning(sanitizer, signo));
+}
+
+/* An exception's name and message came (exceptionInfo: debugpy, Delve). */
+static void on_exception(gpointer data, JsonNode *body, const char *error G_GNUC_UNUSED)
+{
+  Crash *c = data;
+  const char *id = json_string_at(body, "exceptionId"), *description = json_string_at(body, "description");
+
+  say_later(c->app, TRUE, "■ %s%s%s at %s.", id ? id : "An exception", description ? ": " : "",
+            description ? description : "", c->where);
 }
 
 /* The signal's number came ($_siginfo.si_signo). */
@@ -437,7 +495,7 @@ static void on_stack(gpointer data, JsonNode *body, const char *error)
   }
   if (path && line > 0) {
     char *name = g_path_get_basename(path);
-    char *status = g_strdup_printf("%s: %s:%d", crash ? "Crashed" : pause_reason(s->reason), name, line);
+    char *status = g_strdup_printf("%s: %s:%d", crash ? crash_word(s) : pause_reason(s->reason), name, line);
     where = g_strdup_printf("%s:%d (in %s)", name, line, function ? function : "?");
     breakpoints_show_stop(t, path, line);
     if (!disassembly_shown(t)) /* stepping by instruction there: it stays in front */
@@ -447,7 +505,7 @@ static void on_stack(gpointer data, JsonNode *body, const char *error)
     g_free(name);
   } else {
     where = g_strdup_printf("%s (no source)", top ? top : "?");
-    char *status = g_strdup_printf("%s in %s", crash ? "Crashed" : pause_reason(s->reason), where);
+    char *status = g_strdup_printf("%s in %s", crash ? crash_word(s) : pause_reason(s->reason), where);
     if (error)
       say_text(t, TRUE, error);
     update_ui(t, status);
@@ -455,10 +513,18 @@ static void on_stack(gpointer data, JsonNode *body, const char *error)
   }
   debug_view_paused(t, frames, shown);
   disassembly_update(t);
+  memory_update(t);
   if (crash) {
     s->crashed = TRUE;
-    if (sanitizer) {
-      say_crash(t, where, TRUE, 0);
+    if (s->kind == ADAPTER_DEBUGPY || s->kind == ADAPTER_DELVE) { /* an exception, a panic: its own words */
+      Crash *c = g_new0(Crash, 1);
+      char *args = g_strdup_printf("{\"threadId\":%" G_GINT64_FORMAT "}", s->thread);
+      c->app = t;
+      c->where = g_strdup(where);
+      dap_request_full(s->dap, "exceptionInfo", args, on_exception, c, crash_free);
+      g_free(args);
+    } else if (sanitizer || s->kind != ADAPTER_GDB) {
+      say_crash(t, where, sanitizer, 0);
     } else {
       Crash *c = g_new0(Crash, 1);
       char *args = g_strdup_printf(
@@ -496,7 +562,7 @@ static void on_event(gpointer owner, const char *event, JsonNode *body)
 
   if (!event) { /* gdb went */
     if (s->state != ENDING)
-      say(t, TRUE, "gdb ended unexpectedly");
+      say(t, TRUE, "%s ended unexpectedly", adapter_name(s->kind));
     finish(s);
   } else if (strcmp(event, "initialized") == 0) {
     GHashTableIter iter;
@@ -506,6 +572,8 @@ static void on_event(gpointer owner, const char *event, JsonNode *body)
       while (g_hash_table_iter_next(&iter, &path, NULL))
         send_breakpoints(s, path);
     }
+    if (s->kind == ADAPTER_DEBUGPY) /* an exception nothing catches stops it, as a crash does */
+      dap_request(s->dap, "setExceptionBreakpoints", "{\"filters\":[\"uncaught\"]}", NULL, NULL);
     s->configured = TRUE;
     dap_request(s->dap, "configurationDone", NULL, NULL, NULL);
   } else if (strcmp(event, "stopped") == 0) {
@@ -523,14 +591,29 @@ static void on_event(gpointer owner, const char *event, JsonNode *body)
     update_ui(t, "Running");
   } else if (strcmp(event, "exited") == 0 && s->state != ENDING) { /* Stop says so itself */
     if (s->crashed)                                                /* gdb says 0 */
-      say_later(t, FALSE, "The program ended: the crash killed it.");
+      say_later(t, FALSE, "The program ended: the %s killed it.",
+                s->kind == ADAPTER_DEBUGPY ? "exception"
+                : s->kind == ADAPTER_DELVE ? "panic"
+                                           : "crash");
     else
       say_later(t, FALSE, "The program exited with code %d.", (int)json_int_at(body, "exitCode", 0));
   } else if (strcmp(event, "terminated") == 0) {
     finish(s);
   } else if (strcmp(event, "output") == 0) {
     const char *category = json_string_at(body, "category"), *output = json_string_at(body, "output");
-    if (output && (g_strcmp0(category, "important") == 0 || g_strcmp0(category, "stderr") == 0)) {
+    gboolean program = g_strcmp0(category, "stdout") == 0 || g_strcmp0(category, "stderr") == 0;
+    if (output && program && !adapter_owns_terminal(s->kind)) { /* the program's own output, sent over */
+      char **lines = g_strsplit(output, "\n", -1), *text = g_strjoinv("\r\n", lines);
+      if (t->debug.term)
+        vte_terminal_feed(t->debug.term, text, -1);
+      g_free(text);
+      g_strfreev(lines);
+    } else if (output && g_strcmp0(category, "console") == 0 && s->state != ENDING) { /* a logpoint's line, ... */
+      char *text = g_strchomp(g_strdup(output));
+      if (*text && !g_str_has_prefix(text, "Type 'dlv help'")) /* Delve's own command line: not here */
+        say(t, FALSE, "%s%s", s->kind == ADAPTER_GDB ? "◆ " : "", text);
+      g_free(text);
+    } else if (output && (g_strcmp0(category, "important") == 0 || g_strcmp0(category, "stderr") == 0)) {
       char *text = g_strchomp(g_strdup(output));
       say_text(t, FALSE, text);
       g_free(text);
@@ -560,63 +643,167 @@ static void on_launched(gpointer data, JsonNode *body G_GNUC_UNUSED, const char 
 {
   Debugger *s = data;
 
-  if (error) {
+  if (!error)
+    return;
+  if (s->attached && g_file_test("/proc/sys/kernel/yama/ptrace_scope", G_FILE_TEST_EXISTS)) {
+    char *scope = NULL;
+    g_file_get_contents("/proc/sys/kernel/yama/ptrace_scope", &scope, NULL, NULL);
+    say(s->app, TRUE, "Could not attach: %s", error);
+    if (scope && atoi(scope) > 0) /* only a program's own children may be debugged */
+      say(s->app, TRUE,
+          "The system lets a debugger attach only to the programs it started itself (ptrace_scope %d). For this "
+          "session: sudo sysctl kernel.yama.ptrace_scope=0",
+          atoi(scope));
+    g_free(scope);
+  } else {
     say(s->app, TRUE, "Could not start the program: %s", error);
-    end_session(s);
   }
+  end_session(s);
 }
 
-/* Starts gdb on program with args (NULL: none), to run in cwd; again: how Restart starts it again. */
-static void start(App *t, const char *program, const char *const *args, const char *cwd, DebugAgain again)
+/* Child setup of a program the debugger has started in the terminal: a session of its own, whose
+ * controlling terminal the terminal is (Ctrl+C, the shell's job control in it). */
+static void in_terminal(gpointer data G_GNUC_UNUSED)
 {
-  char *tty = g_strdup_printf("set inferior-tty %s", ui.tty ? ui.tty : "");
-  /* Intel's syntax ("mov eax, 1"), as most teaching material has it */
-  const char *argv[] = {
-    "gdb", "-q",  "-iex", "set debuginfod enabled off", "-iex", "set disassembly-flavor intel", "-iex", tty,
-    "-i",  "dap", NULL
-  };
+  setsid();
+  ioctl(0, TIOCSCTTY, 0);
+}
+
+/* The debugger asks t-code to start the program in its terminal (runInTerminal: lldb-dap, debugpy,
+ * Delve): it runs there in cwd with env added, and its pid is the answer. */
+static char *on_adapter_request(gpointer owner, const char *command, JsonNode *arguments, char **error)
+{
+  Debugger *s = owner;
+  JsonNode *args = json_at(arguments, "args"), *env = json_at(arguments, "env");
+  const char *cwd = json_string_at(arguments, "cwd");
+  GSubprocessLauncher *launcher;
+  GPtrArray *argv;
+  GError *failed = NULL;
+  char **environ;
+
+  if (strcmp(command, "runInTerminal") != 0 || !args || !JSON_NODE_HOLDS_ARRAY(args) || !ui.tty) {
+    *error = g_strdup("not supported");
+    return NULL;
+  }
+  if (s->child) {
+    *error = g_strdup("a program runs already");
+    return NULL;
+  }
+  argv = g_ptr_array_new();
+  for (guint i = 0; i < json_array_get_length(json_node_get_array(args)); i++)
+    g_ptr_array_add(argv, (gpointer)json_array_get_string_element(json_node_get_array(args), i));
+  g_ptr_array_add(argv, NULL);
+  environ = sanitizer_env(g_get_environ());
+  if (env && JSON_NODE_HOLDS_OBJECT(env)) {
+    JsonObjectIter iter;
+    const char *name;
+    JsonNode *value;
+    json_object_iter_init(&iter, json_node_get_object(env));
+    while (json_object_iter_next(&iter, &name, &value))
+      environ = JSON_NODE_HOLDS_VALUE(value) && json_node_get_value_type(value) == G_TYPE_STRING
+                    ? g_environ_setenv(environ, name, json_node_get_string(value), TRUE)
+                    : g_environ_unsetenv(environ, name);
+  }
+  launcher = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_NONE);
+  g_subprocess_launcher_set_environ(launcher, environ);
+  if (cwd && *cwd)
+    g_subprocess_launcher_set_cwd(launcher, cwd);
+  g_subprocess_launcher_set_stdin_file_path(launcher, ui.tty);
+  g_subprocess_launcher_set_stdout_file_path(launcher, ui.tty);
+  g_subprocess_launcher_set_stderr_file_path(launcher, ui.tty);
+  g_subprocess_launcher_set_child_setup(launcher, in_terminal, NULL, NULL);
+  s->child = argv->len > 1 ? g_subprocess_launcher_spawnv(launcher, (const char *const *)argv->pdata, &failed) : NULL;
+  g_object_unref(launcher);
+  g_strfreev(environ);
+  g_ptr_array_free(argv, TRUE);
+  if (!s->child) {
+    *error = g_strdup(failed ? failed->message : "no program");
+    g_clear_error(&failed);
+    return NULL;
+  }
+  return g_strdup_printf("{\"processId\":%s}", g_subprocess_get_identifier(s->child));
+}
+
+/* Starts kind's debugger (python: debugpy's interpreter) in cwd and sends it request ("launch",
+ * "attach") with arguments; shown goes in the terminal ("▶ demo"); again: how Restart starts it again.
+ * The Debug panel says why when the debugger is not installed. */
+static Debugger *start_session(App *t, AdapterKind kind, const char *python, const char *request, const char *arguments,
+                               const char *cwd, const char *shown, DebugAgain again)
+{
+  char *missing = NULL, **argv = adapter_argv(kind, ui.tty, python, &missing);
   char **env = sanitizer_env(g_get_environ());
   GError *error = NULL;
-  Debugger *s = g_new0(Debugger, 1);
-  char *launch, *qprogram = json_quote(program), *qcwd = json_quote(cwd);
-  GString *qargs = g_string_new("[");
+  Debugger *s;
 
-  for (int i = 0; args && args[i]; i++) {
-    char *quoted = json_quote(args[i]);
-    g_string_append_printf(qargs, "%s%s", i ? "," : "", quoted);
-    g_free(quoted);
+  show_sidebar_page(t, "debug");
+  if (!argv) {
+    say_text(t, TRUE, missing);
+    g_free(missing);
+    g_strfreev(env);
+    update_ui(t, "Not debugging");
+    return NULL;
   }
-  g_string_append_c(qargs, ']');
+  s = g_new0(Debugger, 1);
   s->app = t;
+  s->kind = kind;
   s->again = again;
   s->state = STARTING;
   s->thread = 1;
   s->sent = g_hash_table_new_full(g_int64_hash, g_int64_equal, g_free, sent_free);
-  s->dap = dap_start(argv, cwd, env, on_event, s, &error);
+  s->dap = dap_start((const char *const *)argv, cwd, env, kind == ADAPTER_DELVE ? ui.tty : NULL, adapter_id(kind),
+                     on_event, adapter_owns_terminal(kind) ? NULL : on_adapter_request, s, &error);
   if (t->debug.term) /* this run's output alone */
     vte_terminal_reset(t->debug.term, TRUE, TRUE);
-  show_sidebar_page(t, "debug");
   show_sidebar_page(t, "run");
   if (!s->dap) {
-    say(t, TRUE, "Could not start gdb: %s", error->message);
+    say(t, TRUE, "Could not start %s: %s", adapter_name(kind), error->message);
     g_hash_table_destroy(s->sent);
-    g_free(s);
+    g_clear_pointer(&s, g_free);
     update_ui(t, "Not debugging");
   } else {
     t->debug.session = s;
-    gboolean inside = g_str_has_prefix(program, t->project.root) && program[strlen(t->project.root)] == '/';
-    say(t, FALSE, "▶ %s", inside ? program + strlen(t->project.root) + 1 : program);
-    launch = g_strdup_printf("{\"program\":%s,\"args\":%s,\"cwd\":%s}", qprogram, qargs->str, qcwd);
-    dap_request(s->dap, "launch", launch, on_launched, s); /* answered once configurationDone went */
-    g_free(launch);
+    if (ui.evaluate)
+      gtk_entry_set_placeholder_text(GTK_ENTRY(ui.evaluate), kind == ADAPTER_GDB ? EVALUATE_GDB : EVALUATE);
+    s->attached = strcmp(request, "attach") == 0 && strstr(arguments, "\"coreFile\"") == NULL;
+    s->examining = strstr(arguments, "\"coreFile") != NULL;
+    if (kind == ADAPTER_GDB)
+      say_text(t, FALSE, shown);
+    else
+      say(t, FALSE, "%s   (%s)", shown, adapter_name(kind));
+    dap_request(s->dap, request, arguments, on_launched, s); /* answered once configurationDone went */
     update_ui(t, "Starting…");
   }
   g_clear_error(&error);
   g_strfreev(env);
-  g_string_free(qargs, TRUE);
-  g_free(qcwd);
-  g_free(qprogram);
-  g_free(tty);
+  g_strfreev(argv);
+  return s;
+}
+
+/* The C / C++ / Rust debugger the settings ask for. */
+static AdapterKind native(App *t)
+{
+  return adapter_native(t->settings.lldb ? "lldb" : "gdb");
+}
+
+/* "▶ path", the path from the project's root when it is inside (free it). */
+static char *shown_program(App *t, const char *program)
+{
+  gboolean inside = g_str_has_prefix(program, t->project.root) && program[strlen(t->project.root)] == '/';
+
+  return g_strdup_printf("▶ %s", inside ? program + strlen(t->project.root) + 1 : program);
+}
+
+/* Starts the C / C++ / Rust debugger on program with args (NULL: none), to run in cwd; again: how
+ * Restart starts it again. */
+static void start(App *t, const char *program, const char *const *args, const char *cwd, DebugAgain again)
+{
+  AdapterKind kind = native(t);
+  AdapterTarget target = { .program = program, .args = args, .cwd = cwd };
+  char *launch = adapter_launch(kind, &target), *shown = shown_program(t, program);
+
+  start_session(t, kind, NULL, "launch", launch, cwd, shown, again);
+  g_free(shown);
+  g_free(launch);
 }
 
 /* Which program (Makefile projects) ---------------------------------------------------------- */
@@ -699,8 +886,16 @@ static void program_query(App *t, const char *text, guint generation)
   }
 }
 
+static void open_core(App *t, const char *core, const char *program, gboolean taken);
+
 static void program_choose(App *t, const char *path)
 {
+  if (ui.core) { /* the program of a core file */
+    char *core = g_steal_pointer(&ui.core);
+    open_core(t, core, path, FALSE);
+    g_free(core);
+    return;
+  }
   session_set_project_value(t, "debug-program", path);
   if (ui.cwd && !t->debug.session) { /* a build waits for it */
     char *cwd = g_steal_pointer(&ui.cwd);
@@ -712,17 +907,20 @@ static void program_choose(App *t, const char *path)
 /* Lists the programs in dir in the picker. */
 static void pick_program(App *t, const char *dir)
 {
+  const char *title = ui.core ? "Which program crashed into this core dump?" : "Which program does F5 debug?";
+
   g_set_str(&ui.pick_in, dir);
   if (ui.programs)
     g_ptr_array_free(ui.programs, TRUE);
   ui.programs = g_ptr_array_new_with_free_func(g_free);
   find_programs(dir, PROGRAM_DEPTH, ui.programs);
   g_ptr_array_sort(ui.programs, by_age);
-  picker_open(t, "Which program does F5 debug?", program_query, program_choose);
+  picker_open(t, title, program_query, program_choose);
 }
 
 void debug_select_program(App *t)
 {
+  g_clear_pointer(&ui.core, g_free);
   pick_program(t, t->project.root);
 }
 
@@ -756,23 +954,227 @@ void debug_launch(App *t, const char *path)
   g_free(program);
 }
 
+/* Says so when a session goes on (one at a time). */
+static gboolean busy(App *t)
+{
+  if (!t->debug.session)
+    return FALSE;
+  show_sidebar_page(t, "debug");
+  say(t, TRUE, "A debugging session goes on: stop it first (Shift+F5).");
+  return TRUE;
+}
+
 void debug_launch_test(App *t, const char *program, const char *const *args, const char *cwd, DebugAgain again)
 {
-  char *gdb;
-
-  if (t->debug.session) {
-    show_sidebar_page(t, "debug");
-    say(t, TRUE, "A debugging session goes on: stop it first (Shift+F5).");
+  if (busy(t))
     return;
-  }
-  if (!(gdb = g_find_program_in_path("gdb"))) {
-    show_sidebar_page(t, "debug");
-    say(t, TRUE, "gdb is not installed: install the package \"gdb\" (dnf, apt, pacman, xbps-install) to debug.");
-    return;
-  }
-  g_free(gdb);
   g_clear_pointer(&ui.cwd, g_free); /* an F5 build no longer waits */
   start(t, program, args, cwd, again);
+}
+
+/* Attaching to a process ----------------------------------------------------------------------- */
+
+static void attach_query(App *t, const char *text, guint generation)
+{
+  int shown = 0;
+
+  for (guint i = 0; ui.listed && i < ui.listed->len; i++) {
+    Attachable *a = g_ptr_array_index(ui.listed, i);
+    char *label = g_strdup_printf("%s  (%d)", a->name, a->pid), *payload = g_strdup_printf("%d", a->pid);
+    if (!*text || fuzzy_score(text, a->command) >= 0 || fuzzy_score(text, label) >= 0) {
+      picker_add(t, generation, label, a->command, payload);
+      shown++;
+    }
+    g_free(payload);
+    g_free(label);
+  }
+  if (!shown)
+    picker_message(t, generation, "No matching processes");
+}
+
+static void attach_choose(App *t, const char *payload)
+{
+  int pid = atoi(payload);
+  Attachable *chosen = NULL;
+  const char *request;
+
+  for (guint i = 0; ui.listed && i < ui.listed->len && !chosen; i++)
+    if (((Attachable *)g_ptr_array_index(ui.listed, i))->pid == pid)
+      chosen = g_ptr_array_index(ui.listed, i);
+  if (!chosen || busy(t))
+    return;
+  AdapterKind kind = adapter_for_process(pid, t->settings.lldb ? "lldb" : "gdb");
+  char *link = g_strdup_printf("/proc/%d/cwd", pid), *cwd = g_file_read_link(link, NULL);
+  char *args = adapter_attach(kind, pid, kind == ADAPTER_DEBUGPY ? NULL : chosen->exe, &request);
+  char *shown = g_strdup_printf("▶ attached to %s (%d)", chosen->name, pid);
+
+  start_session(t, kind, NULL, request, args, cwd ? cwd : t->project.root, shown, NULL);
+  g_free(shown);
+  g_free(args);
+  g_free(cwd);
+  g_free(link);
+}
+
+void debug_attach(App *t)
+{
+  if (busy(t))
+    return;
+  if (ui.listed)
+    g_ptr_array_unref(ui.listed);
+  ui.listed = adapter_attachable(getpid());
+  picker_open(t, "Attach the debugger to which running process?", attach_query, attach_choose);
+}
+
+/* Core dumps ------------------------------------------------------------------------------------ */
+
+#define CORE_FILE_PAYLOAD "file:"
+
+/* Opens core, the memory program had when it crashed; taken: a copy of t-code's, deleted at the end. */
+static void open_core(App *t, const char *core, const char *program, gboolean taken)
+{
+  AdapterKind kind = native(t);
+  const char *request;
+  char *args = adapter_core(kind, program, core, &request), *cwd = g_path_get_dirname(program);
+  char *name = g_path_get_basename(program), *shown = g_strdup_printf("▶ the core dump of %s", name);
+  Debugger *s;
+
+  if (busy(t) || !args) {
+    if (taken)
+      g_unlink(core);
+  } else if ((s = start_session(t, kind, NULL, request, args, cwd, shown, NULL))) {
+    say(t, FALSE, "Nothing runs: the stack and the variables are as they were when it crashed. Shift+F5 closes it.");
+    if (taken)
+      s->core = g_strdup(core);
+  } else if (taken) {
+    g_unlink(core);
+  }
+  g_free(shown);
+  g_free(name);
+  g_free(cwd);
+  g_free(args);
+}
+
+/* A signal's name for the core dump list. */
+static const char *signal_name(int signal)
+{
+  switch (signal) {
+    case 4: return "illegal instruction";
+    case 5: return "trap";
+    case 6: return "abort";
+    case 7: return "bus error";
+    case 8: return "arithmetic error";
+    case 11: return "segmentation fault";
+    default: return "signal";
+  }
+}
+
+static void core_query(App *t, const char *text, guint generation)
+{
+  picker_add(t, generation, "Open a core file…", "a file named core, core.<pid>, ...", CORE_FILE_PAYLOAD);
+  for (guint i = 0; ui.listed && i < ui.listed->len; i++) {
+    CoreDump *c = g_ptr_array_index(ui.listed, i);
+    GDateTime *when = g_date_time_new_from_unix_local_usec(c->time);
+    char *at = when ? g_date_time_format(when, "%Y-%m-%d %H:%M:%S") : g_strdup("?");
+    char *name = g_path_get_basename(c->exe), *label = g_strdup_printf("%s: %s", name, signal_name(c->signal));
+    char *detail = g_strdup_printf("%s, pid %d, %s", at, c->pid, c->exe), *payload = g_strdup_printf("%u", i);
+    if (!*text || fuzzy_score(text, c->exe) >= 0)
+      picker_add(t, generation, label, detail, payload);
+    g_free(payload);
+    g_free(detail);
+    g_free(label);
+    g_free(name);
+    g_free(at);
+    if (when)
+      g_date_time_unref(when);
+  }
+}
+
+typedef struct {
+  App *app;
+  char *core, *exe;
+} Taken;
+
+static void taken_free(Taken *k)
+{
+  g_free(k->core);
+  g_free(k->exe);
+  g_free(k);
+}
+
+/* coredumpctl has written the core dump out. */
+static void on_core_taken(GObject *source, GAsyncResult *result, gpointer data)
+{
+  Taken *k = data;
+  gboolean ok = g_subprocess_wait_check_finish(G_SUBPROCESS(source), result, NULL);
+
+  if (ok && !k->app->closing)
+    open_core(k->app, k->core, k->exe, TRUE);
+  else if (!k->app->closing) {
+    show_sidebar_page(k->app, "debug");
+    say(k->app, TRUE, "coredumpctl could not give the core dump of %s.", k->exe);
+    g_unlink(k->core);
+  }
+  taken_free(k);
+}
+
+static void on_core_file(GObject *source, GAsyncResult *result, gpointer data)
+{
+  App *t = data;
+  GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, NULL);
+
+  if (!file)
+    return;
+  g_free(ui.core);
+  ui.core = g_file_get_path(file);
+  g_object_unref(file);
+  pick_program(t, t->project.root); /* its program */
+}
+
+static void core_choose(App *t, const char *payload)
+{
+  if (strcmp(payload, CORE_FILE_PAYLOAD) == 0) {
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Open a Core Dump");
+    gtk_file_dialog_open(dialog, GTK_WINDOW(t->window), NULL, on_core_file, t);
+    g_object_unref(dialog);
+    return;
+  }
+  guint i = (guint)atoi(payload);
+  if (!ui.listed || i >= ui.listed->len || busy(t))
+    return;
+  CoreDump *c = g_ptr_array_index(ui.listed, i);
+  char *pid = g_strdup_printf("%d", c->pid), *name = g_strdup_printf("t-code-core-%d", c->pid);
+  char *core = g_build_filename(g_get_user_runtime_dir(), name, NULL), *output = g_strconcat("--output=", core, NULL);
+  const char *argv[] = { "coredumpctl", "dump", "--no-pager", "--quiet", output, pid, NULL };
+  GError *error = NULL;
+  GSubprocess *process =
+      g_subprocess_newv(argv, G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, &error);
+
+  if (process) {
+    Taken *k = g_new0(Taken, 1);
+    *k = (Taken){ t, g_strdup(core), g_strdup(c->exe) };
+    show_sidebar_page(t, "debug");
+    update_ui(t, "Reading the core dump…");
+    g_subprocess_wait_check_async(process, NULL, on_core_taken, k);
+    g_object_unref(process);
+  } else {
+    say(t, TRUE, "Could not run coredumpctl: %s", error->message);
+    g_error_free(error);
+  }
+  g_free(output);
+  g_free(core);
+  g_free(name);
+  g_free(pid);
+}
+
+void debug_open_core(App *t)
+{
+  if (busy(t))
+    return;
+  if (ui.listed)
+    g_ptr_array_unref(ui.listed);
+  ui.listed = adapter_core_dumps();
+  picker_open(t, "Open which core dump? (the crashes systemd-coredump kept)", core_query, core_choose);
 }
 
 /* The commands ------------------------------------------------------------------------------- */
@@ -795,7 +1197,7 @@ static void go(App *t, const char *command)
   gboolean instruction = disassembly_shown(t) && (strcmp(command, "next") == 0 || strcmp(command, "stepIn") == 0);
   char *args;
 
-  if (!s || s->state != STOPPED)
+  if (!s || s->state != STOPPED || s->examining)
     return;
   s->state = RUNNING;
   breakpoints_show_stop(t, NULL, 0);
@@ -807,28 +1209,77 @@ static void go(App *t, const char *command)
   g_free(args);
 }
 
+/* F5 on a Python file: debugpy runs it (as a module when it is in its project's packages). */
+static void start_python(App *t, const DebugPlan *plan)
+{
+  AdapterTarget target = {
+    .program = plan->program,
+    .cwd = plan->cwd,
+    .module = plan->module,
+    .python = plan->python,
+    .pythonpath = plan->pythonpath,
+  };
+  char *launch = adapter_launch(ADAPTER_DEBUGPY, &target), *shown = shown_program(t, plan->program);
+
+  start_session(t, ADAPTER_DEBUGPY, plan->python, "launch", launch, plan->cwd, shown, NULL);
+  g_free(shown);
+  g_free(launch);
+}
+
+/* F5 on a Go file: Delve builds its package (or the file alone) for debugging and runs it. */
+static void start_go(App *t, const DebugPlan *plan)
+{
+  AdapterTarget target = { .program = plan->program, .cwd = plan->cwd, .tty = ui.tty };
+  char *launch = adapter_launch(ADAPTER_DELVE, &target), *shown = shown_program(t, plan->program);
+
+  start_session(t, ADAPTER_DELVE, NULL, "launch", launch, plan->cwd, shown, NULL);
+  g_free(shown);
+  g_free(launch);
+}
+
+/* Saved: the Python or Go program starts. */
+static void start_saved(App *t, gpointer data G_GNUC_UNUSED)
+{
+  DebugPlan plan = project_debug_plan(t);
+
+  if (!t->closing && !t->debug.session) {
+    if (plan.way == DEBUG_PYTHON)
+      start_python(t, &plan);
+    else if (plan.way == DEBUG_GO)
+      start_go(t, &plan);
+  }
+  debug_plan_clear(&plan);
+}
+
 void debug_start_or_continue(App *t)
 {
-  char *gdb;
+  DebugPlan plan;
 
   if (t->debug.session) {
     go(t, "continue");
     return;
   }
-  if (!project_can_debug(t)) {
+  plan = project_debug_plan(t);
+  if (plan.way == DEBUG_CANNOT) {
     show_sidebar_page(t, "debug");
-    say(t, TRUE, "Debugging is for C and C++ programs: Ctrl+F5 runs this file.");
-    return;
+    say(t, TRUE, "F5 debugs C, C++, Rust, Python and Go: Ctrl+F5 runs this file.");
+  } else if (plan.way == DEBUG_PYTHON || plan.way == DEBUG_GO) {
+    g_clear_pointer(&ui.cwd, g_free);
+    save_all(t, start_saved, NULL);
+  } else {
+    char *missing = NULL, **argv = adapter_argv(native(t), NULL, NULL, &missing);
+    if (!argv) {
+      show_sidebar_page(t, "debug");
+      say_text(t, TRUE, missing);
+    } else {
+      g_free(ui.cwd);
+      ui.cwd = build_for_debug(t);
+      update_ui(t, "Building… (Terminal)");
+    }
+    g_strfreev(argv);
+    g_free(missing);
   }
-  if (!(gdb = g_find_program_in_path("gdb"))) {
-    show_sidebar_page(t, "debug");
-    say(t, TRUE, "gdb is not installed: install the package \"gdb\" (dnf, apt, pacman, xbps-install) to debug.");
-    return;
-  }
-  g_free(gdb);
-  g_free(ui.cwd);
-  ui.cwd = build_for_debug(t);
-  update_ui(t, "Building… (Terminal)");
+  debug_plan_clear(&plan);
 }
 
 /* clang-format off */
@@ -933,7 +1384,8 @@ static GtkWidget *tool_button(App *t, GtkWidget *bar, const char *icon, const ch
 /* The window is going: nothing touches the panel any more. */
 static void on_panel_destroyed(GtkWidget *box G_GNUC_UNUSED, App *t)
 {
-  ui.status = ui.start = ui.pause = ui.over = ui.into = ui.out = ui.restart = ui.stop = ui.assembly = NULL;
+  ui.status = ui.start = ui.pause = ui.over = ui.into = ui.out = ui.restart = ui.stop = ui.assembly = ui.memory = NULL;
+  ui.evaluate = NULL;
   t->debug.panel = NULL;
   t->debug.term = NULL;
 }
@@ -980,6 +1432,13 @@ GtkWidget *debug_panel(App *t)
   gtk_widget_set_focus_on_click(ui.assembly, FALSE);
   g_signal_connect_swapped(ui.assembly, "clicked", G_CALLBACK(disassembly_open), t);
   gtk_box_append(GTK_BOX(bar), ui.assembly);
+  ui.memory = gtk_button_new_with_label("MEM");
+  gtk_widget_set_tooltip_text(ui.memory, "Open Memory View: the bytes a pointer, an array or a variable points to, "
+                                         "read again at each pause");
+  gtk_widget_add_css_class(ui.memory, "flat");
+  gtk_widget_set_focus_on_click(ui.memory, FALSE);
+  g_signal_connect_swapped(ui.memory, "clicked", G_CALLBACK(memory_open), t);
+  gtk_box_append(GTK_BOX(bar), ui.memory);
   ui.status = gtk_label_new("Not debugging");
   gtk_label_set_xalign(GTK_LABEL(ui.status), 0);
   gtk_label_set_ellipsize(GTK_LABEL(ui.status), PANGO_ELLIPSIZE_END);
@@ -994,15 +1453,15 @@ GtkWidget *debug_panel(App *t)
   vte_terminal_set_clear_background(t->debug.term, FALSE);
   open_pty(t);
   gtk_box_append(GTK_BOX(box), GTK_WIDGET(t->debug.term));
-  GtkWidget *evaluate = gtk_entry_new();
-  gtk_entry_set_placeholder_text(GTK_ENTRY(evaluate),
-                                 "Evaluate while paused: a[i], sum / n, *p   (-exec runs a gdb command)");
-  gtk_widget_add_css_class(evaluate, "tcode-debug-evaluate");
-  g_signal_connect(evaluate, "activate", G_CALLBACK(on_evaluate), t);
-  gtk_box_append(GTK_BOX(box), evaluate);
+  ui.evaluate = gtk_entry_new();
+  gtk_entry_set_placeholder_text(GTK_ENTRY(ui.evaluate), EVALUATE_GDB);
+  gtk_widget_add_css_class(ui.evaluate, "tcode-debug-evaluate");
+  g_signal_connect(ui.evaluate, "activate", G_CALLBACK(on_evaluate), t);
+  gtk_box_append(GTK_BOX(box), ui.evaluate);
   say(t, FALSE,
-      "F5 builds the project and runs it here under the debugger; click left of a line number (or F9) "
-      "to stop at that line.");
+      "F5 builds the project and runs it here under the debugger (C, C++, Rust; Python with debugpy, Go with "
+      "Delve); click left of a line number (or F9) to stop at that line, right click there for a condition or a "
+      "logpoint.");
   t->debug.panel = box;
   g_signal_connect(box, "destroy", G_CALLBACK(on_panel_destroyed), t);
   update_ui(t, NULL);
@@ -1011,6 +1470,11 @@ GtkWidget *debug_panel(App *t)
 
 void debug_own_processes(App *t, GHashTable *owners)
 {
-  if (t->debug.session)
-    procs_own(owners, dap_pid(t->debug.session->dap), PROC_DEBUGGER, "Debugger: gdb");
+  if (t->debug.session) {
+    char *label = g_strdup_printf("Debugger: %s", adapter_name(t->debug.session->kind));
+    procs_own(owners, dap_pid(t->debug.session->dap), PROC_DEBUGGER, label);
+    if (t->debug.session->child && g_subprocess_get_identifier(t->debug.session->child))
+      procs_own(owners, atoi(g_subprocess_get_identifier(t->debug.session->child)), PROC_DEBUGGER, label);
+    g_free(label);
+  }
 }

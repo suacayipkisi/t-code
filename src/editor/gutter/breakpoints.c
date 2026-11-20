@@ -1,7 +1,7 @@
 /*
  * Breakpoints in the editor (see breakpoints.h). In an open file each breakpoint is a source mark at
  * the end of its line: Enter at the line's start takes it down with the text, Enter at its end leaves
- * it; its condition is the mark's data ("condition"). t->debug.breakpoints holds every file's
+ * it; its condition and log message are the mark's data ("condition", "log"). t->debug.breakpoints holds every file's
  * breakpoints; an open file's are read again from its marks after each change, and the debugger is
  * told when they moved.
  */
@@ -26,6 +26,7 @@ struct Breakpoints {
   gboolean placed;   /* the marks are in (loaded): until then the text says nothing about the lines */
   GtkTextMark *stop; /* at the start of the line the program stopped at, or NULL */
   GtkWidget *ask;    /* the condition's popover (a right click), while it shows */
+  GtkWidget *ask_condition, *ask_log;
   int ask_line;
 };
 
@@ -34,6 +35,7 @@ struct Breakpoints {
 static void breakpoint_clear(gpointer data)
 {
   g_free(((Breakpoint *)data)->condition);
+  g_free(((Breakpoint *)data)->log);
 }
 
 static GArray *new_list(void)
@@ -65,7 +67,7 @@ static gboolean same_list(GArray *a, GArray *b)
     return FALSE;
   for (guint i = 0; i < na; i++) {
     Breakpoint *x = &g_array_index(a, Breakpoint, i), *y = &g_array_index(b, Breakpoint, i);
-    if (x->line != y->line || g_strcmp0(x->condition, y->condition) != 0)
+    if (x->line != y->line || g_strcmp0(x->condition, y->condition) != 0 || g_strcmp0(x->log, y->log) != 0)
       return FALSE;
   }
   return TRUE;
@@ -117,8 +119,8 @@ static GSList *marks_on(Tab *tab, int line)
   return gtk_source_buffer_get_source_marks_at_line(tab->buffer, line, CATEGORY);
 }
 
-/* A breakpoint's mark on line (0-based); its condition (may be NULL) goes with it. */
-static void add_mark(Tab *tab, int line, const char *condition)
+/* A breakpoint's mark on line (0-based); its condition and log message (may be NULL) go with it. */
+static void add_mark(Tab *tab, int line, const char *condition, const char *log)
 {
   GtkTextIter end;
   GtkSourceMark *mark;
@@ -129,10 +131,12 @@ static void add_mark(Tab *tab, int line, const char *condition)
   mark = gtk_source_buffer_create_source_mark(tab->buffer, NULL, CATEGORY, &end);
   if (condition && *condition)
     g_object_set_data_full(G_OBJECT(mark), "condition", g_strdup(condition), g_free);
+  if (log && *log)
+    g_object_set_data_full(G_OBJECT(mark), "log", g_strdup(log), g_free);
 }
 
 /* The breakpoints of the marks in the text as it is now (ascending); two that came onto one line (the
- * line break between them was deleted) become one, the first one's condition kept. */
+ * line break between them was deleted) become one, the first one's condition and log message kept. */
 static GArray *list_of_marks(Tab *tab)
 {
   GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
@@ -148,7 +152,8 @@ static GArray *list_of_marks(Tab *tab)
     int line = gtk_text_iter_get_line(&iter) + 1;
     GSList *here = gtk_source_buffer_get_source_marks_at_iter(tab->buffer, &iter, CATEGORY);
     if (list->len == 0 || g_array_index(list, Breakpoint, list->len - 1).line != line) {
-      Breakpoint b = { line, g_strdup(here ? g_object_get_data(here->data, "condition") : NULL) };
+      Breakpoint b = { line, g_strdup(here ? g_object_get_data(here->data, "condition") : NULL),
+                       g_strdup(here ? g_object_get_data(here->data, "log") : NULL) };
       g_array_append_val(list, b);
     } else { /* a second mark on that line */
       for (GSList *m = here; m; m = m->next)
@@ -185,7 +190,7 @@ static void place_marks(Tab *tab)
   for (guint i = 0; list && i < list->len; i++) {
     Breakpoint *b = &g_array_index(list, Breakpoint, i);
     if (b->line <= count)
-      add_mark(tab, b->line - 1, b->condition);
+      add_mark(tab, b->line - 1, b->condition, b->log);
   }
   gtk_widget_queue_draw(tab->view->breakpoints->renderer);
 }
@@ -216,6 +221,7 @@ static GArray *copy_list(App *t, const char *path)
   for (guint i = 0; old && i < old->len; i++) {
     Breakpoint b = g_array_index(old, Breakpoint, i);
     b.condition = g_strdup(b.condition);
+    b.log = g_strdup(b.log);
     g_array_append_val(list, b);
   }
   return list;
@@ -234,7 +240,7 @@ void breakpoint_toggle(Tab *tab, int line)
     for (GSList *m = marks; m; m = m->next)
       gtk_text_buffer_delete_mark(GTK_TEXT_BUFFER(tab->buffer), m->data);
   else
-    add_mark(tab, line, NULL);
+    add_mark(tab, line, NULL, NULL);
   g_slist_free(marks);
   sync_list(tab);
 }
@@ -248,29 +254,55 @@ void breakpoint_toggle_at_cursor(Tab *tab)
   breakpoint_toggle(tab, gtk_text_iter_get_line(&cursor));
 }
 
-void breakpoint_set_condition(Tab *tab, int line, const char *condition)
+/* The breakpoint on line (0-based) gets condition and log (NULL: none), made when there is none. */
+static void set_breakpoint(Tab *tab, int line, const char *condition, const char *log)
 {
   GSList *marks;
+  char *keep_condition = g_strdup(condition), *keep_log = g_strdup(log); /* may be the mark's own */
 
   if (!can_break(tab) || tab->view->loading)
-    return;
+    goto out;
   if (!tab->view->breakpoints->placed)
     place_marks(tab);
   marks = marks_on(tab, line);
   for (GSList *m = marks; m; m = m->next)
     gtk_text_buffer_delete_mark(GTK_TEXT_BUFFER(tab->buffer), m->data);
   g_slist_free(marks);
-  add_mark(tab, line, condition);
+  add_mark(tab, line, keep_condition, keep_log);
   sync_list(tab);
+out:
+  g_free(keep_condition);
+  g_free(keep_log);
+}
+
+/* The mark's data key on line (0-based), or NULL. */
+static const char *mark_data(Tab *tab, int line, const char *key)
+{
+  GSList *marks = tab->view && tab->view->breakpoints ? marks_on(tab, line) : NULL;
+  const char *value = marks ? g_object_get_data(marks->data, key) : NULL;
+
+  g_slist_free(marks);
+  return value;
+}
+
+void breakpoint_set_condition(Tab *tab, int line, const char *condition)
+{
+  set_breakpoint(tab, line, condition, mark_data(tab, line, "log"));
 }
 
 const char *breakpoint_condition(Tab *tab, int line)
 {
-  GSList *marks = tab->view && tab->view->breakpoints ? marks_on(tab, line) : NULL;
-  const char *condition = marks ? g_object_get_data(marks->data, "condition") : NULL;
+  return mark_data(tab, line, "condition");
+}
 
-  g_slist_free(marks);
-  return condition;
+void breakpoint_set_log(Tab *tab, int line, const char *log)
+{
+  set_breakpoint(tab, line, mark_data(tab, line, "condition"), log);
+}
+
+const char *breakpoint_log(Tab *tab, int line)
+{
+  return mark_data(tab, line, "log");
 }
 
 void breakpoint_remove(App *t, const char *path, int line)
@@ -430,9 +462,9 @@ void breakpoints_remove_all(App *t)
   place_everywhere(t);
 }
 
-char **breakpoints_save(App *t, char ***conditions)
+char **breakpoints_save(App *t, char ***conditions, char ***logs)
 {
-  GPtrArray *list = g_ptr_array_new(), *ifs = g_ptr_array_new();
+  GPtrArray *list = g_ptr_array_new(), *ifs = g_ptr_array_new(), *messages = g_ptr_array_new();
   GHashTableIter iter;
   gpointer path, items;
 
@@ -443,10 +475,13 @@ char **breakpoints_save(App *t, char ***conditions)
         Breakpoint *b = &g_array_index((GArray *)items, Breakpoint, i);
         g_ptr_array_add(list, g_strdup_printf("%d:%s", b->line, (char *)path));
         g_ptr_array_add(ifs, g_strdup(b->condition ? b->condition : ""));
+        g_ptr_array_add(messages, g_strdup(b->log ? b->log : ""));
       }
   }
   g_ptr_array_add(ifs, NULL);
+  g_ptr_array_add(messages, NULL);
   *conditions = (char **)g_ptr_array_free(ifs, FALSE);
+  *logs = (char **)g_ptr_array_free(messages, FALSE);
   if (list->len == 0) {
     g_ptr_array_free(list, TRUE);
     return NULL;
@@ -455,9 +490,9 @@ char **breakpoints_save(App *t, char ***conditions)
   return (char **)g_ptr_array_free(list, FALSE);
 }
 
-void breakpoints_restore(App *t, char **saved, char **conditions)
+void breakpoints_restore(App *t, char **saved, char **conditions, char **logs)
 {
-  guint n_conditions = conditions ? g_strv_length(conditions) : 0;
+  guint n_conditions = conditions ? g_strv_length(conditions) : 0, n_logs = logs ? g_strv_length(logs) : 0;
 
   g_clear_pointer(&t->debug.breakpoints, g_hash_table_destroy);
   for (guint i = 0; saved && saved[i]; i++) {
@@ -470,7 +505,8 @@ void breakpoints_restore(App *t, char **saved, char **conditions)
       list = new_list();
       g_hash_table_insert(table(t), g_strdup(end + 1), list);
     }
-    Breakpoint b = { (int)line, i < n_conditions && *conditions[i] ? g_strdup(conditions[i]) : NULL };
+    Breakpoint b = { (int)line, i < n_conditions && *conditions[i] ? g_strdup(conditions[i]) : NULL,
+                     i < n_logs && *logs[i] ? g_strdup(logs[i]) : NULL };
     g_array_append_val(list, b);
   }
   if (t->debug.breakpoints) {
@@ -495,16 +531,30 @@ G_DECLARE_FINAL_TYPE(TcodeBreakpointRenderer, tcode_breakpoint_renderer, TCODE, 
                      GtkSourceGutterRenderer)
 G_DEFINE_FINAL_TYPE(TcodeBreakpointRenderer, tcode_breakpoint_renderer, GTK_SOURCE_TYPE_GUTTER_RENDERER)
 
-/* A dot; a conditional breakpoint's has "=" in it. */
-static void draw_dot(GtkSnapshot *snapshot, double y, double height, GdkRGBA color, gboolean conditional)
+/* A dot (a logpoint's a diamond); a conditional breakpoint's has "=" in it. */
+static void draw_dot(GtkSnapshot *snapshot, double y, double height, GdkRGBA color, gboolean conditional,
+                     gboolean logpoint)
 {
   double size = MIN(10, height - 4), left = (DOT_WIDTH - size) / 2, top = y + (height - size) / 2;
   GskRoundedRect dot;
 
-  gsk_rounded_rect_init_from_rect(&dot, &GRAPHENE_RECT_INIT(left, top, size, size), size / 2);
-  gtk_snapshot_push_rounded_clip(snapshot, &dot);
-  gtk_snapshot_append_color(snapshot, &color, &dot.bounds);
-  gtk_snapshot_pop(snapshot);
+  if (logpoint) {
+    GskPathBuilder *builder = gsk_path_builder_new();
+    double r = size / 2 + 1, cx = DOT_WIDTH / 2.0, cy = top + size / 2;
+    gsk_path_builder_move_to(builder, cx, cy - r);
+    gsk_path_builder_line_to(builder, cx + r, cy);
+    gsk_path_builder_line_to(builder, cx, cy + r);
+    gsk_path_builder_line_to(builder, cx - r, cy);
+    gsk_path_builder_close(builder);
+    GskPath *path = gsk_path_builder_free_to_path(builder);
+    gtk_snapshot_append_fill(snapshot, path, GSK_FILL_RULE_WINDING, &color);
+    gsk_path_unref(path);
+  } else {
+    gsk_rounded_rect_init_from_rect(&dot, &GRAPHENE_RECT_INIT(left, top, size, size), size / 2);
+    gtk_snapshot_push_rounded_clip(snapshot, &dot);
+    gtk_snapshot_append_color(snapshot, &color, &dot.bounds);
+    gtk_snapshot_pop(snapshot);
+  }
   if (conditional) {
     const GdkRGBA *ink = palette_rgba(PAL_PANEL);
     gtk_snapshot_append_color(snapshot, ink, &GRAPHENE_RECT_INIT(left + 2.5, top + size / 2 - 2.5, size - 5, 1.5));
@@ -544,12 +594,13 @@ static void snapshot_dot(GtkSourceGutterRenderer *renderer, GtkSnapshot *snapsho
   red = *palette_rgba(PAL_ERROR);
   marks = marks_on(b->tab, (int)line);
   if (marks)
-    draw_dot(snapshot, y, height, red, g_object_get_data(marks->data, "condition") != NULL);
+    draw_dot(snapshot, y, height, red, g_object_get_data(marks->data, "condition") != NULL,
+             g_object_get_data(marks->data, "log") != NULL);
   else if (disassembly_is(b->tab->app, b->tab) && disassembly_breakpoint_at(b->tab->app, (int)line))
-    draw_dot(snapshot, y, height, red, FALSE);
+    draw_dot(snapshot, y, height, red, FALSE, FALSE);
   else if (b->hover == (int)line && can_click(b->tab)) {
     red.alpha = 0.4f;
-    draw_dot(snapshot, y, height, red, FALSE);
+    draw_dot(snapshot, y, height, red, FALSE, FALSE);
   }
   g_slist_free(marks);
   if (stop_line(b->tab) == (int)line)
@@ -626,7 +677,7 @@ static void close_ask(Breakpoints *b)
 {
   if (b->ask) {
     gtk_widget_unparent(b->ask);
-    b->ask = NULL;
+    b->ask = b->ask_condition = b->ask_log = NULL;
   }
 }
 
@@ -641,25 +692,41 @@ static void on_ask_closed(GtkPopover *popover G_GNUC_UNUSED, Breakpoints *b)
   g_idle_add(close_ask_later, b); /* not inside its own signal */
 }
 
-/* Enter: the condition is set (a breakpoint is made for it); empty: the breakpoint stops always. */
-static void on_ask_activate(GtkEntry *entry, Breakpoints *b)
+/* Enter in either line: the condition and the log message are set (a breakpoint is made for them);
+ * both empty: the breakpoint stops always. */
+static void on_ask_activate(GtkEntry *entry G_GNUC_UNUSED, Breakpoints *b)
 {
-  char *condition = g_strstrip(g_strdup(gtk_editable_get_text(GTK_EDITABLE(entry))));
+  char *condition = g_strstrip(g_strdup(gtk_editable_get_text(GTK_EDITABLE(b->ask_condition))));
+  char *log = g_strstrip(g_strdup(gtk_editable_get_text(GTK_EDITABLE(b->ask_log))));
   GSList *marks = marks_on(b->tab, b->ask_line);
 
-  if (*condition || marks)
-    breakpoint_set_condition(b->tab, b->ask_line, *condition ? condition : NULL);
+  if (*condition || *log || marks)
+    set_breakpoint(b->tab, b->ask_line, *condition ? condition : NULL, *log ? log : NULL);
   g_slist_free(marks);
   g_free(condition);
+  g_free(log);
   gtk_popover_popdown(GTK_POPOVER(b->ask));
+}
+
+/* A titled line of the popover. */
+static GtkWidget *ask_entry(GtkWidget *box, const char *title, const char *placeholder, const char *text)
+{
+  GtkWidget *label = gtk_label_new(title), *entry = gtk_entry_new();
+
+  gtk_label_set_xalign(GTK_LABEL(label), 0);
+  gtk_entry_set_placeholder_text(GTK_ENTRY(entry), placeholder);
+  gtk_editable_set_text(GTK_EDITABLE(entry), text ? text : "");
+  gtk_editable_set_width_chars(GTK_EDITABLE(entry), 32);
+  gtk_box_append(GTK_BOX(box), label);
+  gtk_box_append(GTK_BOX(box), entry);
+  return entry;
 }
 
 /* A right click in the column: a popover asks for the condition the breakpoint on that line stops on. */
 static void on_right_click(GtkGestureClick *click, int n G_GNUC_UNUSED, double x G_GNUC_UNUSED, double y,
                            Breakpoints *b)
 {
-  GtkWidget *box, *label, *entry, *hint;
-  const char *condition;
+  GtkWidget *box, *hint;
   int line = line_at_y(b, y), top, height;
   GtkTextIter start;
 
@@ -667,24 +734,20 @@ static void on_right_click(GtkGestureClick *click, int n G_GNUC_UNUSED, double x
   if (!can_break(b->tab) || b->tab->view->loading)
     return;
   close_ask(b);
-  condition = breakpoint_condition(b->tab, line);
   b->ask_line = line;
   b->ask = gtk_popover_new();
   box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-  label = gtk_label_new(NULL);
   char *title = g_strdup_printf("Line %d: stop only when this is true", line + 1);
-  gtk_label_set_text(GTK_LABEL(label), title);
+  b->ask_condition = ask_entry(box, title, "e.g. i == 3", breakpoint_condition(b->tab, line));
   g_free(title);
-  gtk_label_set_xalign(GTK_LABEL(label), 0);
-  entry = gtk_entry_new();
-  gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "e.g. i == 3");
-  gtk_editable_set_text(GTK_EDITABLE(entry), condition ? condition : "");
-  gtk_editable_set_width_chars(GTK_EDITABLE(entry), 32);
-  hint = gtk_label_new("Enter sets it; an empty one stops every time. Escape closes.");
+  b->ask_log = ask_entry(box, "Or print this instead of stopping (a logpoint)", "e.g. i = {i}, sum = {sum}",
+                         breakpoint_log(b->tab, line));
+  hint = gtk_label_new("Enter sets them; {expression} prints its value. Both empty: it stops every time. Escape "
+                       "closes.");
   gtk_label_set_xalign(GTK_LABEL(hint), 0);
+  gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
+  gtk_label_set_max_width_chars(GTK_LABEL(hint), 40);
   gtk_widget_add_css_class(hint, "dim-label");
-  gtk_box_append(GTK_BOX(box), label);
-  gtk_box_append(GTK_BOX(box), entry);
   gtk_box_append(GTK_BOX(box), hint);
   gtk_popover_set_child(GTK_POPOVER(b->ask), box);
   gtk_popover_set_position(GTK_POPOVER(b->ask), GTK_POS_RIGHT);
@@ -693,10 +756,11 @@ static void on_right_click(GtkGestureClick *click, int n G_GNUC_UNUSED, double x
   gtk_text_view_get_line_yrange(GTK_TEXT_VIEW(b->tab->source), &start, &top, &height);
   gtk_text_view_buffer_to_window_coords(GTK_TEXT_VIEW(b->tab->source), GTK_TEXT_WINDOW_LEFT, 0, top, NULL, &top);
   gtk_popover_set_pointing_to(GTK_POPOVER(b->ask), &(GdkRectangle){ 0, top, DOT_WIDTH, height });
-  g_signal_connect(entry, "activate", G_CALLBACK(on_ask_activate), b);
+  g_signal_connect(b->ask_condition, "activate", G_CALLBACK(on_ask_activate), b);
+  g_signal_connect(b->ask_log, "activate", G_CALLBACK(on_ask_activate), b);
   g_signal_connect(b->ask, "closed", G_CALLBACK(on_ask_closed), b);
   gtk_popover_popup(GTK_POPOVER(b->ask));
-  gtk_widget_grab_focus(entry);
+  gtk_widget_grab_focus(breakpoint_log(b->tab, line) ? b->ask_log : b->ask_condition);
 }
 
 void breakpoints_attach(Tab *tab)

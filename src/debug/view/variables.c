@@ -161,6 +161,19 @@ void var_ask_children(TcodeVar *var)
   g_free(args);
 }
 
+/* What a scope holds ("arguments", "locals", "registers"): its presentationHint, or its name when it has
+ * none (Delve's "Locals"); NULL for the others (Globals). */
+static const char *scope_kind(JsonNode *scope)
+{
+  static const char *const kinds[] = { "arguments", "locals", "registers" };
+  const char *hint = json_string_at(scope, "presentationHint"), *name = json_string_at(scope, "name");
+
+  for (size_t i = 0; i < G_N_ELEMENTS(kinds); i++)
+    if (g_strcmp0(hint, kinds[i]) == 0 || (!hint && name && g_ascii_strcasecmp(name, kinds[i]) == 0))
+      return kinds[i];
+  return NULL;
+}
+
 /* The frame's scopes: Arguments and Locals are listed, then Registers as one closed row. */
 static void on_scopes(gpointer data, JsonNode *body, const char *error)
 {
@@ -176,7 +189,7 @@ static void on_scopes(gpointer data, JsonNode *body, const char *error)
   for (int pass = 0; pass < 3; pass++) /* arguments, locals, registers */
     for (guint i = 0; i < n; i++) {
       JsonNode *scope = json_array_get_element(json_node_get_array(scopes), i);
-      const char *hint = json_string_at(scope, "presentationHint");
+      const char *hint = scope_kind(scope);
       if (pass == 2 && g_strcmp0(hint, "registers") == 0) { /* last and closed: for the Disassembly View */
         TcodeVar *registers = g_object_new(TCODE_TYPE_VAR, NULL);
         registers->name = g_strdup("Registers");

@@ -1540,6 +1540,8 @@ static char *breakpoints_of(const char *path)
     g_string_append_printf(text, "%s%d", i ? "," : "", b->line);
     if (b->condition)
       g_string_append_printf(text, " if %s", b->condition);
+    if (b->log)
+      g_string_append_printf(text, " log %s", b->log);
   }
   return g_string_free(text, FALSE);
 }
@@ -1599,24 +1601,29 @@ static void test_breakpoints_saved(void)
   Tab *tab = new_tab("one\ntwo\nthree\n");
   char **saved;
 
-  char **conditions = NULL;
+  char **conditions = NULL, **logs = NULL;
 
   breakpoint_toggle(tab, 2);
   breakpoint_set_condition(tab, 0, "i == 2");
-  saved = breakpoints_save(&app, &conditions);
+  breakpoint_set_log(tab, 2, "n = {n}");
+  saved = breakpoints_save(&app, &conditions, &logs);
   g_assert_cmpstrv(saved, ((const char *[]){ "1:/test/a.c", "3:/test/a.c", NULL }));
   g_assert_cmpstrv(conditions, ((const char *[]){ "i == 2", "", NULL }));
+  g_assert_cmpstrv(logs, ((const char *[]){ "", "n = {n}", NULL }));
   g_strfreev(conditions);
+  g_strfreev(logs);
   breakpoints_remove_all(&app);
   assert_breakpoints("");
-  g_assert_null(breakpoints_save(&app, &conditions));
+  g_assert_null(breakpoints_save(&app, &conditions, &logs));
   g_strfreev(conditions);
+  g_strfreev(logs);
   free_tab(tab);
 
   char *again[] = { "2:/test/a.c", "1:/test/a.c", "x:/test/a.c", "4:relative.c", NULL };
   char *ifs[] = { "", "n > 1", "", "", NULL };
-  breakpoints_restore(&app, again, ifs);
-  assert_breakpoints("1 if n > 1,2");
+  char *prints[] = { "x {x}", "", NULL }; /* shorter: the rest have none */
+  breakpoints_restore(&app, again, ifs, prints);
+  assert_breakpoints("1 if n > 1,2 log x {x}");
   tab = new_tab("one\ntwo\nthree\n");
   breakpoints_loaded(tab); /* as editor.c does once the file is in */
   GSList *marks = marks_on(tab, 1);
@@ -1624,7 +1631,7 @@ static void test_breakpoints_saved(void)
   g_slist_free(marks);
   g_assert_cmpstr(breakpoint_condition(tab, 0), ==, "n > 1");
   insert_at_line(tab, 0, FALSE, "zero\n");
-  assert_breakpoints("2 if n > 1,3"); /* the condition goes with its line */
+  assert_breakpoints("2 if n > 1,3 log x {x}"); /* the condition and the log go with their line */
   breakpoints_remove_all(&app);
   g_strfreev(saved);
   free_tab(tab);
@@ -1639,6 +1646,15 @@ static void test_breakpoint_conditions(void)
 
   breakpoint_set_condition(tab, 1, "a > 0");
   assert_breakpoints("2 if a > 0");
+  breakpoint_set_log(tab, 1, "a = {a}"); /* a logpoint keeps its condition */
+  assert_breakpoints("2 if a > 0 log a = {a}");
+  g_assert_cmpstr(breakpoint_log(tab, 1), ==, "a = {a}");
+  breakpoint_set_condition(tab, 1, NULL);
+  assert_breakpoints("2 log a = {a}");
+  breakpoint_set_log(tab, 1, NULL);
+  assert_breakpoints("2");
+  g_assert_null(breakpoint_log(tab, 1));
+  breakpoint_set_condition(tab, 1, "a > 0");
   breakpoint_set_condition(tab, 1, NULL);
   assert_breakpoints("2");
   g_assert_null(breakpoint_condition(tab, 1));
@@ -1648,7 +1664,7 @@ static void test_breakpoint_conditions(void)
 
   char *saved[] = { "3:/test/b.c", "5:/test/b.c", NULL };
   char *ifs[] = { "x", "", NULL };
-  breakpoints_restore(&app, saved, ifs);
+  breakpoints_restore(&app, saved, ifs, NULL);
   breakpoint_move(&app, "/test/b.c", 3, 4); /* gdb: line 3 has no code, it stops at 4 */
   char *now = breakpoints_of("/test/b.c");
   g_assert_cmpstr(now, ==, "4 if x,5");

@@ -116,8 +116,10 @@ void debug_view_breakpoints_changed(App *t)
     GtkWidget *place = gtk_label_new(where), *condition = gtk_label_new(NULL);
     GtkWidget *remove = gtk_button_new_from_icon_name("tcode-close-symbolic");
 
-    if (l->b->condition) {
-      char *text = g_strdup_printf("when %s", l->b->condition);
+    if (l->b->condition || l->b->log) {
+      char *text = g_strdup_printf("%s%s%s%s%s", l->b->condition ? "when " : "", l->b->condition ? l->b->condition : "",
+                                   l->b->condition && l->b->log ? ", " : "", l->b->log ? "log: " : "",
+                                   l->b->log ? l->b->log : "");
       gtk_label_set_text(GTK_LABEL(condition), text);
       g_free(text);
     }

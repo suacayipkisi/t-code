@@ -128,15 +128,30 @@ Indentation for This Project…" in the command palette) picks one for the whole
 remembered. Makefiles always get tabs.
 
 **Debugging.** `F5` saves, builds with debug info and starts the program under gdb (14 or newer,
-`gdb -i dap`); a click left of a line number (or `F9`) puts a breakpoint there, a right click asks
-for a condition. When it stops, the line is marked, and the Run and Debug panel shows the
+`gdb -i dap`): C, C++ and Rust (Cargo or a file alone; lldb-dap instead of gdb with "Debug with
+lldb-dap" in Settings → C / C++). A Python file runs under debugpy (`python3 -m pip install
+debugpy`, the project's interpreter), a Go package under Delve (`go install
+github.com/go-delve/delve/cmd/dlv@latest`), both without a build in the shell; each says how to
+install it when it is missing. A click left of a line number (or `F9`) puts a breakpoint there, a
+right click asks for a condition or a log message: a logpoint (a diamond) prints `i = {i}` with
+the value in the Debug panel each time the line runs, and the program goes on. When it stops, the line is marked, and the Run and Debug panel shows the
 variables (the ones that changed in color, arrays and structs opened like folders), watch
 expressions, the call stack and every breakpoint; the pointer on a name shows its value. The Debug
 panel at the bottom has the buttons (continue, pause, step over / into / out, restart, stop), the
 program's own terminal and a line to evaluate expressions (or `-exec` gdb commands). A crash
 (segfault, AddressSanitizer) stops on the bad line and says in one sentence what happened. **ASM**
 opens the Disassembly View: the function's instructions with its source lines, stepping by
-instruction and instruction breakpoints. A Makefile's program is picked once and remembered.
+instruction and instruction breakpoints (gdb). **MEM** opens the Memory View: the bytes a
+pointer, an array or a variable points to (`p`, `arr`, `&n`, `0x7ffd1230`), eight a line as hex
+and as characters, read again at each pause with the bytes that changed listed under them. A
+Makefile's program is picked once and remembered.
+
+"Debug: Attach to Process…" lists your running programs (newest first) and attaches to the one
+picked: it stops where it is, and Stop detaches, leaving it running (a Python one goes to debugpy).
+Where the system allows a debugger only its own children (`kernel.yama.ptrace_scope` 1), the Debug
+panel says how to allow it. "Debug: Open Core Dump…" lists the crashes systemd-coredump kept (or
+opens a core file, then asks for its program) and shows where it crashed, with the stack and the
+variables as they were; nothing runs.
 
 **Build and run.** `Ctrl+F5` / Run saves, then builds and runs in the shell (Build stops after
 building), looking upwards from the current file: CMake uses `CMakeLists.txt`, Meson uses

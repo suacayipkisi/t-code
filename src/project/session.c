@@ -174,6 +174,8 @@ static const Setting settings[] = {
                " Ctrl+S formats C and C++ files with clangd first (the project's .clang-format)"),
   BOOL_SETTING("clang-tidy", clang_tidy, FALSE,
                " clangd also reports what the project's .clang-tidy asks for (more CPU while typing)"),
+  BOOL_SETTING("debug-with-lldb", lldb, FALSE,
+               " F5 debugs C, C++ and Rust with lldb-dap instead of gdb (gdb when lldb-dap is not installed)"),
   BOOL_SETTING("reopen-last-project", reopen_last, TRUE,
                " When started from the app menu (not from a folder in a terminal)"),
   BOOL_SETTING("check-updates", check_updates, TRUE,
@@ -375,8 +377,10 @@ void session_load_project(App *t)
   t->project.indent.tabs = get_bool(kf, group, "indent-tabs", FALSE);
   char **breakpoints = g_key_file_get_string_list(kf, group, "breakpoints", NULL, NULL);
   char **conditions = g_key_file_get_string_list(kf, group, "breakpoint-conditions", NULL, NULL);
-  breakpoints_restore(t, breakpoints, conditions);
+  char **logs = g_key_file_get_string_list(kf, group, "breakpoint-logs", NULL, NULL);
+  breakpoints_restore(t, breakpoints, conditions, logs);
   debug_view_breakpoints_changed(t);
+  g_strfreev(logs);
   g_strfreev(conditions);
   g_strfreev(breakpoints);
   char **watches = g_key_file_get_string_list(kf, group, "watch", NULL, NULL);
@@ -593,10 +597,12 @@ void session_save(App *t)
     g_key_file_set_integer(kf, group, active_keys[g], active);
     g_strfreev(tabs);
   }
-  char **conditions = NULL, **breakpoints = breakpoints_save(t, &conditions);
-  gboolean any_condition = FALSE;
+  char **conditions = NULL, **logs = NULL, **breakpoints = breakpoints_save(t, &conditions, &logs);
+  gboolean any_condition = FALSE, any_log = FALSE;
   for (int i = 0; conditions[i]; i++)
     any_condition |= *conditions[i] != '\0';
+  for (int i = 0; logs[i]; i++)
+    any_log |= *logs[i] != '\0';
   if (breakpoints)
     g_key_file_set_string_list(kf, group, "breakpoints", (const char *const *)breakpoints, g_strv_length(breakpoints));
   else
@@ -606,6 +612,11 @@ void session_save(App *t)
                                g_strv_length(conditions));
   else
     g_key_file_remove_key(kf, group, "breakpoint-conditions", NULL);
+  if (any_log)
+    g_key_file_set_string_list(kf, group, "breakpoint-logs", (const char *const *)logs, g_strv_length(logs));
+  else
+    g_key_file_remove_key(kf, group, "breakpoint-logs", NULL);
+  g_strfreev(logs);
   g_strfreev(conditions);
   g_strfreev(breakpoints);
   char **watches = debug_view_watches();

@@ -2,7 +2,8 @@
  * Talking to a debugger with the Debug Adapter Protocol (DAP): gdb runs as
  * "gdb -i dap", gets requests ({"seq": 3, "type": "request", "command": "next", "arguments": {...}})
  * on its stdin, framed like the language server's messages (lsp/channel.c), answers each one and
- * sends events of its own ("stopped", "exited", "output"). GLib and json-glib only.
+ * sends events of its own ("stopped", "exited", "output"). The same goes for lldb-dap, debugpy and
+ * Delve. GLib and json-glib only.
  */
 #pragma once
 
@@ -18,9 +19,19 @@ typedef void (*DapReply)(gpointer data, JsonNode *body, const char *error);
  * dap_free()). */
 typedef void (*DapEvent)(gpointer owner, const char *event, JsonNode *body);
 
-/* Starts the debugger (argv) in cwd with env (NULL: t-code's) and sends it "initialize"; NULL with
- * error set when it cannot start. */
-Dap *dap_start(const char *const *argv, const char *cwd, char **env, DapEvent on_event, gpointer owner, GError **error);
+/* A request of the debugger's own (runInTerminal) with its arguments: the answer's body (a JSON object,
+ * freed by the caller), or NULL with *error set (freed too) when it is refused. */
+typedef char *(*DapHandle)(gpointer owner, const char *command, JsonNode *arguments, char **error);
+
+/* Starts the debugger (argv) in cwd with env (NULL: t-code's) and sends it "initialize" naming it
+ * adapter_id ("gdb", "lldb-dap", "debugpy", "go"); on_request (NULL: every request of its own is refused)
+ * gets its requests, and then "runInTerminal" is said to work. An argument holding "{socket}" makes it
+ * a debugger that dials in (dlv dap --client-addr {socket}): that becomes "unix:<path>" of a socket
+ * t-code listens on, and the messages go over it instead of stdin / stdout. tty (may be NULL) becomes the
+ * debugger's controlling terminal, in a session of its own (Delve puts its programs in the foreground
+ * there). NULL with error set when it cannot start. */
+Dap *dap_start(const char *const *argv, const char *cwd, char **env, const char *tty, const char *adapter_id,
+               DapEvent on_event, DapHandle on_request, gpointer owner, GError **error);
 
 /* Sends command with arguments (a JSON object, or NULL for none); reply (may be NULL) gets the
  * answer. */

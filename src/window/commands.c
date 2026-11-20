@@ -8,6 +8,7 @@
 #include "debug/debugger.h"
 #include "debug/view/debugview.h"
 #include "debug/disassembly.h"
+#include "debug/memory.h"
 #include "dialogs/about.h"
 #include "dialogs/keybinds.h"
 #include "dialogs/processes.h"
@@ -361,6 +362,9 @@ static const Command commands[] = {
   { "View: Toggle Plugins", NULL, NULL, show_plugins_cmd, FALSE, FALSE, FALSE },
   { "Debug: Add to Watch", NULL, NULL, add_to_watch, TRUE, FALSE, FALSE },
   { "Debug: Open Disassembly View", NULL, NULL, disassembly_open, FALSE, FALSE, FALSE },
+  { "Debug: Open Memory View…", NULL, NULL, memory_open, FALSE, FALSE, FALSE },
+  { "Debug: Attach to Process…", NULL, NULL, debug_attach, FALSE, FALSE, FALSE },
+  { "Debug: Open Core Dump…", NULL, NULL, debug_open_core, FALSE, FALSE, FALSE },
   { "Debug: Remove All Breakpoints", NULL, NULL, breakpoints_remove_all, FALSE, FALSE, FALSE },
   { "Debug: Select Program to Debug…", NULL, NULL, debug_select_program, FALSE, FALSE, FALSE },
   { "Git: Checkout to…", NULL, NULL, git_checkout, FALSE, FALSE, FALSE },

@@ -450,14 +450,53 @@ char *project_test_command(App *t)
   return goal_command(t, GOAL_TEST, NULL);
 }
 
-gboolean project_can_debug(App *t)
+DebugPlan project_debug_plan(App *t)
 {
+  static const char *const python[] = { ".py", NULL }, *const go[] = { ".go", NULL };
   Project p = find_project(t);
-  gboolean c = p.kind == PROJECT_NONE || p.kind == PROJECT_TASKS || p.kind == PROJECT_CMAKE ||
-               p.kind == PROJECT_MESON || p.kind == PROJECT_MAKE || p.kind == PROJECT_FILE;
+  DebugPlan plan = { .way = DEBUG_CANNOT };
 
+  switch (p.kind) {
+    case PROJECT_NONE:
+    case PROJECT_TASKS:
+    case PROJECT_CMAKE:
+    case PROJECT_MESON:
+    case PROJECT_MAKE:
+    case PROJECT_FILE:
+    case PROJECT_RUSTC:
+    case PROJECT_CARGO: plan.way = DEBUG_BUILT; break;
+    case PROJECT_GO: /* the file's package, as Run's "go run ." */
+      plan.way = DEBUG_GO;
+      plan.program = g_path_get_dirname(p.file);
+      plan.cwd = g_strdup(plan.program);
+      break;
+    case PROJECT_SCRIPT:
+      if (has_ext(p.file, python)) {
+        plan.way = DEBUG_PYTHON;
+        plan.program = g_strdup(p.file);
+        plan.module = p.python ? python_module(p.python, p.file) : NULL;
+        plan.cwd = p.python ? g_strdup(p.python) : g_path_get_dirname(p.file);
+        plan.python = g_strdup(p.interpreter);
+        plan.pythonpath = g_strdup(p.python);
+      } else if (has_ext(p.file, go)) { /* a Go file alone */
+        plan.way = DEBUG_GO;
+        plan.program = g_strdup(p.file);
+        plan.cwd = g_path_get_dirname(p.file);
+      }
+      break;
+    default: break;
+  }
   project_clear(&p);
-  return c;
+  return plan;
+}
+
+void debug_plan_clear(DebugPlan *plan)
+{
+  g_free(plan->program);
+  g_free(plan->module);
+  g_free(plan->cwd);
+  g_free(plan->python);
+  g_free(plan->pythonpath);
 }
 
 /* The editors are saved: the plugin command ("<plugin id>\n<command id>") runs. */
