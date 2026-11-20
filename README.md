@@ -8,18 +8,28 @@ A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) 
 
 <sub>t-code 0.4: Dark Classic, rounded.</sub>
 
-**New in 0.4.2:** a much fuller Markdown preview, images in tabs, a Hierarchy that follows the cursor, an autosave delay setting and fixes.
+**New in 0.5.0:** a Testing panel, terminals as tabs, Mercurial and Subversion, a plugin registry with
+fifteen plugins, a Process Monitor, t-code's own icons and quicker big repositories.
 
-- Markdown preview: TeX math (`$…$`, `$$…$$` and math blocks), GitHub alerts, `:emoji:`, footnotes, raw HTML as GitHub shows it, web and SVG images, mermaid diagrams when `mmdc` is installed
-- Images open in a tab that shows them; PDFs, office documents, archives, audio, video and fonts open in the desktop's default app
-- Hierarchy panel: with Follow on, a click on a function shows its callers or callees by itself
-- While Ctrl is held, the name Ctrl+click goes to is underlined
-- Autosave delay in the Editor settings (milliseconds, 1 second by default)
-- A status bar button shows the text scale when it is not 100%; a click resets it
-- Fix: start-up no longer hangs on a log file of hundreds of MB
-- Fix: lists with an open right-click menu (Source Control, Search, Run and Debug) no longer freeze the window
-- Fix: no crash on an image or link with an empty target in the preview
-- Fix: no VTE or GtkSourceView warnings from the terminal's folder and from completions
+- Testing panel: CTest (with GoogleTest cases), pytest, go test and cargo test; run or debug one test,
+  a group or all, ▶ in the editor gutter next to each test, a double click goes to its source
+- Terminal tabs in the shell panel (`Ctrl+Shift+T`): the first one runs Build and Run, each can be renamed
+- Source Control for Mercurial and Subversion repositories next to git, and the repositories nested in a project
+- Plugins: browse and install them from the registry, a Plugins panel and menu, plugins that bring
+  language servers, Run commands and snippets; new plugins for Java (jdtls), CMake, MATLAB, Octave,
+  LaTeX / Typst, ShellCheck, Spell Check, Format on Save, TODO Finder, Targets, Commit Message Helper,
+  Open on GitHub / GitLab, Pomodoro, Word Count and Text Tools
+- Help: Process Monitor: CPU and memory of every language server, plugin and terminal t-code started
+- File and interface icons drawn from t-code's own SVGs, in dark and light
+- A welcome window when there is no folder to open
+- Completion: Tab takes the proposal, Enter starts a new line
+- Panels give way when their side narrows; dragging the edge of a hidden side opens it
+- Big repositories: Source Control, Outline and the editor no longer stall on thousands of files
+- Fix: Ctrl+J no longer brings back the Files panel Ctrl+B hid
+- Fix: the shell and the right side keep their size in a small window instead of disappearing
+
+**0.4.2** added a much fuller Markdown preview (TeX math, GitHub alerts, emoji, footnotes, mermaid),
+images in tabs, a Hierarchy that follows the cursor and an autosave delay setting.
 
 **0.4.0** added multiple cursors, replace across the project, snippets, inlay hints, Outline and call / type
 hierarchy, and in git: branches, pull / fetch, stash, line blame and merge conflict buttons; more
@@ -30,13 +40,15 @@ Flatpak / Snap / AUR / AppImage packages;
 
 **0.3** the debugger, quick fixes, folding, sticky scroll and color themes. 
 
-**Next (0.5):** a test panel and terminals as tabs in the shell panel.
+**Next (0.6):** more of Mercurial and Subversion, more debuggers (debugpy, lldb-dap, delve) with
+logpoints and attaching to a process, and project templates.
 
 ## What it has
 
 One window, one process (besides its language servers, your shell and plugins): the Files panel,
-Source Control, Search and Run and Debug on the left, editor tabs in the middle, your shell and
-the Problems panel at the bottom. Every panel can be dragged to another dock.
+Source Control, Search and Run and Debug on the left, editor tabs in the middle, your shells as
+tabs and the Problems panel at the bottom, Outline, Hierarchy and Testing on the right. Every panel
+can be dragged to another dock.
 
 - **Editing** without modes, plus multiple cursors, snippets, completion, parameter hints, inlay
   hints, go to definition, references, rename, format, quick fixes (also as buttons on a problem),
@@ -46,11 +58,14 @@ the Problems panel at the bottom. Every panel can be dragged to another dock.
   stack, values under the pointer, disassembly.
 - **Build, Run and Test** in the shell: CMake, Meson, Make or a single C/C++ file; Cargo, Go, Node,
   Maven, Gradle, Python and scripts; or your own [project tasks](docs/tasks.md).
+- **Testing panel**: CTest and GoogleTest, pytest, go test and cargo test; run or debug a single
+  test from the panel or the ▶ in the editor gutter.
 - **Git**: Source Control panel (commit, push, pull, stage hunks), branches, stash, line blame,
   merge conflict buttons, compare with HEAD or a commit from the file's history, git colors in the
-  Files panel. Mercurial and Subversion repositories work too (changes, commits, gutter, blame, history).
+  Files panel, the repositories nested in a project. Mercurial and Subversion repositories work too
+  (changes, commits, gutter, blame, history).
 - **Search and replace** across files (ripgrep), a split editor, a second window, a native Markdown preview,
-  crash recovery, autosave, [plugins](docs/plugins.md), color themes and Settings.
+  crash recovery, autosave, [plugins](docs/plugins.md) from a registry, a Process Monitor, color themes and Settings.
 
 Everything in detail, with the full key table: **[docs/features.md](docs/features.md)**.
 

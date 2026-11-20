@@ -1,5 +1,5 @@
 Name:           t-code-ide
-Version:        0.4.3
+Version:        0.5.0
 Release:        1%{?dist}
 Summary:        Lightweight C/C++ IDE: file tree, editor tabs with clangd and a shell
 License:        MIT
@@ -105,7 +105,7 @@ build/test-linediff
 %{_datadir}/t-code/plugins/octave/
 
 %changelog
-* Fri Nov 20 2026 suacayipkisi <konuki8523@gmail.com> - 0.4.3-1
+* Fri Nov 20 2026 suacayipkisi <konuki8523@gmail.com> - 0.5.0-1
 - Testing panel: CTest, pytest, go test and cargo test (GoogleTest cases too); run or debug a test from the editor gutter, go to its source
 - Several shells as tabs in the Terminal panel (Ctrl+Shift+T); Build and Run use the first
 - Source Control for Mercurial and Subversion next to git; Initialize Repository offers all three; repositories nested in a project show too

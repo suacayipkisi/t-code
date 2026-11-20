@@ -8,8 +8,8 @@
     ],
     "command": "t-code",
     "default-branch": "stable",
-    "x-tcode-version": "0.4.3",
-    "x-tcode-release-tag": "v0.4.3",
+    "x-tcode-version": "0.5.0",
+    "x-tcode-release-tag": "v0.5.0",
     "finish-args": [
         "--socket=wayland",
         "--socket=fallback-x11",

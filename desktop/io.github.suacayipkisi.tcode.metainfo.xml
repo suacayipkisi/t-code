@@ -36,8 +36,8 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release version="0.4.3" date="2026-11-20">
-      <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.4.3</url>
+    <release version="0.5.0" date="2026-11-20">
+      <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.5.0</url>
       <description>
         <p>A Testing panel, terminal tabs, Mercurial and Subversion, a versioned plugin API with a Plugins window, Java, MATLAB and Octave plugins, own icons and fixes:</p>
         <ul>
