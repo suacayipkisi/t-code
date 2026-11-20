@@ -105,7 +105,7 @@ build/test-linediff
 %{_datadir}/t-code/plugins/octave/
 
 %changelog
-* Fri Nov 20 2026 suacayipkisi <konuki8523@gmail.com> - 0.5.0-1
+* Sat Nov 21 2026 suacayipkisi <konuki8523@gmail.com> - 0.5.0-1
 - Testing panel: CTest, pytest, go test, cargo test and JUnit (GoogleTest cases too); run or debug a test from the panel or the editor gutter, go to its source
 - More debugging: Python (debugpy), Go (Delve), Rust, lldb-dap as another C / C++ debugger; logpoints, a Memory View, attaching to a running process, opening a core dump
 - Several shells as tabs in the Terminal panel (Ctrl+Shift+T); Build and Run use the first

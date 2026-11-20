@@ -36,7 +36,7 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release version="0.5.0" date="2026-11-20">
+    <release version="0.5.0" date="2026-11-21">
       <url>https://github.com/suacayipkisi/t-code/releases/tag/v0.5.0</url>
       <description>
         <p>A Testing panel, terminal tabs, more debuggers, Mercurial and Subversion, a versioned plugin API with a Plugins window and many plugins, own icons and fixes:</p>
