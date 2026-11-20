@@ -49,8 +49,8 @@ static char *real_cmake, *real_ctest; /* the fakes run these in a build folder h
 
 /* The fake go: "go test -list . ./..." lists TestOk and TestBad (and TestNew once the project has a
  * file "extra"); "go test -json [-run <regex> <package>]" passes TestOk, fails TestBad, each saying
- * its name, and sleeps first while the project has a file "slow". Each call goes to the file
- * "calls". */
+ * its name, and sleeps first while the project has a file "slow" (ignoring SIGTERM while it also
+ * has "stubborn"). Each call goes to the file "calls". */
 static const char fake_go[] =
     "#!/bin/sh\n"
     "echo \"$@\" >> calls\n"
@@ -58,6 +58,7 @@ static const char fake_go[] =
     "  printf 'TestOk\\nTestBad\\n'; [ -f extra ] && echo TestNew\n"
     "  printf 'ok  \\texample.com/m\\t0.01s\\n'; exit 0\n"
     "fi\n"
+    "[ -f stubborn ] && trap '' TERM\n"
     "[ -f slow ] && sleep 30\n"
     "re=all; [ \"$3\" = -run ] && re=\"$4\"\n"
     "emit() { case \"$re\" in all|*\"$1\"*) printf '{\"Action\":\"output\",\"Package\":\"example.com/m\","
@@ -167,21 +168,26 @@ static void test_list_and_run(void)
   touch("extra", FALSE);
 }
 
-/* Stop ends the run (the script and its sleep): no result, no failure. */
+/* Stop ends the run (the script and its sleep): no result, no failure; one that ignores SIGTERM
+ * is killed a moment later. */
 static void test_stop(void)
 {
   switch_to(project);
   run_until(idle, NULL);
   touch("slow", TRUE);
-  g_assert_true(testing_run_one("example.com/m\tTestOk"));
-  run_until(busy, NULL);
-  assert_text("example.com/m\n  … TestOk\n  ○ TestBad\n");
-  gint64 start = g_get_monotonic_time();
-  testing_stop();
-  run_until(idle, NULL);
-  g_assert_false(testing_busy());
-  g_assert_cmpint(g_get_monotonic_time() - start, <, 4 * G_USEC_PER_SEC);
-  assert_text("example.com/m\n  ○ TestOk\n  ○ TestBad\n");
+  for (int stubborn = 0; stubborn < 2; stubborn++) {
+    touch("stubborn", stubborn);
+    g_assert_true(testing_run_one("example.com/m\tTestOk"));
+    run_until(busy, NULL);
+    assert_text("example.com/m\n  … TestOk\n  ○ TestBad\n");
+    gint64 start = g_get_monotonic_time();
+    testing_stop();
+    run_until(idle, NULL);
+    g_assert_false(testing_busy());
+    g_assert_cmpint(g_get_monotonic_time() - start, <, 4 * G_USEC_PER_SEC);
+    assert_text("example.com/m\n  ○ TestOk\n  ○ TestBad\n");
+  }
+  touch("stubborn", FALSE);
   touch("slow", FALSE);
 }
 
