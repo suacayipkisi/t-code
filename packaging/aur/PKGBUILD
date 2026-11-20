@@ -21,7 +21,7 @@ optdepends=('ripgrep: faster Search panel (falls back to grep)'
             'mercurial: Source Control in Mercurial repositories'
             'subversion: Source Control in Subversion working copies')
 source=("t-code-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('c88fc737a54a88f535da798b36bf8920af9b2904954115fc1e86112d20f1f5f1')
+sha256sums=('e971582901c2e4b33f6e1d4b2b40b6107d6eb245e9b8e43a4569835025a14973')
 
 build() {
   cd "t-code-$pkgver"
