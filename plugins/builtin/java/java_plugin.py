@@ -675,7 +675,7 @@ def debug(t, project):
         t.request("say", "Java: open a .java file first")
         return
     if not launcher.debug_bundles():
-        items = [{"label": "Install java-debug", "detail": "the Java debugger for jdtls, about 1 MB"},
+        items = [{"label": "Install java-debug", "detail": "the Java debugger for jdtls, about 3 MB"},
                  {"label": "Not now"}]
         try:
             if t.json("pick", {"title": "Java: debugging needs java-debug", "items": items}).startswith("0 "):
@@ -690,7 +690,7 @@ def debug(t, project):
         built = lsp(t, path, "vscode.java.buildWorkspace",
                     json.dumps({"mainClass": main["mainClass"], "projectName": main.get("projectName", ""),
                                 "isFullBuild": False}))
-        if built in ("FAILED", "WITH_ERROR", 0, 2):
+        if built in ("FAILED", "WITH_ERROR", "CANCELLED", 0, 2, 3):  # BuildWorkspaceStatus: 1 is SUCCEED
             t.request("say", "Java: the build has errors: see the Problems panel")
             return
         paths = lsp(t, path, "vscode.java.resolveClasspath", main["mainClass"], main.get("projectName", ""))

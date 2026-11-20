@@ -1858,6 +1858,27 @@ static void test_uri_contents(void)
   g_assert_cmpstr(path, ==, opened_path);
   g_assert_false(lsp_is_alias(tab->path));
 
+  /* a class without source, placed at 0:0: its declaration is shown instead */
+  GtkTextIter start, end;
+  gtk_text_buffer_get_bounds(GTK_TEXT_BUFFER(tab->buffer), &start, &end);
+  gtk_text_buffer_insert(GTK_TEXT_BUFFER(tab->buffer), &end, "// DECOMPILED\n", -1);
+  g_assert_true(server_agrees(tab));
+  char *first = g_strdup(opened_path);
+  g_clear_pointer(&opened_path, g_free);
+  go_to_definition(tab);
+  deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+  while (!opened_path && g_get_monotonic_time() < deadline)
+    g_main_context_iteration(NULL, TRUE);
+  g_assert_true(g_str_has_suffix(opened_path, "/Other.java"));
+  g_assert_cmpint(opened_line, ==, 4);
+  g_assert_cmpint(opened_column, ==, 14);
+  g_unlink(opened_path);
+  char *other_dir = g_path_get_dirname(opened_path);
+  g_rmdir(other_dir);
+  g_free(other_dir);
+  g_free(opened_path);
+  opened_path = first;
+
   /* its read-only editor gets the server, which hears of it as the jdt:// document */
   Tab *lib = new_tab(opened_path, text);
   editor_view_free(lib->view);

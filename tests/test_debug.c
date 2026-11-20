@@ -765,6 +765,12 @@ static void test_connect(void)
   g_assert_nonnull(dap_capabilities(d));
   g_assert_true(json_node_get_boolean(json_at(dap_capabilities(d), "supportsConfigurationDoneRequest")));
   g_assert_cmpint(dap_pid(d), ==, 0); /* not t-code's child */
+  /* quiet for longer than the connect timeout (10 s), as a program paused at a breakpoint: still there */
+  GMainContext *context = g_main_context_default();
+  gint64 until = g_get_monotonic_time() + 11 * G_USEC_PER_SEC;
+  while (g_get_monotonic_time() < until && !r.gone)
+    g_main_context_iteration(context, FALSE) || (g_usleep(20000), TRUE);
+  g_assert_false(r.gone);
   dap_free(d);
   g_thread_join(thread);
   g_socket_listener_close(listener);

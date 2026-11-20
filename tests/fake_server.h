@@ -437,6 +437,16 @@ static int fake_server(void)
       }
       fake_send(reply);
       g_free(reply);
+    } else if (g_strcmp0(method, "textDocument/definition") == 0 && g_hash_table_lookup(fake_docs, uri) &&
+               strstr(((GString *)g_hash_table_lookup(fake_docs, uri))->str, "DECOMPILED")) {
+      /* a class without source: jdtls places it at 0:0 of its decompiled text */
+      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":[{\"uri\":"
+                                    "\"jdt://contents/lib.jar/com.example/Other.class?=fake\","
+                                    "\"range\":{\"start\":{\"line\":0,\"character\":0},"
+                                    "\"end\":{\"line\":0,\"character\":0}}}]}",
+                                    json_int_at(message, "id", 0));
+      fake_send(reply);
+      g_free(reply);
     } else if (g_strcmp0(method, "textDocument/definition") == 0) {
       /* jdtls' way for a library's class: a jdt:// place, its text read with a request of its own */
       char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":[{\"uri\":"
@@ -448,9 +458,11 @@ static int fake_server(void)
       g_free(reply);
     } else if (g_strcmp0(method, "fake/contents") == 0 &&
                g_str_has_prefix(json_string_at(message, "params.uri") ?: "", "jdt://contents/")) {
-      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT
-                                    ",\"result\":\"package com.example;\\nclass Lib {}\\n\"}",
-                                    json_int_at(message, "id", 0));
+      gboolean other = strstr(json_string_at(message, "params.uri"), "/Other.class") != NULL;
+      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT ",\"result\":\"%s\"}",
+                                    json_int_at(message, "id", 0),
+                                    other ? "// decompiled\\npackage com.example;\\n\\npublic class Other {}\\n"
+                                          : "package com.example;\\nclass Lib {}\\n");
       fake_send(reply);
       g_free(reply);
     }

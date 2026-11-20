@@ -239,6 +239,8 @@ static void on_connected(GObject *source, GAsyncResult *result, gpointer data)
     d->on_event(d->owner, NULL, NULL);
     return;
   }
+  /* the client's timeout was for connecting: a program paused at a breakpoint sends nothing for long */
+  g_socket_set_timeout(g_socket_connection_get_socket(connection), 0);
   d->connection = G_IO_STREAM(connection);
   connect_channel(d, g_io_stream_get_input_stream(G_IO_STREAM(connection)),
                   g_io_stream_get_output_stream(G_IO_STREAM(connection)), G_OBJECT(connection));

@@ -162,7 +162,7 @@ void var_ask_children(TcodeVar *var)
 }
 
 /* What a scope holds ("arguments", "locals", "registers"): its presentationHint, or its name when it has
- * none (Delve's "Locals"); NULL for the others (Globals). */
+ * none (Delve's "Locals", java-debug's "Local"); NULL for the others (Globals). */
 static const char *scope_kind(JsonNode *scope)
 {
   static const char *const kinds[] = { "arguments", "locals", "registers" };
@@ -171,7 +171,7 @@ static const char *scope_kind(JsonNode *scope)
   for (size_t i = 0; i < G_N_ELEMENTS(kinds); i++)
     if (g_strcmp0(hint, kinds[i]) == 0 || (!hint && name && g_ascii_strcasecmp(name, kinds[i]) == 0))
       return kinds[i];
-  return NULL;
+  return !hint && name && g_ascii_strcasecmp(name, "local") == 0 ? "locals" : NULL;
 }
 
 /* The frame's scopes: Arguments and Locals are listed, then Registers as one closed row. */

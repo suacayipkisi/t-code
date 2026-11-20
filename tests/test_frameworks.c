@@ -498,7 +498,8 @@ static const char junit_source[] = "package com.example;\n"                     
                                    "}\n"                                                                 /* 20 */
                                    "abstract class Base {\n"                                             /* 21 */
                                    "  @Test void inherited() {}\n"                                       /* 22 */
-                                   "}\n";                                                                /* 23 */
+                                   "}\n"                                                                 /* 23 */
+                                   "class Solo { @Test void alone() {} }\n";                             /* 24 */
 
 /* grep's lines of junit_source, as the listing script prints them. */
 static char *junit_grep_lines(const char *path)
@@ -532,7 +533,8 @@ static void test_junit_recorded(void)
       "</testsuite>\n"
       "</testsuites>\n";
 
-  g_assert_cmpuint(tests->len, ==, 4);
+  g_assert_cmpuint(tests->len, ==, 5);
+  assert_test(tests, "com.example.Solo#alone", "com.example.Solo", "alone"); /* on its class's line */
   assert_test(tests, "com.example.CalcTest#adds", "com.example.CalcTest", "adds");
   assert_test(tests, "com.example.CalcTest#each", "com.example.CalcTest", "each");
   assert_test(tests, "com.example.CalcTest$Inner#deep", "com.example.CalcTest$Inner", "deep");
@@ -549,11 +551,12 @@ static void test_junit_recorded(void)
   /* the gutter's lines and the definition */
   char *root = g_strdup("/p"), *path = g_strdup("/p/src/test/java/com/example/CalcTest.java");
   GArray *lines = test_lines(tests, root, path, junit_source);
-  g_assert_cmpuint(lines->len, ==, 4);
+  g_assert_cmpuint(lines->len, ==, 5);
   g_assert_cmpint(g_array_index(lines, TestLine, 0).line, ==, 8);
   g_assert_cmpint(g_array_index(lines, TestLine, 1).line, ==, 12);
   g_assert_cmpint(g_array_index(lines, TestLine, 2).line, ==, 16);
   g_assert_cmpint(g_array_index(lines, TestLine, 3).line, ==, 19);
+  g_assert_cmpint(g_array_index(lines, TestLine, 4).line, ==, 24);
   g_array_unref(lines);
   g_assert_cmpint(test_definition_line(find(tests, "com.example.CalcTest#old"), junit_source), ==, 19);
   g_assert_true(test_file_may_define(path));
@@ -576,7 +579,7 @@ static void test_junit_listing(void)
   g_assert_cmpint(source->kind, ==, TEST_JUNIT);
   char **argv = test_list_argv(source, NULL, NULL), *out = run(argv, root);
   GPtrArray *tests = test_parse_list(TEST_JUNIT, out);
-  g_assert_cmpuint(tests->len, ==, 4);
+  g_assert_cmpuint(tests->len, ==, 5);
   g_assert_cmpstr(find(tests, "com.example.CalcTest$Inner#deep")->file, ==, "src/test/java/com/example/CalcTest.java");
   int line = 0;
   char *found = test_find_source(root, find(tests, "com.example.CalcTest$Inner#deep"), &line),
@@ -882,7 +885,7 @@ static void test_junit_real(void)
   put("m/pom.xml",
       "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n<modelVersion>4.0.0</modelVersion>\n"
       "<groupId>com.example</groupId><artifactId>m</artifactId><version>1</version>\n"
-      "<properties><maven.compiler.release>17</maven.compiler.release>"
+      "<properties><maven.compiler.release>17</maven.compiler.release><maven.compiler.fork>true</maven.compiler.fork>"
       "<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>\n"
       "<dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId>"
       "<version>5.11.4</version><scope>test</scope></dependency></dependencies>\n"

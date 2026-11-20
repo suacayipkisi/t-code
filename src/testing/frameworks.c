@@ -13,9 +13,10 @@
 #define SOURCE_MAX_DEPTH 16
 
 /* A Java method's declaration up to its name (then the group of the name and "("): annotations,
- * modifiers, type parameters and a return type before it, so a call or "return f(" is not one. */
+ * modifiers, type parameters and a return type before it, so a call or "return f(" is not one; it may
+ * follow its class's "{" on the same line. */
 #define JAVA_METHOD                                                                                                    \
-  "^[ \\t]*(?:@[\\w.]+(?:\\([^)\\n]*\\))?[ \\t]+)*"                                                                    \
+  "^[ \\t]*(?:[^{}\\n]*\\{[ \\t]*)?(?:@[\\w.]+(?:\\([^)\\n]*\\))?[ \\t]+)*"                                            \
   "(?:(?:public|protected|private|static|final|abstract|synchronized|default)[ \\t]+)*"                                \
   "(?:<[^>\\n]*>[ \\t]*)?(?!return\\b|new\\b|throw\\b|else\\b|case\\b|yield\\b)"                                       \
   "[\\w.$]+(?:<[^=;()\\n]*>)?(?:\\[\\])*[ \\t]+"
@@ -662,6 +663,8 @@ static void parse_junit_list(GPtrArray *tests, char **lines)
       indent += *c == '\t' ? 4 : 1;
     const char *code = text + strspn(text, " \t");
     GMatchInfo *pm = NULL, *cm = NULL, *mm = NULL;
+    const char *member = NULL; /* where a test method may be declared: the line, or after its class's "{" */
+    int member_indent = indent;
     if (g_str_has_prefix(code, "//") || g_str_has_prefix(code, "*") || g_str_has_prefix(code, "/*")) {
       /* a comment */
     } else if (g_regex_match(package_re, code, 0, &pm)) {
@@ -676,9 +679,17 @@ static void parse_junit_list(GPtrArray *tests, char **lines)
       pending = FALSE;
       g_free(what);
       g_free(modifiers);
-    } else if ((pending |= g_regex_match(annotation_re, code, 0, NULL)) && g_regex_match(method_re, text, 0, &mm)) {
+      if ((member = strchr(code, '{'))) { /* "class Inner { @Test void deep() {} }" */
+        member++;
+        member_indent = indent + 1;
+      }
+    } else {
+      member = text;
+    }
+    if (member && (pending |= g_regex_match(annotation_re, member, 0, NULL)) &&
+        g_regex_match(method_re, member, 0, &mm)) {
       pending = FALSE;
-      java_classes_leave(classes, indent);
+      java_classes_leave(classes, member_indent);
       if (classes->len && !g_array_index(classes, JavaClass, classes->len - 1).abstract) {
         char *method = g_match_info_fetch(mm, 1);
         GString *cls = g_string_new(package);

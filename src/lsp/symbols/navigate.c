@@ -172,6 +172,43 @@ static char *contents_path(const char *uri, const char *extension)
   return path;
 }
 
+/* Where the type the file at path is named after is declared in text ("class System" for System.java), as
+ * an LSP position; NULL when it is not found. jdtls places a decompiled class (no source) at 0:0. */
+static JsonNode *declaration_of(const char *path, const char *text)
+{
+  char *base = g_path_get_basename(path), *dot = strrchr(base, '.');
+  JsonNode *position = NULL;
+
+  if (dot)
+    *dot = '\0';
+  char *escaped = g_regex_escape_string(base, -1);
+  char *pattern = g_strdup_printf("\\b(?:class|interface|enum|record|struct|trait|object)\\s+(%s)\\b", escaped);
+  GRegex *regex = g_regex_new(pattern, G_REGEX_MULTILINE, 0, NULL);
+  GMatchInfo *match = NULL;
+  int start = 0;
+
+  if (regex && g_regex_match(regex, text, 0, &match) && g_match_info_fetch_pos(match, 1, &start, NULL)) {
+    int line = 0;
+    const char *line_start = text;
+    for (const char *p = text; p < text + start; p++)
+      if (*p == '\n') {
+        line++;
+        line_start = p + 1;
+      }
+    char *json =
+        g_strdup_printf("{\"line\":%d,\"character\":%ld}", line, g_utf8_pointer_to_offset(line_start, text + start));
+    position = json_from_string(json, NULL);
+    g_free(json);
+  }
+  g_match_info_free(match);
+  if (regex)
+    g_regex_unref(regex);
+  g_free(pattern);
+  g_free(escaped);
+  g_free(base);
+  return position;
+}
+
 /* The server's text of a document: saved to a file the editor shows read-only, then opened there. */
 static void on_contents(JsonNode *result, gpointer data)
 {
@@ -185,7 +222,12 @@ static void on_contents(JsonNode *result, gpointer data)
     status_say(c->app, "Could not save the library's source in ~/.cache/t-code/sources");
   } else {
     lsp_uri_alias(path, c->uri);
-    open_at(c->app, path, c->start, c->utf16);
+    JsonNode *declared = json_int_at(c->start, "line", 0) == 0 && json_int_at(c->start, "character", 0) == 0
+                             ? declaration_of(path, text)
+                             : NULL;
+    open_at(c->app, path, declared ? declared : c->start, c->utf16);
+    if (declared)
+      json_node_unref(declared);
   }
   g_free(dir);
   g_free(path);

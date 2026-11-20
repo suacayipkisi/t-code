@@ -211,7 +211,7 @@ Each `lsp` entry:
 | `language-id` | string or object | no | The LSP `languageId` of its files. A string for all of them, or by file: `{ ".jsx": "javascriptreact", ".js": "javascript" }`. Defaults to GtkSourceView's id (`c`, `cpp`, `python`, `rust`), which is the LSP one for most languages. |
 | `options` | object | no | Sent as `initializationOptions`. |
 | `settings` | object | no | Sent with `workspace/didChangeConfiguration` after `initialize`, and when the server asks (`workspace/configuration`). |
-| `uri-contents` | object | no | For places the server gives in a URI scheme other than `file`: the request that reads such a document's text, by scheme: `{ "jdt": "java/classFileContents" }`. The request gets `{"uri": …}` and answers a string. Go to Definition into such a place saves the text in `~/.cache/t-code/sources/` (with the asking file's extension) and opens it read-only; the server hears of that file by its own URI, so hover and Go to Definition work inside it too. |
+| `uri-contents` | object | no | For places the server gives in a URI scheme other than `file`: the request that reads such a document's text, by scheme: `{ "jdt": "java/classFileContents" }`. The request gets `{"uri": …}` and answers a string. Go to Definition into such a place saves the text in `~/.cache/t-code/sources/` (with the asking file's extension) and opens it read-only; the server hears of that file by its own URI, so hover and Go to Definition work inside it too. A place at its very start (jdtls' for a class without source) goes to the declaration of the type the file is named after. |
 
 - **One server per file.** A built-in server that is on and installed wins; turn it off in Settings →
   Language Servers to let a plugin's take its files. Where t-code has no built-in server (`.m`,
@@ -732,7 +732,7 @@ PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what
     frames in the project (the first an error, each `Caused by` too, the callers info).
   - **Run Tests:** `mvn test` / `gradle test`, only the current class when it is a test.
   - **Debug:** Install Debugger downloads java-debug's newest release from Maven Central (about
-    1 MB, its SHA-512 or SHA-1 checked) into `~/.local/share/t-code/java-debug/`; the launcher adds
+    3 MB, its SHA-512 or SHA-1 checked) into `~/.local/share/t-code/java-debug/`; the launcher adds
     it to jdtls' `bundles`, and the plugin restarts the servers. `F5` (or Java: Debug) asks jdtls
     over `lsp-command` for the main class (the current file's, else the only one, else the one
     picked), a build (errors stop it: the Problems panel shows them), the classpath, the Java

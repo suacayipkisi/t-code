@@ -8,6 +8,7 @@
 #include "editor/editor.h"
 #include "debug/debugger.h"
 #include "debug/view/debugview.h"
+#include "lsp/json.h"
 #include "debug/disassembly.h"
 #include "debug/memory.h"
 #include "application/processes.h"
@@ -4289,6 +4290,123 @@ static void wait_end(void)
   g_assert_false(debug_active(&app));
 }
 
+/* A plugin's debugger listening on a TCP port (java-debug's way), played by a thread: it answers each
+ * request, stops at the first breakpoint after configurationDone, and names its scope "Local". */
+typedef struct {
+  GSocketListener *listener;
+  char *path; /* the source file the stack names */
+} FakeAdapter;
+
+static void fake_adapter_send(GOutputStream *out, const char *json)
+{
+  char *message = g_strdup_printf("Content-Length: %zu\r\n\r\n%s", strlen(json), json);
+
+  g_output_stream_write_all(out, message, strlen(message), NULL, NULL, NULL);
+  g_free(message);
+}
+
+static gpointer fake_adapter(gpointer data)
+{
+  FakeAdapter *fake = data;
+  GSocketConnection *connection = g_socket_listener_accept(fake->listener, NULL, NULL, NULL);
+  GDataInputStream *in = g_data_input_stream_new(g_io_stream_get_input_stream(G_IO_STREAM(connection)));
+  GOutputStream *out = g_io_stream_get_output_stream(G_IO_STREAM(connection));
+  int seq = 100;
+
+  for (;;) {
+    gsize length = 0;
+    char *line;
+    while ((line = g_data_input_stream_read_line(in, NULL, NULL, NULL)) && *g_strstrip(line)) {
+      if (g_str_has_prefix(line, "Content-Length:"))
+        length = (gsize)g_ascii_strtoull(line + 15, NULL, 10);
+      g_free(line);
+    }
+    if (!line)
+      break;
+    g_free(line);
+    char *text = g_malloc0(length + 1);
+    if (!g_input_stream_read_all(G_INPUT_STREAM(in), text, length, NULL, NULL, NULL)) {
+      g_free(text);
+      break;
+    }
+    JsonNode *message = json_from_string(text, NULL);
+    const char *command = json_string_at(message, "command");
+    const char *body = "{}";
+    char *owned = NULL;
+    if (g_strcmp0(command, "setBreakpoints") == 0)
+      body = "{\"breakpoints\":[{\"id\":1,\"verified\":true,\"line\":5}]}";
+    else if (g_strcmp0(command, "threads") == 0)
+      body = "{\"threads\":[{\"id\":1,\"name\":\"main\"}]}";
+    else if (g_strcmp0(command, "stackTrace") == 0) {
+      char *quoted = json_quote(fake->path);
+      body = owned = g_strdup_printf("{\"stackFrames\":[{\"id\":1,\"name\":\"App.twice(int)\",\"line\":5,\"column\":1,"
+                                     "\"source\":{\"name\":\"App.java\",\"path\":%s}}],\"totalFrames\":1}",
+                                     quoted);
+      g_free(quoted);
+    } else if (g_strcmp0(command, "scopes") == 0)
+      body = "{\"scopes\":[{\"name\":\"Local\",\"variablesReference\":3,\"expensive\":false}]}";
+    else if (g_strcmp0(command, "variables") == 0)
+      body = "{\"variables\":[{\"name\":\"n\",\"value\":\"21\",\"type\":\"int\",\"variablesReference\":0}]}";
+    char *quoted = json_quote(command ? command : "");
+    char *reply = g_strdup_printf("{\"seq\":%d,\"type\":\"response\",\"request_seq\":%" G_GINT64_FORMAT
+                                  ",\"command\":%s,\"success\":true,\"body\":%s}",
+                                  ++seq, json_int_at(message, "seq", 0), quoted, body);
+    fake_adapter_send(out, reply);
+    if (g_strcmp0(command, "initialize") == 0)
+      fake_adapter_send(out, "{\"seq\":1,\"type\":\"event\",\"event\":\"initialized\"}");
+    else if (g_strcmp0(command, "configurationDone") == 0)
+      fake_adapter_send(out, "{\"seq\":2,\"type\":\"event\",\"event\":\"stopped\",\"body\":{\"reason\":"
+                             "\"breakpoint\",\"threadId\":1}}");
+    gboolean done = g_strcmp0(command, "disconnect") == 0;
+    if (done)
+      fake_adapter_send(out, "{\"seq\":3,\"type\":\"event\",\"event\":\"terminated\"}");
+    g_free(reply);
+    g_free(quoted);
+    g_free(owned);
+    json_node_unref(message);
+    g_free(text);
+    if (done)
+      break;
+  }
+  g_object_unref(in);
+  g_object_unref(connection);
+  return NULL;
+}
+
+/* debug-start with a debugger listening on a port: it stops where it says, its "Local" scope's
+ * variables show, Stop ends it. */
+static void test_debugging_plugin_adapter(void)
+{
+  FakeAdapter fake = { g_socket_listener_new(), g_build_filename(app.project.root, "App.java", NULL) };
+  GError *error = NULL;
+  guint16 port = g_socket_listener_add_any_inet_port(fake.listener, NULL, &error);
+
+  g_assert_no_error(error);
+  g_assert_true(
+      g_file_set_contents(fake.path, "class App {\n\n\n\n  int twice(int n) { return n * 2; }\n}\n", -1, NULL));
+  GThread *thread = g_thread_new("adapter", fake_adapter, &fake);
+  TapiConn c = tapi_connect("hello tapi_1");
+  char *request = g_strdup_printf("debug-start {\"name\":\"Fake\",\"adapter-id\":\"java\",\"connect\":\"127.0.0.1:%u\","
+                                  "\"arguments\":{\"mainClass\":\"App\"}}",
+                                  port);
+  tapi_expect(&c, request, "ok");
+  g_assert_true(debug_active(&app));
+  tapi_expect(&c, request, "error busy a debugging session runs already");
+  wait_stop(5);
+  g_assert_cmpstr(app.debug.stop_path, ==, fake.path);
+  wait_variable("n = 21\n");
+  debug_stop(&app);
+  wait_end();
+  g_thread_join(thread);
+  tapi_close(&c);
+  close_everything();
+  g_free(request);
+  g_unlink(fake.path);
+  g_free(fake.path);
+  g_socket_listener_close(fake.listener);
+  g_object_unref(fake.listener);
+}
+
 /* A program built with -g runs under gdb: it stops at a breakpoint, which the editor shows; it steps
  * over, out, on to a breakpoint put in while it is stopped, and to its end; Stop ends it at once. */
 static void test_debugging(void)
@@ -4700,6 +4818,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/run-tests", test_run_tests);
   g_test_add_func("/window/run-projects", test_run_projects);
   g_test_add_func("/window/debugging", test_debugging);
+  g_test_add_func("/window/debugging-plugin-adapter", test_debugging_plugin_adapter);
   g_test_add_func("/window/debugging-arguments", test_debugging_arguments);
   g_test_add_func("/window/debugging-conditions", test_debugging_conditions);
   g_test_add_func("/window/disassembly", test_disassembly);
