@@ -3867,6 +3867,13 @@ static void test_example_plugins(void)
   gtk_text_buffer_undo(GTK_TEXT_BUFFER(tab->buffer)); /* one edit, one undo step */
   g_assert_true(text_is((const char *const[]){ text_file, "b\na\n" }));
 
+  /* Word Count (installed in the user's folder by main): the saved file, said in the status bar */
+  status_say(&app, "");
+  plugin_run_command(&app, "word-count", "count");
+  for (int i = 0; i < 100 && strcmp(gtk_label_get_text(app.status.build), "Word Count: 3 words, 3 lines") != 0; i++)
+    run_for(50);
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Word Count: 3 words, 3 lines");
+
   /* ShellCheck */
   g_assert_true(g_file_set_contents(script, "#!/bin/sh\necho $1\n", -1, NULL));
   g_assert_true(plugin_start(&app, plugin_find(&app, "shellcheck")));
