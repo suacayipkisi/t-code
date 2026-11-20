@@ -71,7 +71,8 @@ printf 'hello tapi_1\nsay Hello from %s\n' "${2:-nowhere}" | nc -U "$TCODE_SOCKE
 
 Run **Plugins: Reload Installed Plugins** from the command palette (`Ctrl+Shift+P`). Then press
 `Ctrl+Alt+H`, or pick "Hello: Say Hello" in the palette. The repository's
-`plugins/builtin/word-count/` is a complete example of the same size.
+`plugins/builtin/word-count/` is a small complete example of a plugin that starts with the project,
+listens to events and keeps a `status-set` item up to date.
 
 ### A compiled language
 
@@ -94,7 +95,9 @@ exec "$target/release/<program>" "$@"
 - When the compiler is missing, say so on stderr and exit 1: the Plugins window shows the line.
 
 `plugins/builtin/todos/` is such a plugin: Rust's standard library only, a `UnixStream` that says
-`hello`, sends NUL-ended requests and reads one answer line each.
+`hello`, sends NUL-ended requests and reads one answer line each. `plugins/builtin/word-count/` is
+another, in C++: its `run.sh` compiles one file with `c++` and names the program after the source's
+`cksum`, so an update builds again.
 
 ---
 
@@ -639,8 +642,9 @@ whether it was reviewed and the warnings taken).
 These are plugins the API is meant to make possible. Eight of them are written and live in this
 repository under `plugins/builtin/` (Java, MATLAB, Octave, ShellCheck, CMake, Text Tools, TODO Finder,
 Word Count), as working examples and
-as the registry's first entries; t-code does not load them by itself (install them from Browse, or copy a
-folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
+as the registry's first entries. They are written in different languages on purpose, to test that
+tapi_1 works the same from any of them: TODO Finder is Rust, Word Count is C++, the rest are Python 3.
+t-code does not load them by itself (install them from Browse, or copy a folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
 `t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
 PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what it does, what t-code provides
 (**core**), what the plugin itself does, and where it stops. Some still use **(planned)** parts of tapi_1.
@@ -827,8 +831,15 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
 - **Limits:** cannot draw inside t-code's Markdown preview; the preview is part of t-code.
 
 #### Word count (`word-count`, in this repository: `plugins/builtin/word-count`)
-- **Does:** says the saved file's words and lines in the status bar (`Ctrl+Alt+W`); a shell script.
-- **Could:** keep a lasting `status-set` item, updated on `did_change`.
+- **Does:** the active tab's words and lines as a lasting item at the right of the status bar
+  (`status-set`), unsaved edits included (`get-text`), updated on `did_change` and
+  `active_changed`; no item for a tab that is not an editor. **Word Count: Count Words in the
+  Selection or Tab** (`Ctrl+Alt+W`) says the selection's count, or the tab's without one.
+- **Plugin:** C++17, the standard library and POSIX sockets; starts with the project. `run.sh`
+  builds it with the system's C++ compiler into `~/.cache/t-code-word-count/`, once per version of
+  its source.
+- **Limits:** the item follows the typing (after its 300 ms pause), not the selection: t-code sends
+  no event when only the selection changes.
 
 ### Build, devices, containers
 

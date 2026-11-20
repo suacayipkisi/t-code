@@ -3,13 +3,17 @@
   "id": "word-count",
   "name": "Word Count",
   "provider": "t-code",
-  "version": "1.2.0",
-  "description": "Counts the words and lines of the current tab's file and says them in the status bar.",
-  "executable": "wordcount.sh",
+  "version": "2.0.0",
+  "description": "The active tab's words and lines at the right of the status bar, unsaved edits included, updated as you type; Ctrl+Alt+W says the selection's count. Written in C++, built once with the system's C++ compiler.",
+  "executable": "run.sh",
+  "start": "project",
+  "permissions": [
+    "start"
+  ],
   "commands": [
     {
       "id": "count",
-      "name": "Word Count: Count Words in Current Tab",
+      "name": "Word Count: Count Words in the Selection or Tab",
       "keys": "<Control><Alt>w"
     }
   ]

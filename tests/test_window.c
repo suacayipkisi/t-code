@@ -3565,7 +3565,7 @@ static void test_plugins_window(void)
   g_assert_true(says(GTK_WIDGET(plugins), "Word Count"));
   g_assert_true(says(GTK_WIDGET(plugins), "tapi_1"));
   g_assert_true(says(GTK_WIDGET(plugins), "your plugins folder"));
-  g_assert_true(says(GTK_WIDGET(plugins), "Word Count: Count Words in Current Tab    Ctrl+Alt+W"));
+  g_assert_true(says(GTK_WIDGET(plugins), "Word Count: Count Words in the Selection or Tab    Ctrl+Alt+W"));
 
   toggle = find_widget(gtk_window_get_child(plugins), GTK_TYPE_SWITCH, NULL, NULL);
   g_assert_true(gtk_switch_get_active(GTK_SWITCH(toggle)));
@@ -3867,12 +3867,29 @@ static void test_example_plugins(void)
   gtk_text_buffer_undo(GTK_TEXT_BUFFER(tab->buffer)); /* one edit, one undo step */
   g_assert_true(text_is((const char *const[]){ text_file, "b\na\n" }));
 
-  /* Word Count (installed in the user's folder by main): the saved file, said in the status bar */
+  /* Word Count (installed in the user's folder by main, started with the project): the active tab's
+   * count at the right of the status bar, unsaved edits included, following the typing; its command
+   * says the selection's count */
+  for (int i = 0; i < 100 && !label_under(GTK_WIDGET(app.status.plugins), "2 words, 2 lines"); i++)
+    run_for(50);
+  g_assert_nonnull(label_under(GTK_WIDGET(app.status.plugins), "2 words, 2 lines"));
+  gtk_text_buffer_get_start_iter(GTK_TEXT_BUFFER(tab->buffer), &start);
+  gtk_text_buffer_insert(GTK_TEXT_BUFFER(tab->buffer), &start, "c ", -1);
+  for (int i = 0; i < 100 && !label_under(GTK_WIDGET(app.status.plugins), "3 words, 2 lines"); i++)
+    run_for(50);
+  g_assert_nonnull(label_under(GTK_WIDGET(app.status.plugins), "3 words, 2 lines"));
+  gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(tab->buffer), &start, 1);
+  end = start;
+  gtk_text_iter_forward_char(&end);
+  gtk_text_buffer_select_range(GTK_TEXT_BUFFER(tab->buffer), &start, &end);
   status_say(&app, "");
   plugin_run_command(&app, "word-count", "count");
-  for (int i = 0; i < 100 && strcmp(gtk_label_get_text(app.status.build), "Word Count: 3 words, 3 lines") != 0; i++)
+  for (int i = 0; i < 100 && strcmp(gtk_label_get_text(app.status.build), "Word Count: 1 word, 1 line selected") != 0;
+       i++)
     run_for(50);
-  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Word Count: 3 words, 3 lines");
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Word Count: 1 word, 1 line selected");
+  gtk_text_buffer_undo(GTK_TEXT_BUFFER(tab->buffer)); /* the "c " goes */
+  g_assert_true(text_is((const char *const[]){ text_file, "b\na\n" }));
 
   /* ShellCheck */
   g_assert_true(g_file_set_contents(script, "#!/bin/sh\necho $1\n", -1, NULL));
