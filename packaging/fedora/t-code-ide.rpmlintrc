@@ -1,2 +1,5 @@
-# Tool names, not misspellings.
-addFilter(r"spelling-error \('(clangd|gdb)'")
+# Tool names and command-line flags (matlab -nodesktop, octave --no-gui), not misspellings.
+addFilter(r"spelling-error \('(clangd|gdb|nodesktop|gui)'")
+# librsvg2 is gdk-pixbuf's SVG loader, loaded at run time for t-code's SVG icons, never linked, so
+# no automatic dependency brings it in.
+addFilter(r"explicit-lib-dependency librsvg2")
