@@ -68,6 +68,9 @@ static const char *const css =
     ".tcode-tab:hover button, .tcode-tab:checked button { opacity: 1; }"
     ".tcode-tab button:hover { background: color-mix(in srgb, var(--tc-fg) 12%, transparent); }"
     ".tcode-tab label.temporary { font-style: italic; }"
+    ".tcode-terminal-tab button { min-width: 20px; min-height: 20px; padding: 0; margin: 0;"
+    "  border-radius: 6px; background: none; box-shadow: none; }"
+    ".tcode-terminal-tab button:hover { background: color-mix(in srgb, var(--tc-fg) 12%, transparent); }"
     /* The strip's scrollbar: thin, over the tabs' bottom edge. */
     ".tcode-tabs scrollbar.horizontal slider { min-height: 3px; border-radius: 0; background: rgba(121, 121, 121, .4); }"
     ".tcode-tabs scrollbar.horizontal:hover slider { min-height: 5px; background: rgba(100, 100, 100, .7); }"

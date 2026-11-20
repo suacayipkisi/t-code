@@ -353,9 +353,11 @@ static void test_git_marks(void)
                             "D  src/old.c\0"
                             "R  src/new.c\0src/was.c\0"
                             "UU src/both.c\0"
-                            "!! build/\0";
+                            "!! build/\0"
+                            " A docs/added.md\0"; /* git add -N, an hg / svn add */
   GHashTable *marks = git_marks_parse("/p", out, sizeof out - 1);
 
+  g_assert_cmpint(git_marks_state(marks, "/p/docs/added.md"), ==, 'A');
   g_assert_cmpint(git_marks_state(marks, "/p/src/main.c"), ==, 'M');
   g_assert_cmpint(git_marks_state(marks, "/p/notes/todo.md"), ==, 'U');
   g_assert_cmpint(git_marks_state(marks, "/p/notes"), ==, 'U'); /* a folder shows what is in it */

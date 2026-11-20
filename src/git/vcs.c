@@ -256,7 +256,8 @@ static char *vcs_ago(gint64 when)
       gint64 n = since / units[i].seconds;
       return g_strdup_printf("%" G_GINT64_FORMAT " %s%s ago", n, units[i].unit, n == 1 ? "" : "s");
     }
-  return g_strdup_printf("%" G_GINT64_FORMAT " seconds ago", MAX(since, 0));
+  since = MAX(since, 0);
+  return g_strdup_printf("%" G_GINT64_FORMAT " second%s ago", since, since == 1 ? "" : "s");
 }
 
 /* svn's "2026-11-18T19:23:59.439382Z" in seconds (-1 when it is no such date). */

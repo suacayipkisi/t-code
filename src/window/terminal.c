@@ -423,7 +423,8 @@ static VteTerminal *add_tab(App *t, const char *name, const char *dir, gboolean 
   if (!first) {
     GtkWidget *close = gtk_button_new_from_icon_name("tcode-close-symbolic");
     gtk_widget_set_tooltip_text(close, "Close Terminal");
-    gtk_widget_set_focus_on_click(close, FALSE);
+    gtk_button_set_has_frame(GTK_BUTTON(close), FALSE);
+    gtk_widget_set_focusable(close, FALSE);
     g_signal_connect(close, "clicked", G_CALLBACK(on_close_clicked), term);
     gtk_box_append(GTK_BOX(tab), close);
   }

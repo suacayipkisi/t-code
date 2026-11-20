@@ -14,7 +14,7 @@ static char state_of(char x, char y)
     return 'C';
   if (x == 'D' || y == 'D')
     return 'D';
-  if (x == 'A')
+  if (x == 'A' || y == 'A') /* y: git add -N, or an hg / svn add, which has no index */
     return 'A';
   return 'M';
 }
