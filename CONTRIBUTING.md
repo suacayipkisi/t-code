@@ -167,7 +167,7 @@ src/                 t-code (src/app.h: struct App and struct Tab, the shared st
   ipc/               requests from scripts and tools over $TCODE_SOCKET (socket.c)
 styles/              the editor's colors: Dark Classic as a GtkSourceView style scheme
 snippets/            the built-in snippets
-plugins/builtin/     the plugins this repository publishes to the registry; Python, Rust, C++ and Go
+plugins/builtin/     the plugins this repository publishes to the registry; Python, Rust, C++, Go and JavaScript
                      on purpose, to test the plugin API from different languages
 docs/                features.md, plugins.md (manifest and socket protocol), tasks.md, memory.md,
                      performance.md, packaging.md, screenshots

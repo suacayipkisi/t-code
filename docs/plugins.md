@@ -639,12 +639,12 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Nine of them are written and live in this
+These are plugins the API is meant to make possible. Ten of them are written and live in this
 repository under `plugins/builtin/` (Java, MATLAB, Octave, ShellCheck, CMake, Text Tools, TODO Finder,
-Word Count, Format on Save), as working examples and
+Word Count, Format on Save, Targets), as working examples and
 as the registry's first entries. They are written in different languages on purpose, to test that
 tapi_1 works the same from any of them: TODO Finder is Rust, Word Count is C++, Format on Save is Go,
-the rest are Python 3.
+Targets is JavaScript (Node.js), the rest are Python 3.
 t-code does not load them by itself (install them from Browse, or copy a folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
 `t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
 PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what it does, what t-code provides
@@ -890,9 +890,19 @@ Small plugins of the same shape, for Markdown, YAML, Dockerfiles and GitHub work
 - **Does:** starts OpenOCD in a terminal tab and gives t-code's gdb a
   `target extended-remote :3333` launch.
 
-#### Make / just / Task targets (`targets`)
-- **Does:** lists the targets of a Makefile, justfile or Taskfile with `pick` and runs the chosen one
-  in a terminal tab.
+#### Make / just / Task targets (`targets`, in this repository: `plugins/builtin/targets`, in JavaScript)
+- **Does:** **Targets: Run a Target** (`Ctrl+Alt+M`) lists the project's Makefile, justfile,
+  Taskfile and `package.json` scripts with `pick` (a target's `## comment` or the comment above it,
+  a task's `desc:`, a script's command as the detail) and runs the chosen one in a "Targets"
+  terminal tab; **Targets: Run the Last Target Again** (`Ctrl+Alt+R`). When it ends, compiler
+  messages in its output (`file:line:col: error|warning: ...`, following make's "Entering
+  directory") become diagnostics and the status bar says done or failed.
+- **Plugin:** Node.js 18 or newer, standard library. The tab runs a script in
+  `$XDG_RUNTIME_DIR/t-code-targets/` that keeps the output and the exit status; the plugin closes
+  its connection while the target runs and comes back for the results.
+- **Limits:** the project's top folder only; Make targets come from reading the Makefile (no
+  `include`d files, no generated rules); a target started while another still runs in the tab is
+  typed into it.
 
 #### Meson, Bazel, Zig build
 - **Does:** build commands, with their errors as diagnostics.

@@ -248,6 +248,10 @@ test: build/test-log build/test-children build/test-searchmatch build/test-detec
 	for d in plugins/builtin/*/; do test -f $$d/go.mod || continue; \
 	  if command -v go >/dev/null; then (cd $$d && GOTOOLCHAIN=local GOPROXY=off go test ./...) || exit 1; \
 	  else echo "no go: $$d not tested"; fi; done
+	# plugins in JavaScript (targets): node --test, when node is there
+	for t in plugins/builtin/*/test_*.js; do test -f $$t || continue; \
+	  if command -v node >/dev/null; then node --test $$t >/dev/null || { node --test $$t; exit 1; }; \
+	  else echo "no node: $$t not tested"; fi; done
 	# plugins in Rust (todos): their own tests, when cargo is there
 	for d in plugins/builtin/*/; do test -f $$d/Cargo.toml || continue; \
 	  if command -v cargo >/dev/null; then CARGO_TARGET_DIR=$(CURDIR)/build/cargo cargo test -q --offline --locked \

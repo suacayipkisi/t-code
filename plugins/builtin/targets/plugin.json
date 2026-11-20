@@ -1,0 +1,14 @@
+{
+  "api": "tapi_1",
+  "id": "targets",
+  "name": "Targets",
+  "provider": "t-code",
+  "version": "0.1.0",
+  "description": "Make, just, Task and npm targets in the picker; the chosen one runs in a terminal tab, its compiler errors land in Problems. Needs Node.js 18 or newer (and make, just or task for their files).",
+  "executable": "targets.js",
+  "permissions": ["terminal"],
+  "commands": [
+    { "id": "run", "name": "Targets: Run a Target", "keys": "<Control><Alt>m" },
+    { "id": "again", "name": "Targets: Run the Last Target Again", "keys": "<Control><Alt>r" }
+  ]
+}
