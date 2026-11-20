@@ -241,6 +241,9 @@ test: build/test-log build/test-children build/test-searchmatch build/test-detec
 	build/test-registry
 	for d in plugins/builtin/*/; do ls $$d/test_*.py >/dev/null 2>&1 || continue; \
 	  (cd $$d && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q) || exit 1; done
+	# plugins in C (pomodoro): their test_*.c, built and run
+	for t in plugins/builtin/*/test_*.c; do test -f $$t || continue; \
+	  $(CC) -std=c11 -Wall -Wextra -Werror -o build/$$(basename $$t .c) $$t && build/$$(basename $$t .c) || exit 1; done
 	# plugins in C++ (word-count): their test_*.cpp, built and run
 	for t in plugins/builtin/*/test_*.cpp; do test -f $$t || continue; \
 	  $(CXX) -std=c++17 -Wall -Wextra -Werror -o build/$$(basename $$t .cpp) $$t && build/$$(basename $$t .cpp) || exit 1; done

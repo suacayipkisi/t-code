@@ -639,11 +639,11 @@ whether it was reviewed and the warnings taken).
 
 ## Plugin catalog
 
-These are plugins the API is meant to make possible. Eleven of them are written and live in this
+These are plugins the API is meant to make possible. Twelve of them are written and live in this
 repository under `plugins/builtin/` (Java, MATLAB, Octave, ShellCheck, CMake, Text Tools, TODO Finder,
-Word Count, Format on Save, Targets, LaTeX and Typst), as working examples and
+Word Count, Format on Save, Targets, LaTeX and Typst, Pomodoro), as working examples and
 as the registry's first entries. They are written in different languages on purpose, to test that
-tapi_1 works the same from any of them: TODO Finder and LaTeX are Rust, Word Count is C++, Format on Save is Go,
+tapi_1 works the same from any of them: TODO Finder and LaTeX are Rust, Word Count is C++, Pomodoro is C, Format on Save is Go,
 Targets is JavaScript (Node.js), the rest are Python 3.
 t-code does not load them by itself (install them from Browse, or copy a folder into `~/.config/t-code/plugins/`). MATLAB and Octave also come as their own packages,
 `t-code-matlab` and `t-code-octave` (Fedora, Debian / Ubuntu, Arch, Void: `make install-plugin
@@ -968,8 +968,18 @@ Declarations only: `snippets/` and `styles/*.xml` folders, no program.
 - **Does:** passes `active_changed` and `did_save` to `wakatime-cli`.
 - **Permissions:** declares `network`.
 
-#### Pomodoro (`pomodoro`)
-- **Does:** a countdown with `status-set`, and `notify-send` at the end.
+#### Pomodoro (`pomodoro`, in this repository: `plugins/builtin/pomodoro`, in C)
+- **Does:** **Pomodoro: Start a Focus Session** puts a countdown at the right of the status bar
+  (`🍅 24:59`, `status-set`); then a break starts by itself (`☕ 4:59`, a long one after every fourth
+  session), and the session after it waits for you. Each end is said in the status bar and, with
+  `notify-send` installed, as a desktop notification. **Pause or Resume** (`⏸ 🍅 12:00`) and
+  **Stop**. Durations in `~/.config/t-code-pomodoro/settings`: `focus=50`, `break=10`, `long=20`
+  (minutes; 25, 5 and 15 without it).
+- **Plugin:** C11 and POSIX. The process of **Start** stays and counts down; the other commands
+  change a small state file in `$XDG_RUNTIME_DIR/t-code-pomodoro/` that it reads four times a
+  second. `run.sh` builds it with the system's C compiler into `~/.cache/t-code-pomodoro/`.
+- **Limits:** a countdown lives as long as t-code (closing it ends the countdown; the state file
+  stays, Start begins anew).
 
 #### Discord presence (`discord`)
 - **Does:** writes "Editing foo.c" to Discord's IPC socket on `active_changed`.
