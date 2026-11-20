@@ -258,6 +258,8 @@ the next start. t-code's own languages and the user's snippets come first.
    | `TCODE_COMMAND_ID` | The command's id (also `$1`). |
    | `TCODE_ACTIVE_FILE` | The active editor's file, or empty (also `$2`). |
    | `TCODE_PROJECT_ROOT` | The project's folder. |
+   | `TCODE_TEST` | Only for `debug` run from the Testing panel: the test's id (`$2` is then its file). |
+   | `TCODE_DEBUG_PORT` | With `TCODE_TEST`: the port where the test's JVM waits for a debugger. |
 
 3. The program talks to t-code over the socket, then exits. Or it keeps a `subscribe` connection
    open and reacts to events.
@@ -463,9 +465,14 @@ start (`[line, col]`).
 - **From F5:** a file the plugin's `debug` names gets that command on `F5` (the editors saved first);
   the command prepares (builds, finds its port) and ends with `debug-start`. Restart runs it again.
 - **From the Testing panel:** a JUnit test whose file the plugin's `debug` names gets a debug button
-  (and Debug on its ▶ in the gutter). Its file opens, the editors are saved, and the same command
-  runs with that file as `$2` and the test's id in `TCODE_TEST` (`com.example.CalcTest#adds`, a
-  nested class's `Outer$Inner#name`).
+  (and Debug on its ▶ in the gutter). Its file opens, the editors are saved, and the panel runs the
+  test itself (Maven's `maven.surefire.debug`, an init script's `jvmArgs` for Gradle) with its JVM
+  waiting for a debugger on a free port (JDWP). Once that port listens (read from `/proc/net/tcp`),
+  the same command runs with the file as `$2`, the test's id in `TCODE_TEST`
+  (`com.example.CalcTest#adds`, a nested class's `Outer$Inner#name`) and the port in
+  `TCODE_DEBUG_PORT`: it attaches its debugger there with `debug-start` (`"request": "attach"`). The
+  test's result shows in the panel as a Run's would, and Restart stops the run and debugs the test
+  again.
 
 **Terminal tabs:**
 
@@ -708,7 +715,8 @@ PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what
     options): Go to Definition into a library's class opens its source (or jdtls' decompiled
     text) read-only.
   - The Testing panel lists and runs JUnit tests itself (a Maven or Gradle project); its debug
-    button hands a test to the plugin's `debug` (`TCODE_TEST`).
+    button runs a test with its JVM waiting, then hands it to the plugin's `debug` (`TCODE_TEST`,
+    `TCODE_DEBUG_PORT`).
   - `"start": "project"`: with jdtls ready the plugin exits at once; without it, the first `.java`
     file that opens asks once whether to install it.
 - **Plugin** (Python 3, standard library):
@@ -743,14 +751,11 @@ PLUGIN=<id>` puts them in `/usr/share/t-code/plugins/<id>/`). Each one says what
     picked), a build (errors stop it: the Problems panel shows them), the classpath, the Java
     program and a debug adapter's port (`vscode.java.startDebugSession`), then starts t-code's
     debugger on that port with `debug-start`. The program runs in the Debug panel's terminal.
-  - **Debug a test** (the Testing panel's debug button): `mvn test -Dtest=<id>` with
-    `maven.surefire.debug`, or Gradle with an init script giving the test JVM its `jvmArgs`, run in
-    the Java tab with the JVM waiting on a free port (JDWP); once something listens there (read
-    from `/proc/net/tcp`: a probe would use up the JVM's one connection), java-debug attaches
-    (`debug-start` with `"request": "attach"`). The run's errors become diagnostics at its end.
+  - **Debug a test** (the Testing panel's debug button): the panel runs the test with its JVM
+    waiting on `TCODE_DEBUG_PORT`; the plugin asks jdtls for a debug adapter
+    (`vscode.java.startDebugSession`) and attaches it there (`debug-start` with
+    `"request": "attach"`).
 - **Limits:**
-  - A test debugged from the panel does not update its ✓ / ✗ there (Run does); Restart in the Debug
-    panel runs `F5` on the current file instead of that test again.
   - Abstract test classes' tests are not listed (their subclasses run them); Gradle's names for
     parameterized cases do not map to their method.
   - A Maven module that needs its sibling modules builds from its own folder.

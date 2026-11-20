@@ -4357,7 +4357,10 @@ static gpointer fake_adapter(gpointer data)
     else if (g_strcmp0(command, "configurationDone") == 0)
       fake_adapter_send(out, "{\"seq\":2,\"type\":\"event\",\"event\":\"stopped\",\"body\":{\"reason\":"
                              "\"breakpoint\",\"threadId\":1}}");
-    gboolean done = g_strcmp0(command, "disconnect") == 0;
+    gboolean done = g_strcmp0(command, "disconnect") == 0 || g_strcmp0(command, "continue") == 0;
+    if (g_strcmp0(command, "continue") == 0) /* java-debug's way: "exited" twice */
+      for (int i = 0; i < 2; i++)
+        fake_adapter_send(out, "{\"seq\":4,\"type\":\"event\",\"event\":\"exited\",\"body\":{\"exitCode\":0}}");
     if (done)
       fake_adapter_send(out, "{\"seq\":3,\"type\":\"event\",\"event\":\"terminated\"}");
     g_free(reply);
@@ -4374,7 +4377,7 @@ static gpointer fake_adapter(gpointer data)
 }
 
 /* debug-start with a debugger listening on a port: it stops where it says, its "Local" scope's
- * variables show, Stop ends it. */
+ * variables show, Stop ends it; again, and Continue runs it to its end, said once. */
 static void test_debugging_plugin_adapter(void)
 {
   FakeAdapter fake = { g_socket_listener_new(), g_build_filename(app.project.root, "App.java", NULL) };
@@ -4398,6 +4401,30 @@ static void test_debugging_plugin_adapter(void)
   debug_stop(&app);
   wait_end();
   g_thread_join(thread);
+
+  thread = g_thread_new("adapter", fake_adapter, &fake);
+  tapi_expect(&c, request, "ok");
+  wait_stop(5);
+  debug_start_or_continue(&app);
+  wait_end();
+  g_thread_join(thread);
+  /* this run's lines: after its "▶"; the end comes a moment later, and only once */
+  gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC, settled = 0;
+  char *said = NULL;
+  const char *run = NULL, *first = NULL;
+  while (g_get_monotonic_time() < until && (!first || g_get_monotonic_time() < settled)) {
+    g_main_context_iteration(NULL, FALSE);
+    g_free(said);
+    said = vte_terminal_get_text_format(app.debug.term, VTE_FORMAT_TEXT);
+    run = g_strrstr(said, "▶ Fake");
+    if (!first && run && (first = strstr(run, "exited with code 0")))
+      settled = g_get_monotonic_time() + G_USEC_PER_SEC / 2; /* a second one would come by then */
+    else if (first && run)
+      first = strstr(run, "exited with code 0");
+  }
+  g_assert_nonnull(first);
+  g_assert_null(strstr(first + 1, "exited with code 0"));
+  g_free(said);
   tapi_close(&c);
   close_everything();
   g_free(request);

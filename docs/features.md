@@ -177,8 +177,8 @@ run through CTest with GoogleTest's filter), pytest's (under
 their file, with the project's Python), `go test`'s (under their package), `cargo test`'s (under
 their module) and JUnit's (a Maven or Gradle project: JUnit 4 and 5 test methods under their class,
 found in the Java files; run through `mvn test -Dtest=…` or `gradle test --tests …`, `mvnw` /
-`gradlew` when the project has them, their XML reports read; a JUnit test's debug button goes to
-the Java plugin, which runs it with its JVM waiting for java-debug). Each test shows its last result: ✓ passed, ✗ failed, - skipped, ○ not run. ▶ on a row
+`gradlew` when the project has them, their XML reports read; a JUnit test's debug button runs it with
+its JVM waiting, and the Java plugin attaches java-debug to it; its result shows as a Run's would). Each test shows its last result: ✓ passed, ✗ failed, - skipped, ○ not run. ▶ on a row
 (shown on hover) runs that test or group; the header has Run All, Run Failed, Stop and Refresh (also
 "Test: Run All Tests", "Test: Run Failed Tests", "Test: Refresh Tests" and "Test: Stop" in the
 command palette). Runs save the changed files first and go on in the background, one at a time; CTest

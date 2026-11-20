@@ -3,10 +3,14 @@
  */
 #include "testing/frameworks.h"
 
+#include <arpa/inet.h>
 #include <glib/gstdio.h>
 #include <json-glib/json-glib.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #define SOURCE_MAX_BYTES (2 * 1024 * 1024) /* bigger files are not where tests are defined */
 #define SOURCE_MAX_FILES 50000             /* read when looking for a test's definition */
@@ -309,18 +313,23 @@ static char *gtest_filter(GPtrArray *tests)
 }
 
 /* JUnit through Maven (mvnw when the project has it) or Gradle (gradlew): $1 the report, $2 Maven's -Dtest
- * ("a.B#c+d,e.F": empty for all), then Gradle's --tests arguments. The reports written by this run
- * (newer than a mark made first) become one report. Gradle's cleanTest: an up-to-date test task would
- * not run. */
+ * ("a.B#c+d,e.F": empty for all), $3 a port the test JVM waits on for a debugger (JDWP; empty: none: Maven's
+ * maven.surefire.debug, an init script's jvmArgs for Gradle), then Gradle's --tests arguments. The reports
+ * written by this run (newer than a mark made first) become one report. Gradle's cleanTest: an up-to-date
+ * test task would not run. */
 static const char junit_run_script[] =
-    "r=\"$1\"; t=\"$2\"; shift 2; : > \"$r.start\"; "
+    "r=\"$1\"; t=\"$2\"; d=\"$3\"; shift 3; : > \"$r.start\"; "
+    "j=\"-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=localhost:$d\"; "
     "if [ -f pom.xml ]; then m=mvn; [ -x ./mvnw ] && m=./mvnw; "
-    "\"$m\" -B test ${t:+-Dtest=\"$t\"} -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false; s=$?; "
+    "\"$m\" -B test ${t:+-Dtest=\"$t\"} ${d:+-Dmaven.surefire.debug=\"$j\"} "
+    "-Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false; s=$?; "
     "p='*/surefire-reports/TEST-*.xml'; "
     "else g=gradle; [ -x ./gradlew ] && g=./gradlew; "
+    "if [ -n \"$d\" ]; then printf 'allprojects { tasks.withType(Test).configureEach { jvmArgs \"%s\"; "
+    "maxParallelForks = 1 } }\\n' \"$j\" > \"$r.gradle\"; set -- -I \"$r.gradle\" \"$@\"; fi; "
     "\"$g\" --console=plain cleanTest test \"$@\"; s=$?; p='*/test-results/*/TEST-*.xml'; fi; "
     "{ echo '<testsuites>'; find . -path \"$p\" -newer \"$r.start\" -exec sed '/^<?xml/d' {} +; "
-    "echo '</testsuites>'; } > \"$r\"; rm -f \"$r.start\"; exit $s";
+    "echo '</testsuites>'; } > \"$r\"; rm -f \"$r.start\" \"$r.gradle\"; exit $s";
 
 /* The JUnit tests as Maven's -Dtest ("a.B#c+d,e.F#g") and as Gradle's --tests arguments (added to argv). */
 static char *junit_filters(GPtrArray *tests, GPtrArray *gradle)
@@ -362,22 +371,75 @@ static char *junit_filters(GPtrArray *tests, GPtrArray *gradle)
   return g_string_free(filter, FALSE);
 }
 
+/* JUnit's run of tests (NULL: all), its JVM waiting for a debugger on port (0: not). */
+static char **junit_run_argv(GPtrArray *tests, const char *report, int port)
+{
+  GPtrArray *argv = argv_new(), *gradle = argv_new();
+
+  for (const char *const *a = (const char *const[]){ "sh", "-c", junit_run_script, "sh", report, NULL }; *a; a++)
+    argv_add(argv, *a);
+  g_ptr_array_add(argv, junit_filters(tests, gradle));
+  g_ptr_array_add(argv, port > 0 ? g_strdup_printf("%d", port) : g_strdup(""));
+  for (guint i = 0; i < gradle->len; i++)
+    argv_add(argv, gradle->pdata[i]);
+  g_ptr_array_free(gradle, TRUE);
+  return argv_end(argv);
+}
+
+char **test_debug_argv(const TestSource *source, GPtrArray *tests, const char *report, int port)
+{
+  return source->kind == TEST_JUNIT ? junit_run_argv(tests, report, port) : NULL;
+}
+
+int test_free_port(void)
+{
+  struct sockaddr_in address = { .sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK) };
+  socklen_t size = sizeof address;
+  int fd = socket(AF_INET, SOCK_STREAM, 0), port = 0;
+
+  if (fd >= 0 && bind(fd, (struct sockaddr *)&address, sizeof address) == 0 &&
+      getsockname(fd, (struct sockaddr *)&address, &size) == 0)
+    port = ntohs(address.sin_port);
+  if (fd >= 0)
+    close(fd);
+  return port;
+}
+
+gboolean test_port_listening(int port, const char *const *tables)
+{
+  static const char *const proc[] = { "/proc/net/tcp", "/proc/net/tcp6", NULL };
+  char *wanted = g_strdup_printf(":%04X", port);
+  gboolean found = FALSE;
+
+  for (const char *const *table = tables ? tables : proc; *table && !found; table++) {
+    char *text = NULL;
+    if (!g_file_get_contents(*table, &text, NULL, NULL))
+      continue;
+    char **lines = g_strsplit(text, "\n", -1);
+    for (int i = 1; lines[i] && !found; i++) { /* "sl local_address rem_address st ...": st 0A is LISTEN */
+      char **fields = g_strsplit_set(g_strstrip(lines[i]), " ", -1);
+      GPtrArray *words = g_ptr_array_new();
+      for (int f = 0; fields[f]; f++)
+        if (*fields[f])
+          g_ptr_array_add(words, fields[f]);
+      found = words->len > 3 && strcmp(words->pdata[3], "0A") == 0 && g_str_has_suffix(words->pdata[1], wanted);
+      g_ptr_array_free(words, TRUE);
+      g_strfreev(fields);
+    }
+    g_strfreev(lines);
+    g_free(text);
+  }
+  g_free(wanted);
+  return found;
+}
+
 char **test_run_argv(const TestSource *source, const char *python, const char *cargo_flags, GPtrArray *tests,
                      const char *report)
 {
   GPtrArray *argv = argv_new();
 
   switch (source->kind) {
-    case TEST_JUNIT: {
-      GPtrArray *gradle = argv_new();
-      for (const char *const *a = (const char *const[]){ "sh", "-c", junit_run_script, "sh", report, NULL }; *a; a++)
-        argv_add(argv, *a);
-      g_ptr_array_add(argv, junit_filters(tests, gradle));
-      for (guint i = 0; i < gradle->len; i++)
-        argv_add(argv, gradle->pdata[i]);
-      g_ptr_array_free(gradle, TRUE);
-      break;
-    }
+    case TEST_JUNIT: g_ptr_array_free(argv, TRUE); return junit_run_argv(tests, report, 0);
     case TEST_CTEST:
       /* What runs is what is built: build first, as Build would. */
       argv_add(argv, "sh");

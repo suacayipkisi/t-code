@@ -3,6 +3,7 @@
  * skipped when its tool is missing; pytest's interpreter is $TCODE_TEST_PYTHON or python3). */
 #include "testing/frameworks.h"
 
+#include <gio/gio.h>
 #include <glib/gstdio.h>
 #include <string.h>
 
@@ -606,6 +607,54 @@ static void test_junit_listing(void)
   g_free(root);
 }
 
+/* JUnit's run for debugging: the port goes to Maven's maven.surefire.debug (and Gradle's init script); a
+ * port is free, and one listening is seen in /proc's tables. */
+static void test_junit_debugging(void)
+{
+  TestSource junit = { TEST_JUNIT, "/p", NULL }, go = { TEST_GO, "/p", NULL };
+  TestCase adds = {
+    TEST_JUNIT, "com.example.CalcTest#adds", "com.example.CalcTest", "adds", 0, NULL, NULL, NULL, NULL, 0, NULL
+  };
+  GPtrArray *tests = g_ptr_array_new();
+  char **argv;
+
+  g_ptr_array_add(tests, &adds);
+  argv = test_debug_argv(&junit, tests, "/r.xml", 40123);
+  g_assert_cmpstr(argv[4], ==, "/r.xml");
+  g_assert_cmpstr(argv[5], ==, "com.example.CalcTest#adds");
+  g_assert_cmpstr(argv[6], ==, "40123");
+  g_assert_cmpstr(argv[7], ==, "--tests");
+  g_assert_cmpstr(argv[8], ==, "com.example.CalcTest.adds");
+  g_assert_nonnull(strstr(argv[2], "maven.surefire.debug"));
+  g_strfreev(argv);
+  argv = test_run_argv(&junit, NULL, NULL, tests, "/r.xml");
+  g_assert_cmpstr(argv[6], ==, ""); /* no port: no debugger */
+  g_strfreev(argv);
+  g_assert_null(test_debug_argv(&go, tests, "/r.xml", 40123));
+  g_ptr_array_unref(tests);
+
+  put("tcp", "  sl  local_address rem_address   st tx_queue\n"
+             "   0: 0100007F:9CBB 00000000:0000 0A 00000000:00000000\n"
+             "   1: 0100007F:9CBC 0100007F:A000 01 00000000:00000000\n");
+  char *table = path_of("tcp");
+  const char *const tables[] = { table, NULL };
+  g_assert_true(test_port_listening(40123, tables));  /* 9CBB, listening */
+  g_assert_false(test_port_listening(40124, tables)); /* connected */
+  g_assert_false(test_port_listening(40125, tables));
+  g_free(table);
+
+  int port = test_free_port();
+  g_assert_cmpint(port, >, 0);
+  g_assert_false(test_port_listening(port, NULL));
+  GSocketListener *listener = g_socket_listener_new();
+  GError *error = NULL;
+  g_assert_true(g_socket_listener_add_inet_port(listener, (guint16)port, NULL, &error));
+  g_assert_no_error(error);
+  g_assert_true(test_port_listening(port, NULL)); /* from /proc */
+  g_socket_listener_close(listener);
+  g_object_unref(listener);
+}
+
 static void test_commands(void)
 {
   TestSource ctest = { TEST_CTEST, "/p/build", NULL }, go = { TEST_GO, "/p", NULL }, cargo = { TEST_CARGO, "/p", NULL };
@@ -957,6 +1006,7 @@ int main(int argc, char **argv)
   g_test_add_func("/frameworks/cargo-recorded", test_cargo_recorded);
   g_test_add_func("/frameworks/junit-recorded", test_junit_recorded);
   g_test_add_func("/frameworks/junit-listing", test_junit_listing);
+  g_test_add_func("/frameworks/junit-debugging", test_junit_debugging);
   g_test_add_func("/frameworks/commands", test_commands);
   g_test_add_func("/frameworks/ctest", test_ctest_real);
   g_test_add_func("/frameworks/gtest-cases", test_gtest_cases_real);

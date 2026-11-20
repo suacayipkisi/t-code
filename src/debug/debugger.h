@@ -58,6 +58,10 @@ void debug_launch(App *t, const char *path);
 /* How Restart starts a session again (builds and launches what it debugged). */
 typedef void (*DebugAgain)(App *t);
 
+/* What Restart does for the next session debug-start begins (the Testing panel's: that test again);
+ * NULL: F5. Taken by that session only. */
+void debug_next_again(App *t, DebugAgain again);
+
 /* A debugger a plugin started or names (the control socket's debug-start). */
 typedef struct {
   const char *name;      /* shown in the Debug panel ("Java"); NULL: "debugger" */

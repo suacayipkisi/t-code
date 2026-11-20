@@ -928,7 +928,7 @@ static void child_setup(gpointer data G_GNUC_UNUSED)
  * runs"), without waiting for it; NULL when it cannot start (the status bar says so). file (NULL: the
  * active editor's) is its $2; test (NULL: none) goes into TCODE_TEST. */
 static PluginRun *launch_with(App *t, Plugin *p, const char *command_id, gboolean start, const char *file,
-                              const char *test)
+                              const char *test, int port)
 {
   GSubprocessLauncher *launcher =
       g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_MERGE);
@@ -947,6 +947,10 @@ static PluginRun *launch_with(App *t, Plugin *p, const char *command_id, gboolea
   env = g_environ_setenv(env, "TCODE_ACTIVE_FILE", active_file, TRUE);
   env = g_environ_setenv(env, "TCODE_PROJECT_ROOT", t->project.root ? t->project.root : "", TRUE);
   env = test ? g_environ_setenv(env, "TCODE_TEST", test, TRUE) : g_environ_unsetenv(env, "TCODE_TEST");
+  char *port_text = port > 0 ? g_strdup_printf("%d", port) : NULL;
+  env = port_text ? g_environ_setenv(env, "TCODE_DEBUG_PORT", port_text, TRUE)
+                  : g_environ_unsetenv(env, "TCODE_DEBUG_PORT");
+  g_free(port_text);
   g_subprocess_launcher_set_environ(launcher, env);
   g_subprocess_launcher_set_cwd(launcher, p->dir);
   g_subprocess_launcher_set_child_setup(launcher, child_setup, NULL, NULL);
@@ -984,7 +988,7 @@ static PluginRun *launch_with(App *t, Plugin *p, const char *command_id, gboolea
 
 static PluginRun *launch(App *t, Plugin *p, const char *command_id, gboolean start)
 {
-  return launch_with(t, p, command_id, start, NULL, NULL);
+  return launch_with(t, p, command_id, start, NULL, NULL, 0);
 }
 
 /* A signal for the program and whatever it started. */
@@ -1133,7 +1137,7 @@ PluginCommand *plugins_debug_command_for(App *t, const char *file)
   return command_for(t, file, TRUE);
 }
 
-gboolean plugin_debug_test(App *t, PluginCommand *command, const char *file, const char *test)
+gboolean plugin_debug_test(App *t, PluginCommand *command, const char *file, const char *test, int port)
 {
   Plugin *p = command->plugin;
 
@@ -1145,7 +1149,7 @@ gboolean plugin_debug_test(App *t, PluginCommand *command, const char *file, con
     g_free(said);
     return FALSE;
   }
-  return launch_with(t, p, command->id, FALSE, file, test) != NULL;
+  return launch_with(t, p, command->id, FALSE, file, test, port) != NULL;
 }
 
 void plugin_run_command(App *t, const char *plugin_id, const char *command_id)

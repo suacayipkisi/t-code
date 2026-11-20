@@ -35,6 +35,9 @@ typedef struct {
   gboolean stopped;   /* by Stop: its tests have no result */
   guint generation;   /* testing.generation when it was made */
   GSubprocess *proc;
+  int port;     /* a JUnit test debugged: the port its JVM waits on for java-debug, else 0 */
+  char *attach; /* ... that test's id, until the plugin was asked to attach */
+  guint watch;  /* ... the timer looking for the port to listen */
 } Job;
 
 static struct {
@@ -56,8 +59,9 @@ static struct {
   gboolean listed;          /* for this project */
   char *dir;                /* reports go here */
   guint reports;
-  char *debugged; /* the id of the test last debugged: Restart debugs it again */
-  guint finding;  /* looking for a test's source: its generation */
+  char *debugged;       /* the id of the test last debugged: Restart debugs it again */
+  gboolean debug_again; /* Restart stopped that test's run: debug it again once it ended */
+  guint finding;        /* looking for a test's source: its generation */
 } testing;
 
 /* Keys and marks --------------------------------------------------------------------------- */
@@ -455,6 +459,9 @@ static void gtest_reports(const char *report, gboolean read)
 
 static void job_free(Job *job)
 {
+  if (job->watch)
+    g_source_remove(job->watch);
+  g_free(job->attach);
   g_strfreev(job->argv);
   g_free(job->debug);
   g_free(job->dir);
@@ -672,7 +679,36 @@ static void on_job_done(GObject *object, GAsyncResult *result, gpointer data)
   }
   if (bytes)
     g_bytes_unref(bytes);
+  gboolean again = job->port && testing.debug_again;
   job_free(job);
+  if (again) { /* Restart: the run it stopped has ended */
+    testing.debug_again = FALSE;
+    if (testing.debugged)
+      testing_debug_one(testing.debugged);
+  }
+}
+
+static PluginCommand *plugin_debugger(const TestCase *test, char **file);
+
+/* A JUnit test's run for debugging: once its JVM listens on the job's port, the plugin attaches
+ * java-debug to it (Restart: the test again). */
+static gboolean watch_port(gpointer data)
+{
+  Job *job = data;
+  TestCase *test = job->attach ? find_test_id(job->attach) : NULL;
+  char *file = NULL;
+  PluginCommand *command;
+
+  if (!test_port_listening(job->port, NULL))
+    return G_SOURCE_CONTINUE;
+  job->watch = 0;
+  if (test && (command = plugin_debugger(test, &file)) && !debug_active(testing.app)) {
+    debug_next_again(testing.app, testing_debug_again);
+    plugin_debug_test(testing.app, command, file, test->id, job->port);
+  }
+  g_clear_pointer(&job->attach, g_free);
+  g_free(file);
+  return G_SOURCE_REMOVE;
 }
 
 /* Starts the next waiting command when none runs. */
@@ -707,6 +743,8 @@ static void start_next(void)
       continue;
     }
     testing.job = job;
+    if (job->port)
+      job->watch = g_timeout_add(200, watch_port, job);
     g_subprocess_communicate_async(job->proc, NULL, NULL, on_job_done, job);
   }
 }
@@ -948,22 +986,33 @@ gboolean testing_can_debug(const TestCase *test)
   return can;
 }
 
-/* After the save: the plugin ("<plugin id>\n<command id>\n<file>\n<test id>") debugs the test. */
-static void plugin_debug_saved(App *t, gpointer data)
+/* After the save: the JUnit test (its id) runs with its JVM waiting for a debugger (watch_port). */
+static void junit_debug_saved(App *t, gpointer data)
 {
-  char **parts = g_strsplit(data, "\n", 4);
-  Plugin *p = !t->closing && g_strv_length(parts) == 4 ? plugin_find(t, parts[0]) : NULL;
+  char *id = data;
+  TestCase *test = find_test_id(id);
+  const TestSource *source = source_of(TEST_JUNIT);
+  int port = test_free_port();
 
-  for (guint i = 0; p && p->commands && i < p->commands->len; i++) {
-    PluginCommand *command = g_ptr_array_index(p->commands, i);
-    if (strcmp(command->id, parts[1]) == 0 && !debug_active(t)) {
-      g_set_str(&testing.debugged, parts[3]);
-      plugin_debug_test(t, command, parts[2], parts[3]);
-      break;
-    }
+  if (!t->closing && testing.panel && !testing_busy() && test && source && port > 0) {
+    GPtrArray *chosen = g_ptr_array_new();
+    Job *job = g_new0(Job, 1);
+    g_ptr_array_add(chosen, test);
+    job->kind = TEST_JUNIT;
+    job->dir = g_strdup(source->dir);
+    job->report = report_path();
+    job->argv = test_debug_argv(source, chosen, job->report, port);
+    job->port = port;
+    job->attach = g_strdup(id);
+    job->generation = testing.generation;
+    test->state = TEST_RUNNING;
+    g_set_str(&testing.debugged, id);
+    g_queue_push_tail(&testing.waiting, job);
+    g_ptr_array_free(chosen, TRUE);
+    start_next();
+    rebuild();
   }
-  g_strfreev(parts);
-  g_free(data);
+  g_free(id);
 }
 
 gboolean testing_debug_one(const char *id)
@@ -972,13 +1021,13 @@ gboolean testing_debug_one(const char *id)
   char *file = NULL;
   PluginCommand *command = test ? plugin_debugger(test, &file) : NULL;
 
-  if (command) { /* a JUnit test: the Java plugin runs it under java-debug */
+  if (command) { /* a JUnit test: it runs here, its JVM waiting; the plugin attaches java-debug */
     if (testing_busy() || debug_active(testing.app)) {
       g_free(file);
       return FALSE;
     }
     open_file(testing.app, file); /* its language server answers the plugin about it */
-    save_all(testing.app, plugin_debug_saved, g_strjoin("\n", command->plugin->id, command->id, file, test->id, NULL));
+    save_all(testing.app, junit_debug_saved, g_strdup(test->id));
     g_free(file);
     return TRUE;
   }
@@ -994,8 +1043,12 @@ gboolean testing_debug_one(const char *id)
 
 void testing_debug_again(App *t G_GNUC_UNUSED)
 {
-  if (testing.debugged)
+  if (testing.job && testing.job->port) { /* the JUnit test's run still goes (detached): it ends first */
+    testing.debug_again = TRUE;
+    testing_stop();
+  } else if (testing.debugged) {
     testing_debug_one(testing.debugged);
+  }
 }
 
 /* Going to a test's source -------------------------------------------------------------------- */

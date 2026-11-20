@@ -61,6 +61,17 @@ GPtrArray *test_parse_list(TestKind kind, const char *out);
 char **test_run_argv(const TestSource *source, const char *python, const char *cargo_flags, GPtrArray *tests,
                      const char *report);
 
+/* The same run of tests (JUnit's), its test JVM waiting for a debugger on port (JDWP: java-debug attaches
+ * there); NULL for the other frameworks. */
+char **test_debug_argv(const TestSource *source, GPtrArray *tests, const char *report, int port);
+
+/* A local TCP port free now (0: none). */
+int test_free_port(void);
+
+/* Whether a program listens on the local TCP port, read from tables (NULL: /proc/net/tcp and tcp6):
+ * connecting to find out would use up a JVM's one debugger connection. */
+gboolean test_port_listening(int port, const char *const *tables);
+
 /* Puts a run's results into tests (those of kind among them; others are left alone): out is the
  * command's output, report the report file's text (NULL: none). Returns how many got a result. */
 guint test_apply_results(TestKind kind, GPtrArray *tests, const char *out, const char *report);

@@ -20,6 +20,8 @@ char *toolchain_python(App *t G_GNUC_UNUSED, const char *root G_GNUC_UNUSED) { r
 char *toolchain_rust_features(App *t G_GNUC_UNUSED) { return NULL; }
 char *toolchain_rust_target(App *t G_GNUC_UNUSED) { return NULL; }
 gboolean debug_active(App *t G_GNUC_UNUSED) { return FALSE; }
+static DebugAgain next_again; /* the last debug_next_again's */
+void debug_next_again(App *t G_GNUC_UNUSED, DebugAgain again) { next_again = again; }
 static char *shown_page; /* the last show_sidebar_page's */
 void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page) { g_set_str(&shown_page, page); }
 /* clang-format on */
@@ -29,6 +31,7 @@ static gboolean java_plugin_on;
 static Plugin java_plugin = { .id = "java", .name = "Java" };
 static PluginCommand java_debug = { .id = "debug", .name = "Java: Debug", .plugin = &java_plugin };
 static char *debugged_by_plugin; /* "file|test" of the last plugin_debug_test */
+static int debugged_port;        /* ... and its port */
 static char *opened_file;        /* the last open_file's */
 
 PluginCommand *plugins_debug_command_for(App *t G_GNUC_UNUSED, const char *file)
@@ -39,9 +42,10 @@ Plugin *plugin_find(App *t G_GNUC_UNUSED, const char *id)
 {
   return g_strcmp0(id, "java") == 0 ? &java_plugin : NULL;
 }
-gboolean plugin_debug_test(App *t G_GNUC_UNUSED, PluginCommand *command, const char *file, const char *test)
+gboolean plugin_debug_test(App *t G_GNUC_UNUSED, PluginCommand *command, const char *file, const char *test, int port)
 {
   g_assert_true(command == &java_debug);
+  debugged_port = port;
   g_free(debugged_by_plugin);
   debugged_by_plugin = g_strdup_printf("%s|%s", file, test);
   return TRUE;
@@ -104,6 +108,19 @@ static const char fake_ctest[] =
 static const char fake_cmake[] = "#!/bin/sh\n"
                                  "[ -f broken ] && { echo 'math.cc:1: error: broken'; exit 1; }\n"
                                  "echo built; exit 0\n";
+
+/* The fake mvn: run with maven.surefire.debug, it listens on that port (as a test JVM waiting for its
+ * debugger) until the file "attached" appears in the project, then writes adds' passing report. */
+static const char fake_mvn[] =
+    "#!/bin/sh\n"
+    "for a; do case \"$a\" in -Dmaven.surefire.debug=*) port=\"${a##*:}\";; esac; done\n"
+    "[ -n \"$port\" ] && python3 -c 'import os, socket, sys, time\n"
+    "s = socket.socket(); s.bind((\"127.0.0.1\", int(sys.argv[1]))); s.listen(1)\n"
+    "end = time.time() + 10\n"
+    "while not os.path.exists(\"attached\") and time.time() < end: time.sleep(0.05)' \"$port\"\n"
+    "mkdir -p target/surefire-reports\n"
+    "printf '<testsuite><testcase name=\"adds\" classname=\"com.example.CalcTest\"/></testsuite>\\n' "
+    "> target/surefire-reports/TEST-com.example.CalcTest.xml\n";
 
 static gboolean finding(gconstpointer data G_GNUC_UNUSED)
 {
@@ -309,8 +326,19 @@ static void test_debug(void)
   g_free(cproject);
 }
 
+/* Runs the main loop until the plugin was asked to attach (or 20 seconds pass). */
+static void wait_plugin_asked(void)
+{
+  gint64 end = g_get_monotonic_time() + 20 * G_USEC_PER_SEC;
+
+  while (!debugged_by_plugin && g_get_monotonic_time() < end)
+    g_main_context_iteration(NULL, FALSE) || (g_usleep(10000), TRUE);
+}
+
 /* A JUnit test is debugged by the plugin whose "debug" takes its file: its file opens (for its language
- * server) and the plugin gets the file and the test's id; without such a plugin it cannot be. */
+ * server), the panel runs the test with its JVM waiting on a port, and once something listens there the
+ * plugin gets the file, the test's id and the port (Restart: the same again). The run's result shows as a
+ * Run's would. Without such a plugin it cannot be debugged. */
 static void test_debug_junit(void)
 {
   char *jproject = g_build_filename(tmp, "jproject", NULL), *source;
@@ -327,11 +355,51 @@ static void test_debug_junit(void)
   assert_text("com.example.CalcTest\n  ○ adds\n");
 
   g_assert_false(testing_debug_one("com.example.CalcTest#adds")); /* no plugin debugs Java */
+  char *python = g_find_program_in_path("python3");
+  if (!python) {
+    g_test_skip("no python3 for the fake mvn");
+    g_ptr_array_unref(commands);
+    java_plugin.commands = NULL;
+    g_free(source);
+    g_free(jproject);
+    return;
+  }
+  g_free(python);
   java_plugin_on = TRUE;
+  char *attached = g_build_filename(jproject, "attached", NULL),
+       *expected = g_strdup_printf("%s|com.example.CalcTest#adds", source);
+  for (int round = 0; round < 2; round++) { /* the second: Restart */
+    g_clear_pointer(&debugged_by_plugin, g_free);
+    g_unlink(attached);
+    if (round == 0)
+      g_assert_true(testing_debug_one("com.example.CalcTest#adds"));
+    else
+      next_again(&app);
+    g_assert_cmpstr(opened_file, ==, source);
+    wait_plugin_asked(); /* once the JVM listens */
+    g_assert_cmpstr(debugged_by_plugin, ==, expected);
+    g_assert_cmpint(debugged_port, >, 0);
+    g_assert_true(next_again == testing_debug_again);
+    g_assert_true(g_file_set_contents(attached, "", 0, NULL)); /* the debugger let it go on */
+    run_until(idle, NULL);
+    assert_text("com.example.CalcTest\n  ✓ adds\n");
+  }
+  /* Restart while the test still runs (the debugger detached, the JVM goes on): it is stopped, then run
+   * again, the plugin asked again */
+  g_unlink(attached);
+  g_clear_pointer(&debugged_by_plugin, g_free);
   g_assert_true(testing_debug_one("com.example.CalcTest#adds"));
-  char *expected = g_strdup_printf("%s|com.example.CalcTest#adds", source);
+  wait_plugin_asked();
+  g_assert_nonnull(debugged_by_plugin);
+  g_clear_pointer(&debugged_by_plugin, g_free);
+  next_again(&app);
+  wait_plugin_asked();
   g_assert_cmpstr(debugged_by_plugin, ==, expected);
-  g_assert_cmpstr(opened_file, ==, source);
+  g_assert_true(g_file_set_contents(attached, "", 0, NULL));
+  run_until(idle, NULL);
+  assert_text("com.example.CalcTest\n  ✓ adds\n");
+  g_unlink(attached);
+  g_free(attached);
 
   java_plugin_on = FALSE;
   java_plugin.commands = NULL;
@@ -487,6 +555,7 @@ int main(int argc, char **argv)
   g_free(write_at(project, "go.mod", "module example.com/m\n", -1, 0));
   char *bin = g_build_filename(tmp, "bin", NULL), *path = g_strconcat(bin, ":", g_getenv("PATH"), NULL);
   g_free(write_at(bin, "go", fake_go, -1, 0755));
+  g_free(write_at(bin, "mvn", fake_mvn, -1, 0755));
   real_cmake = g_find_program_in_path("cmake");
   real_ctest = g_find_program_in_path("ctest");
   char *truth = g_find_program_in_path("true"), *body = g_strdup_printf(fake_ctest, truth);

@@ -16,15 +16,14 @@ Debug (F5 on a .java file, plugin.json's "debug") goes through java-debug, a jdt
 Install Debugger downloads it from Maven Central; the launcher hands it to jdtls): over the socket's
 lsp-command the plugin asks jdtls for the main class, its classpath, a build and a debug adapter's
 port, then hands that port to t-code's debugger with debug-start. The program runs in the Debug
-panel's terminal (runInTerminal). A test the Testing panel debugs (TCODE_TEST) runs through Maven or
-Gradle in the Java tab, its JVM waiting on a port (JDWP) that java-debug attaches to."""
+panel's terminal (runInTerminal). A test the Testing panel debugs (TCODE_TEST) is run by t-code
+through Maven or Gradle, its JVM waiting on a port (TCODE_DEBUG_PORT) that java-debug attaches to."""
 import hashlib
 import json
 import os
 import re
 import shlex
 import shutil
-import socket
 import sys
 import tarfile
 import tempfile
@@ -179,17 +178,6 @@ def find_up(start, names, stop=None):
 
 
 # The project ------------------------------------------------------------------------------------
-
-
-GRADLE_DEBUG_INIT = """\
-// Written by t-code's Java plugin: the test JVM waits for the debugger on one port.
-allprojects {
-    tasks.withType(Test).configureEach {
-        jvmArgs "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=localhost:%d"
-        maxParallelForks = 1
-    }
-}
-"""
 
 
 class Build:
@@ -732,40 +720,6 @@ def debug(t, project):
                            "shown": main["mainClass"]})
 
 
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def listening(port, tables=("/proc/net/tcp", "/proc/net/tcp6")):
-    """Whether something listens on the local port (the test JVM's JDWP), read from /proc: connecting
-    to find out would use up the JVM's one debugger connection."""
-    for table in tables:
-        for line in read(table).splitlines()[1:]:
-            fields = line.split()
-            if len(fields) > 3 and fields[3] == "0A" and fields[1].rsplit(":", 1)[-1] == f"{port:04X}":
-                return True
-    return False
-
-
-def debug_test_line(build, test, port, run_dir):
-    """The shell line running one test ("package.Class#method") with its JVM waiting for a debugger
-    on port; None for a folder without Maven or Gradle."""
-    jdwp = f"-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=localhost:{port}"
-    if build.kind == "maven":
-        return mvn(build, "test", shlex.quote(f"-Dtest={test}"), "-Dsurefire.failIfNoSpecifiedTests=false",
-                   "-DfailIfNoTests=false", shlex.quote(f"-Dmaven.surefire.debug={jdwp}"))
-    if build.kind == "gradle":
-        init = os.path.join(run_dir, "debug.gradle")
-        with open(init, "w") as f:
-            f.write(GRADLE_DEBUG_INIT % port)
-        cls, _, method = test.partition("#")
-        return gradle(build, "-I", shlex.quote(init), "cleanTest", "test", "--tests",
-                      shlex.quote(f"{cls}.{method}" if method else cls))
-    return None
-
-
 def lsp_soon(t, path, command, *arguments, seconds=60):
     """lsp(), waiting while the file's editor or its language server is not there yet (the Testing
     panel opened it just now)."""
@@ -779,47 +733,19 @@ def lsp_soon(t, path, command, *arguments, seconds=60):
             time.sleep(0.5)
 
 
-def debug_test(t, project, test, path, wait_seconds=600):
-    """The Testing panel's debug for a JUnit test: Maven or Gradle runs it in the Java tab, its JVM
-    waiting on a port; once it listens, java-debug attaches to it under t-code's debugger. The run's
-    errors become diagnostics at its end."""
-    build = detect(path, project)
-    if build.kind == "plain":
-        t.request("say", "Java: tests run through Maven or Gradle (no pom.xml or build.gradle here)")
-        return
-    if tool_missing(build):
-        t.request("say", f"Java: {tool_missing(build)} not found: install it first")
-        return
+def debug_test(t, project, test, path, port):
+    """The Testing panel's debug for a JUnit test: t-code runs it through Maven or Gradle with its JVM
+    waiting on port (TCODE_DEBUG_PORT); java-debug attaches there under t-code's debugger."""
     if not debugger_ready(t):
         return
-    port = free_port()
-    run_id, run_dir = new_run(project)
-    script = os.path.join(run_dir, "run.sh")
-    with open(script, "w") as f:
-        f.write(script_text(build.root, run_dir, debug_test_line(build, test, port, run_dir)))
-    t.request("diagnostics-clear")
-    in_terminal(t, project, f"sh {shlex.quote(script)}")
-    t.request("say", f"Java: building {test.split('#')[-1]} to debug it (Java tab)")
-    deadline = time.monotonic() + wait_seconds
-    while not listening(port):
-        if os.path.exists(os.path.join(run_dir, "done")) or time.monotonic() > deadline:
-            t.close()  # it ended first: a build error, or the test was not found
-            report(project, build, run_dir, "debugging the test")
-            return
-        time.sleep(0.3)
     try:
         adapter = lsp_soon(t, path, "vscode.java.startDebugSession")
     except TcodeError as e:
-        t.request("say", f"Java: java-debug did not start: {e.message} (the test waits in the Java tab: Ctrl+C ends it)")
+        t.request("say", f"Java: java-debug did not start: {e.message} (Stop in the Testing panel ends the test)")
         return
     t.json("debug-start", {"name": "Java", "adapter-id": "java", "connect": f"127.0.0.1:{adapter}",
                            "request": "attach", "shown": test,
                            "arguments": {"hostName": "localhost", "port": port, "timeout": 30000}})
-    t.close()
-    if wait_for(project, run_id, run_dir):
-        report(project, build, run_dir, "debugging the test")
-    else:
-        shutil.rmtree(run_dir, ignore_errors=True)
 
 
 def install_debugger(t):
@@ -1048,8 +974,9 @@ def main(command):
             stop(t, project)
         elif command == "install":
             install(t)
-        elif command == "debug" and os.environ.get("TCODE_TEST"):
-            debug_test(t, project, os.environ["TCODE_TEST"], os.environ.get("TCODE_ACTIVE_FILE", ""))
+        elif command == "debug" and os.environ.get("TCODE_TEST") and os.environ.get("TCODE_DEBUG_PORT", "").isdigit():
+            debug_test(t, project, os.environ["TCODE_TEST"], os.environ.get("TCODE_ACTIVE_FILE", ""),
+                       int(os.environ["TCODE_DEBUG_PORT"]))
         elif command == "debug":
             debug(t, project)
         elif command == "install-debugger":

@@ -75,6 +75,7 @@ struct Debugger {
   gint64 thread;       /* the thread that stopped last, which the steps go on with */
   char *reason;        /* why it stopped last ("breakpoint", "step", "signal") */
   gboolean crashed;    /* it stopped on a crash: its end is that crash's */
+  gboolean exited;     /* its end was said (java-debug sends "exited" twice) */
   GHashTable *sent;    /* gdb's breakpoint id -> Sent: where it was asked for */
   gboolean restart;    /* build and start again once ended */
   DebugAgain again;    /* how: NULL for F5's program */
@@ -90,8 +91,9 @@ static struct {
   char *cwd;     /* where the program being built for debugging will run; NULL: none is */
   char *pick_in; /* the folder the program picker lists */
   GPtrArray *programs;
-  char *core;        /* a core file whose program the program picker asks for, or NULL: F5's */
-  GPtrArray *listed; /* the attach and core dump pickers' rows (Attachable, CoreDump) */
+  char *core;            /* a core file whose program the program picker asks for, or NULL: F5's */
+  GPtrArray *listed;     /* the attach and core dump pickers' rows (Attachable, CoreDump) */
+  DebugAgain next_again; /* Restart of the next session debug-start begins */
 } ui;
 
 /* The terminal ------------------------------------------------------------------------------- */
@@ -185,7 +187,8 @@ static void update_ui(App *t, const char *status)
   gtk_widget_set_sensitive(ui.over, moves);
   gtk_widget_set_sensitive(ui.into, moves);
   gtk_widget_set_sensitive(ui.out, moves);
-  gtk_widget_set_sensitive(ui.restart, s != NULL && !s->examining && !s->attached);
+  /* attached to a process: no starting it again, but a test the Testing panel started runs again */
+  gtk_widget_set_sensitive(ui.restart, s != NULL && !s->examining && (!s->attached || s->again));
   gtk_widget_set_sensitive(ui.stop, s != NULL);
   gtk_widget_set_sensitive(ui.assembly, stopped && s->kind == ADAPTER_GDB); /* gdb's "disassemble /s" */
   gtk_widget_set_sensitive(ui.memory, stopped && can(s, "supportsReadMemoryRequest"));
@@ -616,8 +619,9 @@ static void on_event(gpointer owner, const char *event, JsonNode *body)
     s->state = RUNNING;
     debug_view_running(t);
     update_ui(t, "Running");
-  } else if (strcmp(event, "exited") == 0 && s->state != ENDING) { /* Stop says so itself */
-    if (s->crashed)                                                /* gdb says 0 */
+  } else if (strcmp(event, "exited") == 0 && s->state != ENDING && !s->exited) { /* Stop says so itself */
+    s->exited = TRUE;
+    if (s->crashed) /* gdb says 0 */
       say_later(t, FALSE, "The program ended: the %s killed it.",
                 s->kind == ADAPTER_DEBUGPY || s->kind == ADAPTER_PLUGIN ? "exception"
                 : s->kind == ADAPTER_DELVE                              ? "panic"
@@ -842,8 +846,16 @@ static Debugger *start_session(App *t, AdapterKind kind, const char *python, con
   return s;
 }
 
+void debug_next_again(App *t G_GNUC_UNUSED, DebugAgain again)
+{
+  ui.next_again = again;
+}
+
 gboolean debug_start_adapter(App *t, const DebugAdapter *adapter, char **error)
 {
+  DebugAgain again = ui.next_again;
+
+  ui.next_again = NULL;
   Where where = { .kind = ADAPTER_PLUGIN,
                   .name = adapter->name && *adapter->name ? adapter->name : NULL,
                   .id = adapter->id && *adapter->id ? adapter->id : adapter_id(ADAPTER_PLUGIN),
@@ -878,7 +890,7 @@ gboolean debug_start_adapter(App *t, const DebugAdapter *adapter, char **error)
   show_sidebar_page(t, "debug");
   shown = g_strdup_printf("▶ %s", adapter->shown && *adapter->shown ? adapter->shown : where.name ? where.name : "");
   Debugger *s = begin_session(t, &where, adapter->request, adapter->arguments ? adapter->arguments : "{}",
-                              adapter->cwd ? adapter->cwd : t->project.root, shown, NULL);
+                              adapter->cwd ? adapter->cwd : t->project.root, shown, again);
   g_free(shown);
   g_free(host);
   if (!s)
