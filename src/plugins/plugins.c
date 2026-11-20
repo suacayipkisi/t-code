@@ -1002,7 +1002,9 @@ static PluginRun *launch_with(App *t, Plugin *p, const char *command_id, gboolea
   run->plugin_id = g_strdup(p->id);
   run->name = g_strdup(p->name);
   run->proc = proc;
-  run->pid = (pid_t)atoi(g_subprocess_get_identifier(proc));
+  /* NULL once GLib has already reaped a program that ended at once: no pid to signal then. */
+  const char *identifier = g_subprocess_get_identifier(proc);
+  run->pid = identifier ? (pid_t)atoi(identifier) : 0;
   run->out = g_data_input_stream_new(g_subprocess_get_stdout_pipe(proc));
   g_data_input_stream_set_newline_type(run->out, G_DATA_STREAM_NEWLINE_TYPE_ANY);
   run->cancel = g_cancellable_new();
@@ -1022,6 +1024,8 @@ static PluginRun *launch(App *t, Plugin *p, const char *command_id, gboolean sta
 /* A signal for the program and whatever it started. */
 static void signal_run(PluginRun *run, int sig)
 {
+  if (run->pid <= 0) /* kill(0, ...) would signal t-code's own process group */
+    return;
   if (kill(-run->pid, sig) < 0)
     kill(run->pid, sig);
 }
@@ -1050,6 +1054,8 @@ static gboolean process_ended(pid_t pid)
   char path[64], *stat = NULL;
   gboolean ended;
 
+  if (pid <= 0)
+    return TRUE;
   snprintf(path, sizeof path, "/proc/%d/stat", (int)pid);
   if (!g_file_get_contents(path, &stat, NULL, NULL))
     return TRUE;
@@ -1244,7 +1250,7 @@ void plugins_own_processes(GHashTable *owners)
 {
   for (GList *l = runs; l; l = l->next) {
     PluginRun *run = l->data;
-    if (!run->ended && run->app) {
+    if (!run->ended && run->app && run->pid > 0) {
       char *label = g_strdup_printf("Plugin: %s", run->name);
       procs_own(owners, run->pid, PROC_PLUGIN, label);
       g_free(label);

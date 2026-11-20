@@ -320,6 +320,30 @@ static void test_run_command(void)
   g_free(app.project.root);
   plugins_stop(&app);
 }
+/* A program that ends at once may be reaped by GLib before its pid is read: that must neither crash nor
+ * leave a pid of 0, which kill() would take as t-code's own process group. Launched many times, so the
+ * race comes up (CI under ASan saw it). */
+static void test_run_ends_at_once(void)
+{
+  App app = { 0 };
+  write_file("instant/quick/plugin.json",
+             "{\"name\": \"Quick\", \"commands\": [{\"id\":\"go\",\"name\":\"Go\"}], \"executable\":\"run.sh\"}", 0644);
+  write_file("instant/quick/run.sh", "#!/bin/sh\nexit 0\n", 0755);
+  app.paths.socket = g_strdup("/tmp/test-tcode.sock");
+  char *scan_path = g_build_filename(tmp_dir, "instant", NULL);
+  app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
+  plugins_scan_dir(&app, scan_path);
+  g_assert_cmpuint(app.plugins->len, ==, 1);
+
+  for (int i = 0; i < 40; i++)
+    plugin_run_command(&app, "quick", "go");
+  plugins_stop(&app); /* signals whatever is still listed: never kill(0, ...) */
+  g_assert_true(spin_until(runs_empty, NULL, 5000));
+
+  g_free(scan_path);
+  g_free(app.paths.socket);
+}
+
 /* A plugin with "start": "project" runs while a project is open: with command id "start", its output
  * kept, stopped (SIGTERM) when the project closes and on quit. None starts without a project. */
 static void test_start_project(void)
@@ -843,6 +867,7 @@ int main(int argc, char **argv)
   g_test_add_func("/plugins/invalid-plugins", test_invalid_plugins);
   g_test_add_func("/plugins/tapi-manifest", test_tapi_manifest);
   g_test_add_func("/plugins/run-command", test_run_command);
+  g_test_add_func("/plugins/run-ends-at-once", test_run_ends_at_once);
   g_test_add_func("/plugins/start-project", test_start_project);
   g_test_add_func("/plugins/start-stubborn", test_start_stubborn);
   g_test_add_func("/plugins/start-manifest", test_start_manifest);
