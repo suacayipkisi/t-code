@@ -761,6 +761,9 @@ void create_groups(App *t)
 
   t->editors.area = GTK_STACK(gtk_stack_new());
   gtk_widget_add_css_class(hint, "dim-label");
+  /* Wrapped, so a narrow editor area does not need the whole sentence's width. */
+  gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
+  gtk_label_set_justify(GTK_LABEL(hint), GTK_JUSTIFY_CENTER);
   gtk_stack_add_named(t->editors.area, hint, "empty");
   gtk_stack_add_named(t->editors.area, GTK_WIDGET(t->editors.split), "tabs");
   gtk_stack_set_visible_child_name(t->editors.area, "empty");

@@ -3128,6 +3128,12 @@ static void test_panel_resize(void)
       g_test_message("%s is at least %d wide", panel_names[i], min);
     g_assert_cmpint(min, <=, 170);
   }
+  /* Nor does the editor area's hint ask for a whole sentence's width (shown here: nothing is open). */
+  {
+    int min = 0;
+    gtk_widget_measure(GTK_WIDGET(app.editors.area), GTK_ORIENTATION_HORIZONTAL, -1, &min, NULL, NULL, NULL);
+    g_assert_cmpint(min, <=, 170);
+  }
 
   /* The left side: dragged below its smallest width, out again, below again, released. */
   app.layout.pressed = TRUE;
