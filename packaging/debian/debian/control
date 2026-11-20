@@ -24,7 +24,8 @@ Depends: ${shlibs:Depends},
 Breaks: t-code (<< 0.4.1)
 Replaces: t-code (<< 0.4.1)
 Recommends: ripgrep,
-            gdb
+            gdb,
+            build-essential
 Suggests: mercurial,
           subversion
 Description: lightweight C/C++ IDE
