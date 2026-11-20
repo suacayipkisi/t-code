@@ -238,7 +238,11 @@ void scm_update(App *t, const char *out, gsize size)
   g_ptr_array_sort(changes, compare_changes);
   /* git status runs after each save and change on disk: with thousands of changed files the lists
    * are built again only when they differ (their rows point at the Changes they show). */
-  if (same_changes(staged, scm.staged) && same_changes(changes, scm.changes)) {
+  GitRepo *shown = git_shown_repo(t);
+  gboolean relabel = shown && shown->changelists_moved; /* svn: the rows' changelists differ */
+  if (shown)
+    shown->changelists_moved = FALSE;
+  if (!relabel && same_changes(staged, scm.staged) && same_changes(changes, scm.changes)) {
     g_ptr_array_unref(staged);
     g_ptr_array_unref(changes);
     show_changes(t, FALSE);

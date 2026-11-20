@@ -750,6 +750,30 @@ char *vcs_git_branches(VcsKind kind, const char *out, const char *current)
   return g_string_free(lines, FALSE);
 }
 
+/* Changelists ----------------------------------------------------------------------------------- */
+
+GHashTable *vcs_svn_changelists(const char *status, gsize size)
+{
+  GHashTable *lists = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+  VcsNode *root = status && size ? vcs_xml_parse(status, size) : NULL;
+  GPtrArray *named = vcs_all(root, "changelist");
+
+  for (guint i = 0; i < named->len; i++) {
+    const char *name = vcs_attr(named->pdata[i], "name");
+    GPtrArray *entries = vcs_all(named->pdata[i], "entry");
+    for (guint k = 0; name && k < entries->len; k++) {
+      const char *path = vcs_attr(entries->pdata[k], "path");
+      if (path)
+        g_hash_table_replace(lists, g_strdup(path), g_strdup(name));
+    }
+    g_ptr_array_free(entries, TRUE);
+  }
+  g_ptr_array_free(named, TRUE);
+  if (root)
+    vcs_node_free(root);
+  return lists;
+}
+
 /* Shelves --------------------------------------------------------------------------------------- */
 
 char *vcs_git_stashes(const char *out)

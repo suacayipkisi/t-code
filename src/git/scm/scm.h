@@ -68,6 +68,12 @@ typedef enum { STASH_POP, STASH_APPLY, STASH_DROP } StashAction;
 void scm_stash(void);
 void scm_pick_stash(StashAction action);
 
+/* "Subversion: Changelists…": the working copy's changelists in the picker; picking one stages its
+ * files (the commit then takes that changelist), a typed name (or a listed one's second row) puts
+ * the staged files in that changelist (svn changelist), and "Remove from Changelist" takes them out.
+ * Subversion only: elsewhere the panel says so. */
+void scm_changelists(void);
+
 /* Opens the n-th commit of Commits (from 0) in a tab: its message, author, line counts and diff
  * (its right-click menu's "Open Commit Details"; the tests call it). */
 void scm_open_commit_details(int n);

@@ -46,6 +46,7 @@ void compare_with_head(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void file_history(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void open_project(App *t G_GNUC_UNUSED, const char *root G_GNUC_UNUSED) {}
 void cd_in_shell(App *t G_GNUC_UNUSED, const char *dir G_GNUC_UNUSED) {}
+GBytes *git_status_of_own(const char *top G_GNUC_UNUSED, GBytes *out) { return out ? g_bytes_ref(out) : NULL; }
 /* clang-format on */
 
 /* The open editors (tabs.c's stand-in), for the problems' colors. */

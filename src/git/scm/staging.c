@@ -13,6 +13,7 @@
 #include "git/gitstatus.h"
 #include "git/patch.h"
 #include "popups/picker.h"
+#include "window/statusbar.h"
 
 #include <string.h>
 
@@ -111,6 +112,149 @@ static void on_saved_for_add(App *t, gpointer data)
   else if (!t->closing)
     scm_run_simple(path ? one : all, path ? "Could not stage the file" : "Could not stage the changes");
   g_free(path);
+}
+
+/* Subversion's changelists --------------------------------------------------------------------- */
+
+static int by_name(gconstpointer a, gconstpointer b)
+{
+  return g_utf8_collate(*(const char *const *)a, *(const char *const *)b);
+}
+
+/* The changelists' names in the shown working copy, sorted (char *, owned by the table). */
+static GPtrArray *changelist_names(GitRepo *r)
+{
+  GPtrArray *names = g_ptr_array_new();
+  GHashTable *seen = g_hash_table_new(g_str_hash, g_str_equal);
+  GHashTableIter iter;
+  gpointer name;
+
+  if (r && r->changelists) {
+    g_hash_table_iter_init(&iter, r->changelists);
+    while (g_hash_table_iter_next(&iter, NULL, &name))
+      if (g_hash_table_add(seen, name))
+        g_ptr_array_add(names, name);
+  }
+  g_hash_table_unref(seen);
+  g_ptr_array_sort(names, by_name);
+  return names;
+}
+
+/* How many of the shown working copy's changes are in the changelist called name. */
+static int changelist_count(GitRepo *r, const char *name)
+{
+  int n = 0;
+  if (!r->changelists)
+    return 0;
+  for (guint i = 0; i < scm.changes->len; i++) {
+    const char *in = g_hash_table_lookup(r->changelists, ((Change *)scm.changes->pdata[i])->path);
+    n += g_strcmp0(in, name) == 0;
+  }
+  for (guint i = 0; i < scm.staged->len; i++) {
+    const char *in = g_hash_table_lookup(r->changelists, ((Change *)scm.staged->pdata[i])->path);
+    n += g_strcmp0(in, name) == 0;
+  }
+  return n;
+}
+
+static void changelists_query(App *t, const char *text, guint generation)
+{
+  GitRepo *r = git_shown_repo(scm.app);
+  GPtrArray *names = changelist_names(r);
+  char *typed = g_strstrip(g_strdup(text));
+  gboolean listed = FALSE, in_any = FALSE;
+
+  for (guint i = 0; i < scm.staged->len && r && r->changelists; i++)
+    in_any |= g_hash_table_contains(r->changelists, ((Change *)scm.staged->pdata[i])->path);
+  for (guint i = 0; i < names->len; i++) {
+    const char *name = names->pdata[i];
+    if (*typed && fuzzy_score(typed, name) < 0)
+      continue;
+    listed |= strcmp(name, typed) == 0;
+    char *payload = g_strconcat("stage\t", name, NULL),
+         *detail = g_strdup_printf("stage its %d files", changelist_count(r, name));
+    picker_add(t, generation, name, detail, payload);
+    g_free(detail);
+    g_free(payload);
+  }
+  if (scm.staged->len && (*typed || names->len)) {
+    const char *target = *typed ? typed : NULL;
+    for (guint i = 0; !target && i < names->len; i++)
+      target = names->pdata[i]; /* nothing typed: the first one */
+    char *label = g_strdup_printf("Put the staged files in \"%s\"", target),
+         *payload = g_strconcat("move\t", target, NULL);
+    picker_add(t, generation, label, listed || !*typed ? NULL : "a new changelist", payload);
+    g_free(payload);
+    g_free(label);
+  }
+  if (in_any && !*typed)
+    picker_add(t, generation, "Remove the staged files from their changelists", NULL, "remove\t");
+  if (names->len == 0 && !*typed)
+    picker_message(t, generation,
+                   scm.staged->len ? "No changelists: type a name for the staged files' one"
+                                   : "No changelists: stage files, then type a name to make one");
+  g_ptr_array_free(names, TRUE);
+  g_free(typed);
+}
+
+/* svn changelist answered: the status shows the changelists again. */
+static void on_changelist(gboolean ok, const char *out G_GNUC_UNUSED, const char *err, gpointer data)
+{
+  if (ok)
+    scm_set_note(data, FALSE);
+  else
+    scm_set_note(*err ? err : "The changelist could not be changed", TRUE);
+  refresh_branch(scm.app);
+}
+
+static void changelists_choose(App *t G_GNUC_UNUSED, const char *payload)
+{
+  GitRepo *r = git_shown_repo(scm.app);
+  const char *name = strchr(payload, '\t') + 1;
+
+  if (!r)
+    return;
+  if (g_str_has_prefix(payload, "stage\t") && r->changelists) {
+    for (guint i = 0; i < scm.changes->len; i++) {
+      const Change *c = scm.changes->pdata[i];
+      if (g_strcmp0(g_hash_table_lookup(r->changelists, c->path), name) == 0)
+        stage_in_list(r->staged, c);
+    }
+    refresh_branch(scm.app);
+    return;
+  }
+  GPtrArray *args = g_ptr_array_new();
+  g_ptr_array_add(args, "changelist");
+  if (g_str_has_prefix(payload, "remove\t"))
+    g_ptr_array_add(args, "--remove");
+  g_ptr_array_add(args, "--quiet");
+  g_ptr_array_add(args, "--");
+  if (g_str_has_prefix(payload, "move\t"))
+    g_ptr_array_add(args, (gpointer)name);
+  for (guint i = 0; i < scm.staged->len; i++) {
+    const Change *c = scm.staged->pdata[i];
+    if (c->code != 'D') /* a deleted file is in no changelist */
+      g_ptr_array_add(args, c->path);
+  }
+  g_ptr_array_add(args, NULL);
+  scm_set_note(NULL, FALSE);
+  scm_run_git(
+      (const char *const *)args->pdata, NULL, FALSE, on_changelist,
+      (gpointer)(g_str_has_prefix(payload, "move\t") ? "Put in the changelist" : "Removed from the changelists"));
+  g_ptr_array_free(args, TRUE);
+}
+
+void scm_changelists(void)
+{
+  if (!scm.app || !scm.app->project.scm_top)
+    return;
+  if (scm_kind() != VCS_SVN) {
+    scm_set_note("Changelists are Subversion's: this repository has none.", TRUE);
+    status_say(scm.app, "Changelists are Subversion's: this repository has none.");
+    return;
+  }
+  picker_open(scm.app, "Stage a changelist, or type a name for the staged files' one", changelists_query,
+              changelists_choose);
 }
 
 /* The + button: stages one file (after saving the editors). */

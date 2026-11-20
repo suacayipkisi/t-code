@@ -376,6 +376,18 @@ static void test_recorded_branches(void)
                   "default-01\t1s ago\tchanges to: first\nmy work\t2h ago\tmy work\n"
                   "a-very-long-shelve-name\t3W ago\thalf done (really)\nold\t2024-01-05\tx\n");
   g_free(out);
+  static const char lists[] = "<status><target path=\".\"><entry path=\"y.c\"><wc-status item=\"unversioned\"/></entry>"
+                              "</target><changelist name=\"fixes\"><entry path=\"a.c\"/><entry path=\"d/b.c\"/>"
+                              "</changelist><changelist name=\"later\"><entry path=\"c.c\"/></changelist></status>";
+  GHashTable *named = vcs_svn_changelists(lists, sizeof lists - 1);
+  g_assert_cmpuint(g_hash_table_size(named), ==, 3);
+  g_assert_cmpstr(g_hash_table_lookup(named, "d/b.c"), ==, "fixes");
+  g_assert_cmpstr(g_hash_table_lookup(named, "c.c"), ==, "later");
+  g_assert_null(g_hash_table_lookup(named, "y.c"));
+  g_hash_table_unref(named);
+  named = vcs_svn_changelists(NULL, 0);
+  g_assert_cmpuint(g_hash_table_size(named), ==, 0);
+  g_hash_table_unref(named);
   char *url = vcs_svn_branch_url("trunk");
   g_assert_cmpstr(url, ==, "^/trunk");
   g_free(url);

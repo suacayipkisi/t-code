@@ -35,6 +35,8 @@ static void repo_free(GitRepo *r)
   g_free(r->svn_url);
   if (r->staged)
     g_hash_table_unref(r->staged);
+  if (r->changelists)
+    g_hash_table_unref(r->changelists);
   g_free(r);
 }
 
@@ -292,11 +294,18 @@ static gboolean sync_nested(App *t, const char *parent, const char *out, gsize s
       changed = TRUE;
     }
   }
-  for (guint j = 0; j < nested->len; j++)
-    if (!find_repo(nested->pdata[j], VCS_GIT)) {
-      add_repo(nested->pdata[j], parent, VCS_GIT);
-      changed = TRUE;
-    }
+  for (guint j = 0; j < nested->len; j++) {
+    /* a git clone (git lists its folder), or an hg or svn repository (git lists its files) */
+    char *git = g_build_filename(nested->pdata[j], ".git", NULL);
+    VcsKind other = vcs_mark_in(nested->pdata[j]);
+    VcsKind kinds[] = { g_file_test(git, G_FILE_TEST_EXISTS) || !other ? VCS_GIT : VCS_NONE, other };
+    for (int k = 0; k < 2; k++)
+      if (kinds[k] != VCS_NONE && !find_repo(nested->pdata[j], kinds[k])) {
+        add_repo(nested->pdata[j], parent, kinds[k]);
+        changed = TRUE;
+      }
+    g_free(git);
+  }
   g_ptr_array_unref(nested);
   if (changed) {
     choose_shown(t);
@@ -308,12 +317,34 @@ static gboolean sync_nested(App *t, const char *parent, const char *out, gsize s
 /* A repository's status answered, in git status --porcelain=v2 --branch -z's format (hg's and svn's
  * translated): the panel, the branch label, the Files panel and the gutters hear of it. ok: the
  * command worked (out may still be NULL). */
+/* The tops of the hg and svn repositories nested in the git repository at top. */
+static GPtrArray *inner_others(const char *top)
+{
+  GPtrArray *inner = g_ptr_array_new();
+
+  for (guint i = 0; repos && i < repos->len; i++) {
+    GitRepo *r = repos->pdata[i];
+    if (r->kind != VCS_GIT && g_strcmp0(r->parent, top) == 0)
+      g_ptr_array_add(inner, r->top);
+  }
+  return inner;
+}
+
+GBytes *git_status_of_own(const char *top, GBytes *out)
+{
+  GPtrArray *inner = inner_others(top);
+  GBytes *own = git_status_without(out, top, inner);
+
+  g_ptr_array_free(inner, TRUE);
+  return own;
+}
+
+static void got_own_status(App *t, GitRepo *r, gboolean ok, GBytes *out);
+
 static void got_status(App *t, GitRepo *r, gboolean ok, GBytes *out)
 {
   gsize size = 0;
-  const char *bytes = out ? g_bytes_get_data(out, &size) : NULL;
-  char *branch = NULL, *oid = NULL;
-  int changes = 0;
+  const char *raw = out ? g_bytes_get_data(out, &size) : NULL;
   gboolean listed = FALSE;
 
   r->busy = FALSE;
@@ -321,6 +352,29 @@ static void got_status(App *t, GitRepo *r, gboolean ok, GBytes *out)
     r->again = FALSE;
     refresh_branch(t);
   }
+  /* The repositories nested in a git one come from its whole status; the files of the hg and svn
+   * ones among them are theirs, not its own changes. */
+  guint hash = out ? g_bytes_hash(out) : 0;
+  if (!(hash == r->hash && r->branch) && ok && r->kind == VCS_GIT && sync_nested(t, r->top, raw, size))
+    listed = TRUE;
+  GBytes *own = r->kind == VCS_GIT ? git_status_of_own(r->top, out) : (out ? g_bytes_ref(out) : NULL);
+  if (listed)
+    scm_repos_changed(t);
+  r->hash = hash; /* of the whole status: the same one is not looked at again */
+  got_own_status(t, r, ok, own);
+  if (own)
+    g_bytes_unref(own);
+}
+
+/* got_status() with the repository's own status. */
+static void got_own_status(App *t, GitRepo *r, gboolean ok, GBytes *out)
+{
+  gsize size = 0;
+  const char *bytes = out ? g_bytes_get_data(out, &size) : NULL;
+  char *branch = NULL, *oid = NULL;
+  int changes = 0;
+  gboolean listed = FALSE;
+
   if (ok && bytes) {
     for (const char *p = bytes, *end = bytes + size; p < end;) {
       const char *nul = memchr(p, '\0', end - p);
@@ -340,14 +394,11 @@ static void got_status(App *t, GitRepo *r, gboolean ok, GBytes *out)
     }
   }
   guint hash = out ? g_bytes_hash(out) : 0;
-  gboolean seen = hash == r->hash && r->branch;
   if (g_strcmp0(branch, r->branch) != 0 || changes != r->changes) {
     g_set_str(&r->branch, branch);
     r->changes = changes;
     listed = TRUE;
   }
-  if (!seen && ok && r->kind == VCS_GIT && sync_nested(t, r->top, bytes, size))
-    listed = TRUE;
   if (listed)
     scm_repos_changed(t);
   /* sync_nested() may have dropped repositories, never this one: r is still good. */
@@ -356,9 +407,9 @@ static void got_status(App *t, GitRepo *r, gboolean ok, GBytes *out)
     status_show_branch(t, branch, changes > 0);
   }
   /* The Files panel reads its colors again (its status also lists ignored files). */
-  if (hash != r->hash && g_strcmp0(r->top, t->project.repo_top) == 0 && r->kind == t->project.repo_kind)
+  if (hash != r->own_hash && g_strcmp0(r->top, t->project.repo_top) == 0 && r->kind == t->project.repo_kind)
     files_git_changed(t);
-  r->hash = hash;
+  r->own_hash = hash;
   /* A new commit (also on a branch, where .git/HEAD itself stays the same) or a checkout: the diff
    * gutters compare with the new HEAD. Staging does not move it, and asks nothing. */
   if (oid && r->oid && strcmp(oid, r->oid) != 0)
@@ -398,6 +449,23 @@ static void on_branch(GObject *source, GAsyncResult *result, gpointer data)
 static GSubprocess *spawn_in(const char *top, VcsKind kind, const char *const *args);
 static void tag_proc(GSubprocess *proc, App *t, GitRepo *r);
 
+/* Whether two changelist tables (path -> name; NULL: none) say the same. */
+static gboolean same_changelists(GHashTable *a, GHashTable *b)
+{
+  GHashTableIter iter;
+  gpointer path, name;
+
+  if ((a ? g_hash_table_size(a) : 0) != (b ? g_hash_table_size(b) : 0))
+    return FALSE;
+  if (!a || !b)
+    return TRUE;
+  g_hash_table_iter_init(&iter, a);
+  while (g_hash_table_iter_next(&iter, &path, &name))
+    if (g_strcmp0(name, g_hash_table_lookup(b, path)) != 0)
+      return FALSE;
+  return TRUE;
+}
+
 /* hg / svn: the head, the status and (during an hg merge) the unresolved files answered: all
  * through vcs_git_status() into git's format. */
 static void vcs_status_done(App *t, GitRepo *r, gboolean ok, GBytes *out, const char *head, const char *unresolved)
@@ -408,6 +476,14 @@ static void vcs_status_done(App *t, GitRepo *r, gboolean ok, GBytes *out, const 
   if (r->kind == VCS_SVN && head) {
     g_free(r->svn_url);
     r->svn_url = vcs_svn_url(head);
+  }
+  if (r->kind == VCS_SVN && ok) {
+    GHashTable *lists = vcs_svn_changelists(bytes, size);
+    if (!same_changelists(lists, r->changelists))
+      r->changelists_moved = TRUE;
+    if (r->changelists)
+      g_hash_table_unref(r->changelists);
+    r->changelists = lists;
   }
   char *git = ok ? vcs_git_status(r->kind, bytes, size, head, unresolved, r->staged, FALSE, &length) : NULL;
   GBytes *translated = git ? g_bytes_new_take(git, length) : NULL;

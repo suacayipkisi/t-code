@@ -15,6 +15,7 @@
 #include "files/icons.h"
 #include "files/opentabs.h"
 #include "files/panel.h"
+#include "git/gitstatus.h"
 #include "window/palette.h"
 
 #include <string.h>
@@ -361,6 +362,12 @@ static void on_git_status(GObject *source, GAsyncResult *result, gpointer data G
     g_object_set_data_full(G_OBJECT(resolve), "status", g_bytes_ref(out), (GDestroyNotify)g_bytes_unref);
     g_subprocess_communicate_utf8_async(resolve, NULL, files.git_cancel, on_unresolved, NULL);
     g_object_unref(resolve);
+  } else if (ok && kind != VCS_HG && kind != VCS_SVN &&
+             files.app->project.repo_top) { /* git: the nested hg / svn files are theirs */
+    GBytes *own = git_status_of_own(files.app->project.repo_top, out);
+    show_marks(kind, own, NULL);
+    if (own)
+      g_bytes_unref(own);
   } else {
     show_marks(kind, ok ? out : NULL, NULL);
   }

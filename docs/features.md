@@ -212,10 +212,15 @@ during an hg merge Commit takes the whole merge. Switching branches works too: M
 bookmarks and open named branches (`hg update`; a new branch is a bookmark), Subversion `trunk` and the
 folders in `branches/` (`svn switch`; a new branch is copied on the server from the one checked out,
 then switched to). In Mercurial the stash commands use `hg shelve` and `hg unshelve` (a shelve is picked
-by its name; Apply keeps it). Subversion's stash and staging hunks in either are git's only for now. When several repositories hold the project
+by its name; Apply keeps it). Subversion's changelists show on their files' rows, and
+"Subversion: Changelists…" stages a changelist's files (Commit then takes just them), puts the staged
+files in a changelist (type its name) or takes them out. Subversion's stash and staging hunks in
+either are git's only for now. When several repositories hold the project
 folder (an svn checkout inside a git repository, or hg-git's `.git` next to `.hg`), Repositories lists
 each with its kind and the nearest is used; click another to make it the project's own (the Files
-panel and the gutters follow it, and the project remembers it). In a folder that is no repository,
+panel and the gutters follow it, and the project remembers it). Mercurial repositories and Subversion
+working copies inside a git project show in Repositories too (also in a folder .gitignore leaves out),
+and their files are not counted as the git project's new files. In a folder that is no repository,
 Source Control offers **Initialize Repository** with Git, Mercurial or Subversion to choose. Subversion
 keeps its repository apart from the working copy: type the server's URL to check the folder out from
 it, or leave it empty for a repository of its own on this computer (made in

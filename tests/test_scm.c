@@ -985,6 +985,158 @@ static void test_hg_branches(void)
   g_free(top);
 }
 
+/* The repository at top of kind among git_repos(), or NULL. */
+static const GitRepo *find_repo_of(const char *top, VcsKind kind)
+{
+  const GPtrArray *all = git_repos();
+  for (guint i = 0; i < all->len; i++) {
+    const GitRepo *r = all->pdata[i];
+    if (r->kind == kind && strcmp(r->top, top) == 0)
+      return r;
+  }
+  return NULL;
+}
+
+/* An hg repository and an svn working copy (in a folder .gitignore leaves out) inside a git project:
+ * both show in Repositories with their kind, their files are no changes of the project's own, and
+ * each shows its own changes when picked. */
+static void test_nested_others(void)
+{
+  if (!have("hg") || !have("svn") || !have("svnadmin")) {
+    g_test_skip("no hg or svn");
+    return;
+  }
+  char *top = make_dir("nested-others", "top.txt"), *ignore = g_build_filename(top, ".gitignore", NULL);
+  char *hg = g_build_filename(top, "hgsub", NULL), *hg_file = g_build_filename(hg, "h.txt", NULL);
+  char *repo = g_build_filename(tmp, "nested-svnrepo", NULL), *url = g_strconcat("file://", repo, NULL);
+  char *wc = g_build_filename(top, "wc", NULL), *wc_file = g_build_filename(wc, "w.txt", NULL);
+  g_file_set_contents(ignore, "wc/\n", -1, NULL);
+  git(top, (const char *[]){ "init", "-q", NULL });
+  commit_all(top);
+  g_mkdir_with_parents(hg, 0755);
+  g_file_set_contents(hg_file, "one\n", -1, NULL);
+  tool(hg, "hg", (const char *[]){ "init", NULL });
+  tool(hg, "hg", (const char *[]){ "commit", "-A", "-m", "first", NULL });
+  g_file_set_contents(hg_file, "two\n", -1, NULL);
+  tool(tmp, "svnadmin", (const char *[]){ "create", repo, NULL });
+  tool(tmp, "svn", (const char *[]){ "checkout", "-q", url, wc, NULL });
+  g_file_set_contents(wc_file, "one\n", -1, NULL);
+  tool(wc, "svn", (const char *[]){ "add", "-q", "w.txt", NULL });
+  tool(wc, "svn", (const char *[]){ "commit", "-q", "-m", "first", NULL });
+  g_file_set_contents(wc_file, "two\n", -1, NULL);
+
+  open_project_at(top);
+  wait_repo_rows(3); /* the project's own, hgsub, wc */
+  g_assert_cmpstr(app.project.scm_top, ==, top);
+  wait_for(2, 1);
+  for (gint64 end = g_get_monotonic_time() + G_USEC_PER_SEC; g_get_monotonic_time() < end;)
+    run_for(50);
+  g_assert_cmpint(rows(1), ==, 0); /* hgsub's files are not the project's untracked files */
+  g_assert_nonnull(find_repo_of(hg, VCS_HG));
+  g_assert_nonnull(find_repo_of(wc, VCS_SVN));
+
+  git_select_repo(&app, hg, VCS_HG);
+  g_assert_cmpint(app.project.scm_kind, ==, VCS_HG);
+  wait_for(1, 1); /* h.txt changed */
+  git_select_repo(&app, wc, VCS_SVN);
+  wait_for(1, 1); /* w.txt changed */
+  git_select_repo(&app, top, VCS_GIT);
+  wait_for(1, 0);
+  g_free(wc_file);
+  g_free(wc);
+  g_free(url);
+  g_free(repo);
+  g_free(hg_file);
+  g_free(hg);
+  g_free(ignore);
+  g_free(top);
+}
+
+/* Whether a row of the list holds a label reading text. */
+static gboolean row_has_label(GtkListBox *box, const char *text)
+{
+  GPtrArray *queue = g_ptr_array_new();
+  gboolean found = FALSE;
+
+  g_ptr_array_add(queue, box);
+  for (guint i = 0; i < queue->len && !found; i++) {
+    GtkWidget *w = queue->pdata[i];
+    found = GTK_IS_LABEL(w) && strcmp(gtk_label_get_text(GTK_LABEL(w)), text) == 0;
+    for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c))
+      g_ptr_array_add(queue, c);
+  }
+  g_ptr_array_free(queue, TRUE);
+  return found;
+}
+
+/* Subversion's changelists: a file's one shows on its row; picking a changelist stages its files,
+ * a typed name puts the staged files in a new one, they can be taken out again, and the commit takes
+ * only the staged files. */
+static void test_svn_changelists(void)
+{
+  if (!have("svn") || !have("svnadmin")) {
+    g_test_skip("no svn");
+    return;
+  }
+  char *repo = g_build_filename(tmp, "svnrepo-cl", NULL), *top = g_build_filename(tmp, "svn-cl", NULL);
+  char *url = g_strconcat("file://", repo, NULL), *a = g_build_filename(top, "a.txt", NULL),
+       *b = g_build_filename(top, "b.txt", NULL), *out;
+  const char *const later[] = { "svn", "status", "--changelist", "later", "-q", NULL };
+  tool(tmp, "svnadmin", (const char *[]){ "create", repo, NULL });
+  tool(tmp, "svn", (const char *[]){ "checkout", "-q", url, top, NULL });
+  g_file_set_contents(a, "one\n", -1, NULL);
+  g_file_set_contents(b, "one\n", -1, NULL);
+  tool(top, "svn", (const char *[]){ "add", "-q", "a.txt", "b.txt", NULL });
+  tool(top, "svn", (const char *[]){ "commit", "-q", "-m", "first", NULL });
+  g_file_set_contents(a, "two\n", -1, NULL);
+  g_file_set_contents(b, "two\n", -1, NULL);
+  tool(top, "svn", (const char *[]){ "changelist", "-q", "fixes", "a.txt", NULL });
+
+  open_project_at(top);
+  wait_for(1, 2);
+  g_assert_true(row_has_label(list(1), "fixes"));
+
+  picked_rows = g_ptr_array_new_with_free_func(g_free);
+  scm_changelists();
+  g_assert_cmpuint(picked_rows->len, ==, 1);
+  g_assert_cmpstr(picked_rows->pdata[0], ==, "fixes\tstage its 1 files\tstage\tfixes");
+  picker_pick("stage\tfixes");
+  wait_for(0, 1);
+  wait_for(1, 1); /* b.txt, in no changelist, stays */
+
+  picker_run(&app, "later");
+  g_assert_cmpstr(picked_rows->pdata[0], ==, "Put the staged files in \"later\"\ta new changelist\tmove\tlater");
+  picker_pick("move\tlater");
+  out = wait_out(top, later, "M       a.txt");
+  g_assert_true(g_str_has_suffix(out, "M       a.txt"));
+  g_free(out);
+  for (gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+       !row_has_label(list(0), "later") && g_get_monotonic_time() < end;)
+    run_for(50);
+  g_assert_true(row_has_label(list(0), "later"));
+
+  scm_changelists();
+  picker_pick("remove\t");
+  out = wait_out(top, later, "");
+  g_assert_cmpstr(out, ==, "");
+  g_free(out);
+  for (gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+       strcmp(gtk_label_get_text(scm.note), "Removed from the changelists") != 0 && g_get_monotonic_time() < end;)
+    run_for(50); /* the panel is done with it: a commit now is not skipped as busy */
+
+  scm_set_message("Only a");
+  scm_commit();
+  wait_for(0, 0);
+  wait_for(1, 1); /* b.txt */
+  g_ptr_array_free(picked_rows, TRUE);
+  picked_rows = NULL;
+  g_free(b);
+  g_free(a);
+  g_free(url);
+  g_free(top);
+  g_free(repo);
+}
+
 /* Mercurial's stash is hg shelve: a shelve with a message, popped by its name (hg unshelve); one with
  * the unknown files, applied (it stays); stashing nothing says so. */
 static void test_hg_shelve(void)
@@ -1392,6 +1544,8 @@ int main(int argc, char **argv)
   g_test_add_func("/scm/hg-branches", test_hg_branches);
   g_test_add_func("/scm/svn-branches", test_svn_branches);
   g_test_add_func("/scm/hg-shelve", test_hg_shelve);
+  g_test_add_func("/scm/nested-others", test_nested_others);
+  g_test_add_func("/scm/svn-changelists", test_svn_changelists);
   g_test_add_func("/scm/svn-conflict", test_svn_conflict);
   g_test_add_func("/scm/svn", test_svn);
   g_test_add_func("/scm/svn-init", test_svn_init);

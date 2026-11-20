@@ -98,6 +98,7 @@ static void git_stash(App *t G_GNUC_UNUSED) { scm_stash(); }
 static void git_stash_pop(App *t G_GNUC_UNUSED) { scm_pick_stash(STASH_POP); }
 static void git_stash_apply(App *t G_GNUC_UNUSED) { scm_pick_stash(STASH_APPLY); }
 static void git_stash_drop(App *t G_GNUC_UNUSED) { scm_pick_stash(STASH_DROP); }
+static void svn_changelists(App *t G_GNUC_UNUSED) { scm_changelists(); }
 static void show_outline_cmd(App *t) { toggle_panel(t, "outline"); }
 static void show_hierarchy_cmd(App *t) { toggle_panel(t, "hierarchy"); }
 static void show_testing_cmd(App *t) { toggle_panel(t, "testing"); }
@@ -371,6 +372,7 @@ static const Command commands[] = {
   { "Git: Pop Stash…", NULL, NULL, git_stash_pop, FALSE, FALSE, FALSE },
   { "Git: Apply Stash…", NULL, NULL, git_stash_apply, FALSE, FALSE, FALSE },
   { "Git: Drop Stash…", NULL, NULL, git_stash_drop, FALSE, FALSE, FALSE },
+  { "Subversion: Changelists…", NULL, NULL, svn_changelists, FALSE, FALSE, FALSE },
   { "Git: Compare with HEAD", "<Control><Alt>d", "Ctrl+Alt+D", compare_head, FALSE, FALSE, FALSE },
   { "Git: File History…", "<Control><Alt>h", "Ctrl+Alt+H", history, FALSE, FALSE, FALSE },
   { "Git: Stop Comparing", NULL, NULL, stop_comparing, FALSE, TRUE, FALSE },

@@ -106,6 +106,10 @@ char *vcs_svn_branch_url(const char *name);
  * git stash list: "name TAB 2h ago TAB message" a line. */
 char *vcs_git_stashes(const char *out);
 
+/* svn status --xml's changelists: path (relative to the top) -> its changelist's name (both char *,
+ * freed with the table); empty outside svn or without any. */
+GHashTable *vcs_svn_changelists(const char *status, gsize size);
+
 /* svn info --xml's repository-relative URL of the working copy ("^/trunk"), NULL when missing. */
 char *vcs_svn_url(const char *info);
 

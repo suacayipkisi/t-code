@@ -9,6 +9,7 @@
 #include "editor/editor.h"
 #include "files/files.h"
 #include "git/compare.h"
+#include "git/gitstatus.h"
 #include "popups/contextmenu.h"
 #include "window/window.h"
 
@@ -90,12 +91,22 @@ static void on_discard_clicked(GtkButton *button G_GNUC_UNUSED, Change *c) { scm
 /* Fills a list from scm.staged or scm.changes, with the buttons each row needs. */
 void scm_fill_changes(GtkListBox *list, GPtrArray *changes, gboolean staged)
 {
+  GitRepo *r = git_shown_repo(scm.app);
+  GHashTable *changelists = r && r->kind == VCS_SVN ? r->changelists : NULL;
+
   context_menu_clear_list(list);
   for (guint i = 0; i < changes->len; i++) {
     Change *c = g_ptr_array_index(changes, i);
     GtkWidget *box, *row = scm_file_row(c->path, c->code, &box);
     GtkWidget *button;
+    const char *changelist = changelists ? g_hash_table_lookup(changelists, c->path) : NULL;
 
+    if (changelist) { /* svn: the changelist it is in */
+      GtkWidget *tag = gtk_label_new(changelist);
+      gtk_widget_add_css_class(tag, "dim");
+      gtk_widget_set_tooltip_text(tag, "Its Subversion changelist");
+      gtk_box_append(GTK_BOX(box), tag);
+    }
     g_object_set_data(G_OBJECT(row), "change", c);
     if (staged) {
       button = scm_icon_button("tcode-remove-symbolic", "Unstage");

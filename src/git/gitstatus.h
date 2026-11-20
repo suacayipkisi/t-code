@@ -16,16 +16,19 @@
 
 /* A repository of the project, as its last status left it. */
 typedef struct {
-  char *top;            /* its work tree top */
-  VcsKind kind;         /* git, hg or svn; one folder may be two repositories (hg-git) */
-  char *parent;         /* the repository whose git status lists it; NULL: holds the project, or found by looking */
-  char *branch;         /* NULL until the status answered; "(detached)" off a branch */
-  int changes;          /* files changed, staged or not */
-  char *oid;            /* the commit (svn: the revision) checked out */
-  char *svn_url;        /* svn: the working copy's URL from the repository root ("^/trunk") */
-  GHashTable *staged;   /* hg and svn, which have no index: the paths the user staged (t-code keeps them) */
-  guint hash;           /* of the status's output */
-  gboolean busy, again; /* the status runs; asked for again meanwhile */
+  char *top;               /* its work tree top */
+  VcsKind kind;            /* git, hg or svn; one folder may be two repositories (hg-git) */
+  char *parent;            /* the repository whose git status lists it; NULL: holds the project, or found by looking */
+  char *branch;            /* NULL until the status answered; "(detached)" off a branch */
+  int changes;             /* files changed, staged or not */
+  char *oid;               /* the commit (svn: the revision) checked out */
+  char *svn_url;           /* svn: the working copy's URL from the repository root ("^/trunk") */
+  GHashTable *staged;      /* hg and svn, which have no index: the paths the user staged (t-code keeps them) */
+  GHashTable *changelists; /* svn: path -> its changelist's name, from the last status; NULL otherwise */
+  gboolean changelists_moved; /* they changed since the panel showed them: its rows are made again */
+  guint hash;                 /* of the status's output */
+  guint own_hash;             /* of it without the files of the hg and svn repositories nested in it */
+  gboolean busy, again;       /* the status runs; asked for again meanwhile */
 } GitRepo;
 
 /* Watches the project's repository and starts the 10 second timer. Once, at start. */
@@ -45,6 +48,11 @@ const GPtrArray *git_repos(void);
 
 /* The work tree top of the project's repository holding path (the innermost one), or NULL. */
 const char *git_repo_of(const char *path);
+
+/* The git status output (v1 or v2, -z) of the git repository at top without the files of the hg and
+ * svn repositories found nested in it, which git lists as its own untracked files. A new reference
+ * (to out itself when nothing goes); NULL for NULL. */
+GBytes *git_status_of_own(const char *top, GBytes *out);
 
 /* Source Control shows the repository at top of kind (one of git_repos()) from now on. One holding
  * the project folder becomes the project's own too: the Files panel's colors and the diff gutters

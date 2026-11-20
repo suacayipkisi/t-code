@@ -149,6 +149,52 @@ static void test_rename_record(void)
   g_assert_false(git_is_nested_record("1 .M real/", 10));
 }
 
+/* hg and svn repositories in a git work tree: git lists their files one by one, their marks' files
+ * too; those give the repository, once. Without them the status keeps only the project's own. */
+static void test_other_kinds(void)
+{
+  static const char out[] = "# branch.head main\0"
+                            "1 .M N... 100644 100644 100644 1111 1111 top.c\0"
+                            "? hg/.hg/requires\0"
+                            "? hg/.hg/store/00changelog.i\0"
+                            "? hg/a.c\0"
+                            "? deep/er/wc/.svn/wc.db\0"
+                            "? deep/er/wc/b.c\0"
+                            "? hgnot/file\0"
+                            "2 R. N... 100644 100644 100644 1111 1111 R100 hg/moved\0hg/was\0"
+                            "! hg/build/\0";
+  GPtrArray *repos = git_nested_repos("/top", out, sizeof out - 1);
+
+  g_assert_cmpuint(repos->len, ==, 2);
+  g_assert_cmpstr(repos->pdata[0], ==, "/top/deep/er/wc");
+  g_assert_cmpstr(repos->pdata[1], ==, "/top/hg");
+
+  GBytes *whole = g_bytes_new_static(out, sizeof out - 1), *own = git_status_without(whole, "/top", repos);
+  gsize size;
+  const char *kept = g_bytes_get_data(own, &size);
+  static const char want[] = "# branch.head main\0"
+                             "1 .M N... 100644 100644 100644 1111 1111 top.c\0"
+                             "? hgnot/file\0"
+                             "2 R. N... 100644 100644 100644 1111 1111 R100 hg/moved\0hg/was\0";
+  g_assert_cmpmem(kept, size, want, sizeof want - 1);
+  g_bytes_unref(own);
+
+  /* v1 (the Files panel's): "?? path", "!! path", a rename's old path after it */
+  static const char v1[] = "?? hg/a.c\0R  x/new\0hg/old\0!! hg/build/\0 M top.c\0";
+  GBytes *short_form = g_bytes_new_static(v1, sizeof v1 - 1);
+  own = git_status_without(short_form, "/top", repos);
+  kept = g_bytes_get_data(own, &size);
+  static const char want_v1[] = "R  x/new\0hg/old\0 M top.c\0";
+  g_assert_cmpmem(kept, size, want_v1, sizeof want_v1 - 1);
+  g_bytes_unref(own);
+  own = git_status_without(short_form, "/elsewhere", repos); /* none of them inside: the same bytes */
+  g_assert_true(own == short_form);
+  g_bytes_unref(own);
+  g_bytes_unref(short_form);
+  g_bytes_unref(whole);
+  g_ptr_array_unref(repos);
+}
+
 /* A folder of repositories: each one found (not what is nested in them), not in hidden folders, down
  * to the depth asked, as many as asked at most. */
 static void test_find(void)
@@ -196,6 +242,7 @@ int main(int argc, char **argv)
   g_setenv("HOME", tmp, TRUE); /* no user configuration either */
   g_test_add_func("/repos/nested", test_nested);
   g_test_add_func("/repos/rename-record", test_rename_record);
+  g_test_add_func("/repos/other-kinds", test_other_kinds);
   g_test_add_func("/repos/find", test_find);
   status = g_test_run();
 
