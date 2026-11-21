@@ -37,7 +37,7 @@ void preview_color_tags(GtkTextBuffer *b)
     { "bold", "foreground", PAL_FG_STRONG }, { "code", "foreground", PAL_FG_STRONG },
     { "dim", "foreground", PAL_FG_DIM },     { "error", "foreground", PAL_ERROR },
     { "link", "foreground", PAL_LINK },      { "caption", "foreground", PAL_FG_DIM },
-    { "mark", "background", PAL_MATCH },
+    { "mark", "background", PAL_MATCH },     { "code-flat", "background", PAL_BORDER_STRONG },
   };
   GtkTextTagTable *table = gtk_text_buffer_get_tag_table(b);
 
@@ -85,6 +85,7 @@ void preview_create_tags(GtkTextBuffer *b, const char *mono)
   gtk_text_buffer_create_tag(b, "strike", "strikethrough", TRUE, NULL);
   gtk_text_buffer_create_tag(b, "underline", "underline", PANGO_UNDERLINE_SINGLE, NULL);
   gtk_text_buffer_create_tag(b, "code", "family", mono, "scale", 0.90, NULL);
+  gtk_text_buffer_create_tag(b, "code-flat", NULL); /* inline code's background in a very long paragraph */
   /* Wrapped: a line wider than the view would scroll the whole preview sideways. */
   gtk_text_buffer_create_tag(b, "pre", "family", mono, "scale", 0.92, "wrap-mode", GTK_WRAP_WORD_CHAR, NULL);
   for (int i = 0; i <= MAX_LEVEL; i++) { /* a code block's text, inside its box */
@@ -287,17 +288,42 @@ static void draw_blocks(GtkTextView *view, Preview *p, GtkSnapshot *snapshot, in
   }
 }
 
-/* Inline code's background, a rectangle per row it takes on screen (it may wrap). */
-static void draw_code_spans(GtkTextView *view, Preview *p, GtkSnapshot *snapshot, int first_line, int last_line)
+/* The first span at or after `low` (up to `high`) whose last letter is not above `top`: the spans are in the order of
+ * the text, so their rows only go down. */
+static guint first_span_below(GtkTextView *view, Preview *p, guint low, guint high, int top)
+{
+  while (low < high) {
+    guint middle = low + (high - low) / 2;
+    const CodeSpan *span = &g_array_index(p->code_spans, CodeSpan, middle);
+    GtkTextIter last;
+    GdkRectangle at;
+
+    gtk_text_buffer_get_iter_at_offset(p->buffer, &last, MAX(span->start, span->end - 1));
+    gtk_text_view_get_iter_location(view, &last, &at);
+    if (at.y + at.height < top)
+      low = middle + 1;
+    else
+      high = middle;
+  }
+  return low;
+}
+
+/* Inline code's background, a rectangle per row it takes on screen (it may wrap). Only the spans in `visible` are
+ * looked at, and a span's rows by their two ends: one long paragraph may hold thousands of spans, and each position
+ * asked of its layout costs the paragraph's length. */
+static void draw_code_spans(GtkTextView *view, Preview *p, GtkSnapshot *snapshot, const GdkRectangle *visible,
+                            int first_line, int last_line)
 {
   GdkRGBA bg = *palette_rgba(PAL_BORDER_STRONG);
 
   bg.alpha = 0.75f;
-  /* The spans are in the order of the text and do not overlap: the first one on screen is found by
-   * halving, not by going through a big file's thousands on every frame. */
+  /* The spans on the visible lines, found by halving over offsets... */
   GtkTextIter top;
   gtk_text_buffer_get_iter_at_line(p->buffer, &top, first_line);
   int from = gtk_text_iter_get_offset(&top);
+  int to = G_MAXINT;
+  if (gtk_text_buffer_get_iter_at_line(p->buffer, &top, last_line + 1))
+    to = gtk_text_iter_get_offset(&top);
   guint low = 0, high = p->code_spans->len;
   while (low < high) {
     guint middle = low + (high - low) / 2;
@@ -306,31 +332,49 @@ static void draw_code_spans(GtkTextView *view, Preview *p, GtkSnapshot *snapshot
     else
       high = middle;
   }
-  for (guint i = low; i < p->code_spans->len; i++) {
+  guint end_index = low;
+  high = p->code_spans->len;
+  while (end_index < high) {
+    guint middle = end_index + (high - end_index) / 2;
+    if (g_array_index(p->code_spans, CodeSpan, middle).start < to)
+      end_index = middle + 1;
+    else
+      high = middle;
+  }
+  /* ... then by rows, as a visible line may be a paragraph thousands of rows tall. */
+  for (guint i = first_span_below(view, p, low, end_index, visible->y); i < end_index; i++) {
     const CodeSpan *span = &g_array_index(p->code_spans, CodeSpan, i);
     GtkTextIter iter, end;
-    int first, last;
-    GdkRectangle row = { 0 }, at;
+    GdkRectangle at;
 
-    block_lines(p->buffer, span->start, span->end, &first, &last);
-    if (first > last_line)
-      break;
-    if (last < first_line)
+    if (span->end <= span->start)
       continue;
     gtk_text_buffer_get_iter_at_offset(p->buffer, &iter, span->start);
     gtk_text_buffer_get_iter_at_offset(p->buffer, &end, span->end);
-    for (; gtk_text_iter_compare(&iter, &end) < 0; gtk_text_iter_forward_char(&iter)) {
-      gtk_text_view_get_iter_location(view, &iter, &at);
-      if (row.width > 0 && at.y == row.y) {
-        row.width = at.x + at.width - row.x;
-        continue;
-      }
-      if (row.width > 0) /* a little above and below the letters */
-        fill(snapshot, &bg, row.x, row.y - 2, row.width, row.height + 4, 4);
-      row = at;
+    gtk_text_view_get_iter_location(view, &iter, &at);
+    if (at.y > visible->y + visible->height)
+      break;
+    /* One rectangle per row: from the row's first letter of the span to its last. */
+    while (gtk_text_iter_compare(&iter, &end) < 0) {
+      GtkTextIter next = iter, last;
+      GdkRectangle first_at, last_at;
+
+      gtk_text_view_get_iter_location(view, &iter, &first_at);
+      if (!gtk_text_view_forward_display_line(view, &next) || gtk_text_iter_compare(&next, &end) > 0)
+        next = end;
+      last = next;
+      gtk_text_iter_backward_char(&last);
+      gtk_text_view_get_iter_location(view, &last, &last_at);
+      if (last_at.y != first_at.y) /* the row ended at a line break: its letter is on the next row */
+        last_at = first_at;
+      if (first_at.y > visible->y + visible->height)
+        break;
+      /* a little above and below the letters */
+      fill(snapshot, &bg, first_at.x, first_at.y - 2, last_at.x + last_at.width - first_at.x, first_at.height + 4, 4);
+      if (gtk_text_iter_compare(&next, &iter) <= 0)
+        break;
+      iter = next;
     }
-    if (row.width > 0)
-      fill(snapshot, &bg, row.x, row.y - 2, row.width, row.height + 4, 4);
   }
 }
 
@@ -348,7 +392,7 @@ static void tcode_preview_view_snapshot_layer(GtkTextView *view, GtkTextViewLaye
     gtk_text_view_get_line_at_y(view, &iter, visible.y + visible.height, NULL);
     int last_line = gtk_text_iter_get_line(&iter);
     draw_blocks(view, self->preview, snapshot, first_line, last_line);
-    draw_code_spans(view, self->preview, snapshot, first_line, last_line);
+    draw_code_spans(view, self->preview, snapshot, &visible, first_line, last_line);
   }
 
   if (GTK_TEXT_VIEW_CLASS(tcode_preview_view_parent_class)->snapshot_layer)

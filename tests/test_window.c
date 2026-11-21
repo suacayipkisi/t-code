@@ -2653,6 +2653,49 @@ static gboolean colored(const GtkTextIter *iter)
   return found;
 }
 
+/* One paragraph holding thousands of inline code spans (a long line of JSON, say) draws quickly: every
+ * position asked of that paragraph's layout costs its whole length, so its code gets the text's own
+ * background instead of the rounded box drawn below it, which short paragraphs keep. */
+static void test_preview_long_paragraph(void)
+{
+  char *path = g_build_filename(app.project.root, "long.md", NULL);
+  GString *text = g_string_new("# Long\n\nA short `pill` here.\n\n");
+
+  for (int i = 0; i < 4000; i++)
+    g_string_append_printf(text, "word `code_%d` and ", i);
+  g_string_append(text, "the end.\n");
+  g_assert_true(g_file_set_contents(path, text->str, -1, NULL));
+  open_preview(&app, path);
+  run_for(500);
+  Tab *tab = current_tab(&app);
+  g_assert_true(tab->kind == TAB_PREVIEW);
+  GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
+  GtkTextIter iter = preview_find(buffer, "pill");
+  g_assert_false(has_tag(&iter, "code-flat")); /* a short paragraph's code: a rounded box below the text */
+  iter = preview_find(buffer, "code_2000");
+  g_assert_true(has_tag(&iter, "code-flat")); /* the long one's: the text's own background */
+  GtkAdjustment *adjustment = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(view));
+  gtk_adjustment_set_value(adjustment, gtk_adjustment_get_upper(adjustment) / 2);
+  run_for(300);
+
+  /* The view's own drawing, as a frame would ask for it. */
+  g_assert_cmpint(gtk_widget_get_height(GTK_WIDGET(view)), >, 0);
+  GtkSnapshot *snapshot = gtk_snapshot_new();
+  gint64 start = g_get_monotonic_time();
+  GTK_WIDGET_GET_CLASS(view)->snapshot(GTK_WIDGET(view), snapshot);
+  gint64 took = g_get_monotonic_time() - start;
+  GskRenderNode *node = gtk_snapshot_free_to_node(snapshot);
+  g_assert_nonnull(node);
+  g_assert_cmpint(took, <, 1000 * 1000); /* drawing each letter's place took seconds */
+
+  gsk_render_node_unref(node);
+  remove_tab(tab);
+  g_unlink(path);
+  g_free(path);
+  g_string_free(text, TRUE);
+}
+
 /* A big file opens without the window stopping: its hundreds of tables come in as they are scrolled
  * near (each one waits as an empty box as tall as it will be), a local image is decoded in a thread
  * (its alt text shows meanwhile), and code blocks of several languages are still colored. */
@@ -4949,6 +4992,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/preview-math", test_preview_math);
   g_test_add_func("/window/preview-github", test_preview_github);
   g_test_add_func("/window/preview-big", test_preview_big);
+  g_test_add_func("/window/preview-long-paragraph", test_preview_long_paragraph);
   g_test_add_func("/window/open-images", test_open_images);
   g_test_add_func("/window/run-scripts", test_run_scripts);
   g_test_add_func("/window/run-tests", test_run_tests);

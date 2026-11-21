@@ -69,10 +69,34 @@ void preview_begin_block(Render *r)
 }
 
 /* Ends the paragraph that started at start: a line break, its indent and the space after it. */
+/* A paragraph this long (a line of JSON, say) has its inline code's background drawn by the text's own tag, square and
+ * in one pass: the rounded one (draw_code_spans) asks the paragraph's layout for positions, each costing its length. */
+#define LONG_PARAGRAPH 4000
+
+static void flatten_code_spans(Render *r, int start)
+{
+  GArray *spans = r->p->code_spans;
+  guint first = spans->len;
+
+  if (preview_end_offset(r) - start <= LONG_PARAGRAPH)
+    return;
+  while (first > 0 && g_array_index(spans, CodeSpan, first - 1).start >= start)
+    first--;
+  for (guint i = first; i < spans->len; i++) {
+    const CodeSpan *span = &g_array_index(spans, CodeSpan, i);
+    GtkTextIter from, to;
+    gtk_text_buffer_get_iter_at_offset(r->p->buffer, &from, span->start);
+    gtk_text_buffer_get_iter_at_offset(r->p->buffer, &to, span->end);
+    gtk_text_buffer_apply_tag_by_name(r->p->buffer, "code-flat", &from, &to);
+  }
+  g_array_set_size(spans, first);
+}
+
 void preview_end_paragraph(Render *r, int start, const char *gap)
 {
   char name[16];
 
+  flatten_code_spans(r, start);
   preview_append(r, "\n", 1);
   g_snprintf(name, sizeof name, "indent%d", MIN(r->level, MAX_LEVEL));
   preview_tag(r, name, NULL, start);
