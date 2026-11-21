@@ -144,8 +144,7 @@ static void on_dump(gpointer data, JsonNode *body, const char *error)
     editor_reload(tab);
     editor_goto(tab, MAX(next, 1), 1);
   } else if (a->open) {
-    set_split(t, TRUE);
-    t->editors.active = 1;
+    side_group(t);
     open_editor(t, view_path(t), MAX(next, 1), 1, TRUE);
   }
   g_free(dir);

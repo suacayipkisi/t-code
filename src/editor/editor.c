@@ -642,7 +642,7 @@ void open_file(App *t, const char *path)
 
 void open_file_temporary(App *t, const char *path)
 {
-  int group = t->editors.active;
+  GtkNotebook *group = t->editors.active;
   gboolean image = is_image(path); /* shown in a preview tab, temporary as well */
   Tab *existing = find_tab(t, image ? TAB_PREVIEW : TAB_EDITOR, path), *old = temporary_tab(t, group), *tab;
   int position = -1;
@@ -673,13 +673,12 @@ void open_file_temporary(App *t, const char *path)
 void open_to_side(App *t, const char *path)
 {
   Tab *existing = find_tab(t, TAB_EDITOR, path);
+  GtkNotebook *side = side_group(t);
 
-  set_split(t, TRUE);
-  t->editors.active = 1;
   if (open_other(t, path))
     return;
   if (existing) {
-    move_tab(existing, 1);
+    move_tab(existing, side);
     select_tab(existing);
   } else {
     open_file(t, path);

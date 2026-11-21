@@ -33,9 +33,6 @@
 #define PREVIEW_PREFIX "preview:"
 #define MAX_RECENT 10
 
-static const char *const tab_keys[GROUPS] = { "tabs", "tabs-side", "tabs-window" };
-static const char *const active_keys[GROUPS] = { "active", "active-side", "active-window" };
-
 /* ~/.config/t-code/session.ini */
 static char *session_file(void)
 {
@@ -446,12 +443,23 @@ void session_set_project_value(App *t, const char *key, const char *value)
   g_key_file_free(kf);
 }
 
-/* Opens the tabs saved for one group into the active group; returns how many opened. */
-static int restore_group(App *t, GKeyFile *kf, const char *group_name, int g)
+/* A group's keys: window 0's first group "tabs" / "active", its next ones "tabs-1" / "active-1", ...; the
+ * second window's "tabs-window", "tabs-window-1", ... */
+static char *group_key(const char *what, int window, int index)
 {
-  char **tabs = g_key_file_get_string_list(kf, group_name, tab_keys[g], NULL, NULL);
+  const char *suffix = window ? "-window" : "";
+
+  return index ? g_strdup_printf("%s%s-%d", what, suffix, index) : g_strconcat(what, suffix, NULL);
+}
+
+/* Opens the tabs saved under key into group; returns how many opened. */
+static int restore_group(App *t, GKeyFile *kf, const char *group_name, GtkNotebook *group, const char *key,
+                         const char *active_key)
+{
+  char **tabs = g_key_file_get_string_list(kf, group_name, key, NULL, NULL);
   int opened = 0;
 
+  t->editors.active = group;
   for (int i = 0; tabs && tabs[i]; i++) {
     gboolean preview = g_str_has_prefix(tabs[i], PREVIEW_PREFIX);
     const char *path = preview ? tabs[i] + strlen(PREVIEW_PREFIX) : tabs[i];
@@ -463,9 +471,47 @@ static int restore_group(App *t, GKeyFile *kf, const char *group_name, int g)
       open_file(t, path);
     opened++;
   }
-  if (opened)
-    gtk_notebook_set_current_page(t->editors.groups[g], MIN(get_int(kf, group_name, active_keys[g], 0), opened - 1));
+  if (opened && gtk_notebook_get_n_pages(group) > 0)
+    gtk_notebook_set_current_page(group,
+                                  MIN(get_int(kf, group_name, active_key, 0), gtk_notebook_get_n_pages(group) - 1));
   g_strfreev(tabs);
+  return opened;
+}
+
+/* Gives a window its saved groups and their tabs; returns how many tabs opened. Before layouts were
+ * saved, the main window had "tabs" and "tabs-side" (a group right of it). */
+static int restore_window(App *t, GKeyFile *kf, const char *group_name, int window)
+{
+  const char *layout_key = window ? "layout-window" : "layout";
+  char *layout = g_key_file_get_string(kf, group_name, layout_key, NULL);
+  int opened = 0;
+
+  if (!layout || !set_groups_layout(t, window, layout)) {
+    char **side = window ? NULL : g_key_file_get_string_list(kf, group_name, "tabs-side", NULL, NULL);
+    if (side && side[0]) {
+      GtkNotebook *first = window_first_group(t, 0);
+      opened += restore_group(t, kf, group_name, first, "tabs", "active");
+      opened += restore_group(t, kf, group_name, split_group(first, SPLIT_RIGHT), "tabs-side", "active-side");
+      g_strfreev(side);
+      g_free(layout);
+      prune_empty_groups(t, window);
+      return opened;
+    }
+    g_strfreev(side);
+  }
+  g_free(layout);
+  GPtrArray *groups = g_ptr_array_new();
+  for (int g = 0; g < group_count(t); g++)
+    if (group_window(t, group_nth(t, g)) == window)
+      g_ptr_array_add(groups, group_nth(t, g));
+  for (guint g = 0; g < groups->len; g++) {
+    char *key = group_key("tabs", window, g), *active_key = group_key("active", window, g);
+    opened += restore_group(t, kf, group_name, g_ptr_array_index(groups, g), key, active_key);
+    g_free(key);
+    g_free(active_key);
+  }
+  g_ptr_array_unref(groups);
+  prune_empty_groups(t, window);
   return opened;
 }
 
@@ -475,35 +521,17 @@ gboolean session_restore_tabs(App *t)
   char *group = project_group(t);
   int opened;
 
-  t->editors.active = 0;
-  opened = restore_group(t, kf, group, 0);
-  if (g_key_file_has_key(kf, group, tab_keys[1], NULL)) {
-    char **side = g_key_file_get_string_list(kf, group, tab_keys[1], NULL, NULL);
-    if (side && side[0]) {
-      set_split(t, TRUE);
-      t->editors.active = 1;
-      if (restore_group(t, kf, group, 1) > 0) {
-        int position = get_int(kf, "window", "split-position", 0);
-        if (position > 0)
-          gtk_paned_set_position(t->editors.split, position);
-        opened++;
-      } else {
-        set_split(t, FALSE);
-      }
-    }
-    g_strfreev(side);
-  }
-  char **window = g_key_file_get_string_list(kf, group, tab_keys[WINDOW_GROUP], NULL, NULL);
+  opened = restore_window(t, kf, group, 0);
+  char **window = g_key_file_get_string_list(kf, group, "tabs-window", NULL, NULL);
   if (window && window[0]) { /* the second window's tabs */
     show_second_window(t);
-    t->editors.active = WINDOW_GROUP;
-    int restored = restore_group(t, kf, group, WINDOW_GROUP);
+    int restored = restore_window(t, kf, group, 1);
     if (!restored) /* its files are gone */
       gtk_window_close(t->editors.second);
     opened += restored;
   }
   g_strfreev(window);
-  t->editors.active = 0;
+  t->editors.active = window_first_group(t, 0);
   if (opened)
     focus_current_tab(t);
   g_free(group);
@@ -555,8 +583,6 @@ void session_save(App *t)
     g_key_file_set_integer(kf, "window", "sidebar-split", gtk_paned_get_position(GTK_PANED(t->layout.left)));
   if (gtk_widget_get_visible(t->dock.cards[8]) && gtk_widget_get_visible(t->dock.cards[9]))
     g_key_file_set_integer(kf, "window", "right-split", gtk_paned_get_position(GTK_PANED(t->layout.right)));
-  if (gtk_widget_get_visible(GTK_WIDGET(t->editors.groups[1])))
-    g_key_file_set_integer(kf, "window", "split-position", gtk_paned_get_position(t->editors.split));
   g_key_file_set_boolean(kf, "window", "files-visible", gtk_widget_get_visible(t->layout.left));
   g_key_file_set_boolean(kf, "window", "right-visible", gtk_widget_get_visible(t->layout.right));
   g_key_file_set_boolean(kf, "window", "shell-visible", gtk_widget_get_visible(t->layout.bottom));
@@ -581,10 +607,22 @@ void session_save(App *t)
   else
     g_key_file_remove_key(kf, group, "commit-message", NULL);
   g_free(message);
-  for (int g = 0; g < GROUPS; g++) {
-    GtkNotebook *notebook = t->editors.groups[g]; /* NULL: no second window */
-    int n = notebook ? gtk_notebook_get_n_pages(notebook) : 0, kept = 0, active = 0;
-    int current = notebook ? gtk_notebook_get_current_page(notebook) : -1;
+  char **keys = g_key_file_get_keys(kf, group, NULL, NULL); /* the groups as they were last time go */
+  for (int i = 0; keys && keys[i]; i++)
+    if (g_str_has_prefix(keys[i], "tabs") || g_str_has_prefix(keys[i], "active") || g_str_has_prefix(keys[i], "layout"))
+      g_key_file_remove_key(kf, group, keys[i], NULL);
+  g_strfreev(keys);
+  for (int w = 0; w < 2; w++) {
+    char *layout = groups_layout(t, w);
+    if (layout)
+      g_key_file_set_string(kf, group, w ? "layout-window" : "layout", layout);
+    g_free(layout);
+  }
+  for (int g = 0, in_window[2] = { 0, 0 }; g < group_count(t); g++) {
+    GtkNotebook *notebook = group_nth(t, g);
+    int window = group_window(t, notebook), index = in_window[window]++;
+    int n = gtk_notebook_get_n_pages(notebook), kept = 0, active = 0;
+    int current = gtk_notebook_get_current_page(notebook);
     char **tabs = g_new0(char *, n + 1);
     for (int i = 0; i < n; i++) {
       Tab *tab = g_object_get_data(G_OBJECT(gtk_notebook_get_nth_page(notebook, i)), "t-code-tab");
@@ -596,8 +634,11 @@ void session_save(App *t)
         continue;
       tabs[kept++] = tab->kind == TAB_PREVIEW ? g_strconcat(PREVIEW_PREFIX, tab->path, NULL) : g_strdup(tab->path);
     }
-    g_key_file_set_string_list(kf, group, tab_keys[g], (const char *const *)tabs, kept);
-    g_key_file_set_integer(kf, group, active_keys[g], active);
+    char *key = group_key("tabs", window, index), *active_key = group_key("active", window, index);
+    g_key_file_set_string_list(kf, group, key, (const char *const *)tabs, kept);
+    g_key_file_set_integer(kf, group, active_key, active);
+    g_free(key);
+    g_free(active_key);
     g_strfreev(tabs);
   }
   char **conditions = NULL, **logs = NULL, **breakpoints = breakpoints_save(t, &conditions, &logs);

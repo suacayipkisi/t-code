@@ -129,7 +129,7 @@ static void switch_project(App *t, const char *root)
   debug_end(t); /* the program is the old project's */
   plugins_stop_project(t);
   close_all_tabs(t);
-  set_split(t, FALSE);
+  join_groups(t);
   lsp_stop(t); /* stop every server for the old project before loading the new one */
 #ifdef __GLIBC__
   malloc_trim(0); /* the old project's tabs are gone: give their memory back */

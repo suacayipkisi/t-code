@@ -64,10 +64,6 @@ typedef struct Tab {
   } compare;              /* a comparison's two sides (git/compare.c) */
 } Tab;
 
-/* The editor area holds two tab groups side by side (the second one only while split); a third
- * one is the second window's ("Open in New Window"), while it is open. */
-#define GROUPS 3
-#define WINDOW_GROUP 2
 #define DOCKS 12  /* 0..3: left stacked, 4..7: bottom side-by-side, 8..11: right stacked */
 #define PANELS 11 /* the panels that go into the docks (window.h's panel_names) */
 
@@ -102,12 +98,12 @@ struct App {
 
   /* editors */
   struct {
-    GtkStack *area;
-    GtkNotebook *groups[GROUPS]; /* groups[WINDOW_GROUP]: NULL while there is no second window */
-    GtkWindow *second;           /* the second window (window/secondwindow.c), or NULL */
-    int active;                  /* the group new tabs go to */
-    GtkPaned *split;             /* groups[0] | groups[1] */
-    GtkToggleButton *split_button;
+    GtkStack *area;      /* the hint while nothing is open, else the main window's group tree */
+    GtkWidget *view;     /* area under the drop markers (editor/dropzone.c): what the window holds */
+    GtkWidget *roots[2]; /* the group trees (editor/groups.c): the main window's, the second window's or NULL */
+    GPtrArray *groups;   /* every tab group (a GtkNotebook) in order: the main window's, then the second's */
+    GtkNotebook *active; /* the group new tabs go to */
+    GtkWindow *second;   /* the second window (window/secondwindow.c), or NULL */
     gboolean inlay_peek; /* Ctrl+Alt held: inlay hints the other way round from the setting (lsp/inline/inlay.c) */
     guint peek_id;       /* starts the peek once Ctrl+Alt is held a moment */
   } editors;

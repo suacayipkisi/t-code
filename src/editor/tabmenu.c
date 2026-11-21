@@ -119,21 +119,45 @@ static void on_keep(gpointer data)
     keep_tab(tab);
 }
 
-/* To the other group of the main window (splitting it), or from the second window back. */
+/* To the group beside its own (splitting when there is none), or from the second window back. */
 static void on_other_group(gpointer data)
+{
+  Tab *tab = target_tab(data);
+  App *t;
+
+  if (!tab)
+    return;
+  t = tab->app;
+  keep_tab(tab);
+  if (group_window(t, tab_group(tab)) == 0) {
+    t->editors.active = tab_group(tab);
+    move_tab(tab, side_group(t));
+  } else {
+    move_tab(tab, window_first_group(t, 0));
+  }
+  select_tab(tab);
+}
+
+/* Into a new group beside its own. */
+static void split_off(gpointer data, SplitSide side)
 {
   Tab *tab = target_tab(data);
 
   if (!tab)
     return;
   keep_tab(tab);
-  if (tab_group(tab) == 0) {
-    set_split(tab->app, TRUE);
-    move_tab(tab, 1);
-  } else {
-    move_tab(tab, 0);
-  }
+  move_tab(tab, split_group(tab_group(tab), side));
   select_tab(tab);
+}
+
+static void on_split_right(gpointer data)
+{
+  split_off(data, SPLIT_RIGHT);
+}
+
+static void on_split_down(gpointer data)
+{
+  split_off(data, SPLIT_DOWN);
 }
 
 static void on_new_window(gpointer data)
@@ -201,9 +225,10 @@ static void on_save_template(gpointer data)
 
 void tab_menu(Tab *tab, GtkWidget *widget, double x, double y)
 {
-  MenuItem items[16];
+  MenuItem items[18];
   Target *target = g_new(Target, 1);
-  int n = 0, group = tab_group(tab);
+  GtkNotebook *group = tab_group(tab);
+  int n = 0, window = group_window(tab->app, group);
 
   target->app = tab->app;
   target->tab = tab;
@@ -216,11 +241,12 @@ void tab_menu(Tab *tab, GtkWidget *widget, double x, double y)
     items[n++] = (MenuItem){ "Keep Open", on_keep };
   if (tab->kind == TAB_EDITOR && has_preview(tab->path) && !tab->compare.with)
     items[n++] = (MenuItem){ "Open Preview", on_preview };
-  items[n++] = (MenuItem){ group == 0   ? "Move to Other Group"
-                           : group == 1 ? "Move to First Group"
-                                        : "Move to Main Window",
-                           on_other_group };
-  if (group != WINDOW_GROUP)
+  items[n++] = (MenuItem){ window == 0 ? "Move to Other Group" : "Move to Main Window", on_other_group };
+  if (gtk_notebook_get_n_pages(group) > 1) {
+    items[n++] = (MenuItem){ "Split Right", on_split_right };
+    items[n++] = (MenuItem){ "Split Down", on_split_down };
+  }
+  if (window == 0)
     items[n++] = (MenuItem){ "Move into New Window", on_new_window };
   if (tab->compare.old_side)
     items[n++] = (MenuItem){ "Stop Comparing", on_stop_comparing };

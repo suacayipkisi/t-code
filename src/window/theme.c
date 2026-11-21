@@ -59,6 +59,7 @@ static const char *const css =
      * editor's color, flowing into it. */
     "notebook, notebook.frame { background: none; border: none; }"
     ".tcode-tabs { background: var(--tc-frame); padding: 4px 4px 0; }"
+    ".tcode-drop-hint { color: var(--tc-accent); }" /* editor/dropzone.c's markers */
     ".tcode-tab { min-height: 30px; padding: 0 4px 0 12px; margin: 0 1px; border-radius: 9px 9px 0 0;"
     "  color: var(--tc-fg-dim); }"
     ".tcode-tab:hover { background: var(--tc-raised); color: var(--tc-fg); }"

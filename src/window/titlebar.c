@@ -11,10 +11,9 @@
 #include <string.h>
 
 /* The Split Editor button in the title bar. */
-static void on_split_toggled(GtkToggleButton *button, App *t)
+static void on_split_clicked(GtkButton *button G_GNUC_UNUSED, App *t)
 {
-  set_split(t, gtk_toggle_button_get_active(button));
-  focus_current_tab(t);
+  run_command(t, "Split Editor");
 }
 
 static void on_toggle_left(App *t)
@@ -234,7 +233,7 @@ GtkWidget *title_bar(App *t)
   GtkWidget *left_btn = gtk_button_new_from_icon_name("tcode-sidebar-left-symbolic");
   GtkWidget *right_btn = gtk_button_new_from_icon_name("tcode-sidebar-right-symbolic");
   GtkWidget *bottom_btn = gtk_button_new_from_icon_name("tcode-panel-bottom-symbolic");
-  GtkWidget *split = gtk_toggle_button_new();
+  GtkWidget *split = gtk_button_new_from_icon_name("tcode-split-symbolic");
   GtkWidget *logo = gtk_image_new_from_icon_name("tcode-logo"); /* from the resources: also when not installed */
 
   add_menu_actions(t);
@@ -247,10 +246,8 @@ GtkWidget *title_bar(App *t)
   gtk_header_bar_pack_start(GTK_HEADER_BAR(header), menu_bar);
   g_object_unref(model);
 
-  gtk_button_set_icon_name(GTK_BUTTON(split), "tcode-split-symbolic");
   gtk_widget_set_tooltip_text(split, "Split Editor (Ctrl+\\)");
-  t->editors.split_button = GTK_TOGGLE_BUTTON(split);
-  g_signal_connect(split, "toggled", G_CALLBACK(on_split_toggled), t);
+  g_signal_connect(split, "clicked", G_CALLBACK(on_split_clicked), t);
   gtk_header_bar_pack_end(GTK_HEADER_BAR(header), split);
 
   gtk_widget_set_tooltip_text(right_btn, "Toggle Right Sidebar");

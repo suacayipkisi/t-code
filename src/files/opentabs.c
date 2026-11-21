@@ -138,12 +138,18 @@ static GtkWidget *tab_row(Tab *tab)
   return row;
 }
 
-/* A group's heading, when more than one group has tabs. */
-static GtkWidget *group_row(int group)
+/* A group's heading, when more than one group has tabs: "GROUP 2", "NEW WINDOW" (with a number
+ * once the second window has more than one group). */
+static GtkWidget *group_row(App *t, GtkNotebook *group)
 {
-  static const char *const names[GROUPS] = { "GROUP 1", "GROUP 2", "NEW WINDOW" };
-  GtkWidget *row = gtk_list_box_row_new(), *label = gtk_label_new(names[group]);
+  int index = group_index(t, group), first = group_index(t, window_first_group(t, 1));
+  gboolean second = group_window(t, group) == 1;
+  char *name = !second                      ? g_strdup_printf("GROUP %d", index + 1)
+               : group_count(t) - first > 1 ? g_strdup_printf("NEW WINDOW %d", index - first + 1)
+                                            : g_strdup("NEW WINDOW");
+  GtkWidget *row = gtk_list_box_row_new(), *label = gtk_label_new(name);
 
+  g_free(name);
   gtk_label_set_xalign(GTK_LABEL(label), 0);
   gtk_widget_add_css_class(label, "group");
   gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), label);
@@ -165,20 +171,17 @@ static gboolean refill(gpointer data G_GNUC_UNUSED)
   int used = 0, n = tab_count(t);
 
   gtk_list_box_remove_all(open_tabs.list);
-  for (int g = 0; g < GROUPS; g++)
-    for (int i = 0; i < n; i++)
-      if (tab_group(tab_nth(t, i)) == g) {
-        used++;
-        break;
-      }
-  for (int g = 0; g < GROUPS; g++) {
+  for (int g = 0; g < group_count(t); g++)
+    used += gtk_notebook_get_n_pages(group_nth(t, g)) > 0;
+  for (int g = 0; g < group_count(t); g++) {
+    GtkNotebook *group = group_nth(t, g);
     gboolean heading = FALSE;
     for (int i = 0; i < n; i++) {
       Tab *tab = tab_nth(t, i);
-      if (tab_group(tab) != g)
+      if (tab_group(tab) != group)
         continue;
       if (used > 1 && !heading) {
-        gtk_list_box_append(open_tabs.list, group_row(g));
+        gtk_list_box_append(open_tabs.list, group_row(t, group));
         heading = TRUE;
       }
       GtkWidget *row = tab_row(tab);

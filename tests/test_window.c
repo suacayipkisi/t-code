@@ -15,6 +15,7 @@
 #include "dialogs/settings.h"
 #include "editor/gutter/breakpoints.h"
 #include "editor/gutter/diffgutter.h"
+#include "editor/dropzone.h"
 #include "editor/editorview.h"
 #include "editor/preview/preview.h"
 #include "editor/recovery.h"
@@ -157,7 +158,7 @@ static void assert_tabs(const char *want)
 static void close_everything(void)
 {
   close_all_tabs(&app);
-  set_split(&app, FALSE);
+  join_groups(&app);
   run_for(50);
 }
 
@@ -213,12 +214,12 @@ static void test_temporary(void)
 static void test_temporary_per_group(void)
 {
   open_temporary("a.txt");
-  set_split(&app, TRUE); /* the right group is active now */
+  split_group(app.editors.active, SPLIT_RIGHT); /* the right group is active now */
   open_temporary("b.txt");
   assert_tabs("a.txt* b.txt*");
   open_temporary("c.txt");
   assert_tabs("a.txt* c.txt*");
-  g_assert_cmpint(tab_group(tab_nth(&app, 1)), ==, 1);
+  g_assert_cmpint(group_index(&app, tab_group(tab_nth(&app, 1))), ==, 1);
   close_everything();
 }
 
@@ -281,7 +282,7 @@ static void test_comparison_one_tab(void)
   g_assert_nonnull(tab->compare.old_side);
   g_assert_cmpstr(tab->compare.old_side->compare.with, ==, path);
   g_assert_true(g_str_has_prefix(gtk_label_get_text(tab->label), "tracked.txt ↔ "));
-  g_assert_false(gtk_widget_get_visible(GTK_WIDGET(app.editors.groups[1]))); /* no second group */
+  g_assert_cmpint(group_count(&app), ==, 1); /* no second group */
 
   stop_comparing(&app); /* the file stays */
   run_for(50);
@@ -1372,39 +1373,242 @@ static void test_second_window(void)
   g_assert_nonnull(app.editors.second);
   g_assert_cmpint(tab_count(&app), ==, 1);
   tab = find_tab(&app, TAB_EDITOR, a);
-  g_assert_cmpint(tab_group(tab), ==, WINDOW_GROUP);
+  g_assert_cmpint(group_window(&app, tab_group(tab)), ==, 1);
   g_assert_true(tab_window(tab) == app.editors.second);
   open_file(&app, a); /* still one tab */
   g_assert_cmpint(tab_count(&app), ==, 1);
 
   open_kept("w2.txt");
   move_to_new_window(&app); /* the current tab: w2.txt, opened in the active group (the window's) */
-  g_assert_cmpint(tab_group(find_tab(&app, TAB_EDITOR, b)), ==, WINDOW_GROUP);
+  g_assert_cmpint(group_window(&app, tab_group(find_tab(&app, TAB_EDITOR, b))), ==, 1);
 
   session_save(&app);
   gtk_window_close(app.editors.second); /* the tabs come back */
   run_until(no_second_window, NULL);
   g_assert_null(app.editors.second);
   g_assert_cmpint(tab_count(&app), ==, 2);
-  g_assert_cmpint(tab_group(find_tab(&app, TAB_EDITOR, a)), ==, 0);
-  g_assert_cmpint(tab_group(find_tab(&app, TAB_EDITOR, b)), ==, 0);
+  g_assert_cmpint(group_window(&app, tab_group(find_tab(&app, TAB_EDITOR, a))), ==, 0);
+  g_assert_cmpint(group_window(&app, tab_group(find_tab(&app, TAB_EDITOR, b))), ==, 0);
 
   close_everything();
   session_restore_tabs(&app); /* as saved: both in the second window */
   run_for(100);
   g_assert_nonnull(app.editors.second);
-  g_assert_cmpint(tab_group(find_tab(&app, TAB_EDITOR, a)), ==, WINDOW_GROUP);
-  g_assert_cmpint(tab_group(find_tab(&app, TAB_EDITOR, b)), ==, WINDOW_GROUP);
+  g_assert_cmpint(group_window(&app, tab_group(find_tab(&app, TAB_EDITOR, a))), ==, 1);
+  g_assert_cmpint(group_window(&app, tab_group(find_tab(&app, TAB_EDITOR, b))), ==, 1);
 
   remove_tab(find_tab(&app, TAB_EDITOR, a));
   remove_tab(find_tab(&app, TAB_EDITOR, b)); /* the last one: the window goes */
   run_until(no_second_window, NULL);
   g_assert_null(app.editors.second);
-  g_assert_cmpint(app.editors.active, ==, 0);
+  g_assert_true(app.editors.active == window_first_group(&app, 0));
   close_everything();
   session_save(&app);
   g_free(a);
   g_free(b);
+}
+
+/* The tab of a file opened by name. */
+static Tab *named_tab(const char *name)
+{
+  char *path = file(name);
+  Tab *tab = find_tab(&app, TAB_EDITOR, path);
+
+  g_free(path);
+  return tab;
+}
+
+/* The group number of a file's tab. */
+static int group_of(const char *name)
+{
+  return group_index(&app, tab_group(named_tab(name)));
+}
+
+/* A window's layout without its shares: "h(,g,v(,g,g))". */
+static char *layout_shape(int window)
+{
+  char *layout = groups_layout(&app, window);
+  GString *shape = g_string_new(NULL);
+
+  for (const char *c = layout; c && *c; c++)
+    if (!g_ascii_isdigit(*c))
+      g_string_append_c(shape, *c);
+  g_free(layout);
+  return g_string_free(shape, FALSE);
+}
+
+static void assert_shape(const char *want)
+{
+  char *shape = layout_shape(0);
+
+  g_assert_cmpstr(shape, ==, want);
+  g_free(shape);
+}
+
+static gboolean groups_are(gconstpointer data)
+{
+  return group_count(&app) == GPOINTER_TO_INT(data);
+}
+
+/* The editor area splits into any number of groups, side by side and one over another; a group goes
+ * with its last tab, Ctrl+\ splits and closes an empty group again, and the session keeps the tree. */
+static void test_group_tree(void)
+{
+  open_kept("g1.txt");
+  open_kept("g2.txt");
+  open_kept("g3.txt");
+  open_kept("g4.txt");
+  GtkNotebook *first = window_first_group(&app, 0), *right, *third, *below;
+  right = split_group(first, SPLIT_RIGHT);
+  move_tab(named_tab("g2.txt"), right);
+  third = split_group(right, SPLIT_RIGHT);
+  move_tab(named_tab("g3.txt"), third);
+  below = split_group(third, SPLIT_DOWN);
+  move_tab(named_tab("g4.txt"), below);
+  run_for(50);
+  g_assert_cmpint(group_count(&app), ==, 4);
+  assert_shape("h(,g,h(,g,v(,g,g)))");
+  g_assert_cmpint(group_of("g1.txt"), ==, 0);
+  g_assert_cmpint(group_of("g2.txt"), ==, 1);
+  g_assert_cmpint(group_of("g3.txt"), ==, 2);
+  g_assert_cmpint(group_of("g4.txt"), ==, 3);
+
+  /* "to the side": the next group, or from the last one the one before it */
+  app.editors.active = first;
+  g_assert_true(side_group(&app) == right);
+  app.editors.active = below;
+  g_assert_true(side_group(&app) == third);
+
+  /* g2's group goes with its last tab: the other side of its split takes the split's place */
+  remove_tab(named_tab("g2.txt"));
+  run_until(groups_are, GINT_TO_POINTER(3));
+  assert_shape("h(,g,v(,g,g))");
+  g_assert_cmpint(group_of("g3.txt"), ==, 1);
+
+  /* the session keeps the tree and each group's tabs */
+  session_save(&app);
+  close_everything();
+  g_assert_cmpint(group_count(&app), ==, 1);
+  session_restore_tabs(&app);
+  run_for(100);
+  g_assert_cmpint(group_count(&app), ==, 3);
+  assert_shape("h(,g,v(,g,g))");
+  g_assert_cmpint(group_of("g1.txt"), ==, 0);
+  g_assert_cmpint(group_of("g3.txt"), ==, 1);
+  g_assert_cmpint(group_of("g4.txt"), ==, 2);
+
+  /* Ctrl+\ splits the active group; pressed again in the new (empty) group, it closes it */
+  focus_group(&app, group_nth(&app, 0));
+  run_command(&app, "Split Editor");
+  g_assert_cmpint(group_count(&app), ==, 4);
+  g_assert_cmpint(group_index(&app, app.editors.active), ==, 1);
+  run_command(&app, "Split Editor");
+  g_assert_cmpint(group_count(&app), ==, 3);
+
+  /* Close Editor Group: its tabs go to the other side of its split */
+  close_group(tab_group(named_tab("g4.txt")));
+  g_assert_cmpint(group_count(&app), ==, 2);
+  g_assert_cmpint(group_of("g4.txt"), ==, 1);
+  join_groups(&app);
+  g_assert_cmpint(group_count(&app), ==, 1);
+  g_assert_cmpint(tab_count(&app), ==, 3);
+  close_everything();
+
+  /* layouts that are not one change nothing */
+  g_assert_false(set_groups_layout(&app, 0, "h(500,g"));
+  g_assert_false(set_groups_layout(&app, 0, "h(500,g,g)x"));
+  g_assert_false(set_groups_layout(&app, 0, "h(0,g,g)"));
+  g_assert_false(set_groups_layout(&app, 0, "x"));
+  g_assert_cmpint(group_count(&app), ==, 1);
+  g_assert_true(set_groups_layout(&app, 0, "v(250,g,h(500,g,g))"));
+  g_assert_cmpint(group_count(&app), ==, 3);
+  prune_empty_groups(&app, 0); /* one always stays */
+  g_assert_cmpint(group_count(&app), ==, 1);
+  session_save(&app);
+}
+
+/* The drop markers: the cross over a group (its side squares only when the group has room), the edge
+ * squares, and the space each would give the tab. */
+static void test_drop_markers(void)
+{
+  graphene_rect_t group = GRAPHENE_RECT_INIT(0, 0, 400, 300), area = GRAPHENE_RECT_INIT(0, 0, 800, 600), out;
+  graphene_rect_t small = GRAPHENE_RECT_INIT(0, 0, 100, 100);
+  DropMarkers markers;
+
+  drop_markers_place(&markers, &group, &area, TRUE, TRUE);
+  g_assert_cmpint(drop_marker_at(&markers, 200, 150), ==, DROP_CENTER);
+  g_assert_cmpint(drop_marker_at(&markers, 200 - 42, 150), ==, DROP_LEFT);
+  g_assert_cmpint(drop_marker_at(&markers, 200 + 42, 150), ==, DROP_RIGHT);
+  g_assert_cmpint(drop_marker_at(&markers, 200, 150 - 42), ==, DROP_TOP);
+  g_assert_cmpint(drop_marker_at(&markers, 200, 150 + 42), ==, DROP_BOTTOM);
+  g_assert_cmpint(drop_marker_at(&markers, 10 + 18, 300), ==, DROP_EDGE_LEFT);
+  g_assert_cmpint(drop_marker_at(&markers, 400, 600 - 10 - 18), ==, DROP_EDGE_BOTTOM);
+  g_assert_cmpint(drop_marker_at(&markers, 5, 5), ==, DROP_NONE);
+  drop_zone_preview(DROP_RIGHT, &group, &area, &out);
+  g_assert_true(graphene_rect_equal(&out, &GRAPHENE_RECT_INIT(200, 0, 200, 300)));
+  drop_zone_preview(DROP_EDGE_BOTTOM, &group, &area, &out);
+  g_assert_cmpfloat_with_epsilon(out.origin.y, 400, 0.01);
+  g_assert_cmpfloat_with_epsilon(out.size.height, 200, 0.01);
+
+  drop_markers_place(&markers, &small, &area, TRUE, FALSE); /* no room for the sides, no edges */
+  g_assert_true(markers.shown[DROP_CENTER]);
+  g_assert_false(markers.shown[DROP_LEFT]);
+  g_assert_false(markers.shown[DROP_EDGE_LEFT]);
+  drop_markers_place(&markers, &group, &area, FALSE, TRUE); /* the group's only tab: nothing to split off */
+  g_assert_false(markers.shown[DROP_RIGHT]);
+  g_assert_true(markers.shown[DROP_EDGE_RIGHT]);
+}
+
+/* A group laid out with room for the markers' cross. */
+static gboolean has_room(gconstpointer widget)
+{
+  return gtk_widget_get_width((GtkWidget *)widget) > 150 && gtk_widget_get_height((GtkWidget *)widget) > 150;
+}
+
+/* A tab dropped on a marker: on a side square it gets a new group there; its own group's sides do not
+ * show while it is that group's only tab. */
+static void test_drop_split(void)
+{
+  GtkWidget *view = app.editors.view;
+  graphene_rect_t room;
+  double x, y;
+
+  gtk_widget_set_size_request(view, 600, 400); /* the tests before may leave the side panels wide */
+  open_kept("d1.txt");
+  open_kept("d2.txt");
+  run_until(has_room, tab_group_widget(window_first_group(&app, 0)));
+  g_assert_true(gtk_widget_compute_bounds(tab_group_widget(window_first_group(&app, 0)), view, &room));
+  g_assert_cmpint(drop_view_hover(view, named_tab("d2.txt"), room.origin.x + room.size.width / 2,
+                                  room.origin.y + room.size.height / 2),
+                  ==, DROP_CENTER);
+  g_assert_true(drop_view_marker(view, DROP_RIGHT, &x, &y));
+  g_assert_cmpint(drop_view_hover(view, named_tab("d2.txt"), x, y), ==, DROP_RIGHT);
+  g_assert_true(drop_view_drop(view, named_tab("d2.txt"), x, y));
+  run_for(50);
+  g_assert_cmpint(group_count(&app), ==, 2);
+  assert_shape("h(,g,g)");
+  g_assert_cmpint(group_of("d2.txt"), ==, 1);
+  g_assert_true(current_tab(&app) == named_tab("d2.txt"));
+
+  GtkNotebook *side = tab_group(named_tab("d2.txt"));
+  run_until(has_room, tab_group_widget(side));
+  g_assert_true(gtk_widget_compute_bounds(tab_group_widget(side), view, &room));
+  drop_view_hover(view, named_tab("d2.txt"), room.origin.x + room.size.width / 2, room.origin.y + room.size.height / 2);
+  g_assert_false(drop_view_marker(view, DROP_LEFT, &x, &y)); /* alone in its group */
+  g_assert_true(drop_view_marker(view, DROP_CENTER, &x, &y));
+  drop_view_leave(view);
+  /* not on a marker (nor a strip): nothing happens */
+  g_assert_false(drop_view_drop(view, named_tab("d1.txt"), room.origin.x + room.size.width * 0.75,
+                                room.origin.y + room.size.height - 15));
+  g_assert_cmpint(group_count(&app), ==, 2);
+
+  /* d1 dropped on the middle of d2's group joins it; its own group goes */
+  g_assert_true(drop_view_drop(view, named_tab("d1.txt"), room.origin.x + room.size.width / 2,
+                               room.origin.y + room.size.height / 2));
+  run_until(groups_are, GINT_TO_POINTER(1));
+  g_assert_cmpint(gtk_notebook_get_n_pages(window_first_group(&app, 0)), ==, 2);
+  gtk_widget_set_size_request(view, -1, -1);
+  close_everything();
 }
 
 /* The tab names in a group's strip, in order: "a.txt b.txt". */
@@ -1414,7 +1618,7 @@ static char *strip_names(int group)
   GString *text = g_string_new(NULL);
 
   for (int i = 0; i < tab_count(&app); i++)
-    if (tab_group(tab_nth(&app, i)) == group)
+    if (group_index(&app, tab_group(tab_nth(&app, i))) == group)
       strip = gtk_widget_get_parent(tab_nth(&app, i)->item);
   for (GtkWidget *w = gtk_widget_get_first_child(strip); w; w = gtk_widget_get_next_sibling(w)) {
     Tab *tab = NULL;
@@ -1473,39 +1677,24 @@ static void test_tab_strip(void)
   run_for(20);
   assert_strip(0, "s1.txt! s2.txt s3.txt");
 
-  /* s3 dropped before s1 in the same strip */
+  /* s3 dropped before s1 in the same strip (through the drop markers' view) */
   GtkWidget *strip = gtk_widget_get_parent(tab_nth(&app, 0)->item);
-  GtkWidget *scrolled = gtk_widget_get_ancestor(strip, GTK_TYPE_SCROLLED_WINDOW);
-  GValue value = G_VALUE_INIT;
-  g_value_init(&value, G_TYPE_POINTER);
-  g_value_set_pointer(&value, tab_nth(&app, 2));
-  GtkDropTarget *target = NULL;
-  GListModel *controllers = gtk_widget_observe_controllers(scrolled);
-  for (guint i = 0; i < g_list_model_get_n_items(controllers) && !target; i++) {
-    GObject *controller = g_list_model_get_item(controllers, i);
-    if (GTK_IS_DROP_TARGET(controller))
-      target = GTK_DROP_TARGET(controller);
-    g_object_unref(controller);
-  }
-  g_object_unref(controllers);
-  g_assert_nonnull(target);
   for (GtkWidget *w = gtk_widget_get_first_child(strip); w; w = gtk_widget_get_next_sibling(w))
     run_until(laid_out, w); /* the drop is placed by the tabs' places */
   graphene_point_t at;      /* on s1's left edge, wherever the strip is scrolled to (s3, the last opened) */
-  g_assert_true(gtk_widget_compute_point(gtk_widget_get_first_child(strip), scrolled, &GRAPHENE_POINT_INIT(1, 0), &at));
-  gboolean dropped = FALSE;
-  g_signal_emit_by_name(target, "drop", &value, (double)at.x, 0.0, &dropped);
-  g_assert_true(dropped);
+  GtkWidget *first = gtk_widget_get_first_child(strip);
+  g_assert_true(gtk_widget_compute_point(first, app.editors.view,
+                                         &GRAPHENE_POINT_INIT(1, gtk_widget_get_height(first) / 2.0), &at));
+  g_assert_cmpint(drop_view_hover(app.editors.view, tab_nth(&app, 2), at.x, at.y), ==, DROP_STRIP);
+  g_assert_true(drop_view_drop(app.editors.view, tab_nth(&app, 2), at.x, at.y));
   run_for(20);
   assert_strip(0, "s3.txt! s1.txt s2.txt");
   assert_tabs("s3.txt s1.txt s2.txt");
 
-  set_split(&app, TRUE);
-  move_tab(tab_nth(&app, 1), 1); /* s1 to the right */
+  move_tab(tab_nth(&app, 1), split_group(window_first_group(&app, 0), SPLIT_RIGHT)); /* s1 to the right */
   run_for(20);
   assert_strip(0, "s3.txt! s2.txt");
   assert_strip(1, "s1.txt!");
-  g_value_unset(&value);
   close_everything();
 }
 
@@ -1706,8 +1895,7 @@ static void test_open_tabs(void)
   run_for(50);
   g_assert_true(current_tab(&app) == tab_nth(&app, 0)); /* o1 */
 
-  set_split(&app, TRUE);
-  move_tab(tab_nth(&app, 1), 1);
+  move_tab(tab_nth(&app, 1), split_group(window_first_group(&app, 0), SPLIT_RIGHT));
   run_for(50);
   g_assert_cmpint(list_rows(list), ==, 4); /* GROUP 1, o1, GROUP 2, o2 */
 
@@ -3707,7 +3895,7 @@ static void test_outline(void)
   /* Switching tabs shows the new tab's outline, not the one it leaves (switch-page comes before the
    * notebook's current page changes). */
   char *md = file("outline.md");
-  GtkNotebook *group = app.editors.groups[app.editors.active];
+  GtkNotebook *group = app.editors.active;
   g_assert_true(g_file_set_contents(md, "# Notes\n", -1, NULL));
   open_preview(&app, md);
   run_for(50);
@@ -5105,6 +5293,9 @@ int main(int argc, char **argv)
   g_test_add_func("/window/outline", test_outline);
   g_test_add_func("/window/second-window", test_second_window);
   g_test_add_func("/window/tab-strip", test_tab_strip);
+  g_test_add_func("/window/group-tree", test_group_tree);
+  g_test_add_func("/window/drop-markers", test_drop_markers);
+  g_test_add_func("/window/drop-split", test_drop_split);
   g_test_add_func("/window/open-tabs", test_open_tabs);
   g_test_add_func("/window/context-menus", test_context_menus);
   g_test_add_func("/window/switch-source-header", test_switch_source_header);

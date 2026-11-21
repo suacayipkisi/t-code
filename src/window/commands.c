@@ -68,8 +68,18 @@ static void run(App *t) { build_project(t, TRUE); }
 static void test_project(App *t) { run_project_tests(t); }
 static void next_tab(App *t) { step_tab(t, 1); }
 static void prev_tab(App *t) { step_tab(t, -1); }
-static void focus_left(App *t) { focus_group(t, 0); }
-static void focus_right(App *t) { focus_group(t, 1); }
+static void focus_group_1(App *t) { focus_group(t, group_nth(t, 0)); }
+static void focus_group_2(App *t) { focus_group(t, group_nth(t, 1)); }
+static void focus_group_3(App *t) { focus_group(t, group_nth(t, 2)); }
+static void focus_group_4(App *t) { focus_group(t, group_nth(t, 3)); }
+static void focus_group_5(App *t) { focus_group(t, group_nth(t, 4)); }
+static void focus_group_6(App *t) { focus_group(t, group_nth(t, 5)); }
+static void focus_group_7(App *t) { focus_group(t, group_nth(t, 6)); }
+static void focus_group_8(App *t) { focus_group(t, group_nth(t, 7)); }
+static void focus_group_9(App *t) { focus_group(t, group_nth(t, 8)); }
+static void split_down(App *t) { split_group(t->editors.active, SPLIT_DOWN); focus_current_tab(t); }
+static void join_all_groups(App *t) { join_groups(t); focus_current_tab(t); }
+static void close_editor_group(App *t) { close_group(t->editors.active); }
 /* Ctrl+= / Ctrl+- / Ctrl+0: in a preview tab the previews' text size, elsewhere everything else's; a factor of 0
  * goes back to normal. */
 static void zoom(App *t, double factor)
@@ -139,10 +149,16 @@ static void focus_shell(App *t)
   gtk_widget_grab_focus(GTK_WIDGET(current_shell(t)));
 }
 
-/* Ctrl+\: split the editor area, or join it again. */
+/* Ctrl+\: a new group right of the active one; pressed in an empty group (just split off), it closes
+ * that group again. */
 static void toggle_split(App *t)
 {
-  set_split(t, !gtk_widget_get_visible(GTK_WIDGET(t->editors.groups[1])));
+  GtkNotebook *group = t->editors.active;
+
+  if (gtk_notebook_get_n_pages(group) == 0 && group_count(t) > 1)
+    close_group(group);
+  else
+    split_group(group, SPLIT_RIGHT);
   focus_current_tab(t);
 }
 
@@ -389,8 +405,18 @@ static const Command commands[] = {
   { "Split Editor", "<Control>backslash", "Ctrl+\\", toggle_split, FALSE, FALSE, FALSE },
   { "View: Move Editor into New Window", NULL, NULL, move_to_new_window, FALSE, TRUE, FALSE },
   { "View: Reset Panel Layout", NULL, NULL, reset_panel_layout, FALSE, FALSE, FALSE },
-  { "Focus Left Editor Group", "<Control>1", "Ctrl+1", focus_left, FALSE, FALSE, FALSE },
-  { "Focus Right Editor Group", "<Control>2", "Ctrl+2", focus_right, FALSE, FALSE, FALSE },
+  { "Split Editor Down", NULL, NULL, split_down, FALSE, FALSE, FALSE },
+  { "Close Editor Group", NULL, NULL, close_editor_group, FALSE, FALSE, FALSE },
+  { "Join All Editor Groups", NULL, NULL, join_all_groups, FALSE, FALSE, FALSE },
+  { "Focus Editor Group 1", "<Control>1", "Ctrl+1", focus_group_1, FALSE, FALSE, FALSE },
+  { "Focus Editor Group 2", "<Control>2", "Ctrl+2", focus_group_2, FALSE, FALSE, FALSE },
+  { "Focus Editor Group 3", "<Control>3", "Ctrl+3", focus_group_3, FALSE, FALSE, FALSE },
+  { "Focus Editor Group 4", "<Control>4", "Ctrl+4", focus_group_4, FALSE, FALSE, FALSE },
+  { "Focus Editor Group 5", "<Control>5", "Ctrl+5", focus_group_5, FALSE, FALSE, FALSE },
+  { "Focus Editor Group 6", "<Control>6", "Ctrl+6", focus_group_6, FALSE, FALSE, FALSE },
+  { "Focus Editor Group 7", "<Control>7", "Ctrl+7", focus_group_7, FALSE, FALSE, FALSE },
+  { "Focus Editor Group 8", "<Control>8", "Ctrl+8", focus_group_8, FALSE, FALSE, FALSE },
+  { "Focus Editor Group 9", "<Control>9", "Ctrl+9", focus_group_9, FALSE, FALSE, FALSE },
   { "Next Tab", "<Control>Page_Down|<Alt>period", "Ctrl+PageDown, Alt+.", next_tab, FALSE, TRUE, FALSE },
   { "Previous Tab", "<Control>Page_Up|<Alt>comma", "Ctrl+PageUp, Alt+,", prev_tab, FALSE, TRUE, FALSE },
   { "Focus File Manager", "<Alt>1", "Alt+1", focus_fm, FALSE, FALSE, FALSE },

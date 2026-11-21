@@ -91,8 +91,7 @@ static void show_text(App *t, const char *text, gboolean open)
     if (open)
       select_tab(tab);
   } else if (open) {
-    set_split(t, TRUE);
-    t->editors.active = 1;
+    side_group(t);
     open_editor(t, view_path(t), 1, 1, TRUE);
   }
   g_free(dir);

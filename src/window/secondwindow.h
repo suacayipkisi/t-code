@@ -1,6 +1,6 @@
 /*
- * The second window ("Open in New Window"): another window of the same t-code, holding a third
- * tab group (t->editors.groups[WINDOW_GROUP]). It shares everything else with the main window: the
+ * The second window ("Open in New Window"): another window of the same t-code, holding a tree of
+ * tab groups of its own (t->editors.roots[1]). It shares everything else with the main window: the
  * project, language servers and the session. A file is still open in one tab only: opening it here moves
  * its tab. Closing the window moves its tabs back to the main window; it also closes when its last
  * tab goes.

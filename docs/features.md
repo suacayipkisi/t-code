@@ -292,14 +292,22 @@ the same extension (or the same name, like `Makefile`) then offers "Empty File" 
 Template…") picks one first and asks the name after, the template's file name filled in. "Template:
 Delete Template…" removes one.
 
-**Split editor.** `Ctrl+\` (or the title bar button) puts a second group of tabs next to the
-first. New files open in the group you are in; "Open to the Side" in the Files panel opens a
-file straight into the right group. Tabs can be dragged between the groups, and the right group
-closes when its last tab does. A file is never open in both groups at once, since two editors
-saving the same file would overwrite each other.
+**Split editor.** The editor area holds any number of tab groups, side by side and one over
+another (two on the left, three stacked on the right, ...). `Ctrl+\` (or the title bar button) puts
+a new group right of the one you are in; pressed in that new, still empty group, it closes it again.
+"Split Editor Down", "Close Editor Group" and "Join All Editor Groups" are in the command palette,
+"Split Right" / "Split Down" in a tab's menu. Drag a tab and blue markers show where it can go: the
+middle square of the group under the pointer puts it into that group, the four around it give it a
+new group on that side, and the four along the edges of the whole area a new group along that edge;
+the space it would take is shaded first. Dropped on a tab strip, it lands where the line shows. New
+files open in the group you are in; "Open to the Side" opens a file in the next group (making one
+when there is none). A group closes when its last tab does, `Ctrl+1` … `Ctrl+9` go to a group, and
+the layout comes back with the project. A file is never open in two groups at once, since two
+editors saving the same file would overwrite each other.
 
 **Second window.** "Open in New Window" (the Files panel's menu, a tab's menu) moves a file into a
-second window of the same project, sharing its language servers; closing it moves its tabs back.
+second window of the same project, sharing its language servers; it splits into groups the same way,
+and closing it moves its tabs back.
 
 **Menu bar.** On the left of the title bar: Files (open a folder, recent folders), T-Code (new
 window, command palette, updates, quit), Settings, Panels (each panel, checked while it shows),
@@ -413,8 +421,8 @@ palette) finds any command by name.
 | anywhere    | `Ctrl+Alt+D` / `Ctrl+Alt+H`            | compare with the last commit / with a commit from the file's history |
 | anywhere    | `Ctrl+Shift+V`                         | markdown preview of the current file      |
 | anywhere    | `Ctrl+Shift+O`                         | open another project folder               |
-| anywhere    | `Ctrl+\`                               | split the editor into two groups / join   |
-| anywhere    | `Ctrl+1` / `Ctrl+2`                    | left / right editor group                 |
+| anywhere    | `Ctrl+\`                               | a new editor group on the right / close an empty one |
+| anywhere    | `Ctrl+1` … `Ctrl+9`                    | editor group 1 … 9                        |
 | anywhere    | `Ctrl+PageDown` / `Ctrl+PageUp`, `Alt+.` / `Alt+,` | next / previous tab           |
 | anywhere    | `Alt+1` / `Alt+2` / `Alt+3`            | Files / editor / shell                    |
 | anywhere    | `Ctrl+B` / `Ctrl+J`                    | hide / show the Files panel / the shell   |
