@@ -16,13 +16,8 @@
 
 static const char *const css =
     ".tcode-preview, .tcode-preview text { background: var(--tc-panel); color: var(--tc-fg); }"
-    ".tcode-preview-table { border: 1px solid var(--tc-border-strong); }"
-    ".tcode-preview-table > label, .tcode-preview-table > box { padding: 6px 10px; color: var(--tc-fg); }"
-    ".tcode-preview-table > box label { color: var(--tc-fg); }"
-    ".tcode-preview-table > .head { background: var(--tc-border); color: var(--tc-fg-strong); }"
-    ".tcode-preview-table > box.head label { color: var(--tc-fg-strong); font-weight: bold; }"
-    ".tcode-preview-table > .odd { background: var(--tc-hover); }"
-    ".tcode-preview-table label link { color: var(--tc-link); }";
+    /* the selection is drawn below the text (view.c's draw_selection), as one band across the column */
+    ".tcode-preview text selection { background: transparent; color: inherit; }";
 
 gboolean is_markdown(const char *path)
 {
@@ -118,6 +113,15 @@ static gboolean reload_now(gpointer data)
   return G_SOURCE_REMOVE;
 }
 
+void preview_sized(Preview *p)
+{
+  if (!p->render_pending)
+    return;
+  p->render_pending = FALSE;
+  g_clear_handle_id(&p->reload_id, g_source_remove);
+  p->reload_id = g_idle_add_full(G_PRIORITY_HIGH_IDLE, reload_now, p, NULL); /* not while it is being sized */
+}
+
 void preview_reload_later(Preview *p)
 {
   g_clear_handle_id(&p->reload_id, g_source_remove);
@@ -142,6 +146,7 @@ void preview_show_details(Preview *p, Details *details)
   if (details->summary < 0 || details->content < 0 || details->end < details->content)
     return; /* no summary to click: it stays open */
   gtk_text_buffer_get_iter_at_offset(p->buffer, &from, details->summary);
+  GSList *tags = gtk_text_iter_get_tags(&from); /* the line's indent among them: the new arrow keeps them */
   to = from;
   gtk_text_iter_forward_char(&to);
   gtk_text_buffer_delete(p->buffer, &from, &to);
@@ -149,6 +154,9 @@ void preview_show_details(Preview *p, Details *details)
   gtk_text_buffer_get_iter_at_offset(p->buffer, &from, details->summary);
   to = from;
   gtk_text_iter_forward_char(&to);
+  for (GSList *tag = tags; tag; tag = tag->next)
+    gtk_text_buffer_apply_tag(p->buffer, tag->data, &from, &to);
+  g_slist_free(tags);
   gtk_text_buffer_apply_tag_by_name(p->buffer, "bold", &from, &to);
   gtk_text_buffer_apply_tag_by_name(p->buffer, "base", &from, &to);
   gtk_text_buffer_get_iter_at_offset(p->buffer, &from, details->content);
@@ -297,12 +305,6 @@ static gboolean on_query_tooltip(GtkWidget *view G_GNUC_UNUSED, int x, int y, gb
   return TRUE;
 }
 
-/* Tables come in as they are scrolled near. */
-static void on_scrolled(GtkAdjustment *adjustment G_GNUC_UNUSED, Preview *p)
-{
-  preview_show_tables_later(p);
-}
-
 /* Tabs --------------------------------------------------------------------------------------- */
 
 void preview_free(Preview *p)
@@ -310,9 +312,6 @@ void preview_free(Preview *p)
   g_cancellable_cancel(p->cancel); /* the background fetches: their answers find no preview */
   g_object_unref(p->cancel);
   g_clear_handle_id(&p->reload_id, g_source_remove);
-  g_clear_handle_id(&p->tables_id, g_source_remove);
-  g_signal_handlers_disconnect_by_data(p->scrolling, p);
-  g_object_unref(p->scrolling);
   if (p->monitor) {
     g_file_monitor_cancel(p->monitor);
     g_object_unref(p->monitor);
@@ -326,6 +325,7 @@ void preview_free(Preview *p)
   g_ptr_array_free(p->tables, TRUE);
   g_ptr_array_free(p->pictures, TRUE);
   g_hash_table_destroy(p->rises);
+  g_hash_table_destroy(p->spacers);
   g_hash_table_destroy(p->remote);
   g_array_free(p->details, TRUE);
   g_free(p);
@@ -374,6 +374,7 @@ void open_preview(App *t, const char *path)
   p->tables = g_ptr_array_new_with_free_func(preview_table_free);
   p->pictures = g_ptr_array_new();
   p->rises = g_hash_table_new(NULL, NULL);
+  p->spacers = g_hash_table_new(NULL, NULL);
   p->remote = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, preview_remote_free);
   p->cancel = g_cancellable_new();
   p->details = g_array_new(FALSE, FALSE, sizeof(Details));
@@ -402,8 +403,6 @@ void open_preview(App *t, const char *path)
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled), p->image ? GTK_POLICY_AUTOMATIC : GTK_POLICY_EXTERNAL,
                                  GTK_POLICY_AUTOMATIC); /* an image at its size may be wider than the view */
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), GTK_WIDGET(p->view));
-  p->scrolling = g_object_ref(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scrolled)));
-  g_signal_connect(p->scrolling, "value-changed", G_CALLBACK(on_scrolled), p);
   gtk_widget_set_hexpand(scrolled, TRUE);
   gtk_widget_set_vexpand(scrolled, TRUE);
   g_signal_connect(click, "released", G_CALLBACK(on_click), p);
@@ -414,6 +413,9 @@ void open_preview(App *t, const char *path)
   gtk_widget_set_has_tooltip(GTK_WIDGET(p->view), TRUE);
   g_signal_connect(p->view, "query-tooltip", G_CALLBACK(on_query_tooltip), p);
 
+  /* rendered once the view has its width (preview_sized): rendering for a guessed one, then again for the real one,
+   * doubled the time a big file took to show */
+  p->render_pending = !p->image;
   p->tab = add_tab(t, TAB_PREVIEW, scrolled, path);
   p->tab->preview = p;
   p->monitor = g_file_monitor_file(file, G_FILE_MONITOR_WATCH_MOVES, NULL, NULL);
@@ -421,6 +423,9 @@ void open_preview(App *t, const char *path)
     g_signal_connect(p->monitor, "changed", G_CALLBACK(on_file_changed), p);
   g_object_unref(file);
 
-  reload(p);
+  if (p->image)
+    reload(p);
+  else if (gtk_widget_get_width(GTK_WIDGET(p->view)) > 0) /* sized already, as the tab was added */
+    preview_sized(p);
   focus_current_tab(t);
 }

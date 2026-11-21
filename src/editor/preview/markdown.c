@@ -16,8 +16,6 @@
 #include "editor/preview/emoji_bin.h"
 #include "editor/preview/entities.h" /* entity_names */
 
-#define MATH_SCALE 1.1 /* serif math beside the sans text looks smaller at the same size */
-
 /* Appending ---------------------------------------------------------------------------------- */
 
 int preview_end_offset(Render *r)
@@ -47,7 +45,31 @@ void preview_tag(Render *r, const char *name, GtkTextTag *tag, int start)
 }
 
 /* Applies name to the buffer's last line (paragraph spacing is a property of a whole line). */
-static void tag_last_line(Render *r, const char *name)
+int preview_content_level(Render *r)
+{
+  return MIN(r->level + (r->nlists > 0), MAX_LEVEL);
+}
+
+/* The text from start (a code block's, without its last line break) in a box. */
+void preview_end_code_box(Render *r, int start)
+{
+  char pre[16];
+  GtkTextIter from, first_end;
+
+  preview_end_paragraph(r, start, "pre-bottom");
+  preview_tag(r, "pre", NULL, start);
+  g_snprintf(pre, sizeof pre, "pre%d", preview_content_level(r));
+  preview_tag(r, pre, NULL, start);
+  preview_add_block(r, BLOCK_PRE, start, preview_content_level(r));
+  gtk_text_buffer_get_iter_at_offset(r->p->buffer, &from, start);
+  first_end = from;
+  gtk_text_iter_forward_line(&first_end);
+  gtk_text_buffer_apply_tag_by_name(r->p->buffer, "pre-top", &from, &first_end);
+  preview_append(r, "\n", 1);
+  preview_tag_last_line(r, "spacer");
+}
+
+void preview_tag_last_line(Render *r, const char *name)
 {
   GtkTextIter from, end;
 
@@ -98,10 +120,10 @@ void preview_end_paragraph(Render *r, int start, const char *gap)
 
   flatten_code_spans(r, start);
   preview_append(r, "\n", 1);
-  g_snprintf(name, sizeof name, "indent%d", MIN(r->level, MAX_LEVEL));
+  g_snprintf(name, sizeof name, "indent%d", preview_content_level(r));
   preview_tag(r, name, NULL, start);
   if (gap)
-    tag_last_line(r, gap);
+    preview_tag_last_line(r, gap);
 }
 
 /* A block drawn below the text (draw_blocks), from start to the end of the buffer. */
@@ -143,13 +165,13 @@ void preview_add_rule(Render *r)
 
   preview_begin_block(r);
   preview_append(r, "\n", 1);
-  tag_last_line(r, "spacer");
+  preview_tag_last_line(r, "spacer");
   start = preview_end_offset(r);
   preview_append(r, " \n", 2); /* the line the rule is drawn on */
   preview_tag(r, "hr", NULL, start);
-  preview_add_block(r, BLOCK_HR, start, MIN(r->level, MAX_LEVEL));
+  preview_add_block(r, BLOCK_HR, start, preview_content_level(r));
   preview_append(r, "\n", 1);
-  tag_last_line(r, "spacer");
+  preview_tag_last_line(r, "spacer");
 }
 
 void preview_add_named_anchor(Render *r, const char *name, int offset)
@@ -307,7 +329,7 @@ char *preview_local_path(const char *dir, const char *target)
 }
 
 /* A paintable as a picture in the text, at the end. */
-static void add_picture(Render *r, GtkWidget *picture)
+void preview_add_picture(Render *r, GtkWidget *picture)
 {
   GtkTextIter end;
 
@@ -325,7 +347,7 @@ gboolean preview_append_image(Render *r, const char *src, int width, int height,
     return FALSE;
   if (width <= 0 && height > 0 && gdk_paintable_get_intrinsic_height(paintable) > 0)
     width = height * gdk_paintable_get_intrinsic_width(paintable) / gdk_paintable_get_intrinsic_height(paintable);
-  add_picture(r, preview_picture_new(r->p, paintable, width, href, title));
+  preview_add_picture(r, preview_picture_new(r->p, paintable, width, href, title));
   g_object_unref(paintable);
   return TRUE;
 }
@@ -475,7 +497,7 @@ static GtkTextTag *rise_tag(Preview *p, int depth)
 }
 
 /* A TeX formula: inline on the text's baseline, or (display) centered on a line of its own. */
-static void append_math(Render *r, const char *tex, gboolean display)
+void preview_append_math(Render *r, const char *tex, gboolean display)
 {
   double size = BODY_POINTS * r->p->scale * 96.0 / 72.0 * MATH_SCALE;
   int depth = 0, start;
@@ -484,6 +506,8 @@ static void append_math(Render *r, const char *tex, gboolean display)
 
   if (r->heading)
     size *= preview_heading_scale(r->heading);
+  if (display) /* a display formula is set larger, as TeX and GitHub do */
+    size *= 1.2;
   math = preview_math_new(tex, display, size, &depth);
   if (!math)
     return;
@@ -602,11 +626,49 @@ void preview_add_anchor(Render *r, int start)
 
 /* md4c's callbacks --------------------------------------------------------------------------- */
 
+/* The space after a list item's marker (from start to the end), widened so that the item's text starts where its
+ * wrapped lines and next paragraphs do: the indent the marker hangs in. */
+static void marker_space(Render *r, int start)
+{
+  GtkTextIter from, to;
+  PangoLayout *layout = gtk_widget_create_pango_layout(GTK_WIDGET(r->p->view), NULL);
+  PangoFontDescription *font =
+      pango_font_description_copy(pango_context_get_font_description(pango_layout_get_context(layout)));
+  int width;
+
+  gtk_text_buffer_get_iter_at_offset(r->p->buffer, &from, start);
+  gtk_text_buffer_get_end_iter(r->p->buffer, &to);
+  char *marker = gtk_text_iter_get_text(&from, &to);
+  char *markup = g_markup_printf_escaped(g_str_equal(marker, "\u2022") || g_str_equal(marker, "\u25e6") ||
+                                                 g_str_equal(marker, "\u25aa")
+                                             ? "<span size=\"130%%\">%s</span> "
+                                             : "%s ",
+                                         marker);
+  pango_font_description_set_size(font, (int)(BODY_POINTS * r->p->scale * PANGO_SCALE));
+  pango_layout_set_font_description(layout, font);
+  pango_layout_set_markup(layout, markup, -1);
+  pango_layout_get_size(layout, &width, NULL);
+  int widen = MAX(INDENT * PANGO_SCALE - width, -2 * PANGO_SCALE); /* in Pango's units: no rounding */
+  GtkTextTag *tag = g_hash_table_lookup(r->p->spacers, GINT_TO_POINTER(widen));
+  if (!tag) {
+    tag = gtk_text_buffer_create_tag(r->p->buffer, NULL, "letter-spacing", widen, NULL);
+    g_hash_table_insert(r->p->spacers, GINT_TO_POINTER(widen), tag);
+  }
+  int space = preview_end_offset(r);
+  preview_append(r, " ", 1);
+  preview_tag(r, NULL, tag, space);
+  pango_font_description_free(font);
+  g_object_unref(layout);
+  g_free(markup);
+  g_free(marker);
+}
+
 static int enter_block(MD_BLOCKTYPE type, void *detail, void *data)
 {
   Render *r = data;
   gboolean first_in_quote = r->quote_start;
 
+  r->depth++;
   r->quote_start = FALSE;
   switch (type) {
     case MD_BLOCK_UL:
@@ -620,22 +682,25 @@ static int enter_block(MD_BLOCKTYPE type, void *detail, void *data)
       r->level++;
       break;
     case MD_BLOCK_LI: {
-      static const char *const bullets[] = { "•   ", "◦   ", "▪   " };
+      static const char *const bullets[] = { "•", "◦", "▪" };
       MD_BLOCK_LI_DETAIL *li = detail;
       int list = MIN(r->nlists, MAX_LEVEL) - 1;
       preview_begin_block(r);
       push_start(r);
       r->in_item_start = TRUE;
       r->in_item_p = FALSE;
+      int marker = preview_end_offset(r);
       if (li->is_task) {
-        preview_append(r, li->task_mark == ' ' ? "☐   " : "☑   ", -1);
+        preview_append(r, li->task_mark == ' ' ? "☐" : "☑", -1);
       } else if (list >= 0 && r->lists[list] > 0) {
-        char *number = g_strdup_printf("%d.  ", r->lists[list]++);
+        char *number = g_strdup_printf("%d.", r->lists[list]++);
         preview_append(r, number, -1);
         g_free(number);
       } else {
         preview_append(r, bullets[MAX(list, 0) % 3], -1);
+        preview_tag(r, "bullet", NULL, marker);
       }
+      marker_space(r, marker);
       break;
     }
     case MD_BLOCK_QUOTE: {
@@ -698,6 +763,8 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
 {
   Render *r = data;
 
+  preview_html_close_inline(r);
+  r->depth--;
   r->after_display = FALSE; /* the block's line break ends a display formula's line */
   switch (type) {
     case MD_BLOCK_UL:
@@ -705,7 +772,7 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
       r->nlists--;
       r->level--;
       if (r->nlists == 0) /* a list inside an item keeps the item's spacing */
-        tag_last_line(r, "gap");
+        preview_tag_last_line(r, "gap");
       break;
     case MD_BLOCK_LI: {
       int start = pop_start(r);
@@ -722,11 +789,11 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
         gtk_text_iter_forward_char(&to);
 
       char name[16];
-      g_snprintf(name, sizeof name, "li%d", MIN(MAX(r->nlists, 1), MAX_LEVEL));
+      g_snprintf(name, sizeof name, "li%d", MIN(MAX(r->level, 1), MAX_LEVEL)); /* its marker where the list is */
       gtk_text_buffer_apply_tag_by_name(r->p->buffer, name, &from, &to);
 
       gboolean tight = r->nlists > 0 && r->tight[MIN(r->nlists, MAX_LEVEL) - 1];
-      tag_last_line(r, tight ? "tight" : "gap");
+      preview_tag_last_line(r, tight ? "tight" : "gap");
       r->in_item_start = FALSE;
       r->in_item_p = FALSE;
       break;
@@ -740,15 +807,15 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
       }
       if (!alert) /* an alert's text keeps the text's color */
         preview_tag(r, "quote", NULL, start);
-      preview_add_block(r, BLOCK_QUOTE, start, MIN(r->level, MAX_LEVEL) - 1); /* the bar left of its text */
+      preview_add_block(r, BLOCK_QUOTE, start, preview_content_level(r) - 1); /* the bar left of its text */
       g_array_index(r->p->blocks, Block, r->p->blocks->len - 1).alert = alert;
       r->level--;
-      tag_last_line(r, "gap");
+      preview_tag_last_line(r, "gap");
       break;
     case MD_BLOCK_CODE: {
       int start = pop_start(r);
       if (r->lang && g_ascii_strcasecmp(r->lang, "math") == 0) { /* ```math: a display formula */
-        append_math(r, r->code->str, TRUE);
+        preview_append_math(r, r->code->str, TRUE);
         g_string_free(r->code, TRUE);
         g_clear_pointer(&r->lang, g_free);
         r->code = NULL;
@@ -759,8 +826,8 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
       if (r->lang && g_ascii_strcasecmp(r->lang, "mermaid") == 0) { /* drawn by mmdc, when it is there */
         GdkPaintable *diagram = preview_mermaid(r->p, r->code->str);
         if (diagram) {
-          add_picture(r,
-                      preview_picture_new(r->p, diagram, gdk_paintable_get_intrinsic_width(diagram) / 2, NULL, NULL));
+          preview_add_picture(
+              r, preview_picture_new(r->p, diagram, gdk_paintable_get_intrinsic_width(diagram) / 2, NULL, NULL));
           g_object_unref(diagram);
           g_string_free(r->code, TRUE);
           g_clear_pointer(&r->lang, g_free);
@@ -777,19 +844,7 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
       g_string_free(r->code, TRUE);
       g_clear_pointer(&r->lang, g_free);
       r->code = NULL;
-      preview_end_paragraph(r, start, "pre-bottom");
-      preview_tag(r, "pre", NULL, start);
-      char pre[16];
-      g_snprintf(pre, sizeof pre, "pre%d", MIN(r->level, MAX_LEVEL));
-      preview_tag(r, pre, NULL, start);
-      preview_add_block(r, BLOCK_PRE, start, MIN(r->level, MAX_LEVEL));
-      GtkTextIter from, first_end;
-      gtk_text_buffer_get_iter_at_offset(r->p->buffer, &from, start);
-      first_end = from;
-      gtk_text_iter_forward_line(&first_end);
-      gtk_text_buffer_apply_tag_by_name(r->p->buffer, "pre-top", &from, &first_end);
-      preview_append(r, "\n", 1);
-      tag_last_line(r, "spacer");
+      preview_end_code_box(r, start);
       break;
     }
     case MD_BLOCK_H: {
@@ -814,6 +869,8 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
       if (r->in_item_p) {
         r->in_item_p = FALSE;
         preview_append(r, "\n", 1);
+        if (r->nlists > 0 && !r->tight[MIN(r->nlists, MAX_LEVEL) - 1]) /* a loose list's paragraphs are apart */
+          preview_tag_last_line(r, "gap");
       } else if (r->nlists > 0) {
         gboolean in_tight = r->tight[MIN(r->nlists, MAX_LEVEL) - 1];
         preview_end_paragraph(r, start, in_tight ? "tight" : "gap");
@@ -831,13 +888,12 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *data)
     }
     case MD_BLOCK_TH:
     case MD_BLOCK_TD:
-      if (r->markup)
+      if (r->in_cell)
         preview_cell_end(r, type == MD_BLOCK_TH);
       break;
     case MD_BLOCK_TABLE:
-      preview_table_end(r);
-      preview_append(r, "\n", 1);
-      tag_last_line(r, "gap");
+      preview_table_end(r); /* its rows end with their line breaks */
+      preview_tag_last_line(r, "table-gap");
       break;
     default: break;
   }
@@ -848,7 +904,7 @@ static int enter_span(MD_SPANTYPE type, void *detail, void *data)
 {
   Render *r = data;
 
-  if (r->markup) {
+  if (r->in_cell) {
     preview_cell_span(r, type, detail);
     return 0;
   }
@@ -880,7 +936,7 @@ static int leave_span(MD_SPANTYPE type, void *detail G_GNUC_UNUSED, void *data)
 {
   Render *r = data;
 
-  if (r->markup) {
+  if (r->in_cell) {
     preview_cell_span_end(r);
     return 0;
   }
@@ -894,7 +950,7 @@ static int leave_span(MD_SPANTYPE type, void *detail G_GNUC_UNUSED, void *data)
     case MD_SPAN_LATEXMATH:
     case MD_SPAN_LATEXMATH_DISPLAY:
       if (r->math && !r->hidden)
-        append_math(r, r->math->str, type == MD_SPAN_LATEXMATH_DISPLAY);
+        preview_append_math(r, r->math->str, type == MD_SPAN_LATEXMATH_DISPLAY);
       if (r->math)
         g_string_free(r->math, TRUE);
       r->math = NULL;
@@ -939,7 +995,7 @@ static int on_text(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size, void *da
     g_string_append_len(r->code, text, size);
     return 0;
   }
-  if (r->markup) {
+  if (r->in_cell) {
     preview_cell_text(r, type, text, size);
     return 0;
   }
@@ -969,10 +1025,23 @@ static int on_text(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size, void *da
       return 0;
     after_display(r);
   }
+  if (r->after_break && type == MD_TEXT_NORMAL) { /* the spaces that start the line after a <br> */
+    while (size && *text == ' ') {
+      text++;
+      size--;
+    }
+    if (!size)
+      return 0;
+  }
+  if (type != MD_TEXT_HTML && type != MD_TEXT_SOFTBR)
+    r->after_break = FALSE;
   switch (type) {
     case MD_TEXT_NULLCHAR: preview_append(r, "\uFFFD", -1); break;
     case MD_TEXT_BR: preview_append(r, "\u2028", -1); break; /* a line break inside the paragraph */
-    case MD_TEXT_SOFTBR: preview_append(r, " ", 1); break;
+    case MD_TEXT_SOFTBR:
+      if (!r->after_break) /* "a<br>\nb": b starts the next line */
+        preview_append(r, " ", 1);
+      break;
     case MD_TEXT_ENTITY: append_entity(r, text, size); break;
     case MD_TEXT_HTML: preview_html(r, text, size, r->html_block); break;
     case MD_TEXT_NORMAL: preview_append_text(r, text, size); break;
@@ -1003,11 +1072,8 @@ void preview_render(Preview *p)
   r.images = g_array_new(FALSE, FALSE, sizeof(gboolean));
   r.hrefs = g_ptr_array_new_with_free_func(g_free);
   r.titles = g_ptr_array_new_with_free_func(g_free);
-  r.closers = g_ptr_array_new();
   r.alerts = g_array_new(FALSE, FALSE, sizeof(int));
   r.html_open = g_array_new(FALSE, FALSE, sizeof(HtmlOpen));
-  r.cell_html = g_ptr_array_new();
-  r.cell_openers = g_ptr_array_new_with_free_func(g_free);
   if (g_file_get_contents(p->tab->path, &text, &len, &error)) {
     char *notes = preview_footnotes(text);
     if (notes) {
@@ -1032,18 +1098,14 @@ void preview_render(Preview *p)
   g_array_free(r.images, TRUE);
   g_ptr_array_free(r.hrefs, TRUE);
   g_ptr_array_free(r.titles, TRUE);
-  g_ptr_array_free(r.closers, TRUE);
   g_array_free(r.alerts, TRUE);
   g_array_free(r.html_open, TRUE);
-  g_ptr_array_free(r.cell_html, TRUE);
-  g_ptr_array_free(r.cell_openers, TRUE);
+  if (r.cell_styles)
+    g_array_free(r.cell_styles, TRUE);
   if (r.html_carry)
     g_string_free(r.html_carry, TRUE);
-  g_clear_object(&r.cell_box);
   if (r.math)
     g_string_free(r.math, TRUE);
-  if (r.markup) /* md4c stopped inside a table */
-    g_string_free(r.markup, TRUE);
   if (r.table)
     preview_table_free(r.table);
   gtk_text_buffer_get_bounds(p->buffer, &start, &end);

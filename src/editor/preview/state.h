@@ -13,10 +13,12 @@
 #define MAX_CONTENT_WIDTH 840 /* maximum comfortable reading width */
 #define INDENT 24             /* pixels per list or quote level */
 #define MAX_LEVEL 8
-#define CELL_PAD 10 /* pixels left and right of a table cell's text (its CSS padding) */
-#define CELL_VPAD 6 /* and above and below it */
-#define PRE_PAD 14  /* pixels between a code block's box and its text */
-#define BAR_WIDTH 4 /* a quote's bar left of it */
+#define CELL_PAD 10    /* pixels left and right of a table cell's text (its CSS padding) */
+#define TABLE_GAP 16   /* below a table */
+#define CELL_VPAD 6    /* and above and below it */
+#define MATH_SCALE 1.1 /* serif math beside the sans text looks smaller at the same size */
+#define PRE_PAD 14     /* pixels between a code block's box and its text */
+#define BAR_WIDTH 4    /* a quote's bar left of it */
 
 typedef struct {
   int start, end;
@@ -50,6 +52,7 @@ typedef struct {
   int start;
   int extra;  /* <details>: its index in p->details */
   char align; /* 'c'enter, 'r'ight, or 0 */
+  int depth;  /* the Markdown blocks around it when it opened (Render's depth) */
   char *href, *title;
 } HtmlOpen;
 
@@ -58,24 +61,26 @@ typedef struct {
   const char *name, *text;
 } PreviewName;
 
-/* A table cell's size on one line, for guessing the table's height before it is shown. */
+/* A table cell while md4c reads the table: its content as runs (table.c's TableRun). */
 typedef struct {
   int column, row;
-  int width;  /* its text and pictures on one line, padding left out */
-  int height; /* one line of its text, or its tallest picture */
+  gboolean head;
+  MD_ALIGN align;
+  GArray *runs;
 } TableCell;
 
-/* A table: a grid of wrapping labels in the text, its columns sized to the view's width. The text
- * holds an empty box (holder) as tall as the table is guessed to be until it comes near the visible
- * part (preview_show_tables): GtkTextView measures every widget in the text whenever it is
- * measured, and a big file's thousands of cells took seconds. */
+/* A table: text in the buffer, one line per line of its rows' cells, the cells separated by tabs at
+ * its tag's tab stops; its grid is drawn below the text (view.c). */
 typedef struct {
-  GtkWidget *grid;   /* a reference of the table's own */
-  GtkWidget *holder; /* in the text: the grid goes into it when it is shown */
-  GtkTextChildAnchor *anchor;
-  GArray *natural; /* int per column: its widest cell on one line, padding included */
-  GArray *cells;   /* TableCell */
-  gboolean shown;
+  GArray *cells; /* TableCell, until it is laid out */
+  int columns;
+  int level;       /* the lists and quotes around it */
+  int *edges;      /* columns + 1 x positions from its left edge */
+  GArray *rows;    /* int: the offset where each row starts, then its end */
+  int start;       /* its first character */
+  GtkTextTag *tag; /* its lines': tab stops, left margin, no wrapping */
+  int natural;     /* the width it needs without wrapping a cell */
+  int content;     /* the text's width it was laid out for */
 } PreviewTable;
 
 struct Preview {
@@ -90,6 +95,7 @@ struct Preview {
   GPtrArray *tables;    /* PreviewTable: the tables shown, sized to the view's width */
   GPtrArray *pictures;  /* the images shown, sized to the view's width */
   GHashTable *rises;    /* a formula's depth below the baseline -> the tag that lowers it that far */
+  GHashTable *spacers;  /* pixels a list marker's space widens by -> its tag (letter-spacing) */
   GHashTable *remote;   /* a web image's address, a diagram's key -> its paintable (or pending, failed) */
   GCancellable *cancel; /* the background fetches, cancelled when the preview goes */
   GArray *details;      /* Details, in the order of the text */
@@ -100,8 +106,7 @@ struct Preview {
   int hovered; /* the link under the pointer (its index in links, underlined), or -1 */
   GFileMonitor *monitor;
   guint reload_id;
-  guint tables_id;          /* preview_show_tables_later()'s idle */
-  GtkAdjustment *scrolling; /* the view's vertical one (a reference): its handler goes with the preview */
+  gboolean render_pending; /* the first rendering waits for the view's width: its tables are laid out for it */
 };
 
 /* markdown.c: parses the file and appends it to the (empty) buffer: its text, tags, links,
@@ -167,6 +172,7 @@ gboolean preview_can_draw_mermaid(void);
 
 /* preview.c: shows the file again shortly (once for a burst of calls), keeping the scroll position. */
 void preview_reload_later(Preview *p);
+void preview_sized(Preview *p); /* the view has its width: the first rendering, if it waits for that */
 
 /* math.c: a TeX formula as a paintable in the text's color, size: the text's size in pixels; display: set
  * apart (larger operators, limits above and below). It is drawn on the baseline; *depth: how far it
@@ -189,25 +195,24 @@ typedef struct {
   gboolean in_item_start; /* at the start of a list item before its first block/text */
   gboolean in_item_p;     /* inside the first paragraph of a list item */
   PreviewTable *table;    /* inside a table */
-  GString *markup;        /* inside a table cell: its text as Pango markup */
-  GPtrArray *closers;     /* per span open in a cell, the markup that ends it */
+  gboolean in_cell;       /* inside a table cell (its runs: the table's last cell) */
+  GArray *cell_styles;    /* table.c's CellStyle: the spans and HTML elements open in the cell */
   int row, cell;          /* the cell in the table */
-  MD_ALIGN align;         /* its column's alignment */
   GString *code;          /* inside a code block: its text */
   char *lang;
   GtkSourceBuffer *colors; /* where code blocks are highlighted, made for the first one: one per render, as
                             * a new buffer costs milliseconds (the style scheme's tags) */
   int hidden;              /* inside a shown image: its alt text is not added */
   gboolean html_block;     /* inside an HTML block: its lines flow like a paragraph's */
+  int html_pre;            /* inside <pre> in raw HTML: its text as it is, line breaks and spaces kept */
+  gboolean html_table;     /* the table is raw HTML's <table> (its cells end at </td>, the next <td>, ...) */
+  gboolean html_th;        /* its cell open is a <th> */
+  gboolean after_break;    /* right after a <br>: the line break and spaces that follow it are left out */
   GString *html_carry;     /* raw HTML cut inside a tag: the rest comes with the next piece */
   gboolean in_comment;     /* inside an HTML comment */
   GArray *html_open;       /* the HTML elements open (html.c's HtmlOpen) */
+  int depth;               /* the Markdown blocks open (md4c's enter_block / leave_block) */
   char *picture_src;       /* inside <picture>: the image for the theme */
-  GtkWidget *cell_box;     /* a table cell with images: its labels and pictures, in a row */
-  int cell_width;          /* their width so far */
-  int cell_height;         /* and their height: a line of text, or the tallest picture */
-  GPtrArray *cell_html;    /* the HTML elements open in a table cell */
-  GPtrArray *cell_openers; /* per span open in a cell, the markup that opened it */
   GString *math;           /* inside a math span: its TeX */
   gboolean after_display;  /* a display formula ended the line: what follows starts a new one */
   int heading;             /* inside a heading: its level (formulas are as large as its text) */
@@ -224,6 +229,9 @@ void preview_append_text(Render *r, const char *text, gsize size); /* emoji shor
 gboolean preview_at_line_start(Render *r);
 void preview_tag(Render *r, const char *name, GtkTextTag *tag, int start);
 void preview_begin_block(Render *r);
+void preview_tag_last_line(Render *r, const char *name);
+int preview_content_level(Render *r);            /* the indent of blocks here: a list item's are under its text */
+void preview_end_code_box(Render *r, int start); /* the text from start in a code block's box */
 void preview_end_paragraph(Render *r, int start, const char *gap);
 void preview_add_block(Render *r, BlockKind kind, int start, int level);
 void preview_add_rule(Render *r);
@@ -234,18 +242,21 @@ void preview_add_code_span(Render *r, int start);
 /* An image at the end (width, height: wanted size, 0 for its own; href: a link around it); FALSE when it
  * cannot be shown (its alt text is, then). */
 gboolean preview_append_image(Render *r, const char *src, int width, int height, const char *href, const char *title);
+void preview_add_picture(Render *r, GtkWidget *picture);                /* at the end of the text */
+void preview_append_math(Render *r, const char *tex, gboolean display); /* a TeX formula */
 
 /* html.c: raw HTML (block: an HTML block's lines, which flow like a paragraph's); the elements left open
  * at the end; an attribute's value (entities decoded) or NULL; frees an open element. */
 void preview_html(Render *r, const char *text, gsize size, gboolean block);
 void preview_html_finish(Render *r);
+void preview_html_close_inline(Render *r); /* a Markdown block ends: its inline elements left open with it */
 char *preview_html_attribute(const char *tag, const char *name);
 void preview_html_open_clear(gpointer data);
-/* html.c: a tag in a table cell as Pango markup (open: the elements open in the cell), or NULL. */
-char *preview_html_markup(const char *tag, GPtrArray *open);
+/* html.c: a tag's element name, lower case (closing: whether it is an end tag). */
+char *preview_html_name(const char *tag, gboolean *closing);
 
-/* table.c: a table starts (r->table) and ends (its grid goes into the text, sized to it); a cell
- * starts (r->markup), gets text and spans as Pango markup, and ends as a label in the grid. */
+/* table.c: a table starts (r->table) and ends (laid out into the text); a cell starts (r->in_cell),
+ * gets text and spans, and ends. */
 void preview_table_begin(Render *r);
 void preview_table_end(Render *r);
 void preview_cell_begin(Render *r, MD_ALIGN align);
@@ -253,12 +264,9 @@ void preview_cell_text(Render *r, MD_TEXTTYPE type, const char *text, gsize size
 void preview_cell_span(Render *r, MD_SPANTYPE type, void *detail);
 void preview_cell_span_end(Render *r);
 void preview_cell_end(Render *r, gboolean head);
-/* table.c: shares width out between a table's columns; frees one (Preview's tables). */
-void preview_size_table(PreviewTable *table, int width);
-void preview_table_free(gpointer data);
-/* table.c: shows the tables near the visible part of the text (soon: once for a burst of scrolling). */
-void preview_show_tables(Preview *p);
-void preview_show_tables_later(Preview *p);
+void preview_table_free(gpointer data); /* Preview's tables */
+/* table.c: whether the tables were laid out as they would be for this text width (else: rendered again). */
+gboolean preview_tables_fit(Preview *p, int content);
 
 /* preview.c: follows a link (an anchor, a file, a web address). */
 void preview_follow(Preview *p, const char *url);

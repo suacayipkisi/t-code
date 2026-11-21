@@ -2251,6 +2251,21 @@ static void test_run_projects(void)
   g_free(root);
 }
 
+static gboolean preview_rendered(gconstpointer buffer)
+{
+  return gtk_text_buffer_get_char_count((GtkTextBuffer *)buffer) > 0;
+}
+
+/* Opens a preview and waits for its text: it is rendered once the view has its width. */
+static void open_preview_rendered(const char *path)
+{
+  open_preview(&app, path);
+  GtkWidget *page = current_tab(&app)->page;
+  GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(page)));
+  run_until(preview_rendered, gtk_text_view_get_buffer(view));
+  run_for(100);
+}
+
 /* The text in the preview's buffer from where needle starts. */
 static GtkTextIter preview_find(GtkTextBuffer *buffer, const char *needle)
 {
@@ -2285,8 +2300,7 @@ static void test_preview_look(void)
                           "see [the link](https://example.com) here\n\n"
                           "```c\nint a_very_long_line_of_code_that_is_much_wider_than_the_view = 1; // and more\n```\n",
                           -1, NULL));
-  open_preview(&app, path);
-  run_for(300);
+  open_preview_rendered(path);
   Tab *tab = current_tab(&app);
   g_assert_true(tab->kind == TAB_PREVIEW);
   GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
@@ -2425,8 +2439,7 @@ static void test_preview_math(void)
                   "Costs $5 and $10.\n",
                   NULL);
   g_assert_true(g_file_set_contents(path, text, -1, NULL));
-  open_preview(&app, path);
-  run_for(300);
+  open_preview_rendered(path);
   Tab *tab = current_tab(&app);
   g_assert_true(tab->kind == TAB_PREVIEW);
   GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
@@ -2465,25 +2478,6 @@ static void test_preview_math(void)
   g_string_free(deep, TRUE);
 }
 
-/* The first label under root whose markup holds needle, or NULL. */
-static GtkWidget *find_label_with(GtkWidget *root, const char *needle)
-{
-  if (GTK_IS_LABEL(root) && strstr(gtk_label_get_label(GTK_LABEL(root)), needle))
-    return root;
-  for (GtkWidget *child = gtk_widget_get_first_child(root); child; child = gtk_widget_get_next_sibling(child)) {
-    GtkWidget *found = find_label_with(child, needle);
-    if (found)
-      return found;
-  }
-  return NULL;
-}
-
-/* Whether a preview shows a table's grid. */
-static gboolean table_shown(gconstpointer view)
-{
-  return find_widget(GTK_WIDGET(view), GTK_TYPE_GRID, NULL, "tcode-preview-table") != NULL;
-}
-
 /* The preview shows what GitHub shows: every HTML5 entity, :emoji:, raw HTML (formatting, <sub> and <sup>
  * raised, <kbd>, links, anchors, images, comments over several lines left out, GFM's filtered tags as
  * text), footnotes, <details> that a click on their summary opens, math and images in table cells, and a
@@ -2515,12 +2509,12 @@ static void test_preview_github(void)
       "[^n]: The note's text.\n",
       -1, NULL));
   open_preview(&app, path);
-  run_for(300);
   Tab *tab = current_tab(&app);
   g_assert_true(tab->kind == TAB_PREVIEW);
+  gtk_widget_set_size_request(tab->page, 900, -1); /* the tests before may leave the preview narrow */
   GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
   GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
-
+  run_until(preview_rendered, buffer); /* once the view has its new width */
   iter = preview_find(buffer, "Entities ½ ≂̸ 😀 &bogus; and 🎉 but :no_such_emoji:");
   iter = preview_find(buffer, "under");
   g_assert_true(has_tag(&iter, "underline"));
@@ -2547,18 +2541,15 @@ static void test_preview_github(void)
     GtkTextChildAnchor *anchor = gtk_text_iter_get_child_anchor(&iter);
     guint n = 0;
     GtkWidget **widgets = anchor ? gtk_text_child_anchor_get_widgets(anchor, &n) : NULL;
-    if (n && GTK_IS_PICTURE(widgets[0])) {
-      pictures++;
+    if (n && GTK_IS_PICTURE(widgets[0]) && ++pictures == 1)
       g_assert_true(has_tag(&iter, "center")); /* <p align="center"> */
-    }
     g_free(widgets);
   }
-  g_assert_cmpint(pictures, ==, 1); /* the SVG drawn (the one in the table is in its grid) */
-  run_until(table_shown, view);     /* a table comes in once the view has its size */
-  GtkWidget *grid = find_widget(GTK_WIDGET(view), GTK_TYPE_GRID, NULL, "tcode-preview-table");
-  g_assert_nonnull(grid);
-  g_assert_nonnull(find_label_with(grid, "<sup>2</sup>")); /* $x^2$ in a cell */
-  g_assert_nonnull(find_widget(grid, GTK_TYPE_PICTURE, NULL, NULL));
+  g_assert_cmpint(pictures, ==, 2);      /* the SVG drawn, and the one in the table's text */
+  iter = preview_find(buffer, "a\tb\n"); /* the table's header: text, its cells at tab stops */
+  g_assert_true(has_tag(&iter, "bold"));
+  gtk_text_iter_forward_chars(&iter, 4); /* the row below: $x^2$ as a formula */
+  g_assert_nonnull(gtk_text_iter_get_paintable(&iter));
 
   /* <details> is closed: its text is hidden until its summary is clicked. */
   iter = preview_find(buffer, "secret text");
@@ -2586,6 +2577,7 @@ static void test_preview_github(void)
   g_assert_false(has_tag(&iter, "hidden"));
   iter = preview_find(buffer, "▼  More");
 
+  gtk_widget_set_size_request(tab->page, -1, -1);
   remove_tab(tab);
   g_unlink(path);
   g_unlink(svg);
@@ -2593,47 +2585,29 @@ static void test_preview_github(void)
   g_free(path);
 }
 
-/* The tables in a preview's text: how many there are, and how many show their grid. */
-static void count_tables(GtkTextBuffer *buffer, int *tables, int *shown)
+/* How many times needle is in the preview's text. */
+static int count_text(GtkTextBuffer *buffer, const char *needle)
 {
-  GtkTextIter iter;
+  GtkTextIter iter, end;
+  int n = 0;
 
-  *tables = *shown = 0;
-  for (gtk_text_buffer_get_start_iter(buffer, &iter); !gtk_text_iter_is_end(&iter); gtk_text_iter_forward_char(&iter)) {
-    GtkTextChildAnchor *anchor = gtk_text_iter_get_child_anchor(&iter);
-    guint n = 0;
-    GtkWidget **widgets = anchor ? gtk_text_child_anchor_get_widgets(anchor, &n) : NULL;
-    if (n && GTK_IS_BOX(widgets[0])) {
-      GtkWidget *grid = gtk_widget_get_first_child(widgets[0]);
-      int height;
-      (*tables)++;
-      gtk_widget_get_size_request(widgets[0], NULL, &height);
-      if (grid)
-        (*shown)++;
-      else
-        g_assert_cmpint(height, >, 20); /* as tall as its rows will be */
-    }
-    g_free(widgets);
+  gtk_text_buffer_get_start_iter(buffer, &iter);
+  while (gtk_text_iter_forward_search(&iter, needle, 0, NULL, &end, NULL)) {
+    n++;
+    iter = end;
   }
+  return n;
+}
+
+static gboolean all_tables_laid_out(gconstpointer buffer)
+{
+  return count_text((GtkTextBuffer *)buffer, "Key\tWhat\n") == 300 &&
+         count_text((GtkTextBuffer *)buffer, "Ctrl+5\u2009\tdoes") == 300;
 }
 
 static gboolean picture_shown(gconstpointer view)
 {
   return find_widget(GTK_WIDGET(view), GTK_TYPE_PICTURE, NULL, NULL) != NULL;
-}
-
-static gboolean last_table_shown(gconstpointer buffer)
-{
-  GtkTextIter iter;
-  GtkTextChildAnchor *anchor = NULL;
-
-  for (gtk_text_buffer_get_end_iter((GtkTextBuffer *)buffer, &iter); !anchor && gtk_text_iter_backward_char(&iter);)
-    anchor = gtk_text_iter_get_child_anchor(&iter);
-  guint n = 0;
-  GtkWidget **widgets = anchor ? gtk_text_child_anchor_get_widgets(anchor, &n) : NULL;
-  gboolean shown = n && gtk_widget_get_first_child(widgets[0]);
-  g_free(widgets);
-  return shown;
 }
 
 /* Whether the text at iter has a color of a code block's highlighting. */
@@ -2653,6 +2627,163 @@ static gboolean colored(const GtkTextIter *iter)
   return found;
 }
 
+/* The first picture's paintable in a preview, or NULL. */
+static GdkPaintable *first_picture(GtkTextBuffer *buffer)
+{
+  GtkTextIter iter;
+
+  for (gtk_text_buffer_get_start_iter(buffer, &iter); !gtk_text_iter_is_end(&iter); gtk_text_iter_forward_char(&iter)) {
+    GtkTextChildAnchor *anchor = gtk_text_iter_get_child_anchor(&iter);
+    guint n = 0;
+    GtkWidget **widgets = anchor ? gtk_text_child_anchor_get_widgets(anchor, &n) : NULL;
+    GdkPaintable *paintable =
+        n && GTK_IS_PICTURE(widgets[0]) ? gtk_picture_get_paintable(GTK_PICTURE(widgets[0])) : NULL;
+    g_free(widgets);
+    if (paintable)
+      return paintable;
+  }
+  return NULL;
+}
+
+static gboolean picture_there(gconstpointer buffer)
+{
+  return first_picture((GtkTextBuffer *)buffer) != NULL;
+}
+
+/* An SVG's <text> is drawn (a badge's label): black letters on a white box. */
+static void test_preview_svg_text(void)
+{
+  char *svg = g_build_filename(app.project.root, "label.svg", NULL);
+  char *path = g_build_filename(app.project.root, "svg.md", NULL);
+
+  g_assert_true(g_file_set_contents(svg,
+                                    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"80\" height=\"30\">"
+                                    "<rect width=\"80\" height=\"30\" fill=\"#fff\"/>"
+                                    "<text x=\"6\" y=\"22\" font-size=\"20\" fill=\"#000\">SVG</text></svg>",
+                                    -1, NULL));
+  g_assert_true(g_file_set_contents(path, "![label](label.svg)\n", -1, NULL));
+  open_preview_rendered(path);
+  Tab *tab = current_tab(&app);
+  GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
+  run_until(picture_there, buffer); /* decoded in a thread */
+  GdkPaintable *paintable = first_picture(buffer);
+  g_assert_nonnull(paintable);
+
+  GtkSnapshot *snapshot = gtk_snapshot_new();
+  gdk_paintable_snapshot(paintable, snapshot, 80, 30);
+  GskRenderNode *node = gtk_snapshot_free_to_node(snapshot);
+  cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 80, 30);
+  cairo_t *cr = cairo_create(surface);
+  gsk_render_node_draw(node, cr);
+  cairo_destroy(cr);
+  cairo_surface_flush(surface);
+  int dark = 0, stride = cairo_image_surface_get_stride(surface);
+  const guchar *data = cairo_image_surface_get_data(surface);
+  for (int y = 0; y < 30; y++)
+    for (int x = 0; x < 80; x++) {
+      const guchar *px = data + y * stride + 4 * x; /* B, G, R, A */
+      dark += px[3] > 200 && px[0] < 80 && px[1] < 80 && px[2] < 80;
+    }
+  g_assert_cmpint(dark, >, 30); /* the letters: without them the box is all white */
+  cairo_surface_destroy(surface);
+  gsk_render_node_unref(node);
+
+  remove_tab(tab);
+  g_unlink(path);
+  g_unlink(svg);
+  g_free(path);
+  g_free(svg);
+}
+
+/* A list item's text lines up: its first line after the marker (a tab), its wrapped lines and its next
+ * paragraphs all start at the same x, and a loose list's paragraphs are apart. */
+static void test_preview_lists(void)
+{
+  char *path = g_build_filename(app.project.root, "lists.md", NULL);
+
+  g_assert_true(
+      g_file_set_contents(path,
+                          "- First item.\n\n  Second paragraph.\n\n- Next item.\n\n"
+                          "10. Ten\n11. Eleven\n\n"
+                          "- Item:\n\n  <details>\n  <summary>Toggle</summary>\n\n  Hidden.\n\n  </details>\n",
+                          -1, NULL));
+  open_preview_rendered(path);
+  Tab *tab = current_tab(&app);
+  GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
+  GdkRectangle first, second, next, ten, eleven;
+  GtkTextIter iter = preview_find(buffer, "First");
+
+  gtk_text_view_get_iter_location(view, &iter, &first);
+  iter = preview_find(buffer, "Second");
+  gtk_text_view_get_iter_location(view, &iter, &second);
+  iter = preview_find(buffer, "Next");
+  gtk_text_view_get_iter_location(view, &iter, &next);
+  g_assert_cmpint(second.x, ==, first.x);
+  g_assert_cmpint(next.x, ==, first.x);
+  g_assert_cmpint(second.y - first.y, >, first.height + 10); /* a gap between the item's paragraphs */
+  iter = preview_find(buffer, "Ten");
+  gtk_text_view_get_iter_location(view, &iter, &ten);
+  iter = preview_find(buffer, "Eleven");
+  gtk_text_view_get_iter_location(view, &iter, &eleven);
+  g_assert_cmpint(ten.x, ==, eleven.x);
+  GdkRectangle arrow;
+  iter = preview_find(buffer, "▶  Toggle"); /* a <details> in an item: under the item's text */
+  gtk_text_view_get_iter_location(view, &iter, &arrow);
+  g_assert_cmpint(arrow.x, ==, first.x);
+
+  remove_tab(tab);
+  g_unlink(path);
+  g_free(path);
+}
+
+/* Inline HTML left open ends with its Markdown block: a stray <b>, <i>, <a> or <h1> written in a raw HTML
+ * block (one started by a custom tag) does not style the rest of the document, while a <div align>
+ * around Markdown blocks still centers them. */
+static void test_preview_html_scope(void)
+{
+  char *path = g_build_filename(app.project.root, "scope.md", NULL);
+
+  g_assert_true(g_file_set_contents(path,
+                                    "<my-instructions>\n"
+                                    "Use <b>bold, <i>italic, <a href=\"https://example.com\">links and <h1>titles\n"
+                                    "</my-instructions>\n\n"
+                                    "After the block.\n\n"
+                                    "<other-block>\n"
+                                    "A <b>stray tag, then <p> and <li> left open too\n"
+                                    "</other-block>\n\n"
+                                    "After the second block.\n\n"
+                                    "<div align=\"center\">\n\n"
+                                    "Centered text.\n\n"
+                                    "</div>\n\n"
+                                    "Plain again.\n",
+                                    -1, NULL));
+  open_preview_rendered(path);
+  Tab *tab = current_tab(&app);
+  g_assert_true(tab->kind == TAB_PREVIEW);
+  GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
+
+  GtkTextIter iter = preview_find(buffer, "titles");
+  g_assert_true(has_tag(&iter, "bold"));
+  g_assert_true(has_tag(&iter, "h1"));
+  iter = preview_find(buffer, "After");
+  static const char *const leaked[] = { "bold", "italic", "link", "h1" };
+  for (gsize i = 0; i < G_N_ELEMENTS(leaked); i++)
+    g_assert_false(has_tag(&iter, leaked[i]));
+  iter = preview_find(buffer, "After the second block"); /* the <b> ends even under the <p> and <li> */
+  g_assert_false(has_tag(&iter, "bold"));
+  iter = preview_find(buffer, "Centered");
+  g_assert_true(has_tag(&iter, "center"));
+  iter = preview_find(buffer, "Plain again");
+  g_assert_false(has_tag(&iter, "center"));
+
+  remove_tab(tab);
+  g_unlink(path);
+  g_free(path);
+}
+
 /* One paragraph holding thousands of inline code spans (a long line of JSON, say) draws quickly: every
  * position asked of that paragraph's layout costs its whole length, so its code gets the text's own
  * background instead of the rounded box drawn below it, which short paragraphs keep. */
@@ -2665,8 +2796,7 @@ static void test_preview_long_paragraph(void)
     g_string_append_printf(text, "word `code_%d` and ", i);
   g_string_append(text, "the end.\n");
   g_assert_true(g_file_set_contents(path, text->str, -1, NULL));
-  open_preview(&app, path);
-  run_for(500);
+  open_preview_rendered(path);
   Tab *tab = current_tab(&app);
   g_assert_true(tab->kind == TAB_PREVIEW);
   GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(tab->page)));
@@ -2696,9 +2826,9 @@ static void test_preview_long_paragraph(void)
   g_string_free(text, TRUE);
 }
 
-/* A big file opens without the window stopping: its hundreds of tables come in as they are scrolled
- * near (each one waits as an empty box as tall as it will be), a local image is decoded in a thread
- * (its alt text shows meanwhile), and code blocks of several languages are still colored. */
+/* A big file opens without the window stopping: its hundreds of tables are text in the buffer, a local
+ * image is decoded in a thread (its alt text shows meanwhile), and code blocks of several languages are
+ * still colored. */
 static void test_preview_big(void)
 {
   static const guchar pixel[] = {
@@ -2711,7 +2841,6 @@ static void test_preview_big(void)
   char *png = g_build_filename(app.project.root, "shot.png", NULL);
   char *path = g_build_filename(app.project.root, "big.md", NULL);
   GString *text = g_string_new("![a shot](shot.png)\n\n");
-  int tables, shown;
 
   g_assert_true(g_file_set_contents(png, (const char *)pixel, sizeof pixel, NULL));
   for (int i = 0; i < 300; i++) {
@@ -2730,23 +2859,18 @@ static void test_preview_big(void)
   run_until(picture_shown, view);
   g_assert_true(picture_shown(view));
 
-  run_until(table_shown, view);
-  count_tables(buffer, &tables, &shown);
-  g_assert_cmpint(tables, ==, 300);
-  g_assert_cmpint(shown, >, 0);
-  g_assert_cmpint(shown, <, 30); /* the ones near the top */
-  g_assert_false(last_table_shown(buffer));
-
-  GtkAdjustment *adjustment = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(view));
-  gtk_adjustment_set_value(adjustment, gtk_adjustment_get_upper(adjustment));
-  run_until(last_table_shown, buffer);
-  g_assert_true(last_table_shown(buffer));
+  /* the tables are text: all of them there, each row a line of its cells at tab stops */
+  gtk_widget_set_size_request(tab->page, 900, -1); /* the tests before may leave the preview narrow */
+  run_until(all_tables_laid_out, buffer);          /* laid out again for its new width */
+  g_assert_cmpint(count_text(buffer, "Key\tWhat\n"), ==, 300);
+  g_assert_cmpint(count_text(buffer, "Ctrl+5\u2009\tdoes"), ==, 300);
 
   GtkTextIter iter = preview_find(buffer, "return 0;");
   g_assert_true(colored(&iter));
   iter = preview_find(buffer, "while True:");
   g_assert_true(colored(&iter));
 
+  gtk_widget_set_size_request(tab->page, -1, -1);
   remove_tab(tab);
   g_unlink(path);
   g_unlink(png);
@@ -4993,6 +5117,9 @@ int main(int argc, char **argv)
   g_test_add_func("/window/preview-github", test_preview_github);
   g_test_add_func("/window/preview-big", test_preview_big);
   g_test_add_func("/window/preview-long-paragraph", test_preview_long_paragraph);
+  g_test_add_func("/window/preview-html-scope", test_preview_html_scope);
+  g_test_add_func("/window/preview-lists", test_preview_lists);
+  g_test_add_func("/window/preview-svg-text", test_preview_svg_text);
   g_test_add_func("/window/open-images", test_open_images);
   g_test_add_func("/window/run-scripts", test_run_scripts);
   g_test_add_func("/window/run-tests", test_run_tests);

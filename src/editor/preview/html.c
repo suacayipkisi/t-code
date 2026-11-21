@@ -175,7 +175,7 @@ static void html_source(Render *r, const char *tag)
 
 static void open_element(Render *r, int element, const char *tag)
 {
-  HtmlOpen open = { element, 0, -1, align_of(tag), NULL, NULL };
+  HtmlOpen open = { element, 0, -1, align_of(tag), r->depth, NULL, NULL };
   char *id = preview_html_attribute(tag, "id"), *name = preview_html_attribute(tag, "name");
 
   switch (elements[element].kind) {
@@ -203,6 +203,8 @@ static void open_element(Render *r, int element, const char *tag)
     default: break;
   }
   open.start = preview_end_offset(r);
+  if (strcmp(elements[element].name, "pre") == 0)
+    r->html_pre++;
   if (elements[element].kind == HTML_DETAILS) {
     Details details = { -1, -1, -1, has_attribute(tag, "open") };
     g_array_append_val(r->p->details, details);
@@ -246,16 +248,28 @@ static void close_element(Render *r, HtmlOpen *open)
       break;
     }
     case HTML_BLOCK:
-      if (end > open->start && !preview_at_line_start(r))
+      if (strcmp(name, "pre") == 0) { /* its text in a code block's box */
+        r->html_pre--;
+        GtkTextIter last, buffer_end;
+        gtk_text_buffer_get_end_iter(r->p->buffer, &buffer_end);
+        last = buffer_end;
+        if (end > open->start && gtk_text_iter_backward_char(&last) && gtk_text_iter_get_char(&last) == '\n')
+          gtk_text_buffer_delete(r->p->buffer, &last, &buffer_end);
+        if (preview_end_offset(r) > open->start)
+          preview_end_code_box(r, open->start);
+      } else if (end > open->start && !preview_at_line_start(r)) {
         preview_end_paragraph(r, open->start, "gap");
+      }
       break;
     case HTML_ITEM:
       if (!preview_at_line_start(r))
         preview_append(r, "\n", 1);
       break;
-    case HTML_SUMMARY:
-      preview_tag(r, "bold", NULL, open->start);
-      preview_append(r, "\n", 1);
+    case HTML_SUMMARY: { /* a paragraph of its own, its ▶ included: indented in a list item, apart from what follows */
+      GtkTextIter line;
+      gtk_text_buffer_get_iter_at_offset(r->p->buffer, &line, open->start);
+      gtk_text_iter_set_line_offset(&line, 0);
+      preview_end_paragraph(r, gtk_text_iter_get_offset(&line), "gap");
       for (guint i = r->html_open->len; i-- > 0;) {
         HtmlOpen *details = &g_array_index(r->html_open, HtmlOpen, i);
         if (elements[details->element].kind == HTML_DETAILS) {
@@ -264,6 +278,7 @@ static void close_element(Render *r, HtmlOpen *open)
         }
       }
       break;
+    }
     case HTML_DETAILS: g_array_index(r->p->details, Details, open->extra).end = end; break;
     case HTML_QUOTE: preview_append(r, "”", -1); break;
     case HTML_PICTURE: g_clear_pointer(&r->picture_src, g_free); break;
@@ -289,11 +304,80 @@ static void end_tag(Render *r, int element)
   }
 }
 
+/* Inline elements (and headings) that a Markdown block opened and left open end with it, as unclosed <b> or <h1>
+ * written in a raw HTML block would otherwise style the rest of the document. Blocks (<div>, <details>, <p align>)
+ * stay open: a README wraps Markdown in them, closing them several blocks later. */
+void preview_html_close_inline(Render *r)
+{
+  /* the first inline element this block opened: it ends, and with it everything opened after it (a <p> or <li>
+   * written after a stray <b> would otherwise keep the <b> open) */
+  for (guint i = 0; i < r->html_open->len; i++) {
+    const HtmlOpen *open = &g_array_index(r->html_open, HtmlOpen, i);
+    HtmlKind kind = elements[open->element].kind;
+    if (open->depth >= r->depth &&
+        (kind == HTML_STYLE || kind == HTML_CODE || kind == HTML_LINK || kind == HTML_QUOTE || kind == HTML_HEADING)) {
+      while (r->html_open->len > i) {
+        HtmlOpen last = g_array_index(r->html_open, HtmlOpen, r->html_open->len - 1);
+        g_array_remove_index(r->html_open, r->html_open->len - 1);
+        close_element(r, &last);
+        preview_html_open_clear(&last);
+      }
+      return;
+    }
+  }
+}
+
 void preview_html_finish(Render *r)
 {
   while (r->html_open->len)
     end_tag(r, g_array_index(r->html_open, HtmlOpen, r->html_open->len - 1).element);
   g_clear_pointer(&r->picture_src, g_free);
+}
+
+/* Raw HTML's <table>: laid out like a Markdown table (table.c), its cells ended by </td>, the next <td> or <tr>,
+ * </table>. Tags inside a cell go into it. TRUE when the tag was the table's. */
+static gboolean table_tag(Render *r, const char *name, gboolean closing, const char *tag)
+{
+  gboolean cell = strcmp(name, "td") == 0 || strcmp(name, "th") == 0, row = strcmp(name, "tr") == 0;
+
+  if (strcmp(name, "table") == 0) {
+    if (!closing && !r->table) {
+      preview_begin_block(r);
+      preview_table_begin(r);
+      r->html_table = TRUE;
+    } else if (closing && r->html_table) {
+      if (r->in_cell)
+        preview_cell_end(r, r->html_th);
+      preview_table_end(r);
+      preview_tag_last_line(r, "table-gap");
+      r->html_table = FALSE;
+    }
+    return TRUE;
+  }
+  if (!r->html_table)
+    return FALSE;
+  if (cell || row) {
+    if (r->in_cell)
+      preview_cell_end(r, r->html_th);
+    if (row && !closing) {
+      r->row++;
+      r->cell = 0;
+    } else if (cell && !closing) {
+      char *align = preview_html_attribute(tag, "align");
+      if (r->row < 0)
+        r->row = 0;
+      r->html_th = name[1] == 'h';
+      preview_cell_begin(r, !align                                     ? MD_ALIGN_DEFAULT
+                            : g_ascii_strcasecmp(align, "center") == 0 ? MD_ALIGN_CENTER
+                            : g_ascii_strcasecmp(align, "right") == 0  ? MD_ALIGN_RIGHT
+                                                                       : MD_ALIGN_LEFT);
+      g_free(align);
+    }
+    return TRUE;
+  }
+  if (r->in_cell)
+    preview_cell_text(r, MD_TEXT_HTML, tag, strlen(tag));
+  return TRUE; /* <thead>, <tbody>, <caption>... between the cells: left out */
 }
 
 static void handle_tag(Render *r, const char *tag)
@@ -308,11 +392,16 @@ static void handle_tag(Render *r, const char *tag)
       g_free(name);
       return;
     }
+  if (table_tag(r, name, closing, tag)) {
+    g_free(name);
+    return;
+  }
   if (closing) {
     if (element >= 0)
       end_tag(r, element);
   } else if (strcmp(name, "br") == 0) {
     preview_append(r, "\u2028", -1);
+    r->after_break = TRUE;
   } else if (strcmp(name, "hr") == 0) {
     preview_add_rule(r);
   } else if (strcmp(name, "img") == 0) {
@@ -396,7 +485,10 @@ void preview_html(Render *r, const char *text, gsize size, gboolean block)
       const char *semi = memchr(p, ';', MIN(end - p, 40));
       gsize len = semi ? (gsize)(semi - p + 1) : 1;
       char *decoded = preview_decode_entity(p, len);
-      preview_append(r, decoded, -1);
+      if (r->in_cell)
+        preview_cell_text(r, MD_TEXT_NORMAL, decoded, strlen(decoded));
+      else if (!r->html_table)
+        preview_append(r, decoded, -1);
       g_free(decoded);
       p += len;
     } else {
@@ -404,10 +496,26 @@ void preview_html(Render *r, const char *text, gsize size, gboolean block)
       while (next < end && *next != '<' && *next != '&')
         next++;
       char *run = g_strndup(p, next - p);
-      if (block) /* the lines of an HTML block flow like a paragraph's */
-        g_strdelimit(run, "\r\n\t", ' ');
-      if (!block || !preview_at_line_start(r) || strspn(run, " ") < strlen(run))
-        preview_append_text(r, run, strlen(run));
+      if (r->html_pre) { /* as it is, but the line break right after <pre> */
+        const char *from = run;
+        if (*from == '\n' && preview_at_line_start(r))
+          from++;
+        preview_append(r, from, -1);
+      } else {
+        if (block) /* the lines of an HTML block flow like a paragraph's */
+          g_strdelimit(run, "\r\n\t", ' ');
+        const char *from = run;
+        if (r->after_break) /* the spaces that start the line after a <br> */
+          from += strspn(from, " ");
+        if (*from)
+          r->after_break = FALSE;
+        if (r->html_table) {
+          if (r->in_cell && strspn(from, " ") < strlen(from))
+            preview_cell_text(r, MD_TEXT_NORMAL, from, strlen(from));
+        } else if (*from && (!block || !preview_at_line_start(r) || strspn(from, " ") < strlen(from))) {
+          preview_append_text(r, from, strlen(from));
+        }
+      }
       g_free(run);
       p = next;
     }
@@ -418,55 +526,7 @@ void preview_html(Render *r, const char *text, gsize size, gboolean block)
 
 /* Table cells ----------------------------------------------------------------------------------- */
 
-char *preview_html_markup(const char *tag, GPtrArray *open)
+char *preview_html_name(const char *tag, gboolean *closing)
 {
-  /* clang-format off */
-  static const char *const markup[][3] = { /* element, Pango's start tag, its end */
-    { "b", "<b>", "</b>" }, { "strong", "<b>", "</b>" }, { "i", "<i>", "</i>" }, { "em", "<i>", "</i>" },
-    { "u", "<u>", "</u>" }, { "ins", "<u>", "</u>" }, { "s", "<s>", "</s>" }, { "del", "<s>", "</s>" },
-    { "strike", "<s>", "</s>" }, { "sub", "<sub>", "</sub>" }, { "sup", "<sup>", "</sup>" },
-    { "small", "<small>", "</small>" }, { "code", "<tt>", "</tt>" }, { "kbd", "<tt>", "</tt>" },
-    { "tt", "<tt>", "</tt>" }, { "samp", "<tt>", "</tt>" }, { "mark", "<span background=\"#ffd33d55\">", "</span>" },
-  };
-  /* clang-format on */
-  gboolean closing;
-  char *name = tag_name(tag, &closing), *result = NULL;
-
-  if (strcmp(name, "br") == 0) {
-    result = g_strdup("\n");
-  } else if (strcmp(name, "a") == 0 && !closing) {
-    char *href = preview_html_attribute(tag, "href");
-    if (href) {
-      result = g_markup_printf_escaped("<a href=\"%s\">", href);
-      g_ptr_array_add(open, (gpointer) "a");
-    }
-    g_free(href);
-  } else {
-    for (gsize i = 0; i < G_N_ELEMENTS(markup); i++)
-      if (strcmp(name, markup[i][0]) == 0 && !closing) {
-        result = g_strdup(markup[i][1]);
-        g_ptr_array_add(open, (gpointer)markup[i][0]);
-      }
-  }
-  if (closing && open->len) { /* closes only what is open, innermost first: the markup stays valid */
-    guint i = open->len;
-    while (i > 0 && strcmp(g_ptr_array_index(open, i - 1), name) != 0)
-      i--;
-    if (i) {
-      GString *ends = g_string_new(NULL);
-      while (open->len >= i) {
-        const char *element = g_ptr_array_steal_index(open, open->len - 1);
-        if (strcmp(element, "a") == 0) {
-          g_string_append(ends, "</a>");
-        } else {
-          for (gsize m = 0; m < G_N_ELEMENTS(markup); m++)
-            if (strcmp(element, markup[m][0]) == 0)
-              g_string_append(ends, markup[m][2]);
-        }
-      }
-      result = g_string_free(ends, FALSE);
-    }
-  }
-  g_free(name);
-  return result;
+  return tag_name(tag, closing);
 }

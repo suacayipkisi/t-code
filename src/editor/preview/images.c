@@ -138,7 +138,9 @@ static GdkPaintable *paintable_from_bytes(GBytes *bytes, const char *name)
     GtkSvg *image = gtk_svg_new();
     if (g_signal_lookup("error", GTK_TYPE_SVG)) /* a web page's SVG may use what GtkSvg lacks: no warnings */
       g_signal_connect(image, "error", G_CALLBACK(ignore_svg_error), NULL);
-    gtk_svg_set_features(image, GTK_SVG_SYSTEM_RESOURCES); /* no animations, nothing it would fetch */
+    /* nothing it would fetch; ANIMATIONS on, as without it GtkSvg (4.24) leaves <text> out (badges lost their
+     * labels), and it is drawn once into a texture anyway: nothing runs */
+    gtk_svg_set_features(image, GTK_SVG_SYSTEM_RESOURCES | GTK_SVG_ANIMATIONS);
     gtk_svg_load_from_bytes(image, bytes);
     paintable = rasterize(GDK_PAINTABLE(image));
     g_object_unref(image);

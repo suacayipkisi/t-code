@@ -20,7 +20,9 @@ double preview_heading_scale(int level)
 
 const GdkRGBA *preview_alert_color(int alert)
 {
-  return palette_rgba(alert_colors[CLAMP(alert, 1, 5) - 1]);
+  static const GdkRGBA important = { 0.64f, 0.44f, 0.97f, 1.0f }; /* GitHub's purple: the theme has none */
+
+  return alert == 3 ? &important : palette_rgba(alert_colors[CLAMP(alert, 1, 5) - 1]);
 }
 
 /* The tags' colors, from the color theme (again when it changes). */
@@ -30,14 +32,21 @@ void preview_color_tags(GtkTextBuffer *b)
     const char *tag, *property;
     PalColor color;
   } colors[] = {
-    { "base", "foreground", PAL_FG },        { "quote", "foreground", PAL_FG_DIM },
-    { "h1", "foreground", PAL_FG_STRONG },   { "h2", "foreground", PAL_FG_STRONG },
-    { "h3", "foreground", PAL_FG_BRIGHT },   { "h4", "foreground", PAL_FG_BRIGHT },
-    { "h5", "foreground", PAL_FG_BRIGHT },   { "h6", "foreground", PAL_FG_DIM },
-    { "bold", "foreground", PAL_FG_STRONG }, { "code", "foreground", PAL_FG_STRONG },
-    { "dim", "foreground", PAL_FG_DIM },     { "error", "foreground", PAL_ERROR },
-    { "link", "foreground", PAL_LINK },      { "caption", "foreground", PAL_FG_DIM },
-    { "mark", "background", PAL_MATCH },     { "code-flat", "background", PAL_BORDER_STRONG },
+    { "base", "foreground", PAL_FG },
+    { "quote", "foreground", PAL_FG_DIM },
+    { "h1", "foreground", PAL_FG_STRONG },
+    { "h2", "foreground", PAL_FG_STRONG },
+    { "h3", "foreground", PAL_FG_BRIGHT },
+    { "h4", "foreground", PAL_FG_BRIGHT },
+    { "h5", "foreground", PAL_FG_BRIGHT },
+    { "h6", "foreground", PAL_FG_DIM },
+    { "bold", "foreground", PAL_FG_STRONG },
+    { "code", "foreground", PAL_FG_STRONG },
+    { "dim", "foreground", PAL_FG_DIM },
+    { "error", "foreground", PAL_ERROR },
+    { "link", "foreground", PAL_LINK },
+    { "caption", "foreground", PAL_FG_DIM },
+    { "code-flat", "background", PAL_BORDER_STRONG },
   };
   GtkTextTagTable *table = gtk_text_buffer_get_tag_table(b);
 
@@ -51,7 +60,7 @@ void preview_color_tags(GtkTextBuffer *b)
     g_snprintf(name, sizeof name, "alert%d", i);
     GtkTextTag *tag = gtk_text_tag_table_lookup(table, name);
     if (tag)
-      g_object_set(tag, "foreground", palette_hex(alert_colors[i - 1]), NULL);
+      g_object_set(tag, "foreground-rgba", preview_alert_color(i), NULL);
   }
 }
 
@@ -67,12 +76,18 @@ void preview_create_tags(GtkTextBuffer *b, const char *mono)
     g_snprintf(name, sizeof name, "indent%d", i);
     gtk_text_buffer_create_tag(b, name, "left-margin", MARGIN + i * INDENT, "indent", 0, NULL);
   }
+  /* a list item: its marker hangs left of the text, in the indent (markdown.c widens the space after it to fill it) */
   for (int i = 1; i <= MAX_LEVEL; i++) {
     g_snprintf(name, sizeof name, "li%d", i);
     gtk_text_buffer_create_tag(b, name, "left-margin", MARGIN + i * INDENT, "indent", -INDENT, NULL);
   }
   gtk_text_buffer_create_tag(b, "tight", "pixels-below-lines", 3, NULL);
-  gtk_text_buffer_create_tag(b, "gap", "pixels-below-lines", 14, NULL);
+  /* a table row's padding, above its first line and below its last (before "gap": the last row keeps that) */
+  gtk_text_buffer_create_tag(b, "tr-first", "pixels-above-lines", CELL_VPAD, NULL);
+  gtk_text_buffer_create_tag(b, "tr-last", "pixels-below-lines", CELL_VPAD, NULL);
+  gtk_text_buffer_create_tag(b, "gap", "pixels-below-lines", 16, NULL);
+  gtk_text_buffer_create_tag(b, "table-gap", "pixels-below-lines", TABLE_GAP + CELL_VPAD, NULL); /* below the grid */
+  gtk_text_buffer_create_tag(b, "bullet", "scale", 1.3, NULL); /* a list item's • as large as a browser's */
   gtk_text_buffer_create_tag(b, "spacer", "size-points", 4.0, NULL);
   gtk_text_buffer_create_tag(b, "quote", NULL);
   for (int i = 0; i < 6; i++) {
@@ -103,7 +118,7 @@ void preview_create_tags(GtkTextBuffer *b, const char *mono)
   gtk_text_buffer_create_tag(b, "link-hover", "underline", PANGO_UNDERLINE_SINGLE, NULL);
   gtk_text_buffer_create_tag(b, "sup", "scale", 0.75, "rise", 5 * PANGO_SCALE, NULL);
   gtk_text_buffer_create_tag(b, "sub", "scale", 0.75, "rise", -2 * PANGO_SCALE, NULL);
-  gtk_text_buffer_create_tag(b, "mark", NULL);
+  gtk_text_buffer_create_tag(b, "mark", "background-rgba", &(GdkRGBA){ 1.0f, 0.83f, 0.24f, 0.25f }, NULL); /* <mark> */
   gtk_text_buffer_create_tag(b, "center", "justification", GTK_JUSTIFY_CENTER, NULL);
   gtk_text_buffer_create_tag(b, "right", "justification", GTK_JUSTIFY_RIGHT, NULL);
   gtk_text_buffer_create_tag(b, "caption", "style", PANGO_STYLE_ITALIC, "scale", 0.85, NULL);
@@ -193,9 +208,13 @@ void preview_update_layout(Preview *p, int width)
   int content_w = width - 2 * margin;
   for (guint i = 0; i < p->pictures->len; i++)
     preview_size_picture(g_ptr_array_index(p->pictures, i), content_w);
-  for (guint i = 0; i < p->tables->len; i++)
-    preview_size_table(g_ptr_array_index(p->tables, i), content_w);
-  preview_show_tables_later(p); /* the guessed heights changed */
+  for (guint i = 0; i < p->tables->len; i++) {
+    const PreviewTable *t = g_ptr_array_index(p->tables, i);
+    g_object_set(t->tag, "left-margin", margin + t->level * INDENT + CELL_PAD, NULL);
+  }
+  if (!preview_tables_fit(p, content_w)) { /* their cells wrap differently at this width */
+    preview_reload_later(p);
+  }
 }
 
 /* The view subclass that centers content and adapts on any size allocation */
@@ -218,6 +237,8 @@ static void tcode_preview_view_size_allocate(GtkWidget *widget, int width, int h
   if (self->preview && width > 0 && width != self->preview->width) {
     preview_update_layout(self->preview, width);
   }
+  if (self->preview && width > 0)
+    preview_sized(self->preview);
 }
 
 /* The buffer lines from first to last (the line after the end of a block that ends with its line
@@ -252,11 +273,8 @@ static void fill(GtkSnapshot *snapshot, const GdkRGBA *color, float x, float y, 
 static void draw_blocks(GtkTextView *view, Preview *p, GtkSnapshot *snapshot, int first_line, int last_line)
 {
   int margin = side_margin(p, p->width), right = p->width - margin;
-  GdkRGBA bar = *palette_rgba(PAL_ACCENT), quote = *palette_rgba(PAL_FG);
   GdkRGBA box = *palette_rgba(PAL_FRAME), rule = *palette_rgba(PAL_BORDER), hr = *palette_rgba(PAL_BORDER_STRONG);
 
-  bar.alpha = 0.5f;
-  quote.alpha = 0.05f;
   for (guint i = 0; i < p->blocks->len; i++) {
     const Block *block = &g_array_index(p->blocks, Block, i);
     GtkTextIter iter;
@@ -271,20 +289,65 @@ static void draw_blocks(GtkTextView *view, Preview *p, GtkSnapshot *snapshot, in
     gtk_text_view_get_line_yrange(view, &iter, &bottom, &height);
     bottom += height;
     switch (block->kind) {
-      case BLOCK_QUOTE: { /* its last line has a paragraph's gap below it: most of it is outside */
-        GdkRGBA tint = quote, line = bar;
-        if (block->alert) {
-          tint = line = *preview_alert_color(block->alert);
-          tint.alpha = 0.07f;
-        }
-        fill(snapshot, &tint, left, top - 6, right - left, bottom - top - 2, 0);
-        fill(snapshot, &line, left, top - 6, BAR_WIDTH, bottom - top - 2, 0);
+      case BLOCK_QUOTE: { /* a bar left of it, as GitHub draws it; its last line's gap below it left out */
+        GdkRGBA line = block->alert ? *preview_alert_color(block->alert) : *palette_rgba(PAL_BORDER_STRONG);
+        fill(snapshot, &line, left, top - 4, BAR_WIDTH, bottom - top - 6, 0);
         break;
       }
       case BLOCK_PRE: fill(snapshot, &box, left, top, right - left, bottom - top, 6); break;
       case BLOCK_RULE: fill(snapshot, &rule, left, bottom - 8, right - left, 1, 0); break;
       case BLOCK_HR: fill(snapshot, &hr, left, (top + bottom) / 2 - 1, right - left, 2, 0); break;
     }
+  }
+}
+
+/* The y of a table row's top and bottom: its lines' (its padding is theirs), the table's gap below its last row
+ * left out. A row as tall as a picture in it is measured with it. */
+static void row_range(GtkTextView *view, GtkTextBuffer *buffer, int start, int end, gboolean last, int *top,
+                      int *bottom)
+{
+  GtkTextIter iter;
+  int y, height;
+
+  gtk_text_buffer_get_iter_at_offset(buffer, &iter, start);
+  gtk_text_view_get_line_yrange(view, &iter, top, &height);
+  gtk_text_buffer_get_iter_at_offset(buffer, &iter, end - 1); /* its last line break */
+  gtk_text_view_get_line_yrange(view, &iter, &y, &height);
+  *bottom = y + height - (last ? TABLE_GAP : 0);
+}
+
+/* Tables: the header's background, every other row's, and the grid, below the text's tab stops. */
+static void draw_tables(GtkTextView *view, Preview *p, GtkSnapshot *snapshot, int first_line, int last_line)
+{
+  int margin = side_margin(p, p->width);
+  GdkRGBA head = *palette_rgba(PAL_BORDER), odd = *palette_rgba(PAL_HOVER), line = *palette_rgba(PAL_BORDER_STRONG);
+
+  for (guint i = 0; i < p->tables->len; i++) {
+    const PreviewTable *table = g_ptr_array_index(p->tables, i);
+    int rows = (int)table->rows->len - 1, first, last;
+    block_lines(p->buffer, table->start, g_array_index(table->rows, int, rows), &first, &last);
+    if (rows <= 0 || last < first_line || first > last_line)
+      continue;
+    int left = margin + table->level * INDENT, width = table->edges[table->columns], top = 0, bottom = 0;
+    for (int row = 0; row < rows; row++) {
+      int start = g_array_index(table->rows, int, row), end = g_array_index(table->rows, int, row + 1);
+      block_lines(p->buffer, start, end, &first, &last);
+      if (last < first_line - 1 || first > last_line + 1)
+        continue;
+      row_range(view, p->buffer, start, end, row == rows - 1, &top, &bottom);
+      if (row == 0)
+        fill(snapshot, &head, left, top, width, bottom - top, 0);
+      else if (row % 2 == 0)
+        fill(snapshot, &odd, left, top, width, bottom - top, 0);
+      fill(snapshot, &line, left, top, width, 1, 0); /* the line above it */
+      for (int c = 0; c <= table->columns; c++)
+        fill(snapshot, &line, left + MIN(table->edges[c], width - 1), top, 1, bottom - top, 0);
+    }
+    /* the line below the last row drawn: the table's end when it is on screen */
+    int end = g_array_index(table->rows, int, rows);
+    block_lines(p->buffer, g_array_index(table->rows, int, rows - 1), end, &first, &last);
+    if (last >= first_line - 1 && first <= last_line + 1)
+      fill(snapshot, &line, left, bottom, width, 1, 0);
   }
 }
 
@@ -378,6 +441,40 @@ static void draw_code_spans(GtkTextView *view, Preview *p, GtkSnapshot *snapshot
   }
 }
 
+/* The selection, drawn here instead of by GtkTextView (its own is transparent, preview.c's CSS): one band across
+ * the text's column, over code boxes, quotes, list indents and tables alike, as GtkTextView's stops at each line's
+ * margins and leaves gaps beside them. */
+static void draw_selection(GtkTextView *view, Preview *p, GtkSnapshot *snapshot, const GdkRectangle *visible)
+{
+  GtkTextIter start, end, top, bottom;
+
+  if (!gtk_text_buffer_get_selection_bounds(p->buffer, &start, &end))
+    return;
+  gtk_text_view_get_line_at_y(view, &top, visible->y, NULL);
+  gtk_text_view_get_line_at_y(view, &bottom, visible->y + visible->height, NULL);
+  gtk_text_iter_forward_to_line_end(&bottom);
+  if (gtk_text_iter_compare(&end, &top) < 0 || gtk_text_iter_compare(&start, &bottom) > 0)
+    return;
+  int margin = side_margin(p, p->width), left = margin, right = p->width - margin;
+  GdkRGBA color =
+      *palette_rgba(gtk_widget_has_focus(GTK_WIDGET(view)) ? PAL_EDITOR_SELECTION : PAL_SELECTION_UNFOCUSED);
+  GdkRectangle from, to;
+
+  color.alpha = 0.7f; /* code boxes and table grids show through */
+  gtk_text_view_get_iter_location(view, &start, &from);
+  gtk_text_view_get_iter_location(view, &end, &to);
+  if (from.y == to.y) { /* on one row */
+    fill(snapshot, &color, from.x, from.y, to.x - from.x, from.height, 0);
+    return;
+  }
+  fill(snapshot, &color, from.x, from.y, right - from.x, from.height, 0);
+  /* the rows between: the whole column, the gaps between paragraphs included */
+  fill(snapshot, &color, left, from.y + from.height, right - left, to.y - from.y - from.height, 0);
+  /* the last row, up to where it ends (nothing when it ends at a line's start) */
+  if (!gtk_text_iter_starts_line(&end))
+    fill(snapshot, &color, left, to.y, to.x - left, to.height, 0);
+}
+
 static void tcode_preview_view_snapshot_layer(GtkTextView *view, GtkTextViewLayer layer, GtkSnapshot *snapshot)
 {
   TcodePreviewView *self = TCODE_PREVIEW_VIEW(view);
@@ -392,7 +489,9 @@ static void tcode_preview_view_snapshot_layer(GtkTextView *view, GtkTextViewLaye
     gtk_text_view_get_line_at_y(view, &iter, visible.y + visible.height, NULL);
     int last_line = gtk_text_iter_get_line(&iter);
     draw_blocks(view, self->preview, snapshot, first_line, last_line);
+    draw_tables(view, self->preview, snapshot, first_line, last_line);
     draw_code_spans(view, self->preview, snapshot, &visible, first_line, last_line);
+    draw_selection(view, self->preview, snapshot, &visible);
   }
 
   if (GTK_TEXT_VIEW_CLASS(tcode_preview_view_parent_class)->snapshot_layer)

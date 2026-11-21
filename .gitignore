@@ -17,3 +17,7 @@ t-code-plugins/
 
 # Raw generator sources and binary intermediate files
 *.bin
+
+# One-off preview comparison (screenshots against a WebKit rendering): kept locally, not tracked
+tests/preview/
+tools/preview-compare.sh
