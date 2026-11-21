@@ -2,7 +2,7 @@
 # Real-use scenarios: build/t-code runs on a virtual X screen (Xvfb) and gets real key presses and
 # mouse clicks from xdotool, as a user would give them. What happened is checked on disk (the files,
 # git) and through the control socket (t-code --send get-file / get-text); at the end the window is
-# closed with its title bar's close button, and t-code's log file must hold no warning.
+# closed with its title bar's close button, and t-code's log file must hold no warning (notes are fine).
 #   tests/scenarios.sh            (needs Xvfb, xdotool, git, dbus-run-session, python3)
 # Everything runs in a temporary HOME: the user's settings, session and log are never touched.
 set -uo pipefail
@@ -243,8 +243,10 @@ else
 fi
 tcode=
 
-# Nothing went wrong on the way: the log holds this run's start and quit lines and nothing else.
-problems=$(grep -v '^===' "$log" 2>/dev/null)
+# Nothing went wrong on the way: besides this run's start and quit lines, the log holds only notes
+# ("Message": a server started, the login shell's PATH), no warning or worse (nor the further lines of
+# one, a server's last output).
+problems=$(grep -v -e '^===' -e '^[0-9:.]* [A-Za-z-]*Message: ' "$log" 2>/dev/null)
 if [[ -z "$problems" ]]; then
   ok "t-code logged no warning"
 else

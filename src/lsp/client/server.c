@@ -142,6 +142,8 @@ void lsp_server_stop(Lsp *l)
     l->ch = NULL;
   }
   g_clear_object(&l->process);
+  g_clear_pointer(&l->err, err_tail_free); /* stopped on purpose: nothing to report */
+  g_clear_handle_id(&l->init_timeout_id, g_source_remove);
   l->ready = FALSE;
   g_hash_table_remove_all(l->progress); /* its work ends with it */
   g_clear_pointer(&l->progress_last, g_free);
@@ -165,14 +167,53 @@ static gboolean restart(gpointer data)
   return G_SOURCE_REMOVE;
 }
 
+/* A server that went by itself, reported once its stderr has ended. */
+typedef struct {
+  Lsp *lsp;
+  int run; /* 1 for the first start */
+  gboolean was_ready, last;
+} Crash;
+
+static void on_crash_report(const char *text, gpointer data)
+{
+  Crash *c = data;
+  Lsp *l = c->lsp;
+  const char *name = server_name(l->kind);
+
+  g_warning("t-code: %s %s (run %d of %d)%s%s", name, c->was_ready ? "stopped by itself" : "exited before it started",
+            c->run, MAX_CRASHES + 1, *text ? "; its last output:\n" : ", with nothing on stderr", text);
+  if (c->last && !l->stopping) { /* not started again: the status bar says so until a restart */
+    char *line = err_tail_last_line(text);
+    g_free(l->failure);
+    l->failure = g_strdup_printf("%s %d times%s%s", c->was_ready ? "stopped by itself" : "exited at start", c->run,
+                                 *line ? ": " : "", line);
+    l->failed_running = c->was_ready;
+    g_free(line);
+    status_progress_changed(l->app);
+  }
+  lsp_unref(l);
+  g_free(c);
+}
+
 /* The server went by itself (it crashed): started again for the open files, a few times. */
 static void on_server_closed(gpointer owner)
 {
   Lsp *l = owner;
+  ErrTail *err = g_steal_pointer(&l->err);
+  Crash *c = g_new0(Crash, 1);
 
+  c->was_ready = l->ready;
   lsp_server_stop(l);
   if (++l->crashes <= MAX_CRASHES && !l->restart_id)
     l->restart_id = g_timeout_add_seconds(1, restart, l);
+  c->lsp = l;
+  c->run = l->crashes;
+  c->last = l->crashes > MAX_CRASHES;
+  lsp_ref(l);
+  if (err)
+    err_tail_finish(err, 500, on_crash_report, c); /* what it said last comes after its stdout closed */
+  else
+    on_crash_report("", c);
 }
 
 /* initialize answered: the encoding it chose, then the most recently used open files. */
@@ -183,6 +224,15 @@ static void on_initialized(JsonNode *result, gpointer data)
   GHashTableIter iter;
   gpointer doc;
 
+  g_clear_handle_id(&l->init_timeout_id, g_source_remove);
+  if (!result && l->ch && l->failure) { /* it said why: starting it again would only say it again */
+    char *err = l->err ? err_tail_text(l->err) : g_strdup("");
+    g_warning("t-code: %s did not start: %s%s%s", server_name(l->kind), l->failure, *err ? "; its last output:\n" : "",
+              err);
+    g_free(err);
+    lsp_server_stop(l);
+    return;
+  }
   if (!result || !l->ch)
     return;
   if (json_at(result, "capabilities"))
@@ -355,6 +405,11 @@ static void on_message(gpointer owner, const char *body)
   } else if (!method && id && JSON_NODE_HOLDS_VALUE(id)) {
     gint64 number = json_node_get_int(id);
     Pending *p = g_hash_table_lookup(l->pending, &number);
+    if (p && !l->ready && json_at(message, "error")) { /* initialize failed: on_initialized stops it */
+      const char *why = json_string_at(message, "error.message");
+      g_free(l->failure);
+      l->failure = g_strdup(why && *why ? why : "initialize failed");
+    }
     if (p)
       lsp_finish(p, p->cancelled ? NULL : json_at(message, "result"));
   }
@@ -377,12 +432,53 @@ static void set_malloc_arenas(GSubprocessLauncher *launcher)
   g_free(value);
 }
 
+static guint init_timeout_ms = INIT_TIMEOUT_MS; /* tests wait less */
+
+/* No answer to initialize: it hangs (or waits for something it never gets). */
+static gboolean on_init_timeout(gpointer data)
+{
+  Lsp *l = data;
+  char *err = l->err ? err_tail_text(l->err) : g_strdup("");
+
+  l->init_timeout_id = 0;
+  g_free(l->failure);
+  l->failure = g_strdup_printf("no answer to initialize in %u s", init_timeout_ms / 1000);
+  l->failed_running = FALSE;
+  g_warning("t-code: %s did not start: %s%s%s", server_name(l->kind), l->failure, *err ? "; its last output:\n" : "",
+            err);
+  g_free(err);
+  lsp_server_stop(l); /* the status bar shows the failure */
+  return G_SOURCE_REMOVE;
+}
+
+/* The TypeScript of the package an open file is in, when it is not the project's own (see
+ * server_typescript_path), added to TypeScript's initializationOptions. */
+static char *with_tsserver(Lsp *l, char *options)
+{
+  GHashTableIter iter;
+  gpointer tab;
+  char *path = NULL;
+
+  g_hash_table_iter_init(&iter, l->docs);
+  while (!path && g_hash_table_iter_next(&iter, &tab, NULL))
+    path = server_typescript_path(((Tab *)tab)->path, l->workspace);
+  if (!path || !options || !g_str_has_suffix(options, "}"))
+    return g_free(path), options;
+  char *quoted = json_quote(path);
+  options[strlen(options) - 1] = '\0';
+  char *with = g_strdup_printf("%s,\"tsserver\":{\"path\":%s}}", options, quoted);
+  g_free(quoted);
+  g_free(path);
+  g_free(options);
+  return with;
+}
+
 /* Starts the server in the project folder and sends initialize; the files follow its answer. */
 void lsp_server_start(Lsp *l)
 {
   char **argv = server_argv(l->app, l->kind);
   GSubprocessLauncher *launcher = g_subprocess_launcher_new(
-      G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
+      G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE);
   GError *error = NULL;
   char *uri, *quoted, *params, *options;
 
@@ -391,6 +487,8 @@ void lsp_server_start(Lsp *l)
     set_malloc_arenas(launcher);
   l->process = g_subprocess_launcher_spawnv(launcher, (const char *const *)argv, &error);
   g_object_unref(launcher);
+  if (l->process)
+    g_message("t-code: started %s (%s) in %s", server_name(l->kind), argv[0], l->workspace);
   g_strfreev(argv);
   if (!l->process) {
     g_warning("t-code: cannot start %s: %s", server_name(l->kind), error->message);
@@ -398,6 +496,7 @@ void lsp_server_start(Lsp *l)
     g_clear_error(&error);
     return;
   }
+  l->err = err_tail_new(g_subprocess_get_stderr_pipe(l->process));
   if (l->kind == SERVER_CLANGD) {
     if (!l->written)
       l->written = g_string_new(NULL);
@@ -411,6 +510,8 @@ void lsp_server_start(Lsp *l)
   channel_read(l->ch);
 
   options = server_options(l->kind, l->app);
+  if (l->kind == SERVER_TYPESCRIPT)
+    options = with_tsserver(l, options);
   uri = lsp_path_to_uri(l->workspace);
   quoted = json_quote(uri ? uri : "");
   params = g_strdup_printf(
@@ -446,6 +547,7 @@ void lsp_server_start(Lsp *l)
     params = with;
   }
   lsp_send(l, NULL, "initialize", params, NULL, on_initialized, l);
+  l->init_timeout_id = g_timeout_add(init_timeout_ms, on_init_timeout, l);
   g_free(params);
   g_free(options);
   g_free(quoted);

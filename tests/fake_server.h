@@ -189,7 +189,21 @@ static int fake_server(void)
     message = json_parser_get_root(parser);
     method = json_string_at(message, "method");
     uri = json_string_at(message, "params.textDocument.uri");
-    if (g_strcmp0(method, "initialize") == 0) {
+    if (g_strcmp0(method, "initialize") == 0 &&
+        g_getenv("FAKE_INIT_CRASH")) { /* rustup's proxy without the component */
+      fprintf(stderr, "starting\n%s\n", g_getenv("FAKE_INIT_CRASH"));
+      exit(1);
+    } else if (g_strcmp0(method, "initialize") == 0 && g_getenv("FAKE_INIT_SILENT")) { /* hangs */
+      ;
+    } else if (g_strcmp0(method, "initialize") == 0 && g_getenv("FAKE_INIT_ERROR")) { /* TypeScript 7's way */
+      char *quoted = json_quote(g_getenv("FAKE_INIT_ERROR"));
+      char *reply = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"id\":%" G_GINT64_FORMAT
+                                    ",\"error\":{\"code\":-32603,\"message\":%s}}",
+                                    json_int_at(message, "id", 0), quoted);
+      fake_send(reply);
+      g_free(reply);
+      g_free(quoted);
+    } else if (g_strcmp0(method, "initialize") == 0) {
       fake_pull = json_at(message, "params.initializationOptions.lint") != NULL;     /* the CMake server */
       fake_symbols = json_at(message, "params.initializationOptions.hints") != NULL; /* gopls */
       char *reply =

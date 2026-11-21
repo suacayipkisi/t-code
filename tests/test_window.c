@@ -25,6 +25,7 @@
 #include "git/compare.h"
 #include "git/scm/scm.h"
 #include "ipc/socket.h"
+#include "lsp/client/client.h"
 #include "lsp/inline/diagnostics.h"
 #include "lsp/servers.h"
 #include "lsp/symbols/navigate.h"
@@ -3430,6 +3431,48 @@ static void test_no_lsp(void)
   g_free(saved_path);
 }
 
+static gboolean file_exists(gconstpointer path)
+{
+  return g_file_test(path, G_FILE_TEST_EXISTS);
+}
+
+/* The server is put on PATH while its file is open ("No LSP" shown, as after a symlink into
+ * /usr/local/bin): the notice goes and the server starts for the file, without a restart. */
+static void test_lsp_installed_while_open(void)
+{
+  char *saved_path = g_strdup(g_getenv("PATH")), *path = file("later.yaml");
+  char *dir = g_dir_make_tmp("t-code-later-XXXXXX", NULL), *marker = g_build_filename(dir, "started", NULL);
+  char *body = g_strdup_printf("#!/bin/sh\ntouch '%s'\nexec cat >/dev/null\n", marker);
+  char *server = write_at(dir, "yaml-language-server", body, -1, 0755);
+
+  g_setenv("PATH", "/nonexistent", TRUE);
+  open_file(&app, path);
+  run_for(20);
+  update_status(&app);
+  g_assert_true(gtk_widget_get_visible(app.status.no_lsp));
+
+  char *with_server = g_strconcat(dir, ":", saved_path ? saved_path : "", NULL);
+  g_setenv("PATH", with_server, TRUE);
+  update_status(&app); /* any later update: a tab switch, a click in another panel */
+  g_assert_false(gtk_widget_get_visible(app.status.no_lsp));
+  run_until(file_exists, marker);
+  g_assert_true(g_file_test(marker, G_FILE_TEST_EXISTS));
+
+  close_all_tabs(&app);
+  lsp_stop(&app);
+  g_setenv("PATH", saved_path ? saved_path : "", TRUE);
+  g_unlink(server);
+  g_unlink(marker);
+  g_rmdir(dir);
+  g_free(with_server);
+  g_free(server);
+  g_free(body);
+  g_free(marker);
+  g_free(dir);
+  g_free(path);
+  g_free(saved_path);
+}
+
 static Sym *outline_sym(const char *name, int kind, int line, int end_line)
 {
   Sym *sym = g_new0(Sym, 1);
@@ -4891,6 +4934,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/status-say", test_status_say);
   g_test_add_func("/window/memory-dump", test_memory_dump);
   g_test_add_func("/window/no-lsp", test_no_lsp);
+  g_test_add_func("/window/lsp-installed-while-open", test_lsp_installed_while_open);
   g_test_add_func("/window/outline", test_outline);
   g_test_add_func("/window/second-window", test_second_window);
   g_test_add_func("/window/tab-strip", test_tab_strip);

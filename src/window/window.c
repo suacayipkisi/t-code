@@ -17,6 +17,7 @@
 #include "project/userfiles.h"
 #include "lsp/inline/inlay.h"
 #include "update/update.h"
+#include "application/shellenv.h"
 #include "window/commands.h"
 #include "window/docks/docks.h"
 #include "window/paths.h"
@@ -366,7 +367,8 @@ void build_window(App *t, GtkApplication *app)
   rebuild_recent_menu(t);
   start_shell_pane(t);
   start_status_updates(t);
-  plugins_start_project(t);
+  if (!shell_env_loading()) /* else once the login shell's environment is there */
+    plugins_start_project(t);
   gtk_window_present(t->window);
   files_focus(t);
   updates_start(t); /* the release check (Settings' "Check for updates") starts from here */

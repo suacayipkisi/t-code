@@ -6,6 +6,8 @@
  */
 #include "project/project.h"
 
+#include "application/shellenv.h"
+
 #include "debug/debugger.h"
 #include "dialogs/about.h"
 #include "dialogs/keybinds.h"
@@ -151,7 +153,8 @@ static void switch_project(App *t, const char *root)
   if (!current_tab(t))
     files_focus(t);
   socket_project_changed(t);
-  plugins_start_project(t);
+  if (!shell_env_loading()) /* else once the login shell's environment is there */
+    plugins_start_project(t);
 }
 
 void open_project(App *t, const char *root)

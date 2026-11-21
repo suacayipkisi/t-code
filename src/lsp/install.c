@@ -33,7 +33,9 @@ static const ServerInstall servers[] = {
   { "typescript-language-server", "the JavaScript and TypeScript language server (typescript-language-server)", NULL,
     NULL, "sudo pacman -S typescript-language-server", NULL,
     "sudo npm install -g typescript-language-server typescript@6",
-    "It needs TypeScript 6: TypeScript 7 has no tsserver.js. " NPM_NOTE },
+    "It needs TypeScript 6 (TypeScript 7 has no tsserver.js), installed by the same npm. npm warns that "
+    "typescript-language-server 6 wants Node.js 22, but it runs on 20; on Node.js 18 install "
+    "typescript-language-server@4. " NPM_NOTE },
   { "vscode-json-language-server", "the JSON language server", NULL, NULL, NULL, NULL,
     "sudo npm install -g vscode-langservers-extracted", NPM_NOTE },
   { "yaml-language-server", "the YAML language server (yaml-language-server)", NULL, NULL,

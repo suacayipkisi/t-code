@@ -55,8 +55,13 @@ gboolean lsp_wants(Tab *tab);
 const char *lsp_missing_server(Tab *tab);
 
 /* What a language server is busy with, for the status bar: "rust-analyzer: Indexing 45% (12/40)",
- * "pylsp: starting"; the current editor's server first. NULL when none is busy. */
+ * "pylsp: starting", "typescript-language-server: did not start"; the current editor's server
+ * first. NULL when none is busy. */
 char *lsp_progress(App *t);
+
+/* Why a language server did not start (it answered initialize with an error), with what may help;
+ * NULL when none failed. The current file's server first. */
+char *lsp_failure(App *t);
 
 /* After the user installed a server: tries the ones that were not found again and opens the
  * editors that now have one. */

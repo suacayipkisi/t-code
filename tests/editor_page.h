@@ -25,6 +25,7 @@
 #include "editor/decor/blame.c"
 #include "editor/decor/conflicts.c"
 #include "editor/decor/breadcrumbs.c"
+#include "application/errtail.c"
 #include "lsp/channel.c"
 #include "lsp/servers.c"
 #include "lsp/json.c"

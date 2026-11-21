@@ -5,6 +5,7 @@
  */
 #pragma once
 
+#include "application/errtail.h"
 #include "lsp/client/client.h"
 #include "lsp/channel.h"
 #include "lsp/servers.h"
@@ -22,6 +23,9 @@
 #define MAX_OPEN_DOCS 5 /* per-server LRU of open documents */
 #endif
 #define MAX_CRASHES 3
+#ifndef INIT_TIMEOUT_MS
+#define INIT_TIMEOUT_MS 120000 /* no answer to initialize: it did not start (jdtls takes a while on a big project) */
+#endif
 
 /* A compile database written (make, cmake) is told to the server this long after its last change. */
 #define DATABASE_MS 1500
@@ -68,7 +72,11 @@ struct Lsp {
   guint64 use;      /* next LRU stamp for docs */
   guint idle_id, restart_id;
   int crashes;
-  gboolean missing;       /* the server is not installed: not tried again */
+  gboolean missing;        /* the server is not installed: not tried again */
+  char *failure;           /* why it did not start, or stopped for good: not tried again until a restart */
+  gboolean failed_running; /* it had started (the status bar says "stopped", not "did not start") */
+  ErrTail *err;            /* the end of the running server's stderr, for the log when it goes */
+  guint init_timeout_id;
   GFileMonitor *watch[2]; /* the root and its build/ folder, for a compile database written */
   GString *written;       /* didChangeWatchedFiles changes not sent yet, comma separated */
   guint written_id;
@@ -83,6 +91,8 @@ typedef struct {
 } Progress;
 
 /* client.c */
+void lsp_ref(Lsp *l);
+void lsp_unref(Lsp *l);
 void lsp_fail_pending(Lsp *l, Tab *tab);
 void lsp_finish(Pending *p, JsonNode *result);
 void lsp_notify(Lsp *l, const char *method, const char *params);

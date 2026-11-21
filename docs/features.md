@@ -72,8 +72,12 @@ the mouse. On top of that:
 clangd starts when the first C or C++ file is shown; Python (`.py`), Go (`.go`), Rust (`.rs`) and
 JavaScript / TypeScript (`.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`) files use `pylsp`,
 `gopls`, `rust-analyzer` and `typescript-language-server` (`npm install -g typescript-language-server
-typescript`) respectively when the executable is on `PATH`
-(`pylsp` also from the project's venv). **Python: Select Interpreter…** (command palette) picks the
+typescript@6`) respectively when the executable is on `PATH`
+(`pylsp` also from the project's venv). Started from the desktop's menu, t-code asks the login shell
+once for its `PATH` and toolchain variables (`GOPATH`, `CARGO_HOME`, `JAVA_HOME`, ...), so servers,
+debuggers and test runners installed through nvm, pyenv, asdf, mise or a toolchain unpacked in the
+home folder are found too; folders t-code already had keep their order, and variables it already had
+stay. **Python: Select Interpreter…** (command palette) picks the
 project's Python among its venvs, `$VIRTUAL_ENV`'s and `python3`; **Rust: Select Features…** and
 **Rust: Select Target…** pick Cargo features (the default ones, all, or some) and a target installed
 with rustup. The choice is kept per project and used by the language server and by Build, Run and Test.
@@ -349,9 +353,13 @@ each key; a hand edit applies at once).
 
 **Log file.** `~/.local/state/t-code/t-code.log` keeps the last 50 starts: a line for each start
 (the date, the version and the process id) and for each clean quit (`=== quit`), so a run without
-one crashed or was killed, and t-code's and GTK's warnings in between, each with its time. Useful
-when t-code was started from the desktop's menu, where no terminal shows them, or when a problem
-is noticed later. "Help: Open Log File" opens it.
+one crashed or was killed, and t-code's and GTK's warnings in between, each with its time. Notes say
+which language server and debugger started from which file and what the login shell added to `PATH`;
+a server or debugger that did not start or stopped by itself is a warning with the reason and the
+last lines it wrote to stderr (a server that does not answer within two minutes counts too), and a
+server shown as "No LSP" is logged once with the `PATH` it was looked for on. Useful when t-code was
+started from the desktop's menu, where no terminal shows them, or when a problem is noticed later.
+"Help: Open Log File" opens it.
 
 **Process Monitor.** "Help: Process Monitor" (also T-Code → Process Monitor…, and Process Monitor in the
 Plugins window's ⋯ menu) shows t-code and every program it runs, as a tree: plugins' programs, language

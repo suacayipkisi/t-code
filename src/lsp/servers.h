@@ -68,3 +68,8 @@ const char *server_missing(App *t, ServerKind kind);
  * (workspace/configuration); NULL for none. */
 char *server_options(ServerKind kind, App *t);
 char *server_settings(ServerKind kind, App *t);
+
+/* The tsserver.js of the TypeScript nearest to file: node_modules/typescript in its folder or one
+ * above it, up to root (a package inside the project, the way other editors take its folder as the
+ * root). NULL when there is none: the server looks in root and next to itself. */
+char *server_typescript_path(const char *file, const char *root);

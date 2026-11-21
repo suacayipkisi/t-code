@@ -321,20 +321,23 @@ static char *venv_pylsp(App *t)
 #endif
 
 /* Where the program name is: PATH, then the folders language installers put programs in (pipx,
- * cargo install, go install), which are not on the PATH of a t-code started from the desktop's menu.
- * NULL when it is nowhere. */
+ * cargo install, go install), in case they are not on PATH even after the login shell's (see
+ * application/shellenv.h). NULL when it is nowhere. */
 static char *find_program(const char *name)
 {
   char *path = g_find_program_in_path(name);
-  const char *gopath = g_getenv("GOPATH");
+  const char *gopath = g_getenv("GOPATH"), *gobin = g_getenv("GOBIN"), *cargo = g_getenv("CARGO_HOME");
   char **gopaths = gopath && *gopath ? g_strsplit(gopath, ":", 2) : NULL;
   char *folders[] = {
     g_build_filename(g_get_home_dir(), ".local", "bin", NULL),
-    g_build_filename(g_get_home_dir(), ".cargo", "bin", NULL),
+    cargo && *cargo ? g_build_filename(cargo, "bin", NULL) : g_build_filename(g_get_home_dir(), ".cargo", "bin", NULL),
+    gobin && *gobin ? g_strdup(gobin) : NULL,
     gopaths ? g_build_filename(gopaths[0], "bin", NULL) : g_build_filename(g_get_home_dir(), "go", "bin", NULL),
   };
 
   for (size_t i = 0; i < G_N_ELEMENTS(folders); i++) {
+    if (!folders[i])
+      continue;
     char *candidate = g_build_filename(folders[i], name, NULL);
     if (!path && g_file_test(candidate, G_FILE_TEST_IS_EXECUTABLE))
       path = g_steal_pointer(&candidate);
@@ -439,6 +442,34 @@ static gboolean cmake_lints(App *t)
     found = g_file_test(path, G_FILE_TEST_IS_REGULAR);
     g_free(path);
   }
+  return found;
+}
+
+/* Whether dir is root or a folder inside it. */
+static gboolean inside(const char *dir, const char *root)
+{
+  size_t n = strlen(root);
+
+  return strncmp(dir, root, n) == 0 && (dir[n] == '\0' || dir[n] == '/' || (n > 0 && root[n - 1] == '/'));
+}
+
+char *server_typescript_path(const char *file, const char *root)
+{
+  char *dir = file && root ? g_path_get_dirname(file) : NULL, *found = NULL;
+
+  while (dir && !found && inside(dir, root)) {
+    char *candidate = g_build_filename(dir, "node_modules", "typescript", "lib", "tsserver.js", NULL);
+    if (g_file_test(candidate, G_FILE_TEST_IS_REGULAR))
+      found = g_steal_pointer(&candidate);
+    g_free(candidate);
+    char *up = g_path_get_dirname(dir);
+    gboolean top = strcmp(up, dir) == 0;
+    g_free(dir);
+    dir = up;
+    if (top)
+      g_clear_pointer(&dir, g_free);
+  }
+  g_free(dir);
   return found;
 }
 

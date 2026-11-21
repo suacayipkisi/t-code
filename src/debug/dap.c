@@ -6,6 +6,7 @@
 #define _DEFAULT_SOURCE /* getpid(), setsid(), TIOCSCTTY */
 #include "debug/dap.h"
 
+#include "application/errtail.h"
 #include "lsp/channel.h"
 #include "lsp/json.h"
 
@@ -33,6 +34,9 @@ struct Dap {
   DapEvent on_event;
   DapHandle on_request;
   gpointer owner;
+  ErrTail *err;    /* the end of the debugger's stderr, for the log when it goes by itself */
+  char *name;      /* its program, for the log */
+  gboolean ending; /* disconnect or terminate was asked: its going is no news */
 };
 
 typedef struct {
@@ -130,11 +134,28 @@ static void on_message(gpointer owner, const char *text)
   g_object_unref(parser);
 }
 
+static void on_gone_report(const char *text, gpointer data)
+{
+  char *name = data;
+
+  g_warning("t-code: the debugger %s stopped by itself%s%s", name,
+            *text ? "; its last output:\n" : ", with nothing on stderr", text);
+  g_free(name);
+}
+
+/* Not asked to end: the log gets what it said last (gdb's "unrecognized option", a Python traceback). */
+static void report_gone(Dap *d)
+{
+  if (d->err && !d->ending)
+    err_tail_finish(g_steal_pointer(&d->err), 500, on_gone_report, g_strdup(d->name));
+}
+
 /* The debugger exited (or its pipes, or its socket, broke). */
 static void on_closed(gpointer owner)
 {
   Dap *d = owner;
 
+  report_gone(d);
   d->on_event(d->owner, NULL, NULL);
 }
 
@@ -152,6 +173,8 @@ void dap_request_full(Dap *d, const char *command, const char *arguments, DapRep
                                ++d->seq, quoted, arguments ? arguments : "{}");
 
   *p = (Pending){ d->seq, reply, data, destroy };
+  if (strcmp(command, "disconnect") == 0 || strcmp(command, "terminate") == 0)
+    d->ending = TRUE;
   g_hash_table_insert(d->pending, &p->seq, p);
   send_message(d, body);
   g_free(body);
@@ -198,8 +221,10 @@ static void on_process_gone(GObject *source, GAsyncResult *result, gpointer data
   if (!g_subprocess_wait_finish(G_SUBPROCESS(source), result, NULL)) /* dap_free */
     return;
   Dap *d = data;
-  if (!d->ch)
+  if (!d->ch) {
+    report_gone(d);
     d->on_event(d->owner, NULL, NULL);
+  }
 }
 
 /* Listens on a socket of its own for a debugger that dials in; its path goes to d->socket_path. */
@@ -320,9 +345,9 @@ Dap *dap_start(const char *const *argv, const char *cwd, char **env, const char 
                              : g_strdup(argv[i]));
   }
   g_ptr_array_add(args, NULL);
-  launcher = g_subprocess_launcher_new(dials ? G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_SILENCE
+  launcher = g_subprocess_launcher_new(dials ? G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_PIPE
                                              : G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE |
-                                                   G_SUBPROCESS_FLAGS_STDERR_SILENCE);
+                                                   G_SUBPROCESS_FLAGS_STDERR_PIPE);
   g_subprocess_launcher_set_cwd(launcher, cwd);
   if (env)
     g_subprocess_launcher_set_environ(launcher, env);
@@ -334,6 +359,11 @@ Dap *dap_start(const char *const *argv, const char *cwd, char **env, const char 
     g_subprocess_launcher_set_child_setup(launcher, take_terminal, (gpointer)tty, NULL);
   d->process = g_subprocess_launcher_spawnv(launcher, (const char *const *)args->pdata, error);
   g_object_unref(launcher);
+  if (d->process) {
+    d->name = g_strdup(g_ptr_array_index(args, 0));
+    d->err = err_tail_new(g_subprocess_get_stderr_pipe(d->process));
+    g_message("t-code: started the debugger %s", d->name);
+  }
   g_ptr_array_free(args, TRUE);
   if (!d->process) {
     dap_free(d);
@@ -353,6 +383,8 @@ void dap_free(Dap *d)
   if (!d)
     return;
   g_cancellable_cancel(d->cancel);
+  g_clear_pointer(&d->err, err_tail_free); /* ended on purpose */
+  g_clear_pointer(&d->name, g_free);
   if (d->process) {
     g_subprocess_force_exit(d->process); /* the program goes with it: gdb has it killed when it dies */
     g_object_unref(d->process);

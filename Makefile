@@ -129,7 +129,7 @@ build/test-detect: tests/test_detect.c tests/util.h src/editor/text/detect.c src
 # tests/editor_page.h, to reach their static functions. test-lsp runs itself with --fake-server as
 # the language server.
 PAGE_SRC := $(filter-out src/editor/tabs.c src/editor/editor.c $(wildcard src/editor/preview/*.c),$(wildcard src/editor/*.c src/editor/*/*.c)) \
-            $(wildcard src/lsp/*.c src/lsp/*/*.c) src/git/linediff.c src/git/vcs.c src/window/palette.c src/project/langenv.c tests/editor_page.h
+            $(wildcard src/lsp/*.c src/lsp/*/*.c) src/git/linediff.c src/git/vcs.c src/window/palette.c src/project/langenv.c src/application/errtail.c tests/editor_page.h
 build/test-editing: tests/test_editing.c tests/util.h tests/broadway.h $(PAGE_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_editing.c $(shell pkg-config --libs $(PKGS))
 
@@ -141,7 +141,7 @@ build/test-log: tests/test_log.c tests/util.h src/application/log.c src/applicat
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_log.c $(shell pkg-config --libs glib-2.0)
 
 # The debugger's protocol client against gdb (skipped without one).
-DAP_SRC := src/debug/dap.c src/debug/adapters.c src/lsp/channel.c src/lsp/json.c
+DAP_SRC := src/debug/dap.c src/debug/adapters.c src/lsp/channel.c src/lsp/json.c src/application/errtail.c
 build/test-debug: tests/test_debug.c tests/util.h $(DAP_SRC) src/debug/dap.h src/debug/adapters.h src/lsp/channel.h src/lsp/json.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0 gio-unix-2.0) -o $@ tests/test_debug.c $(DAP_SRC) \
 	  $(shell pkg-config --libs json-glib-1.0 gio-unix-2.0)
@@ -216,6 +216,14 @@ build/test-children: tests/test_children.c tests/util.h src/application/children
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_children.c src/application/children.c \
 	  $(shell pkg-config --libs glib-2.0)
 
+build/test-shellenv: tests/test_shellenv.c tests/util.h src/application/shellenv.c src/application/shellenv.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags gio-2.0) -o $@ tests/test_shellenv.c src/application/shellenv.c \
+	  $(shell pkg-config --libs gio-2.0)
+
+build/test-errtail: tests/test_errtail.c tests/util.h src/application/errtail.c src/application/errtail.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags gio-2.0) -o $@ tests/test_errtail.c src/application/errtail.c \
+	  $(shell pkg-config --libs gio-2.0)
+
 build/test-registry: tests/test_registry.c tests/util.h tests/ed25519_sign.h src/plugins/registry.c src/plugins/registry.h src/plugins/ed25519.c src/plugins/ed25519.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o $@ tests/test_registry.c \
 	  src/plugins/registry.c src/plugins/ed25519.c $(shell pkg-config --libs json-glib-1.0 gio-2.0)
@@ -225,12 +233,14 @@ build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c sr
 	  $(shell pkg-config --libs $(PKGS))
 
 
-test: build/test-log build/test-children build/test-processes build/test-templates build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
+test: build/test-log build/test-children build/test-shellenv build/test-errtail build/test-processes build/test-templates build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
       build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-repos build/test-vcs build/test-frameworks build/test-testing build/test-files build/test-window build/test-about build/test-welcome \
       build/test-plugins build/test-update build/test-recovery build/test-registry
 	build/test-searchmatch
 	build/test-log
 	build/test-children
+	build/test-shellenv
+	build/test-errtail
 	build/test-processes
 	build/test-templates
 	build/test-detect
@@ -310,6 +320,12 @@ test-asan: | build
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-children \
 	  tests/test_children.c src/application/children.c $(shell pkg-config --libs glib-2.0)
 	$(ASAN_ENV) build/asan/test-children
+	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags gio-2.0) -o build/asan/test-shellenv \
+	  tests/test_shellenv.c src/application/shellenv.c $(shell pkg-config --libs gio-2.0)
+	$(ASAN_ENV) build/asan/test-shellenv
+	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags gio-2.0) -o build/asan/test-errtail \
+	  tests/test_errtail.c src/application/errtail.c $(shell pkg-config --libs gio-2.0)
+	$(ASAN_ENV) build/asan/test-errtail
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-processes \
 	  tests/test_processes.c src/application/processes.c $(shell pkg-config --libs glib-2.0)
 	$(ASAN_ENV) build/asan/test-processes

@@ -1,8 +1,9 @@
 /*
  * t-code's log file, ~/.local/state/t-code/t-code.log: a line for each start ("=== <date> t-code
  * <version>, pid <n>") and one for each clean quit ("=== quit"), so a run without the second one
- * crashed or was killed; GLib's and GTK's warnings and worse (everything with G_MESSAGES_DEBUG) in
- * between, each with its time. For a t-code started from the desktop's menu, where no terminal shows
+ * crashed or was killed; GLib's and GTK's warnings and worse, and t-code's notes (g_message: a
+ * language server started, the login shell's PATH), in between, each with its time (debug and info
+ * lines only with G_MESSAGES_DEBUG). For a t-code started from the desktop's menu, where no terminal shows
  * them, and for problems noticed only later. The last LOG_RUNS starts are kept, and fewer when they
  * hold over LOG_MAX_BYTES. GLib-only.
  */

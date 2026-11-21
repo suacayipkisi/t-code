@@ -150,6 +150,142 @@ static void test_sync_utf16(void)
   g_setenv("FAKE_ENCODING", "utf-8", TRUE);
 }
 
+static gboolean lsp_failed(gconstpointer data G_GNUC_UNUSED)
+{
+  return app.lsp && app.lsp->failure && !app.lsp->ch;
+}
+
+/* A server that answers initialize with an error (typescript-language-server without a TypeScript it
+ * can use) is not "starting" for ever: it did not start, the status bar says why, the log gets it, and
+ * it is not started again until Restart Language Servers, which then works once it is fixed. */
+static void test_initialize_error(void)
+{
+  lsp_stop(&app);
+  g_setenv("FAKE_INIT_ERROR", "Could not find a valid TypeScript installation.", TRUE);
+  g_test_expect_message(NULL, G_LOG_LEVEL_MESSAGE, "t-code: started *");
+  g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "*did not start: Could not find a valid TypeScript*");
+  Tab *tab = new_tab("/tmp/t-code-test/fails.c", "int a;\n");
+  lsp_open(tab);
+  run_until(lsp_failed, NULL);
+  g_test_assert_expected_messages();
+  g_assert_true(lsp_failed(NULL));
+  char *progress = lsp_progress(&app), *failure = lsp_failure(&app);
+  g_assert_nonnull(strstr(progress, ": did not start"));
+  g_assert_nonnull(strstr(failure, "Could not find a valid TypeScript installation."));
+  g_assert_nonnull(strstr(failure, "Restart Language Servers"));
+  g_free(failure);
+  g_free(progress);
+
+  Tab *other = new_tab("/tmp/t-code-test/fails2.c", "int b;\n"); /* another file does not start it again */
+  lsp_open(other);
+  run_for(100);
+  g_assert_null(app.lsp->ch);
+
+  g_unsetenv("FAKE_INIT_ERROR"); /* fixed: a restart starts it */
+  lsp_restart(&app);
+  g_assert_null(app.lsp->failure);
+  g_assert_null(lsp_failure(&app));
+  g_assert_true(server_agrees(tab));
+  g_assert_true(app.lsp->ready);
+  free_tab(other);
+  free_tab(tab);
+}
+
+static gboolean lsp_failed_long(void)
+{
+  gint64 end = g_get_monotonic_time() + 15 * G_USEC_PER_SEC;
+
+  while (!lsp_failed(NULL) && g_get_monotonic_time() < end)
+    g_main_context_iteration(NULL, TRUE);
+  return lsp_failed(NULL);
+}
+
+/* A server that exits as soon as it starts (rust-analyzer's rustup proxy without the component): each
+ * run is in the log with what it wrote to stderr, and after the last one the status bar says it did
+ * not start and why, instead of nothing. */
+static void test_server_crash(void)
+{
+  lsp_stop(&app);
+  g_setenv("FAKE_INIT_CRASH", "error: rust-analyzer is not installed for the toolchain", TRUE);
+  for (int i = 0; i < MAX_CRASHES + 1; i++) {
+    g_test_expect_message(NULL, G_LOG_LEVEL_MESSAGE, "t-code: started *");
+    g_test_expect_message(NULL, G_LOG_LEVEL_WARNING,
+                          "*exited before it started (run *; its last output:*not installed for the toolchain");
+  }
+  Tab *tab = new_tab("/tmp/t-code-test/crash.c", "int a;\n");
+  lsp_open(tab);
+  g_assert_true(lsp_failed_long());
+  g_test_assert_expected_messages();
+  char *progress = lsp_progress(&app), *failure = lsp_failure(&app);
+  g_assert_nonnull(strstr(progress, ": did not start"));
+  g_assert_nonnull(strstr(failure, "exited at start 4 times: error: rust-analyzer is not installed for the toolchain"));
+  g_free(failure);
+  g_free(progress);
+
+  g_unsetenv("FAKE_INIT_CRASH");
+  lsp_restart(&app);
+  g_assert_true(server_agrees(tab));
+  free_tab(tab);
+}
+
+/* A server that never answers initialize is not "starting" for ever. */
+static void test_initialize_timeout(void)
+{
+  lsp_stop(&app);
+  init_timeout_ms = 300;
+  g_setenv("FAKE_INIT_SILENT", "1", TRUE);
+  g_test_expect_message(NULL, G_LOG_LEVEL_MESSAGE, "t-code: started *");
+  g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "*did not start: no answer to initialize in 0 s*");
+  Tab *tab = new_tab("/tmp/t-code-test/silent.c", "int a;\n");
+  lsp_open(tab);
+  run_until(lsp_failed, NULL);
+  g_test_assert_expected_messages();
+  char *progress = lsp_progress(&app);
+  g_assert_nonnull(strstr(progress, ": did not start"));
+  g_free(progress);
+
+  init_timeout_ms = INIT_TIMEOUT_MS;
+  g_unsetenv("FAKE_INIT_SILENT");
+  lsp_restart(&app);
+  g_assert_true(server_agrees(tab));
+  free_tab(tab);
+}
+
+/* The TypeScript of a package inside the project is the nearest node_modules/typescript up to the
+ * project folder; one above the project, or a node_modules without tsserver.js, is not taken. */
+static void test_typescript_path(void)
+{
+  char *root = g_dir_make_tmp("t-code-ts-XXXXXX", NULL);
+  char *outer = g_build_filename(root, "node_modules", "typescript", "lib", "tsserver.js", NULL);
+  char *project = g_build_filename(root, "project", NULL);
+  char *file = g_build_filename(project, "packages", "web", "src", "a.ts", NULL);
+  char *inner = g_build_filename(project, "packages", "web", "node_modules", "typescript", "lib", "tsserver.js", NULL);
+  char *path;
+
+  g_free(write_at(root, "node_modules/typescript/lib/tsserver.js", "", 0, 0));
+  g_free(write_at(project, "packages/web/src/a.ts", "", 0, 0));
+  g_free(write_at(project, "packages/web/src/node_modules/typescript/package.json", "{}", -1, 0));
+  g_assert_null(server_typescript_path(file, project)); /* the one above the project is not taken */
+  g_free(write_at(project, "packages/web/node_modules/typescript/lib/tsserver.js", "", 0, 0));
+  path = server_typescript_path(file, project);
+  g_assert_cmpstr(path, ==, inner);
+  g_free(path);
+  path = server_typescript_path(file, root); /* the nearest wins */
+  g_assert_cmpstr(path, ==, inner);
+  g_free(path);
+  g_assert_null(server_typescript_path("/elsewhere/a.ts", project));
+  g_assert_null(server_typescript_path(NULL, project));
+
+  char *cmd = g_strdup_printf("rm -rf '%s'", root);
+  g_assert_cmpint(system(cmd), ==, 0);
+  g_free(cmd);
+  g_free(inner);
+  g_free(file);
+  g_free(project);
+  g_free(outer);
+  g_free(root);
+}
+
 /* A file loaded again (changed on disk) goes whole. */
 static void test_reload(void)
 {
@@ -1010,6 +1146,7 @@ static void test_crash(void)
   lsp_stop(&app);
   lsp_open(tab);
   g_assert_true(server_agrees(tab));
+  g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "*stopped by itself (run 1 of 4)*"); /* in the log */
   start = iter_at(tab, 0, 0);
   gtk_text_buffer_insert(GTK_TEXT_BUFFER(tab->buffer), &start, "CRASH ", -1);
   run_for(500);
@@ -1017,6 +1154,8 @@ static void test_crash(void)
   GtkTextIter end = iter_at(tab, 0, 6);
   gtk_text_buffer_delete(GTK_TEXT_BUFFER(tab->buffer), &start, &end);
   g_assert_true(server_agrees(tab)); /* the restarted server has "x" */
+  run_for(700);                      /* the report waits up to 500 ms for the end of stderr */
+  g_test_assert_expected_messages();
   g_assert_cmpint(app.lsp->crashes, ==, 1);
   free_tab(tab);
 }
@@ -1969,5 +2108,9 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/language-routing", test_language_routing);
   g_test_add_func("/lsp/cancel-shutdown", test_cancel_shutdown);
   g_test_add_func("/lsp/project-switch", test_project_switch);
+  g_test_add_func("/lsp/initialize-error", test_initialize_error);
+  g_test_add_func("/lsp/server-crash", test_server_crash);
+  g_test_add_func("/lsp/initialize-timeout", test_initialize_timeout);
+  g_test_add_func("/lsp/typescript-path", test_typescript_path);
   return g_test_run();
 }

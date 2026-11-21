@@ -796,6 +796,27 @@ static void test_missing(void)
   g_error_free(error);
 }
 
+/* A debugger that stops by itself before it answers (a bad option, a missing module): the log gets
+ * what it wrote to stderr; one asked to disconnect is no news. */
+static void test_gone_logged(void)
+{
+  const char *argv[] = { "sh", "-c", "echo 'gdb: unrecognized option -i=dap' >&2; exit 1", NULL };
+  GError *error = NULL;
+  Run r = new_run();
+
+  g_test_expect_message(NULL, G_LOG_LEVEL_MESSAGE, "t-code: started the debugger sh");
+  g_test_expect_message(NULL, G_LOG_LEVEL_WARNING,
+                        "t-code: the debugger sh stopped by itself; its last output:\ngdb: unrecognized option -i=dap");
+  Dap *d = dap_start(argv, "/", NULL, NULL, "gdb", on_event, NULL, &r, &error);
+  g_assert_no_error(error);
+  wait_for(&r);
+  g_assert_true(r.gone);
+  run_for(700); /* the report waits up to 500 ms for the end of stderr */
+  g_test_assert_expected_messages();
+  dap_free(d);
+  free_run(&r);
+}
+
 int main(int argc, char **argv)
 {
   g_test_init(&argc, &argv, NULL);
@@ -805,6 +826,7 @@ int main(int argc, char **argv)
   g_test_add_func("/dap/debugpy", test_debugpy);
   g_test_add_func("/dap/lldb", test_lldb);
   g_test_add_func("/dap/missing", test_missing);
+  g_test_add_func("/dap/gone-logged", test_gone_logged);
   g_test_add_func("/dap/connect", test_connect);
   g_test_add_func("/adapters/arguments", test_adapter_arguments);
   g_test_add_func("/adapters/lldb-names", test_lldb_names);

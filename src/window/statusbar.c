@@ -8,6 +8,7 @@
  */
 #include "window/statusbar.h"
 
+#include "application/shellenv.h"
 #include "dialogs/keybinds.h"
 #include "dialogs/lspinstall.h"
 #include "editor/editorview.h"
@@ -48,6 +49,23 @@ static const char *const css =
 
 static void status_show_progress(App *t);
 
+/* "No LSP" shown: the log says once per server where it was looked for (not while the login shell's
+ * PATH is still coming: it may be found then). */
+static void log_missing(const char *server)
+{
+  static GHashTable *logged;
+
+  if (shell_env_loading())
+    return;
+  if (!logged)
+    logged = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+  if (g_hash_table_contains(logged, server))
+    return;
+  g_hash_table_add(logged, g_strdup(server)); /* a plugin's name goes when the plugins load again */
+  g_message("t-code: %s not found: not on PATH (%s) nor in ~/.local/bin, ~/.cargo/bin or Go's bin folder", server,
+            g_getenv("PATH") ? g_getenv("PATH") : "");
+}
+
 void update_status(App *t)
 {
   int n, errors = 0, warnings = 0;
@@ -87,12 +105,18 @@ void update_status(App *t)
   g_free(text);
 
   const char *server = lsp_missing_server(current_tab(t));
+  gboolean was_missing = gtk_widget_get_visible(t->status.no_lsp);
   if (server) {
+    log_missing(server);
     text = g_strdup_printf("%s is not installed: click for the commands that install it", server);
     gtk_widget_set_tooltip_text(t->status.no_lsp, text);
     g_free(text);
   }
   gtk_widget_set_visible(t->status.no_lsp, server != NULL);
+  /* Installed (or put on PATH) while t-code runs: the notice goes, and the server starts for the open
+   * files instead of only after a restart. */
+  if (was_missing && !server)
+    lsp_open_installed(t);
 
   status_show_progress(t);
   status_show_font_scale(t);
@@ -227,11 +251,12 @@ static gboolean said(gpointer data)
 
 static void status_show_progress(App *t)
 {
-  char *text = lsp_progress(t);
+  char *text = lsp_progress(t), *failure = text ? lsp_failure(t) : NULL;
 
   if (text)
     gtk_label_set_text(t->status.progress, text);
-  gtk_widget_set_tooltip_text(GTK_WIDGET(t->status.progress), text);
+  gtk_widget_set_tooltip_text(GTK_WIDGET(t->status.progress), failure ? failure : text);
+  g_free(failure);
   gtk_widget_set_visible(GTK_WIDGET(t->status.progress), text != NULL);
   g_free(text);
 }

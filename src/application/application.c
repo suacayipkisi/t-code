@@ -7,6 +7,7 @@
 
 #include "application/identity.h"
 #include "application/log.h"
+#include "application/shellenv.h"
 #include "debug/debugger.h"
 #include "dialogs/welcome.h"
 #include "editor/editor.h"
@@ -123,6 +124,30 @@ static int start_log(void)
   return -1; /* go on */
 }
 
+/* The login shell's environment came, or did not (see shellenv.h): the language servers it makes
+ * findable start for the open tabs ("No LSP" goes), and the project's plugins, which waited for it,
+ * start. Before the window is built nothing needs doing: it starts them itself. */
+static void on_shell_env(gboolean changed, gpointer data)
+{
+  App *t = data;
+
+  if (!t->window || t->closing)
+    return;
+  if (changed)
+    lsp_open_installed(t);
+  plugins_start_project(t);
+}
+
+/* "startup": this process really is t-code. Inside Flatpak and Snap the user's shell is not the
+ * one their programs run with, and its folders are not there. */
+static void on_startup(GApplication *app G_GNUC_UNUSED, App *t)
+{
+  const char *shell = g_getenv("SHELL");
+
+  if (shell && *shell && !g_getenv("FLATPAK_ID") && !g_getenv("SNAP"))
+    shell_env_load(shell, 5000, on_shell_env, t);
+}
+
 /* "shutdown": the window is gone. The sockets' files and the old file versions are removed, and the
  * language servers stop. */
 static void on_shutdown(GApplication *app G_GNUC_UNUSED, App *t)
@@ -217,6 +242,7 @@ int application_run(int argc, char **argv)
   g_signal_connect(app, "handle-local-options", G_CALLBACK(start_log), NULL);
   g_action_map_add_action_entries(G_ACTION_MAP(app), actions, G_N_ELEMENTS(actions), NULL);
   session_load_settings(&t);
+  g_signal_connect(app, "startup", G_CALLBACK(on_startup), &t);
   g_signal_connect(app, "activate", G_CALLBACK(on_activate), &t);
   g_signal_connect(app, "open", G_CALLBACK(on_open), &t);
   g_signal_connect(app, "shutdown", G_CALLBACK(on_shutdown), &t);

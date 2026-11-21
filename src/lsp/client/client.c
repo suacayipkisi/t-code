@@ -19,12 +19,12 @@
 /* Where the system headers are looked for (tests use a folder of their own). */
 static const char *sysroot = "/";
 
-static void lsp_ref(Lsp *l)
+void lsp_ref(Lsp *l)
 {
   g_atomic_ref_count_inc(&l->refs);
 }
 
-static void lsp_unref(Lsp *l)
+void lsp_unref(Lsp *l)
 {
   if (g_atomic_ref_count_dec(&l->refs))
     g_free(l);
@@ -204,8 +204,8 @@ void lsp_open(Tab *tab)
   }
   doc->use = ++l->use;
   g_clear_handle_id(&l->idle_id, g_source_remove);
-  if (!l->ch)
-    lsp_server_start(l); /* the file goes once it has answered initialize */
+  if (!l->ch && !l->failure) /* failed: Restart Language Servers tries again */
+    lsp_server_start(l);     /* the file goes once it has answered initialize */
   else if (l->ready)
     doc_send(doc);
 }
@@ -283,6 +283,7 @@ void lsp_stop(App *t)
     if (l->written)
       g_string_free(l->written, TRUE);
     g_free(l->workspace);
+    g_clear_pointer(&l->failure, g_free);
     lsp_unref(l);
   }
   g_ptr_array_free(t->lsps, TRUE);
@@ -301,6 +302,8 @@ static void restart_one(Lsp *l)
   lsp_server_stop(l);
   l->crashes = 0;
   l->missing = FALSE; /* it may have been installed meanwhile */
+  g_clear_pointer(&l->failure, g_free);
+  l->failed_running = FALSE;
   if (l->kind == SERVER_CLANGD) {
     g_hash_table_iter_init(&iter, l->docs);
     while (g_hash_table_iter_next(&iter, NULL, &doc))
@@ -378,8 +381,33 @@ static char *progress_text(Lsp *l)
     text = g_strdup_printf("%s: %s", name, p->text);
   else if (l->ch && !l->ready)
     text = g_strdup_printf("%s: starting", name);
+  else if (l->failure && !l->ch)
+    text = g_strdup_printf("%s: %s", name, l->failed_running ? "stopped" : "did not start");
   g_free(name);
   return text;
+}
+
+char *lsp_failure(App *t)
+{
+  Tab *tab = current_tab(t);
+  Doc *doc = tab ? doc_of(tab) : NULL;
+  Lsp *l = doc && doc->lsp->failure ? doc->lsp : NULL;
+
+  for (guint i = 0; !l && t->lsps && i < t->lsps->len; i++) {
+    Lsp *each = g_ptr_array_index(t->lsps, i);
+    if (each->failure && !each->ch)
+      l = each;
+  }
+  if (!l || l->ch)
+    return NULL;
+  const char *hint =
+      l->kind == SERVER_TYPESCRIPT && strstr(l->failure, "TypeScript")
+          ? "\n\nIt needs TypeScript 6 (TypeScript 7 has no tsserver.js): npm install -g typescript@6, or "
+            "npm install -D typescript@6 in the project."
+          : "";
+  return g_strdup_printf("%s %s: %s%s\n\nThe log (~/.local/state/t-code/t-code.log) has more; Restart "
+                         "Language Servers (command palette) tries again.",
+                         server_name(l->kind), l->failed_running ? "stopped" : "did not start", l->failure, hint);
 }
 
 char *lsp_progress(App *t)
