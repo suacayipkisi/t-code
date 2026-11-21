@@ -126,15 +126,15 @@ sudo snap alias t-code-ide t-code    # optional: run it as t-code
 The Snap is strictly confined: it bundles its own compiler, clangd, gdb, CMake and Python, and sees
 the projects in your home folder.
 
-### Packages ([latest release](https://github.com/suacayipkisi/t-code/releases/tag/v0.4.2), x86_64)
+### Packages ([latest release](https://github.com/suacayipkisi/t-code/releases/tag/v0.5.1), x86_64)
 
 ```sh
-sudo dnf install ./t-code-ide-0.4.2-1.fc44.x86_64.rpm        # Fedora 44
-sudo pacman -U t-code-ide-0.4.2-1-x86_64.pkg.tar.zst         # Arch Linux
-sudo apt install ./t-code-ide_0.4.2-1_amd64.deb              # Debian 13
-xbps-rindex -a t-code-ide-0.4.2_1.x86_64.xbps && sudo xbps-install --repository="$PWD" t-code-ide   # Void (or x86_64-musl)
-flatpak install --user ./t-code-0.4.2-x86_64.flatpak         # Flatpak
-sudo snap install --dangerous ./t-code-ide_0.4.2_amd64.snap  # Snap (strict confinement)
+sudo dnf install ./t-code-ide-0.5.1-1.fc44.x86_64.rpm        # Fedora 44
+sudo pacman -U t-code-ide-0.5.1-1-x86_64.pkg.tar.zst         # Arch Linux
+sudo apt install ./t-code-ide_0.5.1-1_amd64.deb              # Debian 13 (apt, not dpkg -i: it pulls in clangd and the font)
+xbps-rindex -a t-code-ide-0.5.1_1.x86_64.xbps && sudo xbps-install --repository="$PWD" t-code-ide   # Void (or x86_64-musl)
+flatpak install --user ./t-code-0.5.1-x86_64.flatpak         # Flatpak
+sudo snap install --dangerous ./t-code-ide_0.5.1_amd64.snap  # Snap (strict confinement)
 ```
 
 The package manager pulls in clangd, git and the Cascadia Code font (Void has no Cascadia Code:
