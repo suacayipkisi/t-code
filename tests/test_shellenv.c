@@ -8,8 +8,8 @@
 #include "application/shellenv.h"
 #include "util.h"
 
-#include <signal.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 typedef struct {
@@ -131,6 +131,20 @@ static void test_load(void)
   g_free(dir);
 }
 
+/* Gone or a zombie: killed, but in a container whose PID 1 reaps nothing it stays a zombie, which
+ * kill(pid, 0) still finds. */
+static gboolean alive(pid_t pid)
+{
+  char *path = g_strdup_printf("/proc/%d/stat", (int)pid), *stat = NULL;
+  gboolean found = g_file_get_contents(path, &stat, NULL, NULL);
+  const char *paren = found ? strrchr(stat, ')') : NULL;
+  gboolean running = paren && paren[1] == ' ' && paren[2] != 'Z' && paren[2] != 'X';
+
+  g_free(stat);
+  g_free(path);
+  return running;
+}
+
 /* A start-up file that waits forever (and a program it started holds the output open): given up
  * on in time, both killed, PATH unchanged. */
 static void test_timeout(void)
@@ -154,9 +168,9 @@ static void test_timeout(void)
   pid_t sleeper = atoi(text);
   g_assert_cmpint(sleeper, >, 0);
   gint64 end = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
-  while (kill(sleeper, 0) == 0 && g_get_monotonic_time() < end)
-    run_for(20); /* reaped by init once the shell is gone */
-  g_assert_cmpint(kill(sleeper, 0), !=, 0);
+  while (alive(sleeper) && g_get_monotonic_time() < end)
+    run_for(20);
+  g_assert_false(alive(sleeper));
 
   g_free(text);
   g_free(before);
