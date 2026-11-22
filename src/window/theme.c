@@ -58,10 +58,11 @@ static const char *const css =
     /* Editor tabs (editor/tabs.c's strip over each group): rounded on top, the current one in the
      * editor's color, flowing into it. */
     "notebook, notebook.frame { background: none; border: none; }"
-    ".tcode-tabs { background: var(--tc-frame); padding: 4px 4px 0; }"
+    ".tcode-tabs { background: var(--tc-frame); padding: 4px 4px 0 0; }"
     ".tcode-drop-hint { color: var(--tc-accent); }" /* editor/dropzone.c's markers */
     ".tcode-tab { min-height: 30px; padding: 0 4px 0 12px; margin: 0 1px; border-radius: 9px 9px 0 0;"
     "  color: var(--tc-fg-dim); }"
+    ".tcode-tab:first-child { margin-left: 0; }" /* the first tab at the group's left edge */
     ".tcode-tab:hover { background: var(--tc-raised); color: var(--tc-fg); }"
     ".tcode-tab:checked { background: var(--tc-panel); color: var(--tc-fg-strong); box-shadow: inset 0 2px var(--tc-accent); }"
     ".tcode-tab button { min-width: 20px; min-height: 20px; padding: 0; margin: 0;"
