@@ -9,7 +9,6 @@
 #include "editor/preview/preview.h"
 #include "editor/tabs.h"
 #include "files/files.h"
-#include "git/compare.h"
 #include "popups/contextmenu.h"
 #include "window/secondwindow.h"
 #include "window/window.h"
@@ -175,7 +174,7 @@ static void on_stop_comparing(gpointer data)
   Tab *tab = target_tab(data);
 
   if (tab && tab->compare.old_side)
-    stop_comparing_tab(tab);
+    remove_tab(tab); /* old versions: nothing to save */
 }
 
 static void on_preview(gpointer data)

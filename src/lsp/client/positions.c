@@ -66,11 +66,6 @@ void lsp_iter_at_encoding(Tab *tab, JsonNode *position, GtkTextIter *iter, gbool
   iter_at_position(tab, json_int_at(position, "line", 0), json_int_at(position, "character", 0), iter, utf16);
 }
 
-void lsp_iter_at_position(Tab *tab, gint64 line, gint64 character, GtkTextIter *iter)
-{
-  iter_at_position(tab, line, character, iter, lsp_utf16(tab));
-}
-
 char *lsp_document_params(Tab *tab)
 {
   char *uri = lsp_path_to_uri(tab->path), *quoted = json_quote(uri ? uri : "");

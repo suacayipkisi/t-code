@@ -190,8 +190,8 @@ static void legend_clear(Legend *legend)
 /* Colors the tokens on lines from_line to to_line (both included; -1: to the end). The numbers are
  * five per token: line and start relative to the token before, length, type, modifiers. */
 /* Walks the text to token positions: the tokens come in the text's order, so each walk goes on from
- * the last one on its line instead of from the line's start (lsp_iter_at_position's way, which took
- * seconds for a file of 60000 lines). */
+ * the last one on its line instead of from the line's start (which took seconds for a file of 60000
+ * lines). */
 typedef struct {
   GtkTextBuffer *buffer;
   int lines;
@@ -200,7 +200,7 @@ typedef struct {
   GtkTextIter iter;
 } Walker;
 
-/* The iter at character on line, as lsp_iter_at_position finds it. */
+/* The iter at character on line, as lsp_iter_at() finds it. */
 static void walk_to(Walker *w, gint64 line, gint64 character, GtkTextIter *out)
 {
   if (line >= w->lines) {

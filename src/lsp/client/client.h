@@ -106,9 +106,6 @@ void lsp_iter_at(Tab *tab, JsonNode *position, GtkTextIter *iter);
 /* Like lsp_iter_at(), with the originating server's position encoding. */
 void lsp_iter_at_encoding(Tab *tab, JsonNode *position, GtkTextIter *iter, gboolean utf16);
 
-/* The same from the line and character. */
-void lsp_iter_at_position(Tab *tab, gint64 line, gint64 character, GtkTextIter *iter);
-
 /* "file:///a%20b.c" -> "/a b.c" and back; a URI given an alias goes to its file and back. */
 char *lsp_uri_to_path(const char *uri);
 char *lsp_path_to_uri(const char *path);

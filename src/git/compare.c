@@ -238,10 +238,9 @@ static Tab *open_version(App *t, const char *path, const char *label, const char
 
   for (int i = tab_count(t) - 1; i >= 0; i--) {
     Tab *other = tab_nth(t, i);
-    if (g_strcmp0(other->path, path) == 0)
-      remove_tab(other); /* an old version: nothing to save */
-    else if (other->compare.old_side && g_strcmp0(other->compare.old_side->path, path) == 0)
-      stop_comparing_tab(other);
+    if (g_strcmp0(other->path, path) == 0 ||
+        (other->compare.old_side && g_strcmp0(other->compare.old_side->path, path) == 0))
+      remove_tab(other); /* old versions: nothing to save */
   }
   tab = open_editor(t, path, 0, 0, TRUE);
   tab->compare.title = g_strdup_printf("%s @ %s", name, label);
@@ -533,28 +532,12 @@ static void show_revisions(App *t, char **outs, gpointer data)
   g_free(old_label);
 }
 
-void stop_comparing_tab(Tab *tab)
-{
-  if (!tab->compare.old_side)
-    return;
-  part_tabs(tab);
-  if (!tab->compare.with) { /* the working file: its gutter follows HEAD again */
-    diff_gutter_pair(tab, NULL);
-    diff_gutter_follow_head(tab);
-  }
-}
-
-/* Ends the current tab's comparison: an old version closes, the working file stays. */
 void stop_comparing(App *t)
 {
   Tab *tab = current_tab(t);
 
-  if (!tab || tab->kind != TAB_EDITOR)
-    return;
-  if (tab->compare.with) /* two old versions, or one: nothing to keep */
+  if (tab && tab->kind == TAB_EDITOR && tab->compare.with) /* old versions: nothing to save */
     remove_tab(tab);
-  else
-    stop_comparing_tab(tab);
 }
 
 void toggle_unchanged_lines(App *t)

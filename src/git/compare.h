@@ -34,12 +34,8 @@ void file_history(App *t, const char *path);
  * side (the file was added or deleted). */
 void compare_revisions(App *t, const char *old_rev, const char *old_rel, const char *new_rev, const char *new_rel);
 
-/* Ends the current tab's comparison: a tab of old versions closes, a working file joined with one
- * stays (its gutter following HEAD again). */
+/* Ends the current tab's comparison: its tab of old versions closes. */
 void stop_comparing(App *t);
-
-/* The same for one tab (the left side of a comparison); nothing when it compares nothing. */
-void stop_comparing_tab(Tab *tab);
 
 /* The current tab's comparison shows its unchanged lines, or hides them again (diffgutter.h). */
 void toggle_unchanged_lines(App *t);

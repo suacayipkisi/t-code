@@ -144,9 +144,6 @@ double preview_heading_scale(int level);
 /* view.c: the color of a GitHub alert (1 note ... 5 caution). */
 const GdkRGBA *preview_alert_color(int alert);
 
-/* math.c: a TeX formula as Pango markup on one line (for table cells): x<sup>2</sup>, a⁄b, √x. */
-char *preview_math_markup(const char *tex);
-
 /* footnotes.c: the Markdown text with GitHub's footnotes turned into links, anchors and a numbered
  * list at the end (md4c does not know them), or NULL when it has none. */
 char *preview_footnotes(const char *text);

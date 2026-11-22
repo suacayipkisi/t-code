@@ -422,26 +422,6 @@ void join_tabs(Tab *left, Tab *right)
   g_object_unref(left->page);
 }
 
-void part_tabs(Tab *left)
-{
-  GtkNotebook *group;
-  int position;
-
-  if (!left->compare.old_side)
-    return;
-  group = tab_group(left);
-  position = tab_position(left);
-  unpair(left);
-  g_object_ref(left->page);
-  gtk_paned_set_start_child(GTK_PANED(left->frame), NULL);
-  gtk_notebook_remove_page(group, gtk_notebook_page_num(group, left->frame)); /* the right side goes with it */
-  left->frame = NULL;
-  left->compare.old_side = NULL;
-  insert_page(group, left->page, position);
-  update_tab_label(left);
-  g_object_unref(left->page);
-}
-
 /* Moves a tab (with its editor) to the end of another group. */
 void move_tab(Tab *tab, GtkNotebook *to)
 {

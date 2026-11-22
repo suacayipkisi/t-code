@@ -52,9 +52,6 @@ void keep_tab(Tab *tab);
  * with left. */
 void join_tabs(Tab *left, Tab *right);
 
-/* Takes a comparison apart: its right side closes, left is a tab of its own again. */
-void part_tabs(Tab *left);
-
 /* A tab's position in its group, and moving it to another one there. */
 int tab_position(Tab *tab);
 void set_tab_position(Tab *tab, int position);

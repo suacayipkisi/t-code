@@ -18,7 +18,7 @@
 #define CONTEXT 3     /* unchanged lines a comparison keeps around a change */
 #define MIN_FOLDED 4  /* fewer unchanged lines than this stay shown */
 
-typedef enum { BASE_HEAD, BASE_REV, BASE_FILE, BASE_NONE } BaseKind;
+typedef enum { BASE_HEAD, BASE_FILE, BASE_NONE } BaseKind;
 
 typedef struct Loading Loading;
 
@@ -26,7 +26,7 @@ struct DiffGutter {
   Tab *tab;
   GtkWidget *renderer;
   BaseKind kind;
-  char *value;           /* the commit, or the file */
+  char *value;           /* the file */
   char *base;            /* its text; NULL: no marks (not in git, a new file) */
   GArray *marks;         /* guint8 LineMark per line, NULL before the first */
   Tab *partner;          /* the other tab in a side-by-side comparison, or NULL */
@@ -210,7 +210,7 @@ static void load_base(DiffGutter *g)
     return;
   }
   name = g_path_get_basename(g->tab->path);
-  args = vcs_cat_args(kind, g->kind == BASE_HEAD ? "HEAD" : g->value, name, NULL);
+  args = vcs_cat_args(kind, "HEAD", name, NULL);
   GSubprocessLauncher *launcher =
       g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE);
   GPtrArray *argv = g_ptr_array_new();
@@ -238,7 +238,7 @@ static void load_base(DiffGutter *g)
  * git per tab) once the tab is shown. */
 static void load_base_when_shown(DiffGutter *g)
 {
-  g->base_pending = (g->kind == BASE_HEAD || g->kind == BASE_REV) && !gtk_widget_get_mapped(GTK_WIDGET(g->tab->source));
+  g->base_pending = g->kind == BASE_HEAD && !gtk_widget_get_mapped(GTK_WIDGET(g->tab->source));
   if (!g->base_pending)
     load_base(g);
 }
@@ -251,16 +251,6 @@ static void set_kind(Tab *tab, BaseKind kind, const char *value)
   g_set_str(&g->value, value);
   if (!tab->view->loading)
     load_base_when_shown(g);
-}
-
-void diff_gutter_follow_head(Tab *tab)
-{
-  set_kind(tab, BASE_HEAD, NULL);
-}
-
-void diff_gutter_compare_rev(Tab *tab, const char *rev)
-{
-  set_kind(tab, rev ? BASE_REV : BASE_NONE, rev);
 }
 
 void diff_gutter_compare_file(Tab *tab, const char *path)
