@@ -3286,11 +3286,12 @@ static void test_selection_opacity(void)
   remove_tab(current_tab(&app));
   for (size_t i = 0; i < G_N_ELEMENTS(levels); i++) {
     double share = levels[i] / 100.0;
-    app.settings.selection_opacity = levels[i];
-    editor_view_set_selection(&app);
-    /* drawn again when the theme changed meanwhile (settings.ini, which earlier tests wrote, sets it back) */
+    /* drawn again when the theme changed meanwhile (settings.ini, which earlier tests wrote, sets it back,
+     * and the opacity with it: set again on every try) */
     for (int tries = 0; tries < 5; tries++) {
       const char *theme = palette_id();
+      app.settings.selection_opacity = levels[i];
+      editor_view_set_selection(&app);
       selection_pixel(pixel, background);
       if (g_strcmp0(theme, palette_id()) == 0)
         break;
@@ -3816,6 +3817,26 @@ static void test_own_icons(void)
   g_assert_true(gtk_widget_compute_point(logo, titlebar, &GRAPHENE_POINT_INIT(0, 0), &logo_at));
   g_assert_true(gtk_widget_compute_point(menus, titlebar, &GRAPHENE_POINT_INIT(0, 0), &menus_at));
   g_assert_cmpfloat(logo_at.x, <, menus_at.x);
+
+  /* A desktop whose layout shows the window icon (Debian): the logo is not shown twice. */
+  char *old_layout = NULL, *own;
+  GtkSettings *settings = gtk_widget_get_settings(titlebar);
+  g_object_get(settings, "gtk-decoration-layout", &old_layout, NULL);
+  g_object_set(settings, "gtk-decoration-layout", "icon,menu:minimize,maximize,close", NULL);
+  g_assert_cmpstr(gtk_header_bar_get_decoration_layout(GTK_HEADER_BAR(titlebar)), ==, "menu:minimize,maximize,close");
+  g_object_set(settings, "gtk-decoration-layout", old_layout, NULL);
+  g_free(old_layout);
+  /* clang-format off */
+  const char *layouts[][2] = {
+    {"icon:close", ":close"}, {"close:icon", "close:"}, {"menu, icon ,appmenu:icon", "menu,appmenu:"},
+    {"appmenu:close", "appmenu:close"}, {"", ""}, {NULL, ""},
+  };
+  /* clang-format on */
+  for (gsize i = 0; i < G_N_ELEMENTS(layouts); i++) {
+    own = title_bar_layout_without_icon(layouts[i][0]);
+    g_assert_cmpstr(own, ==, layouts[i][1]);
+    g_free(own);
+  }
 }
 
 /* The first terminal tab's folder (shell_folders lists the others) is where dir is. */
@@ -5639,25 +5660,6 @@ static void test_disassembly(void)
   g_free(gcc);
 }
 
-/* GTK 4.24 under Broadway warns about its own frame timings now and then (no t-code code in the
- * stack): that one is only printed; every other warning still fails the test. */
-static GLogWriterOutput log_writer(GLogLevelFlags level, const GLogField *fields, gsize n, gpointer data)
-{
-  const char *domain = NULL, *message = NULL;
-
-  for (gsize i = 0; i < n; i++) {
-    if (strcmp(fields[i].key, "GLIB_DOMAIN") == 0)
-      domain = fields[i].value;
-    else if (strcmp(fields[i].key, "MESSAGE") == 0)
-      message = fields[i].value;
-  }
-  if (g_strcmp0(domain, "Gdk") == 0 && message && strstr(message, "gdk_frame_timings_submitted")) {
-    g_printerr("# ignored: Gdk-WARNING: %s\n", message);
-    return G_LOG_WRITER_HANDLED;
-  }
-  return g_log_writer_default(level, fields, n, data);
-}
-
 int main(int argc, char **argv)
 {
   char *home = g_dir_make_tmp("t-code-window-XXXXXX", NULL);
@@ -5667,12 +5669,12 @@ int main(int argc, char **argv)
 
   char *cache = g_build_filename(home, "cache", NULL);
 
-  g_log_set_writer_func(log_writer, NULL, NULL);
   g_setenv("XDG_CONFIG_HOME", config, TRUE); /* not the real session.ini */
   g_setenv("XDG_CACHE_HOME", cache, TRUE);   /* nor the real recovery journals */
   g_free(cache);
   start_broadway();
   gtk_test_init(&argc, &argv, NULL);
+  ignore_gtk_noise();
   app.project.root = g_build_filename(home, "project", NULL);
   app.settings.font_scale = 1;
   app.settings.preview_scale = 1.0;

@@ -567,16 +567,16 @@ static void keep_color_scheme(GtkSettings *settings, GParamSpec *spec G_GNUC_UNU
 static void set_color_scheme(void)
 {
   GtkSettings *settings = gtk_settings_get_default();
-  static gboolean watching;
 
 #if GTK_CHECK_VERSION(4, 20, 0) /* the desktop's light or dark comes through this one since 4.20 */
+  static gboolean watching;
   keep_color_scheme(settings, NULL, NULL);
   if (!watching)
     g_signal_connect(settings, "notify::gtk-interface-color-scheme", G_CALLBACK(keep_color_scheme), NULL);
+  watching = TRUE;
 #else /* deprecated since: GTK 4.24 warns about it */
   g_object_set(settings, "gtk-application-prefer-dark-theme", !current_theme->light, NULL);
 #endif
-  watching = TRUE;
 }
 
 void palette_add_css(const char *css)

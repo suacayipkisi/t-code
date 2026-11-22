@@ -96,3 +96,5 @@ void on_layout_changed(GObject *object, GParamSpec *spec, App *t);
 
 /* titlebar.c: the menu bar on the left; the sides' toggles on the right. */
 GtkWidget *title_bar(App *t);
+/* A gtk-decoration-layout without "icon" (the title bar shows its own logo); free with g_free. */
+char *title_bar_layout_without_icon(const char *layout);

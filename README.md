@@ -139,8 +139,7 @@ sudo snap install --dangerous ./t-code-ide_0.5.1_amd64.snap  # Snap (strict conf
 ```
 
 The package manager pulls in clangd, git and the Cascadia Code font (Void has no Cascadia Code:
-the system's monospace font is used). Releases no longer include an AppImage (`packaging/appimage.sh`
-still builds one by hand). An AUR recipe is in `packaging/aur/` (`makepkg -si`). The
+the system's monospace font is used). An AUR recipe is in `packaging/aur/` (`makepkg -si`). The
 sandboxes' limits: [Flatpak](packaging/flatpak/README.md), [Snap](packaging/snap/README.md).
 Building the packages yourself: [docs/packaging.md](docs/packaging.md).
 

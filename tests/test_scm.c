@@ -10,6 +10,7 @@
 #include "git/scm/state.h"
 #include "popups/picker.h"
 #include "util.h"
+#include "widgets.h"
 
 #include <glib/gstdio.h>
 
@@ -1494,6 +1495,7 @@ int main(int argc, char **argv)
   int status;
 
   g_test_init(&argc, &argv, NULL);
+  ignore_gtk_noise();
   g_setenv("HGUSER", "t <t@t>", TRUE); /* hg commits without asking who */
   /* Local Subversion repositories go there, not in the user's data folder (set before GTK reads it). */
   data_home = g_dir_make_tmp("t-code-scm-data-XXXXXX", NULL);

@@ -2054,6 +2054,7 @@ int main(int argc, char **argv)
   if (argc > 1 && strcmp(argv[1], "--fake-server") == 0)
     return fake_server();
   g_test_init(&argc, &argv, NULL);
+  ignore_gtk_noise();
   if (!gtk_init_check()) {
     g_test_skip("no display");
     return g_test_run();

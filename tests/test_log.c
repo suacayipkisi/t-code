@@ -105,6 +105,8 @@ static void test_log_hook(void)
   g_assert_cmpstr(hook_seen, ==, "Gdk: Tried to map a grabbing popup");
   send(G_LOG_LEVEL_CRITICAL, "Gtk", "assertion failed");
   g_assert_cmpint(hook_calls, ==, 2);
+  send(G_LOG_LEVEL_WARNING, "Gdk", "gdk_frame_timings_submitted() called on submitted frame."); /* GTK's own */
+  g_assert_cmpint(hook_calls, ==, 2);
   log_set_hook(NULL);
   send(G_LOG_LEVEL_WARNING, "Gdk", "after");
   g_assert_cmpint(hook_calls, ==, 2);

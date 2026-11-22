@@ -130,10 +130,10 @@ build/test-detect: tests/test_detect.c tests/util.h src/editor/text/detect.c src
 # the language server.
 PAGE_SRC := $(filter-out src/editor/tabs.c src/editor/editor.c $(wildcard src/editor/preview/*.c),$(wildcard src/editor/*.c src/editor/*/*.c)) \
             $(wildcard src/lsp/*.c src/lsp/*/*.c) src/git/linediff.c src/git/vcs.c src/window/palette.c src/project/langenv.c src/application/errtail.c tests/editor_page.h
-build/test-editing: tests/test_editing.c tests/util.h tests/broadway.h $(PAGE_SRC) $(APP_HDR) | build
+build/test-editing: tests/test_editing.c tests/widgets.h tests/util.h tests/broadway.h $(PAGE_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_editing.c $(shell pkg-config --libs $(PKGS))
 
-build/test-lsp: tests/test_lsp.c tests/fake_server.h tests/util.h $(PAGE_SRC) $(APP_HDR) | build
+build/test-lsp: tests/test_lsp.c tests/widgets.h tests/fake_server.h tests/util.h $(PAGE_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_lsp.c $(shell pkg-config --libs $(PKGS))
 
 # The log file (GLib-only).
@@ -147,7 +147,7 @@ build/test-debug: tests/test_debug.c tests/util.h $(DAP_SRC) src/debug/dap.h src
 	  $(shell pkg-config --libs json-glib-1.0 gio-unix-2.0)
 
 SCM_SRC := $(wildcard src/git/scm/*.c)
-build/test-scm: tests/test_scm.c tests/util.h $(SCM_SRC) src/git/gitstatus.c src/git/repos.c src/git/vcs.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | build
+build/test-scm: tests/test_scm.c tests/widgets.h tests/util.h $(SCM_SRC) src/git/gitstatus.c src/git/repos.c src/git/vcs.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_scm.c $(SCM_SRC) src/git/repos.c src/git/vcs.c src/git/patch.c src/popups/contextmenu.c src/window/palette.c \
 	  $(shell pkg-config --libs $(PKGS))
 
@@ -169,7 +169,7 @@ build/test-frameworks: tests/test_frameworks.c src/testing/frameworks.c src/test
 
 # The Testing panel, against a fake go.
 TESTING_SRC := src/testing/testing.c src/testing/marks.c src/testing/frameworks.c src/project/langenv.c src/window/palette.c
-build/test-testing: tests/test_testing.c tests/util.h $(TESTING_SRC) $(APP_HDR) | build
+build/test-testing: tests/test_testing.c tests/widgets.h tests/util.h $(TESTING_SRC) $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_testing.c $(TESTING_SRC) $(shell pkg-config --libs $(PKGS))
 
 build/test-gitpatch: tests/test_gitpatch.c tests/util.h src/git/patch.c src/git/patch.h | build
@@ -182,7 +182,7 @@ build/test-fileops: tests/test_fileops.c tests/util.h $(FILES_GIO) $(FILES_GIO:.
 	  $(shell pkg-config --libs gio-2.0)
 
 # The Files panel; tests/test_files.c includes src/files/files.c, rows.c and actions.c for their static functions.
-build/test-files: tests/test_files.c tests/util.h $(wildcard src/files/*.c) src/git/vcs.c src/window/palette.c src/project/templates.c build/resources.c $(APP_HDR) | build
+build/test-files: tests/test_files.c tests/widgets.h tests/util.h $(wildcard src/files/*.c) src/git/vcs.c src/window/palette.c src/project/templates.c build/resources.c $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_files.c $(FILES_GIO) src/git/vcs.c src/window/palette.c src/project/templates.c build/resources.c \
 	  $(shell pkg-config --libs $(PKGS))
 
@@ -191,7 +191,7 @@ build/test-window: tests/test_window.c tests/util.h tests/widgets.h tests/broadw
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_window.c \
 	  $(filter-out src/main.c,$(APP_SRC)) build/resources.c $(shell pkg-config --libs $(PKGS))
 
-build/test-about: tests/test_about.c tests/util.h src/dialogs/about.c $(APP_HDR) build/license.h | build
+build/test-about: tests/test_about.c tests/widgets.h tests/util.h src/dialogs/about.c $(APP_HDR) build/license.h | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_about.c \
 	  $(shell pkg-config --libs $(PKGS))
 build/test-welcome: tests/test_welcome.c tests/util.h tests/widgets.h src/dialogs/welcome.c src/dialogs/welcome.h | build

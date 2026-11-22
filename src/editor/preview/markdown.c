@@ -1050,11 +1050,19 @@ static int on_text(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size, void *da
   return 0;
 }
 
+/* md4c 0.6 added alerts and footnotes to its GitHub dialect: the preview does both itself (find_alert, its
+ * footnotes), from the text md4c gives without them. */
+#ifndef MD_FLAG_ADMONITIONS
+#define MD_FLAG_ADMONITIONS 0
+#endif
+#ifndef MD_FLAG_FOOTNOTES
+#define MD_FLAG_FOOTNOTES 0
+#endif
+#define PARSER_FLAGS ((MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS) & ~(MD_FLAG_ADMONITIONS | MD_FLAG_FOOTNOTES))
+
 void preview_render(Preview *p)
 {
-  MD_PARSER parser = {
-    0, MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS, enter_block, leave_block, enter_span, leave_span, on_text, NULL, NULL
-  };
+  MD_PARSER parser = { 0, PARSER_FLAGS, enter_block, leave_block, enter_span, leave_span, on_text, NULL, NULL };
   Render r = { .p = p };
   char *text = NULL;
   gsize len = 0;

@@ -211,8 +211,49 @@ static void watch_controls(GtkWidget *widget, GtkWidget *header)
   }
 }
 
+/* The desktop's button layout without "icon": the title bar has its own t-code logo, and the window
+ * manager's icon beside it showed the logo twice (Debian, desktops whose layout starts with "icon"). */
+char *title_bar_layout_without_icon(const char *layout)
+{
+  GString *out = g_string_new(NULL);
+  char **sides = g_strsplit(layout ? layout : "", ":", 2);
+
+  for (int s = 0; sides[s]; s++) {
+    char **items = g_strsplit(sides[s], ",", -1);
+    gboolean first = TRUE;
+    if (s > 0)
+      g_string_append_c(out, ':');
+    for (int i = 0; items[i]; i++) {
+      char *item = g_strstrip(items[i]);
+      if (!*item || strcmp(item, "icon") == 0)
+        continue;
+      g_string_append_printf(out, "%s%s", first ? "" : ",", item);
+      first = FALSE;
+    }
+    g_strfreev(items);
+  }
+  g_strfreev(sides);
+  return g_string_free(out, FALSE);
+}
+
+static void sync_decoration_layout(GtkSettings *settings, GParamSpec *pspec G_GNUC_UNUSED, GtkWidget *header)
+{
+  char *layout = NULL, *own;
+
+  g_object_get(settings, "gtk-decoration-layout", &layout, NULL);
+  own = title_bar_layout_without_icon(layout);
+  if (g_strcmp0(gtk_header_bar_get_decoration_layout(GTK_HEADER_BAR(header)), own) != 0)
+    gtk_header_bar_set_decoration_layout(GTK_HEADER_BAR(header), own);
+  g_free(own);
+  g_free(layout);
+}
+
 static void on_header_realize(GtkWidget *header)
 {
+  GtkSettings *settings = gtk_widget_get_settings(header);
+
+  g_signal_connect_object(settings, "notify::gtk-decoration-layout", G_CALLBACK(sync_decoration_layout), header, 0);
+  sync_decoration_layout(settings, NULL, header);
   watch_controls(header, header);
   g_signal_connect_object(gtk_widget_get_root(header), "notify::maximized", G_CALLBACK(controls_changed), header,
                           G_CONNECT_SWAPPED);

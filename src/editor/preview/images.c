@@ -1,6 +1,6 @@
 /*
  * The preview's images (see state.h): local files, web addresses (fetched by curl in the background
- * and kept while the preview is open), SVG drawn by GTK itself (4.22 or newer), and mermaid diagrams
+ * and kept while the preview is open), SVG drawn by GTK itself (4.22 or newer; before it gdk-pixbuf), and mermaid diagrams
  * drawn by mermaid-cli (mmdc) when it is installed. What is not there yet shows its alt text (a diagram:
  * its code), and the preview is shown again when it arrives.
  */
@@ -23,11 +23,6 @@ void preview_remote_free(gpointer data)
     g_object_unref(data);
 }
 
-static void ignore_svg_error(GtkWidget *svg G_GNUC_UNUSED, GError *error G_GNUC_UNUSED)
-{
-}
-
-#if GTK_CHECK_VERSION(4, 22, 0)
 /* A texture drawn SVG_SCALE times smaller than it is: an SVG's sharp texture at the SVG's size. */
 #define TCODE_TYPE_SCALED (tcode_scaled_get_type())
 G_DECLARE_FINAL_TYPE(TcodeScaled, tcode_scaled, TCODE, SCALED, GObject)
@@ -83,6 +78,19 @@ static void tcode_scaled_init(TcodeScaled *self G_GNUC_UNUSED)
 {
 }
 
+static GdkPaintable *scaled_new(GdkTexture *texture)
+{
+  TcodeScaled *scaled = g_object_new(TCODE_TYPE_SCALED, NULL);
+
+  scaled->texture = texture;
+  return GDK_PAINTABLE(scaled);
+}
+
+#if GTK_CHECK_VERSION(4, 22, 0)
+static void ignore_svg_error(GtkWidget *svg G_GNUC_UNUSED, GError *error G_GNUC_UNUSED)
+{
+}
+
 /* An SVG drawn once into a texture, SVG_SCALE times its size (sharp on HiDPI): cairo draws text that
  * GPU renderers can get wrong (badges scale 110 px text down to 11), and a texture costs nothing to
  * draw again. Its size in the text is its SVG's. NULL when it has no size. */
@@ -93,7 +101,6 @@ static GdkPaintable *rasterize(GdkPaintable *svg)
   GskRenderNode *node;
   cairo_surface_t *surface;
   GdkTexture *texture = NULL;
-  TcodeScaled *scaled;
 
   if (w <= 0 || h <= 0 || w > 4096 || h > 4096)
     return NULL;
@@ -115,9 +122,43 @@ static GdkPaintable *rasterize(GdkPaintable *svg)
                                    cairo_image_surface_get_stride(surface));
   g_bytes_unref(pixels);
   cairo_surface_destroy(surface);
-  scaled = g_object_new(TCODE_TYPE_SCALED, NULL);
-  scaled->texture = texture;
-  return GDK_PAINTABLE(scaled);
+  return scaled_new(texture);
+}
+#else
+static void at_svg_scale(GdkPixbufLoader *loader, int width, int height, gpointer data G_GNUC_UNUSED)
+{
+  if (width > 0 && height > 0 && width <= 4096 && height <= 4096)
+    gdk_pixbuf_loader_set_size(loader, width * SVG_SCALE, height * SVG_SCALE);
+}
+
+/* Before GTK 4.22 (no GtkSvg; gdk_texture_new_from_bytes reads no SVG): gdk-pixbuf's SVG loader
+ * (librsvg), SVG_SCALE times the SVG's size like rasterize(). NULL without the loader. */
+static GdkPaintable *svg_from_pixbuf(GBytes *bytes)
+{
+  GdkPixbufLoader *loader = gdk_pixbuf_loader_new_with_type("svg", NULL);
+  GdkPaintable *paintable = NULL;
+  gsize size;
+  const guchar *data = g_bytes_get_data(bytes, &size);
+
+  if (!loader)
+    return NULL;
+  g_signal_connect(loader, "size-prepared", G_CALLBACK(at_svg_scale), NULL);
+  if (gdk_pixbuf_loader_write(loader, data, size, NULL) && gdk_pixbuf_loader_close(loader, NULL)) {
+    GdkPixbuf *pixbuf = gdk_pixbuf_loader_get_pixbuf(loader);
+    if (pixbuf && gdk_pixbuf_get_width(pixbuf) >= SVG_SCALE && gdk_pixbuf_get_height(pixbuf) >= SVG_SCALE) {
+      GBytes *pixels = gdk_pixbuf_read_pixel_bytes(pixbuf);
+      GdkTexture *texture =
+          gdk_memory_texture_new(gdk_pixbuf_get_width(pixbuf), gdk_pixbuf_get_height(pixbuf),
+                                 gdk_pixbuf_get_has_alpha(pixbuf) ? GDK_MEMORY_R8G8B8A8 : GDK_MEMORY_R8G8B8, pixels,
+                                 gdk_pixbuf_get_rowstride(pixbuf));
+      g_bytes_unref(pixels);
+      paintable = scaled_new(texture);
+    }
+  } else {
+    gdk_pixbuf_loader_close(loader, NULL);
+  }
+  g_object_unref(loader);
+  return paintable;
 }
 #endif
 
@@ -147,7 +188,8 @@ static GdkPaintable *paintable_from_bytes(GBytes *bytes, const char *name)
     return paintable;
   }
 #else
-  (void)svg;
+  if (svg && (paintable = svg_from_pixbuf(bytes)))
+    return paintable;
 #endif
   paintable = GDK_PAINTABLE(gdk_texture_new_from_bytes(bytes, NULL));
   return paintable;

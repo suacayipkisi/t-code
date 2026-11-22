@@ -12,9 +12,17 @@ concurrency:
 
 jobs:
   build-test:
-    # The same container the Fedora packages build in: gcc 14+, GTK4, GtkSourceView 5, VTE, md4c.
+    # Every supported Fedora (the containers the Fedora packages build in: gcc 14+, GTK4, GtkSourceView 5,
+    # VTE, md4c): GTK versions differ in what they draw. Rawhide changes daily, so its failure is shown
+    # but leaves the run green.
+    name: build-test (fedora ${{ matrix.fedora }})
+    strategy:
+      fail-fast: false
+      matrix:
+        fedora: ["44", "45", "rawhide"]
+    continue-on-error: ${{ matrix.fedora == 'rawhide' }}
     runs-on: ubuntu-24.04
-    container: registry.fedoraproject.org/fedora:44
+    container: registry.fedoraproject.org/fedora:${{ matrix.fedora }}
     steps:
       - uses: actions/checkout@v4
       - name: Dependencies

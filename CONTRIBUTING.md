@@ -178,8 +178,7 @@ tests/               make test: editing, the language server client (with a fake
 tools/               measuring memory and CPU: the running process tree, a headless t-code, clangd
 desktop/             app menu entry template and the app icon
 packaging/           install.sh, uninstall.sh, build.sh, test.sh: Fedora, Arch, AUR, Debian, Void
-                     Linux, Flatpak and Snap packages, built into packaging/packages/ (an AppImage
-                     by hand with appimage.sh)
+                     Linux, Flatpak and Snap packages, built into packaging/packages/
 .clang-format        the code's style (2 spaces, 120 columns); clangd formats with it
 LICENSE
 Makefile             VERSION, make install; also writes build/compile_commands.json, so clangd

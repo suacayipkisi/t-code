@@ -9,6 +9,7 @@
 #include "files/files.c"
 #include "files/rows.c"
 #include "util.h"
+#include "widgets.h"
 #include "window/theme.h"
 
 #include <glib/gstdio.h>
@@ -572,6 +573,7 @@ static void test_icons(void)
 int main(int argc, char **argv)
 {
   gtk_test_init(&argc, &argv, NULL);
+  ignore_gtk_noise();
   app.settings.font_scale = 1;
   app.settings.files_font = "Cascadia Code 11";
   app.project.root = g_strdup(g_get_tmp_dir());

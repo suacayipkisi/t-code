@@ -112,6 +112,7 @@ static void test_close(void)
 int main(int argc, char **argv)
 {
   g_test_init(&argc, &argv, NULL);
+  ignore_gtk_noise();
   if (!gtk_init_check()) {
     g_test_skip("no display");
     return g_test_run();

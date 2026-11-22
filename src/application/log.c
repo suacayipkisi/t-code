@@ -99,6 +99,10 @@ static GLogWriterOutput write_log(GLogLevelFlags level, const GLogField *fields,
       domain = fields[i].value;
     else if (g_strcmp0(fields[i].key, "MESSAGE") == 0)
       message = fields[i].value;
+  /* GTK 4.24's own frame clock warns about its frame timings now and then (no t-code code in the stack,
+   * nothing goes wrong): not a problem worth the log, the warning hook or stderr. */
+  if (message && g_strcmp0(domain, "Gdk") == 0 && strstr(message, "gdk_frame_timings_submitted"))
+    return G_LOG_WRITER_HANDLED;
   if (message && ((level & (G_LOG_LEVEL_ERROR | G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING)) ||
                   !g_log_writer_default_would_drop(level, domain))) {
     g_mutex_lock(&lock);

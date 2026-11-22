@@ -2,6 +2,7 @@
  * runs filled in once they answer, and closing the window before they do. Needs a display;
  * skipped without one. */
 #include "dialogs/about.c"
+#include "widgets.h"
 
 static App app;
 
@@ -75,6 +76,7 @@ static void test_close_early(void)
 int main(int argc, char **argv)
 {
   g_test_init(&argc, &argv, NULL);
+  ignore_gtk_noise();
   if (!gtk_init_check()) {
     g_test_skip("no display");
     return g_test_run();

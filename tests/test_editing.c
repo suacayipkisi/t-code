@@ -8,6 +8,7 @@
 #include "editor_page.h"
 #include "broadway.h"
 #include "util.h"
+#include "widgets.h"
 
 #include <glib/gstdio.h>
 #include <math.h>
@@ -1705,6 +1706,7 @@ int main(int argc, char **argv)
   int status;
 
   g_test_init(&argc, &argv, NULL);
+  ignore_gtk_noise();
   start_broadway();
   if (!gtk_init_check()) {
     g_test_skip("no display");

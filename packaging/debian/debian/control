@@ -25,7 +25,8 @@ Breaks: t-code (<< 0.4.1)
 Replaces: t-code (<< 0.4.1)
 Recommends: ripgrep,
             gdb,
-            build-essential
+            build-essential,
+            librsvg2-common
 Suggests: mercurial,
           subversion
 Description: lightweight C/C++ IDE

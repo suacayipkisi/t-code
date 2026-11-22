@@ -10,6 +10,7 @@
 #include "plugins/plugins.h"
 #include "project/toolchain.h"
 #include "util.h"
+#include "widgets.h"
 
 #include <string.h>
 
@@ -550,6 +551,7 @@ int main(int argc, char **argv)
   int status;
 
   g_test_init(&argc, &argv, NULL);
+  ignore_gtk_noise();
   tmp = g_dir_make_tmp("t-code-testing-XXXXXX", NULL);
   project = g_build_filename(tmp, "project", NULL);
   g_free(write_at(project, "go.mod", "module example.com/m\n", -1, 0));
