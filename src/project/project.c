@@ -223,9 +223,8 @@ static gboolean open_recent_later(gpointer data)
   return G_SOURCE_REMOVE;
 }
 
-/* The menu item sits in the Recent Folders submenu, a grabbing popup while it is open: switching
- * there (closing every tab, rebuilding that submenu's model) breaks the popup chain on Wayland and
- * the window takes no more clicks. Switch once the menu has closed. */
+/* A Recent Folders item: the switch (closing every tab, stopping the servers, rebuilding the menu
+ * this item sits in) runs from an idle, outside the click that chose it. */
 static void on_open_recent_action(GSimpleAction *action G_GNUC_UNUSED, GVariant *param, gpointer data)
 {
   App *t = data;
