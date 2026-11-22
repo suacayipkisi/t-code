@@ -47,7 +47,8 @@ Flatpak / Snap / AUR / AppImage packages;
 One window, one process (besides its language servers, your shell and plugins): the Files panel,
 Source Control, Search and Run and Debug on the left, editor tabs in the middle, your shells as
 tabs and the Problems panel at the bottom, Outline, Hierarchy and Testing on the right. Every panel
-can be dragged to another dock.
+can be dragged to another dock or into a new one, and every side and the editor area split into as
+many docks and tab groups as you like.
 
 - **Editing** without modes, plus multiple cursors, snippets, completion, parameter hints, inlay
   hints, go to definition, references, rename, format, quick fixes (also as buttons on a problem),

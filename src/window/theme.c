@@ -123,7 +123,7 @@ static const char *const square_css =
     ".tcode-picker row { border-radius: 2px; }"
     ".tcode-editor scrollbar slider { border-radius: 0; }";
 
-static GtkCssProvider *square;    /* square_css while the square theme is on */
+static GtkCssProvider *square;    /* square_css while the square theme is on, else corners_css() */
 static GtkCssProvider *user_look; /* theme.css */
 
 /* Before any window: GTK picks up the theme name when it styles the first one. Light or dark as the
@@ -155,10 +155,42 @@ void load_theme(App *t)
   load_user_theme();
 }
 
+/* The rounded theme's corners for the corner radius setting: the panels get radius, the rest the same
+ * share of it as of the default 10 px (tabs 9, buttons 8, title bar buttons 7, ...). */
+static char *corners_css(int radius)
+{
+  /* clang-format off */
+  static const struct { const char *selector; int at_ten; } corners[] = {
+    { ".tcode-card, popover > contents", 10 },
+    { "button, entry, spinbutton, textview, .tcode-scm .message, tooltip, tooltip.background", 8 },
+    { "headerbar button, headerbar menubar > item, windowcontrols > button,"
+      " .tcode-sidebar stackswitcher button, .tcode-dock-close", 7 },
+    { ".tcode-tab button, .tcode-terminal-tab button, popover modelbutton", 6 },
+  };
+  /* clang-format on */
+  GString *out = g_string_new(NULL);
+  int tab = (9 * radius + 5) / 10;
+
+  for (size_t i = 0; i < G_N_ELEMENTS(corners); i++)
+    g_string_append_printf(out, "%s { border-radius: %dpx; }", corners[i].selector,
+                           (corners[i].at_ten * radius + 5) / 10);
+  g_string_append_printf(out, ".tcode-tab { border-radius: %dpx %dpx 0 0; }", tab, tab);
+  return g_string_free(out, FALSE);
+}
+
 void apply_theme(App *t)
 {
-  if (square)
-    gtk_css_provider_load_from_string(square, t->settings.square ? square_css : "");
+  char *corners;
+
+  if (!square)
+    return;
+  if (t->settings.square) {
+    gtk_css_provider_load_from_string(square, square_css);
+    return;
+  }
+  corners = corners_css(t->settings.corner_radius);
+  gtk_css_provider_load_from_string(square, corners);
+  g_free(corners);
 }
 
 char *user_theme_file(void)
@@ -197,7 +229,7 @@ void color_theme_apply(App *t, const char *id)
     if (tab->kind == TAB_EDITOR) {
       editor_view_apply_settings(tab); /* the new scheme */
       semantic_recolor(tab);
-    } else {
+    } else if (tab->kind == TAB_PREVIEW) {
       preview_restyle(tab);
     }
   }

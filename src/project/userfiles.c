@@ -74,8 +74,8 @@ static void reload_settings(App *t)
          old.line_blame == t->settings.line_blame && old.ruler == t->settings.ruler &&
          old.autosave_ms == t->settings.autosave_ms && old.clang_tidy == t->settings.clang_tidy &&
          old.servers_off == t->settings.servers_off && old.format_on_save == t->settings.format_on_save &&
-         old.square == t->settings.square && g_strcmp0(old.font, t->settings.font) == 0 &&
-         g_strcmp0(old.files_font, t->settings.files_font) == 0 &&
+         old.square == t->settings.square && old.corner_radius == t->settings.corner_radius &&
+         g_strcmp0(old.font, t->settings.font) == 0 && g_strcmp0(old.files_font, t->settings.files_font) == 0 &&
          g_strcmp0(old.color_theme, t->settings.color_theme) == 0;
   if (!same)
     settings_changed(t, old.clang_tidy != t->settings.clang_tidy);

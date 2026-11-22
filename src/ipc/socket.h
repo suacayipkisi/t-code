@@ -20,8 +20,12 @@ void socket_did_close(App *t, const char *path);
 void socket_did_change(App *t, const char *path);
 /* ... another file became the active tab ("" when the active tab is not an editor) ... */
 void socket_active_changed(App *t, const char *path);
-/* ... another project opened. */
+/* ... another project opened ... */
 void socket_project_changed(App *t);
+/* ... a line of a plugin's view was activated (double click, Enter; line from 1), the view's tab was
+ * closed by the user (plugins/views.h). */
+void socket_view_activated(App *t, const char *owner, const char *id, int line, const char *text);
+void socket_view_closed(App *t, const char *owner, const char *id);
 
 /* Stops listening and removes the socket file. */
 void stop_socket(App *t);

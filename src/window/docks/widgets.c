@@ -1,12 +1,15 @@
 /*
  * The docks' widgets (see docks.h): a tab bar per dock (its panels' icons, collapse and hide
- * buttons), dragging a panel's icon to another dock or the editor area's edges, and the icons'
- * right-click menu.
+ * buttons) with its right-click menu, and the drop markers a panel icon dragged over the window
+ * shows: over a dock the cross of editor/dropzone.h (the middle square: into that dock; the others:
+ * a new dock on that side of it), over its tab bar a line where among the tabs it lands, over the
+ * editor area squares along its left, bottom and right edges (a new dock at the end of that side).
  */
 #include "window/docks/docks.h"
 
 #include "debug/debugger.h"
 #include "debug/view/debugview.h"
+#include "editor/dropzone.h"
 #include "editor/editor.h"
 #include "files/files.h"
 #include "git/scm/scm.h"
@@ -21,6 +24,43 @@
 #include "window/window.h"
 
 #include <string.h>
+
+/* The panels' names, for dragging them by number (panel_id: index + 1). */
+static GPtrArray *panel_ids;
+
+int panel_id(const char *page)
+{
+  if (!page)
+    return 0;
+  if (!panel_ids)
+    panel_ids = g_ptr_array_new();
+  for (guint i = 0; i < panel_ids->len; i++)
+    if (strcmp(g_ptr_array_index(panel_ids, i), page) == 0)
+      return (int)i + 1;
+  g_ptr_array_add(panel_ids, g_strdup(page)); /* kept for the run: an id stays the same */
+  return (int)panel_ids->len;
+}
+
+const char *panel_from_id(int id)
+{
+  return panel_ids && id >= 1 && id <= (int)panel_ids->len ? g_ptr_array_index(panel_ids, id - 1) : NULL;
+}
+
+const char *panel_icon(const char *page)
+{
+  static const char *const icons[][2] = {
+    { "files", "tcode-files-symbolic" },     { "scm", "tcode-source-control-symbolic" },
+    { "search", "tcode-search-symbolic" },   { "debug", "tcode-debug-symbolic" },
+    { "run", "tcode-run-symbolic" },         { "problems", "tcode-warning-symbolic" },
+    { "outline", "tcode-outline-symbolic" }, { "hierarchy", "tcode-hierarchy-symbolic" },
+    { "testing", "tcode-testing-symbolic" }, { "plugins", "tcode-plugins-symbolic" },
+  };
+
+  for (size_t i = 0; i < G_N_ELEMENTS(icons); i++)
+    if (strcmp(page, icons[i][0]) == 0)
+      return icons[i][1];
+  return "tcode-terminal-symbolic";
+}
 
 /* Holds child without asking for its minimum width or height so panes can shrink freely. */
 static GtkWidget *clip_box(GtkWidget *child, gboolean clip_height)
@@ -61,48 +101,45 @@ static const char *page_at(GtkWidget *switcher, GtkStack *stack, double x, doubl
 /* The 0-based tab index of `page` inside its dock stack, or -1. */
 static int panel_tab_index(App *t, const char *page)
 {
-  int d = panel_dock(t, page);
-  if (d < 0)
-    return -1;
-  GtkSelectionModel *pages = gtk_stack_get_pages(t->dock.stacks[d]);
-  guint n = g_list_model_get_n_items(G_LIST_MODEL(pages));
+  Dock *dock = panel_dock(t, page);
   int found = -1;
+
+  if (!dock)
+    return -1;
+  GtkSelectionModel *pages = gtk_stack_get_pages(dock->stack);
+  guint n = g_list_model_get_n_items(G_LIST_MODEL(pages));
   for (guint i = 0; i < n && found < 0; i++) {
     GtkStackPage *item = g_list_model_get_item(G_LIST_MODEL(pages), i);
     if (item && g_strcmp0(gtk_stack_page_get_name(item), page) == 0)
       found = (int)i;
-    if (item)
-      g_object_unref(item);
+    g_clear_object(&item);
   }
   g_object_unref(pages);
   return found;
 }
 
-/* Computes the horizontal tab insertion index when dropping at `x` on dock `to`'s header bar. */
-static int header_drop_pos(App *t, int to, const char *page, double x)
+/* Where among a dock's tabs a panel dropped at x (in the switcher's coordinates) goes, its own place
+ * left out; line_x: the gap it goes into. */
+static int header_drop_pos(Dock *to, const char *page, double x, double *line_x)
 {
-  GtkWidget *switcher = g_object_get_data(G_OBJECT(t->dock.stacks[to]), "tcode-switcher");
-  if (!switcher)
-    return -1;
-  int orig_idx = (panel_dock(t, page) == to) ? panel_tab_index(t, page) : -1;
-  GtkWidget *btn = gtk_widget_get_first_child(switcher);
-  int pos = 0, rem_idx = 0;
+  int orig_idx = panel_dock(to->t, page) == to ? panel_tab_index(to->t, page) : -1;
+  int pos = 0, i = 0;
+  double line = 0;
 
-  for (int i = 0; btn; btn = gtk_widget_get_next_sibling(btn), i++) {
-    if (i == orig_idx)
-      continue;
+  for (GtkWidget *btn = gtk_widget_get_first_child(to->switcher); btn; btn = gtk_widget_get_next_sibling(btn), i++) {
     graphene_rect_t bounds;
-    if (gtk_widget_compute_bounds(btn, t->dock.cards[to], &bounds)) {
-      double left = bounds.origin.x, right = left + bounds.size.width, mid = left + bounds.size.width / 2.0;
-      if (orig_idx >= 0 && x >= left && x <= right) {
-        if (orig_idx < i)
-          pos = rem_idx + 1;
-      } else if (x > mid) {
-        pos = rem_idx + 1;
-      }
+    if (i == orig_idx || !gtk_widget_compute_bounds(btn, to->switcher, &bounds))
+      continue; /* its own icon */
+    if (x > bounds.origin.x + bounds.size.width / 2) {
+      pos++;
+      line = bounds.origin.x + bounds.size.width;
+    } else {
+      line = bounds.origin.x;
+      break;
     }
-    rem_idx++;
   }
+  if (line_x)
+    *line_x = line;
   return pos;
 }
 
@@ -137,9 +174,10 @@ static gboolean run_dock_action(gpointer data)
   DockAction action = GPOINTER_TO_INT(data);
   App *t = menu_app;
   const char *page = menu_target_page;
-  int cur = page ? panel_dock(t, page) : -1, idx = page ? panel_tab_index(t, page) : -1;
+  Dock *cur = page ? panel_dock(t, page) : NULL;
+  int idx = page ? panel_tab_index(t, page) : -1;
 
-  if (cur < 0)
+  if (!cur)
     return G_SOURCE_REMOVE;
   switch (action) {
     case DOCK_TAB_LEFT:
@@ -150,14 +188,14 @@ static gboolean run_dock_action(gpointer data)
       if (idx >= 0)
         move_panel_at(t, page, cur, idx + 1);
       break;
-    case DOCK_TO_LEFT: move_panel(t, page, first_tab_dock(t, 0)); break;
-    case DOCK_STACK_LEFT: move_panel(t, page, new_split_dock(t, 0, page)); break;
-    case DOCK_TO_BOTTOM: move_panel(t, page, first_tab_dock(t, 1)); break;
-    case DOCK_SPLIT_BOTTOM: move_panel(t, page, new_split_dock(t, 1, page)); break;
-    case DOCK_TO_RIGHT: move_panel(t, page, first_tab_dock(t, 2)); break;
-    case DOCK_STACK_RIGHT: move_panel(t, page, new_split_dock(t, 2, page)); break;
-    case DOCK_COLLAPSE: set_dock_collapsed(t, cur, !t->dock.collapsed[cur]); break;
-    case DOCK_HIDE: hide_dock(t, cur); break;
+    case DOCK_TO_LEFT: move_panel_to_side(t, page, 0); break;
+    case DOCK_STACK_LEFT: move_panel_edge(t, page, 0); break;
+    case DOCK_TO_BOTTOM: move_panel_to_side(t, page, 1); break;
+    case DOCK_SPLIT_BOTTOM: move_panel_edge(t, page, 1); break;
+    case DOCK_TO_RIGHT: move_panel_to_side(t, page, 2); break;
+    case DOCK_STACK_RIGHT: move_panel_edge(t, page, 2); break;
+    case DOCK_COLLAPSE: set_dock_collapsed(cur, !cur->collapsed); break;
+    case DOCK_HIDE: hide_dock(cur); break;
   }
   return G_SOURCE_REMOVE;
 }
@@ -217,94 +255,33 @@ static GdkContentProvider *on_drag_prepare(GtkDragSource *source, double x, doub
   return gdk_content_provider_new_typed(G_TYPE_INT, id);
 }
 
-static gboolean on_dock_drop(GtkDropTarget *target, const GValue *value, double x, double y, App *t)
+/* A file dropped on the editor area opens. */
+static gboolean on_editor_drop(GtkDropTarget *target G_GNUC_UNUSED, const GValue *value, double x G_GNUC_UNUSED,
+                               double y G_GNUC_UNUSED, App *t)
 {
-  GtkWidget *box = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(target));
-  const char *page = panel_from_id(g_value_get_int(value));
-  int to = 0, rel = 0;
+  char *path = g_file_get_path(g_value_get_object(value));
+  gboolean opened = path && g_file_test(path, G_FILE_TEST_IS_REGULAR);
 
-  if (!page)
-    return FALSE;
-  for (int d = 0; d < DOCKS; d++)
-    if (t->dock.cards[d] == box)
-      to = d;
-  /* Dropping on the header bar (y < 36) inserts or reorders the tab left/right among header icons. */
-  if (y < 36) {
-    move_panel_at(t, page, to, header_drop_pos(t, to, page, x));
-    return TRUE;
-  }
-  int w = MAX(gtk_widget_get_width(box), 1), h = MAX(gtk_widget_get_height(box), 1);
-  int side = to / 4;
-
-  /* Dropping near top/bottom (on Left/Right) or left/right (on Bottom) creates a split; center tabs. */
-  if (side == 1) {
-    if (x < w * 0.28)
-      rel = -1;
-    else if (x > w * 0.72)
-      rel = 1;
-  } else {
-    if (y < h * 0.30)
-      rel = -1;
-    else if (y > h * 0.70)
-      rel = 1;
-  }
-  move_panel_relative(t, page, to, rel);
-  return TRUE;
+  if (opened)
+    open_file(t, path);
+  g_free(path);
+  return opened;
 }
 
-/* A file dropped on the editor area opens; a panel dropped near its left, right or bottom edge moves or
- * splits there. */
-static gboolean on_editor_drop(GtkDropTarget *target, const GValue *value, double x, double y, App *t)
+static void on_close_dock_clicked(GtkButton *btn G_GNUC_UNUSED, Dock *dock)
 {
-  GtkWidget *area = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(target));
-  int w = MAX(gtk_widget_get_width(area), 1), h = MAX(gtk_widget_get_height(area), 1);
-  const char *page;
-  int side, to;
-
-  if (G_VALUE_HOLDS(value, G_TYPE_FILE)) { /* a file: opened */
-    char *path = g_file_get_path(g_value_get_object(value));
-    gboolean opened = path && g_file_test(path, G_FILE_TEST_IS_REGULAR);
-    if (opened)
-      open_file(t, path);
-    g_free(path);
-    return opened;
-  }
-  page = panel_from_id(g_value_get_int(value));
-  if (!page)
-    return FALSE;
-  if (x > w * 0.70)
-    side = 2;
-  else if (x < w * 0.30)
-    side = 0;
-  else
-    side = 1;
-  if (side == 1)
-    to = (x > w * 0.5 && side_has_pages(t, 1)) ? new_split_dock(t, 1, page) : first_tab_dock(t, 1);
-  else
-    to = (y > h * 0.5 && side_has_pages(t, side)) ? new_split_dock(t, side, page) : first_tab_dock(t, side);
-  move_panel(t, page, to);
-  return TRUE;
+  hide_dock(dock);
 }
 
-static void on_close_dock_clicked(GtkButton *btn, App *t)
+static void on_collapse_dock_clicked(GtkButton *btn G_GNUC_UNUSED, Dock *dock)
 {
-  int d = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "tcode-dock"));
-
-  hide_dock(t, d);
+  set_dock_collapsed(dock, !dock->collapsed);
 }
 
-static void on_collapse_dock_clicked(GtkButton *btn, App *t)
+static void on_stack_switched(GtkStack *stack G_GNUC_UNUSED, GParamSpec *pspec G_GNUC_UNUSED, Dock *dock)
 {
-  int d = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "tcode-dock"));
-
-  set_dock_collapsed(t, d, !t->dock.collapsed[d]);
-}
-
-static void on_stack_switched(GtkStack *stack, GParamSpec *pspec G_GNUC_UNUSED, App *t)
-{
-  for (int d = 0; d < DOCKS; d++)
-    if (t->dock.stacks[d] == stack && t->dock.collapsed[d])
-      set_dock_collapsed(t, d, FALSE);
+  if (dock->collapsed)
+    set_dock_collapsed(dock, FALSE);
 }
 
 /* A dock's icons that do not fit its tab bar go into its "more" menu (fit_icons), like a narrow
@@ -392,8 +369,16 @@ static void queue_fit_icons(GtkAdjustment *adjustment G_GNUC_UNUSED, GtkWidget *
         GUINT_TO_POINTER(g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, fit_icons, g_object_ref(more), g_object_unref)));
 }
 
-static GtkWidget *new_dock(App *t, int index)
+/* The card is going: its dock leaves the list. */
+static void on_card_destroy(GtkWidget *card G_GNUC_UNUSED, Dock *dock)
 {
+  if (dock->t->dock.list)
+    g_ptr_array_remove(dock->t->dock.list, dock);
+}
+
+Dock *dock_new(App *t, int side)
+{
+  Dock *dock = g_new0(Dock, 1);
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   GtkWidget *collapse_btn = gtk_button_new_from_icon_name("tcode-chevron-down-symbolic");
@@ -402,28 +387,34 @@ static GtkWidget *new_dock(App *t, int index)
   GtkStack *stack = GTK_STACK(gtk_stack_new());
   GtkGesture *right = gtk_gesture_click_new();
   GtkDragSource *drag = gtk_drag_source_new();
-  GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_INT, GDK_ACTION_MOVE);
+
+  dock->t = t;
+  dock->side = side;
+  dock->card = box;
+  dock->stack = stack;
+  dock->switcher = switcher;
+  g_object_set_data_full(G_OBJECT(box), "t-code-dock", dock, g_free);
+  g_signal_connect(box, "destroy", G_CALLBACK(on_card_destroy), dock);
+  g_ptr_array_add(t->dock.list, dock);
 
   gtk_widget_set_vexpand(GTK_WIDGET(stack), TRUE);
   gtk_widget_set_hexpand(GTK_WIDGET(stack), TRUE);
   gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), stack);
   gtk_widget_set_focusable(switcher, FALSE);
   gtk_widget_set_halign(switcher, GTK_ALIGN_START);
-  g_signal_connect(stack, "notify::visible-child", G_CALLBACK(on_stack_switched), t);
+  g_signal_connect(stack, "notify::visible-child", G_CALLBACK(on_stack_switched), dock);
 
   gtk_button_set_has_frame(GTK_BUTTON(collapse_btn), FALSE);
   gtk_widget_set_focusable(collapse_btn, FALSE);
   gtk_widget_set_tooltip_text(collapse_btn, "Expand / Collapse Panel");
   gtk_widget_add_css_class(collapse_btn, "tcode-dock-close");
-  g_object_set_data(G_OBJECT(collapse_btn), "tcode-dock", GINT_TO_POINTER(index));
-  g_signal_connect(collapse_btn, "clicked", G_CALLBACK(on_collapse_dock_clicked), t);
+  g_signal_connect(collapse_btn, "clicked", G_CALLBACK(on_collapse_dock_clicked), dock);
 
   gtk_button_set_has_frame(GTK_BUTTON(close_btn), FALSE);
   gtk_widget_set_focusable(close_btn, FALSE);
   gtk_widget_set_tooltip_text(close_btn, "Hide Panel");
   gtk_widget_add_css_class(close_btn, "tcode-dock-close");
-  g_object_set_data(G_OBJECT(close_btn), "tcode-dock", GINT_TO_POINTER(index));
-  g_signal_connect(close_btn, "clicked", G_CALLBACK(on_close_dock_clicked), t);
+  g_signal_connect(close_btn, "clicked", G_CALLBACK(on_close_dock_clicked), dock);
 
   gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(right), GDK_BUTTON_SECONDARY);
   g_signal_connect(right, "pressed", G_CALLBACK(on_switcher_right_click), t);
@@ -434,13 +425,10 @@ static GtkWidget *new_dock(App *t, int index)
   g_signal_connect(drag, "prepare", G_CALLBACK(on_drag_prepare), stack);
   gtk_widget_add_controller(switcher, GTK_EVENT_CONTROLLER(drag));
 
-  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(drop), GTK_PHASE_CAPTURE);
-  g_signal_connect(drop, "drop", G_CALLBACK(on_dock_drop), t);
-  gtk_widget_add_controller(box, GTK_EVENT_CONTROLLER(drop));
-
   gtk_widget_add_css_class(header, "tcode-dock-header");
   gtk_box_append(GTK_BOX(header), collapse_btn);
   GtkWidget *bar = clip_box(switcher, FALSE);
+  g_object_set_data(G_OBJECT(bar), "t-code-dock-bar", GINT_TO_POINTER(1));
   GtkWidget *more = gtk_menu_button_new();
   gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(more), "tcode-more-symbolic");
   gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(more), FALSE);
@@ -460,41 +448,163 @@ static GtkWidget *new_dock(App *t, int index)
   make_card(box);
   gtk_box_append(GTK_BOX(box), header);
   gtk_box_append(GTK_BOX(box), GTK_WIDGET(stack));
-  t->dock.cards[index] = box;
-  t->dock.stacks[index] = stack;
   g_object_set_data(G_OBJECT(box), "tcode-collapse-btn", collapse_btn);
   g_object_set_data(G_OBJECT(stack), "tcode-switcher", switcher);
-  return box;
+  /* the Panels menu's checks follow whatever shows or hides a panel */
+  g_signal_connect(box, "notify::visible", G_CALLBACK(on_layout_changed), t);
+  g_signal_connect(stack, "notify::visible-child", G_CALLBACK(on_layout_changed), t);
+  return dock;
 }
 
-static void add_dock_panel(App *t, int dock, GtkWidget *child, const char *name, const char *title)
-{
-  GtkStackPage *page = gtk_stack_add_titled(t->dock.stacks[dock], child, name, title);
+/* Dragging a panel ------------------------------------------------------------------------------- */
 
-  gtk_stack_page_set_icon_name(page, panel_icon(name));
-  if (strcmp(name, "scm") == 0)
-    g_signal_connect_after(page, "notify::title", G_CALLBACK(update_scm_badge), t);
+static struct {
+  GtkWidget *view, *hint;
+  DropMarkers markers;
+  DropZone zone;
+  graphene_rect_t preview;
+  Dock *dock;   /* under the pointer */
+  int position; /* DROP_STRIP: where among its tabs */
+} drop;
+
+static void draw_hint(GtkDrawingArea *area, cairo_t *cr, int width G_GNUC_UNUSED, int height G_GNUC_UNUSED,
+                      gpointer data G_GNUC_UNUSED)
+{
+  drop_markers_draw(GTK_WIDGET(area), cr, &drop.markers, drop.zone, &drop.preview);
 }
 
-/* Builds a chain of 3 paneds holding the 4 docks of one side (vertical for Left/Right, horizontal for Bottom). */
-static GtkWidget *build_side_chain(App *t, int side, GtkOrientation orient, int default_pos)
+int docks_drop_hover(App *t, const char *page, double x, double y)
 {
-  int base = side * 4;
+  GtkWidget *w = gtk_widget_pick(drop.view, x, y, GTK_PICK_DEFAULT);
+  /* the editor area as it shows: its clip (window.c), which may hold a bigger view */
+  GtkWidget *editors = gtk_widget_get_ancestor(t->editors.view, GTK_TYPE_SCROLLED_WINDOW);
+  gboolean on_bar = FALSE, in_editors = FALSE;
+  graphene_rect_t room;
 
-  for (int i = 2; i >= 0; i--) {
-    GtkPaned *p = GTK_PANED(gtk_paned_new(orient));
-    gtk_paned_set_start_child(p, t->dock.cards[base + i]);
-    gtk_paned_set_end_child(p, i == 2 ? t->dock.cards[base + 3] : GTK_WIDGET(t->dock.paneds[side][i + 1]));
-    gtk_paned_set_shrink_start_child(p, TRUE);
-    gtk_paned_set_shrink_end_child(p, TRUE);
-    gtk_paned_set_position(p, default_pos);
-    t->dock.paneds[side][i] = p;
+  if (!editors)
+    editors = t->editors.view;
+
+  drop.zone = DROP_NONE;
+  drop.dock = NULL;
+  drop.markers = (DropMarkers){ 0 };
+  for (; w && w != drop.view && !drop.dock; w = gtk_widget_get_parent(w)) {
+    on_bar |= g_object_get_data(G_OBJECT(w), "t-code-dock-bar") != NULL;
+    in_editors |= w == editors;
+    drop.dock = dock_of(w);
   }
-  return GTK_WIDGET(t->dock.paneds[side][0]);
+  if (drop.dock && gtk_widget_compute_bounds(drop.dock->card, drop.view, &room)) {
+    Dock *from = panel_dock(t, page);
+    gboolean alone = from == drop.dock && gtk_widget_get_first_child(GTK_WIDGET(from->stack)) ==
+                                              gtk_widget_get_last_child(GTK_WIDGET(from->stack));
+    drop_markers_place(&drop.markers, &room, &room, !alone && !drop.dock->collapsed, FALSE);
+    drop.zone = drop_marker_at(&drop.markers, x, y);
+    if (drop.zone != DROP_NONE) {
+      drop_zone_preview(drop.zone, &room, &room, &drop.preview);
+    } else if (on_bar) {
+      graphene_point_t at;
+      graphene_rect_t bar;
+      double line = 0;
+      if (gtk_widget_compute_point(drop.view, drop.dock->switcher, &GRAPHENE_POINT_INIT(x, y), &at) &&
+          gtk_widget_compute_bounds(drop.dock->switcher, drop.view, &bar)) {
+        drop.position = header_drop_pos(drop.dock, page, at.x, &line);
+        graphene_rect_init(&drop.preview, bar.origin.x + line - 1, bar.origin.y, 3, bar.size.height);
+        drop.zone = DROP_STRIP;
+      }
+    }
+  } else if (in_editors && gtk_widget_compute_bounds(editors, drop.view, &room)) {
+    drop_markers_place(&drop.markers, &room, &room, FALSE, TRUE);
+    drop.markers.shown[DROP_CENTER] = FALSE;
+    drop.markers.shown[DROP_EDGE_TOP] = FALSE; /* no dock above the editors */
+    drop.zone = drop_marker_at(&drop.markers, x, y);
+    if (drop.zone != DROP_NONE)
+      drop_zone_preview(drop.zone, &room, &room, &drop.preview);
+  }
+  gtk_widget_set_visible(drop.hint, TRUE);
+  gtk_widget_queue_draw(drop.hint);
+  return drop.zone;
 }
 
-/* Creates the 12 docks (4 Left vertical, 4 Bottom horizontal, 4 Right vertical) and puts the
- * four panels in their default slots. */
+void docks_drop_leave(App *t G_GNUC_UNUSED)
+{
+  drop.zone = DROP_NONE;
+  drop.markers = (DropMarkers){ 0 };
+  gtk_widget_set_visible(drop.hint, FALSE);
+}
+
+gboolean docks_drop(App *t, const char *page, double x, double y)
+{
+  DropZone zone = page && panel_dock(t, page) ? docks_drop_hover(t, page, x, y) : DROP_NONE;
+  Dock *dock = drop.dock;
+  int position = drop.position;
+
+  docks_drop_leave(t);
+  switch (zone) {
+    case DROP_NONE: return FALSE;
+    case DROP_CENTER: move_panel_at(t, page, dock, G_MAXINT); break;
+    case DROP_STRIP: move_panel_at(t, page, dock, position); break;
+    case DROP_LEFT: move_panel_beside(t, page, dock, SPLIT_LEFT); break;
+    case DROP_RIGHT: move_panel_beside(t, page, dock, SPLIT_RIGHT); break;
+    case DROP_TOP: move_panel_beside(t, page, dock, SPLIT_UP); break;
+    case DROP_BOTTOM: move_panel_beside(t, page, dock, SPLIT_DOWN); break;
+    case DROP_EDGE_LEFT: move_panel_edge(t, page, 0); break;
+    case DROP_EDGE_BOTTOM: move_panel_edge(t, page, 1); break;
+    case DROP_EDGE_RIGHT: move_panel_edge(t, page, 2); break;
+    default: return FALSE;
+  }
+  return TRUE;
+}
+
+gboolean docks_drop_marker(App *t G_GNUC_UNUSED, int zone, double *x, double *y)
+{
+  if (zone < DROP_CENTER || zone >= DROP_MARKERS || !drop.markers.shown[zone])
+    return FALSE;
+  *x = drop.markers.rect[zone].origin.x + drop.markers.rect[zone].size.width / 2;
+  *y = drop.markers.rect[zone].origin.y + drop.markers.rect[zone].size.height / 2;
+  return TRUE;
+}
+
+static GdkDragAction on_panel_motion(GtkDropTarget *target, double x, double y, App *t)
+{
+  const GValue *value = gtk_drop_target_get_value(target);
+  const char *page = value && G_VALUE_HOLDS_INT(value) ? panel_from_id(g_value_get_int(value)) : NULL;
+
+  return docks_drop_hover(t, page, x, y) != DROP_NONE ? GDK_ACTION_MOVE : 0;
+}
+
+static void on_panel_leave(GtkDropTarget *target G_GNUC_UNUSED, App *t)
+{
+  docks_drop_leave(t);
+}
+
+static gboolean on_panel_drop(GtkDropTarget *target G_GNUC_UNUSED, const GValue *value, double x, double y, App *t)
+{
+  return docks_drop(t, panel_from_id(g_value_get_int(value)), x, y);
+}
+
+GtkWidget *docks_drop_view(App *t, GtkWidget *content)
+{
+  GtkWidget *view = gtk_overlay_new();
+  GtkDropTarget *target = gtk_drop_target_new(G_TYPE_INT, GDK_ACTION_MOVE); /* a panel's icon */
+
+  drop.view = view;
+  drop.hint = gtk_drawing_area_new();
+  gtk_overlay_set_child(GTK_OVERLAY(view), content);
+  gtk_widget_add_css_class(drop.hint, "tcode-drop-hint");
+  gtk_widget_set_can_target(drop.hint, FALSE);
+  gtk_widget_set_visible(drop.hint, FALSE);
+  gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(drop.hint), draw_hint, NULL, NULL);
+  gtk_overlay_add_overlay(GTK_OVERLAY(view), drop.hint);
+  gtk_drop_target_set_preload(target, TRUE); /* the panel is known while it moves: its own dock's sides */
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(target), GTK_PHASE_CAPTURE);
+  g_signal_connect(target, "enter", G_CALLBACK(on_panel_motion), t);
+  g_signal_connect(target, "motion", G_CALLBACK(on_panel_motion), t);
+  g_signal_connect(target, "leave", G_CALLBACK(on_panel_leave), t);
+  g_signal_connect(target, "drop", G_CALLBACK(on_panel_drop), t);
+  gtk_widget_add_controller(view, GTK_EVENT_CONTROLLER(target));
+  return view;
+}
+
+/* Creates the sides with a dock each, and t-code's panels in them. */
 void docks_create(App *t)
 {
   static const char *const css =
@@ -506,42 +616,57 @@ void docks_create(App *t)
       ".tcode-sidebar stackswitcher button:hover, .tcode-dock-close:hover {"
       "  color: var(--tc-fg-bright); background: color-mix(in srgb, var(--tc-fg) 5%, transparent); }"
       ".tcode-scm-badge { font-size: 0.78em; font-weight: bold; }";
-  GtkDropTarget *ed_drop = gtk_drop_target_new(G_TYPE_INVALID, GDK_ACTION_MOVE | GDK_ACTION_COPY);
-  GType dropped[] = { G_TYPE_INT, G_TYPE_FILE }; /* a panel's icon, a file from the Files panel */
+  GtkDropTarget *ed_drop = gtk_drop_target_new(G_TYPE_FILE, GDK_ACTION_MOVE | GDK_ACTION_COPY); /* from Files */
+  Dock *docks[3];
+  /* clang-format off */
+  static const struct { int side; const char *name, *title; } order[] = {
+    { 0, "files", "Files (Alt+1)" },      { 0, "scm", "SOURCE CONTROL" },
+    { 0, "search", "Search (Ctrl+Shift+F)" },
+    { 1, "shell", "Terminal (Alt+3 / Ctrl+J)" }, { 1, "debug", "Debug (F5)" },
+    { 0, "run", "Run and Debug (Ctrl+Shift+D)" }, { 1, "problems", "Problems (Ctrl+Shift+M)" },
+    { 2, "outline", "Outline" },          { 2, "hierarchy", "Hierarchy (Shift+Alt+H)" },
+    { 2, "testing", "Testing" },          { 0, "plugins", "Plugins" },
+  };
+  /* clang-format on */
 
   palette_add_css(css);
-
-  for (int d = 0; d < DOCKS; d++)
-    new_dock(t, d);
-
-  t->scm = clip_box(scm_panel(t), TRUE);
-  t->dock.scm_stack = t->dock.stacks[0];
-
-  add_dock_panel(t, 0, clip_box(files_panel(t), TRUE), "files", "Files (Alt+1)");
-  add_dock_panel(t, 0, t->scm, "scm", "SOURCE CONTROL");
-  add_dock_panel(t, 0, clip_box(search_panel(t), TRUE), "search", "Search (Ctrl+Shift+F)");
-  add_dock_panel(t, 4, t->shell.panel, "shell", "Terminal (Alt+3 / Ctrl+J)");
-  add_dock_panel(t, 4, debug_panel(t), "debug", "Debug (F5)");
-  add_dock_panel(t, 0, clip_box(debug_view(t), TRUE), "run", "Run and Debug (Ctrl+Shift+D)");
-  t->problems = problems_panel(t);
-  add_dock_panel(t, 4, clip_box(t->problems, TRUE), "problems", "Problems (Ctrl+Shift+M)");
-  add_dock_panel(t, 8, clip_box(outline_panel(t), TRUE), "outline", "Outline");
-  add_dock_panel(t, 8, clip_box(hierarchy_panel(t), TRUE), "hierarchy", "Hierarchy (Shift+Alt+H)");
-  add_dock_panel(t, 8, clip_box(testing_panel(t), TRUE), "testing", "Testing");
-  add_dock_panel(t, 0, clip_box(plugins_panel(t), TRUE), "plugins", "Plugins");
-  t->layout.left = build_side_chain(t, 0, GTK_ORIENTATION_VERTICAL, 320);
-  t->layout.bottom = build_side_chain(t, 1, GTK_ORIENTATION_HORIZONTAL, 480);
-  t->layout.right = build_side_chain(t, 2, GTK_ORIENTATION_VERTICAL, 320);
-  update_docks(t);
-  /* the Panels menu's checks follow whatever shows or hides a panel */
-  for (int d = 0; d < DOCKS; d++) {
-    g_signal_connect(t->dock.cards[d], "notify::visible", G_CALLBACK(on_layout_changed), t);
-    g_signal_connect(t->dock.stacks[d], "notify::visible-child", G_CALLBACK(on_layout_changed), t);
-  }
-  for (int side = 0; side < 3; side++)
+  t->dock.list = g_ptr_array_new();
+  for (int side = 0; side < 3; side++) {
+    /* Held without asking for the docks' smallest size, as the paneds of a split would: the window's
+     * paneds squeeze a side instead of measuring it below its minimum. */
+    GtkWidget *root = split_root_new(), *clip = clip_box(root, TRUE);
+    gtk_viewport_set_scroll_to_focus(GTK_VIEWPORT(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(clip))), FALSE);
+    /* Its natural size is the docks'. And never nothing: a GtkPaned that gives a side no room before
+     * its position is set marks it not child-visible, and it stays unmapped once it has room. */
+    gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(clip), TRUE);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(clip), TRUE);
+    gtk_widget_set_size_request(clip, 1, 1);
+    g_object_set_data(G_OBJECT(clip), "t-code-dock-root", root);
+    *(side == 0 ? &t->layout.left : side == 1 ? &t->layout.bottom : &t->layout.right) = clip;
+    docks[side] = dock_new(t, side);
+    gtk_box_append(GTK_BOX(root), docks[side]->card);
     g_signal_connect(side_widget(t, side), "notify::visible", G_CALLBACK(on_layout_changed), t);
+  }
+  t->scm = clip_box(scm_panel(t), TRUE);
+  t->problems = problems_panel(t);
+  for (size_t i = 0; i < G_N_ELEMENTS(order); i++) {
+    const char *name = order[i].name;
+    GtkWidget *child = strcmp(name, "files") == 0       ? clip_box(files_panel(t), TRUE)
+                       : strcmp(name, "scm") == 0       ? t->scm
+                       : strcmp(name, "search") == 0    ? clip_box(search_panel(t), TRUE)
+                       : strcmp(name, "shell") == 0     ? t->shell.panel
+                       : strcmp(name, "debug") == 0     ? debug_panel(t)
+                       : strcmp(name, "run") == 0       ? clip_box(debug_view(t), TRUE)
+                       : strcmp(name, "problems") == 0  ? clip_box(t->problems, TRUE)
+                       : strcmp(name, "outline") == 0   ? clip_box(outline_panel(t), TRUE)
+                       : strcmp(name, "hierarchy") == 0 ? clip_box(hierarchy_panel(t), TRUE)
+                       : strcmp(name, "testing") == 0   ? clip_box(testing_panel(t), TRUE)
+                                                        : clip_box(plugins_panel(t), TRUE);
+    add_dock_page(docks[order[i].side], child, name, order[i].title, panel_icon(name));
+    panel_id(name);
+  }
+  update_docks(t);
 
-  gtk_drop_target_set_gtypes(ed_drop, dropped, G_N_ELEMENTS(dropped));
   gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(ed_drop), GTK_PHASE_CAPTURE);
   g_signal_connect(ed_drop, "drop", G_CALLBACK(on_editor_drop), t);
   gtk_widget_add_controller(GTK_WIDGET(t->editors.area), GTK_EVENT_CONTROLLER(ed_drop));

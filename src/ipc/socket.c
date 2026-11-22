@@ -216,6 +216,50 @@ void socket_project_changed(App *t)
   broadcast_event(t, "project_changed", t->project.root, FALSE);
 }
 
+/* {"event":<event>,"plugin":<owner>,"id":<id>, ...} to every subscriber; line < 1: no line and text. */
+static void broadcast_view(App *t, const char *event, const char *owner, const char *id, int line, const char *text)
+{
+  if (!t->socket_events || t->socket_events->len == 0)
+    return;
+  JsonBuilder *b = json_builder_new();
+  json_builder_begin_object(b);
+  json_builder_set_member_name(b, "event");
+  json_builder_add_string_value(b, event);
+  json_builder_set_member_name(b, "plugin");
+  json_builder_add_string_value(b, owner);
+  json_builder_set_member_name(b, "id");
+  json_builder_add_string_value(b, id);
+  if (line >= 1) {
+    json_builder_set_member_name(b, "line");
+    json_builder_add_int_value(b, line);
+    json_builder_set_member_name(b, "text");
+    json_builder_add_string_value(b, text ? text : "");
+  }
+  json_builder_end_object(b);
+  JsonNode *root = json_builder_get_root(b);
+  char *json = json_to_string(root, FALSE), *message = g_strconcat(json, "\n", NULL);
+  gsize length = strlen(message);
+  GPtrArray *clients = g_ptr_array_copy(t->socket_events, NULL, NULL); /* client_send() may drop one */
+
+  for (guint i = 0; i < clients->len; i++)
+    client_send(g_ptr_array_index(clients, i), message, length);
+  g_ptr_array_unref(clients);
+  g_free(message);
+  g_free(json);
+  json_node_unref(root);
+  g_object_unref(b);
+}
+
+void socket_view_activated(App *t, const char *owner, const char *id, int line, const char *text)
+{
+  broadcast_view(t, "view_activated", owner, id, line, text);
+}
+
+void socket_view_closed(App *t, const char *owner, const char *id)
+{
+  broadcast_view(t, "view_closed", owner, id, 0, NULL);
+}
+
 void client_subscribe(Client *c)
 {
   static const char response[] = "{\"event\":\"subscribed\"}\n";

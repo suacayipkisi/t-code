@@ -7,6 +7,7 @@
 #pragma once
 
 #include "app.h"
+#include "window/splits.h"
 
 /* Finding tabs ------------------------------------------------------------------------------- */
 
@@ -106,8 +107,6 @@ GtkWidget *strip_widget(GtkNotebook *group);
 
 /* The group trees (groups.c) -------------------------------------------------------------------- */
 
-typedef enum { SPLIT_LEFT, SPLIT_RIGHT, SPLIT_UP, SPLIT_DOWN } SplitSide;
-
 /* The main window's tree with its first group, and t->editors.area / view: the hint while no tab is
  * open, the drop markers over it. */
 void create_groups(App *t);
@@ -147,8 +146,8 @@ void close_group_if_empty(GtkNotebook *group);
 /* Puts every tab of the main window into its first group, which becomes the only one. */
 void join_groups(App *t);
 
-/* A window's tree as text, "h(500,g,v(333,g,g))": h / v a split side by side / one over another with
- * the first side's share in thousandths, g a group (in group order). NULL: no such window. */
+/* A window's tree as text (window/splits.h), "h(500,g,v(333,g,g))", g a group (in group order). NULL:
+ * no such window. */
 char *groups_layout(App *t, int window);
 
 /* Gives a window whose groups have no tabs the tree layout describes, with empty groups; FALSE (and

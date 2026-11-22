@@ -35,6 +35,7 @@ typedef struct Debugger Debugger;     /* debug/debugger.c */
 typedef enum {
   TAB_EDITOR,  /* a source file (GtkSourceView) */
   TAB_PREVIEW, /* a rendered markdown file */
+  TAB_VIEW,    /* a plugin's view (plugins/views.h): path is "view:<plugin>/<id>" */
 } TabKind;
 
 typedef struct Tab {
@@ -64,8 +65,7 @@ typedef struct Tab {
   } compare;              /* a comparison's two sides (git/compare.c) */
 } Tab;
 
-#define DOCKS 12  /* 0..3: left stacked, 4..7: bottom side-by-side, 8..11: right stacked */
-#define PANELS 11 /* the panels that go into the docks (window.h's panel_names) */
+#define PANELS 11 /* t-code's own panels that go into the docks (window.h's panel_names) */
 
 struct App {
   GtkWindow *window;
@@ -75,9 +75,9 @@ struct App {
     GtkPaned *hpaned;    /* the left side | the rest */
     GtkPaned *rpaned;    /* the editors and the bottom side | the right side */
     GtkPaned *vpaned;    /* the editors over the bottom side */
-    GtkWidget *left;     /* the left side: a vertical paned chain holding dock.cards[0..3] */
-    GtkWidget *bottom;   /* the bottom side: a horizontal chain holding dock.cards[4..7] */
-    GtkWidget *right;    /* the right side: a vertical chain holding dock.cards[8..11] */
+    GtkWidget *left;     /* the left side: the root of a tree of docks (window/splits.h, window/docks/) */
+    GtkWidget *bottom;   /* the bottom side: another */
+    GtkWidget *right;    /* the right side: another */
     gboolean pressed;    /* a mouse button is down in the window (a paned may be being dragged) */
     guint snapped;       /* a bit per side dragged below its smallest size: it hides on release */
     int sizes[3];        /* each side's last size that was big enough, given back when it shows again */
@@ -87,11 +87,7 @@ struct App {
 
   /* dock */
   struct {
-    GtkPaned *paneds[3][3];  /* the 3 paneds per side (left, bottom, right) */
-    GtkWidget *cards[DOCKS]; /* the 12 dock cards around the editor */
-    GtkStack *stacks[DOCKS]; /* the stack of panels in each dock */
-    gboolean collapsed[DOCKS];
-    int saved_pos[DOCKS];
+    GPtrArray *list;     /* every dock (window/docks/docks.h's Dock), any number on each side */
     GtkStack *scm_stack; /* the dock stack currently holding t->scm */
     guint checks_id;     /* the idle that updates the Panels menu's checks */
   } dock;
@@ -202,6 +198,7 @@ struct App {
     char *font;              /* editors and the shell, a Pango font description */
     char *files_font;        /* the Files panel */
     gboolean square;         /* the square theme (flat panels, lines between them), not rounded cards */
+    int corner_radius;       /* the rounded theme's panel corners in pixels (the controls' follow) */
     char *color_theme;       /* window/palette.c's id: "dark-classic", ... */
     gboolean plain;          /* syntax coloring off (F7) */
     double font_scale;       /* editors, terminals and the Files panel (Ctrl+= / Ctrl+-); session.ini keeps it */

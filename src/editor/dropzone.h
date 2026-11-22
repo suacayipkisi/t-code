@@ -42,6 +42,11 @@ DropZone drop_marker_at(const DropMarkers *markers, double x, double y);
 /* The space a tab dropped on zone's square would take. */
 void drop_zone_preview(DropZone zone, const graphene_rect_t *group, const graphene_rect_t *area, graphene_rect_t *out);
 
+/* Draws the shown squares in widget's color (the accent: the tcode-drop-hint class), hot's shaded, and
+ * the space preview it would give (a line for DROP_STRIP). The window's docks use them too. */
+void drop_markers_draw(GtkWidget *widget, cairo_t *cr, const DropMarkers *markers, DropZone hot,
+                       const graphene_rect_t *preview);
+
 /* child (holding a window's group tree; window: 0 the main one, 1 the second) under the markers. */
 GtkWidget *drop_view_new(App *t, GtkWidget *child, int window);
 

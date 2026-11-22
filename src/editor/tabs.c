@@ -17,6 +17,7 @@
 #include "window/statusbar.h"
 #include "lsp/problems.h"
 #include "lsp/symbols/outline.h"
+#include "plugins/views.h"
 
 #ifdef __GLIBC__
 #include <malloc.h>
@@ -242,7 +243,9 @@ void update_tab_label(Tab *tab)
 
   if (!tab->label) /* a comparison's right side: the left one's label is the page's */
     return;
-  name = tab->compare.title ? g_strdup(tab->compare.title) : g_path_get_basename(tab->path);
+  name = view_title(tab)      ? g_strdup(view_title(tab))
+         : tab->compare.title ? g_strdup(tab->compare.title)
+                              : g_path_get_basename(tab->path);
   if (tab->compare.old_side) { /* "editor.c ↔ a86a89b" */
     const char *other = tab->compare.old_side->compare.title ? tab->compare.old_side->compare.title : "";
     const char *at = strstr(other, " @ ");
@@ -250,7 +253,8 @@ void update_tab_label(Tab *tab)
     g_free(name);
     name = both;
   }
-  char *text = tab->kind == TAB_PREVIEW && !is_image(tab->path) ? g_strdup_printf("Preview %s", name)
+  char *text = tab->kind == TAB_VIEW                              ? g_strdup(name)
+               : tab->kind == TAB_PREVIEW && !is_image(tab->path) ? g_strdup_printf("Preview %s", name)
                : tab->kind == TAB_PREVIEW ? g_strdup(name)
                                           : g_strdup_printf("%s%s", tab->modified ? "● " : "", name);
 

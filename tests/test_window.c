@@ -3199,12 +3199,12 @@ static void test_first_run_layout(void)
   g_assert_cmpint(max, >, 440);
   g_assert_cmpint(gtk_widget_get_height(app.layout.bottom), ==, 240);
   g_assert_cmpint(gtk_widget_get_width(app.layout.right), ==, 280);
-  g_assert_cmpint(panel_dock(&app, "files"), ==, 0);
-  g_assert_cmpstr(gtk_stack_get_visible_child_name(app.dock.stacks[0]), ==, "files");
-  g_assert_cmpint(panel_dock(&app, "shell"), ==, 4);
-  g_assert_cmpint(panel_dock(&app, "outline"), ==, 8);
-  g_assert_cmpint(panel_dock(&app, "hierarchy"), ==, 8);
-  g_assert_cmpint(panel_dock(&app, "testing"), ==, 8);
+  g_assert_true(panel_dock(&app, "files") == side_first_dock(&app, 0));
+  g_assert_cmpstr(gtk_stack_get_visible_child_name(panel_stack(&app, "files")), ==, "files");
+  g_assert_true(panel_dock(&app, "shell") == side_first_dock(&app, 1));
+  g_assert_true(panel_dock(&app, "outline") == side_first_dock(&app, 2));
+  g_assert_true(panel_dock(&app, "hierarchy") == side_first_dock(&app, 2));
+  g_assert_true(panel_dock(&app, "testing") == side_first_dock(&app, 2));
   g_assert_true(gtk_widget_get_visible(app.layout.right));
 }
 
@@ -3382,6 +3382,249 @@ static gboolean controls_owned(gconstpointer data G_GNUC_UNUSED)
   return image && g_strcmp0(gtk_image_get_icon_name(GTK_IMAGE(image)), "tcode-window-close-symbolic") == 0;
 }
 
+/* The text of a plugin view's text view. */
+static char *view_text(GtkWidget *view)
+{
+  GtkTextView *text = GTK_TEXT_VIEW(find_widget(view, GTK_TYPE_TEXT_VIEW, NULL, NULL));
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(text);
+  GtkTextIter start, end;
+
+  gtk_text_buffer_get_bounds(buffer, &start, &end);
+  return gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+}
+
+static void assert_view_text(GtkWidget *view, const char *want)
+{
+  char *text = view_text(view);
+
+  g_assert_cmpstr(text, ==, want);
+  g_free(text);
+}
+
+/* A plugin's views: a panel in a dock (its text set and added to, a line activated) and a tab in an
+ * editor group (closed by the user: view_closed). */
+static void test_socket_tapi_views(void)
+{
+  TapiConn c = tapi_connect("hello tapi_1"), events = tapi_connect("hello tapi_1");
+  const char *name = "view:socket/results";
+  GtkWidget *panel;
+  char *message;
+
+  tapi_expect(&events, "subscribe", "ok");
+  tapi_expect(&c, "view-open {\"id\":\"results\",\"title\":\"Results\",\"where\":\"right\",\"text\":\"one\\ntwo\"}",
+              "ok");
+  run_for(50);
+  g_assert_cmpint(panel_side(&app, name), ==, 2);
+  g_assert_true(panel_shown(&app, name));
+  panel = gtk_stack_get_child_by_name(panel_stack(&app, name), name);
+  g_assert_cmpstr(gtk_stack_page_get_title(gtk_stack_get_page(panel_stack(&app, name), panel)), ==, "Results");
+  assert_view_text(panel, "one\ntwo");
+  tapi_expect(&c, "view-append results three", "ok");
+  assert_view_text(panel, "one\ntwo\nthree");
+  tapi_expect(&c, "view-set results fresh", "ok");
+  assert_view_text(panel, "fresh");
+
+  /* Enter on a line: the plugin hears which */
+  GtkWidget *text = find_widget(panel, GTK_TYPE_TEXT_VIEW, NULL, NULL);
+  GListModel *controllers = gtk_widget_observe_controllers(text);
+  gboolean handled = FALSE;
+  for (guint i = 0; i < g_list_model_get_n_items(controllers); i++) {
+    GObject *controller = g_list_model_get_item(controllers, i);
+    if (GTK_IS_EVENT_CONTROLLER_KEY(controller) && !handled)
+      g_signal_emit_by_name(controller, "key-pressed", GDK_KEY_Return, 0, 0, &handled);
+    g_object_unref(controller);
+  }
+  g_object_unref(controllers);
+  g_assert_true(handled);
+  message = next_event(events.input, "view_activated");
+  g_assert_cmpstr(message, ==,
+                  "{\"event\":\"view_activated\",\"plugin\":\"socket\",\"id\":\"results\",\"line\":1,"
+                  "\"text\":\"fresh\"}");
+  g_free(message);
+
+  /* a tab in the active editor group; the user closes it */
+  tapi_expect(&c, "view-open {\"id\":\"log\",\"title\":\"Build Log\",\"where\":\"editor\",\"text\":\"started\"}", "ok");
+  Tab *tab = find_tab(&app, TAB_VIEW, "view:socket/log");
+  g_assert_nonnull(tab);
+  g_assert_cmpstr(gtk_label_get_text(tab->label), ==, "Build Log");
+  assert_view_text(tab->page, "started");
+  remove_tab(tab);
+  message = next_event(events.input, "view_closed");
+  g_assert_cmpstr(message, ==, "{\"event\":\"view_closed\",\"plugin\":\"socket\",\"id\":\"log\"}");
+  g_free(message);
+
+  message = tapi(&c, "view-set log again");
+  g_assert_true(g_str_has_prefix(message, "error no-view "));
+  g_free(message);
+  message = tapi(&c, "view-open {\"id\":\"a/b\"}");
+  g_assert_true(g_str_has_prefix(message, "error bad-argument "));
+  g_free(message);
+  message = tapi(&c, "view-open {\"id\":\"x\",\"where\":\"top\"}");
+  g_assert_true(g_str_has_prefix(message, "error bad-argument "));
+  g_free(message);
+
+  tapi_expect(&c, "view-close results", "ok");
+  run_for(50);
+  g_assert_cmpint(panel_side(&app, name), ==, -1);
+  tapi_close(&c);
+  tapi_close(&events);
+  close_everything();
+}
+
+/* How many docks a side has. */
+static int dock_count(int side)
+{
+  GPtrArray *docks = side_docks(&app, side);
+  int n = (int)docks->len;
+
+  g_ptr_array_unref(docks);
+  return n;
+}
+
+/* A side's tree as session.ini keeps it, without the shares: "v(,d,d)". */
+static char *dock_shape(GKeyFile *kf, const char *side)
+{
+  char key[32], *layout, *shape;
+  GString *out = g_string_new(NULL);
+
+  g_snprintf(key, sizeof(key), "docks-%s", side);
+  layout = g_key_file_get_string(kf, "window", key, NULL);
+  for (const char *c = layout; c && *c; c++)
+    if (!g_ascii_isdigit(*c))
+      g_string_append_c(out, *c);
+  g_free(layout);
+  shape = g_string_free(out, FALSE);
+  return shape;
+}
+
+static void assert_dock_shape(GKeyFile *kf, const char *side, const char *want)
+{
+  char *shape = dock_shape(kf, side);
+
+  g_assert_cmpstr(shape, ==, want);
+  g_free(shape);
+}
+
+/* Any number of docks on a side, split either way; a dock goes with its last panel, and session.ini
+ * keeps the trees (an older one's twelve numbered docks are read too). */
+static void test_dock_tree(void)
+{
+  GKeyFile *kf = g_key_file_new(), *old = g_key_file_new();
+  char **names;
+
+  reset_panel_layout(&app);
+  run_for(50);
+  g_assert_cmpint(dock_count(0), ==, 1);
+  move_panel_beside(&app, "search", side_first_dock(&app, 0), SPLIT_DOWN);
+  move_panel_beside(&app, "run", panel_dock(&app, "search"), SPLIT_RIGHT);
+  move_panel_edge(&app, "problems", 0); /* from the bottom to a new dock at the end of the left side */
+  run_for(50);
+  g_assert_cmpint(dock_count(0), ==, 4);
+  g_assert_cmpint(panel_side(&app, "problems"), ==, 0);
+  docks_save(&app, kf);
+  assert_dock_shape(kf, "left", "v(,v(,d,h(,d,d)),d)");
+  names = g_key_file_get_string_list(kf, "window", "dock-left-0", NULL, NULL);
+  char *joined = g_strjoinv(";", names);
+  g_assert_cmpstr(joined, ==, "files;scm;plugins");
+  g_free(joined);
+  g_strfreev(names);
+
+  /* its dock's only panel: nothing to split off; moved away, its dock goes */
+  move_panel_beside(&app, "run", panel_dock(&app, "run"), SPLIT_UP);
+  g_assert_cmpint(dock_count(0), ==, 4);
+  move_panel_to_side(&app, "problems", 1);
+  run_for(50);
+  g_assert_cmpint(dock_count(0), ==, 3);
+  g_assert_cmpint(dock_count(1), ==, 1);
+
+  /* the session puts the trees back */
+  docks_save(&app, kf);
+  reset_panel_layout(&app);
+  run_for(50);
+  g_assert_cmpint(dock_count(0), ==, 1);
+  docks_restore(&app, kf);
+  run_for(50);
+  g_assert_cmpint(dock_count(0), ==, 3);
+  g_assert_true(panel_dock(&app, "run") != panel_dock(&app, "search"));
+  g_assert_cmpint(panel_side(&app, "search"), ==, 0);
+  g_assert_true(panel_dock(&app, "files") == side_first_dock(&app, 0));
+
+  /* an older session.ini: twelve numbered docks, a chain on each side */
+  g_key_file_set_integer(old, "window", "dock-layout", 12);
+  g_key_file_set_integer(old, "window", "dock-files", 0);
+  g_key_file_set_integer(old, "window", "dock-scm", 1);
+  g_key_file_set_integer(old, "window", "dock-shell", 4);
+  g_key_file_set_integer(old, "window", "dock-debug", 5);
+  g_key_file_set_integer(old, "window", "dock-outline", 8);
+  g_key_file_set_string_list(old, "window", "panel-order",
+                             (const char *const[]){ "files", "scm", "shell", "debug", "outline" }, 5);
+  docks_restore(&app, old);
+  run_for(50);
+  g_assert_cmpint(dock_count(0), ==, 2); /* files (with the panels it did not name), scm */
+  g_assert_cmpint(dock_count(1), ==, 2);
+  g_assert_cmpint(dock_count(2), ==, 1);
+  g_assert_true(panel_dock(&app, "scm") != panel_dock(&app, "files"));
+  g_assert_cmpint(panel_side(&app, "search"), ==, 0);
+  g_assert_cmpint(panel_side(&app, "hierarchy"), ==, 2);
+
+  reset_panel_layout(&app);
+  run_for(50);
+  g_key_file_free(kf);
+  g_key_file_free(old);
+}
+
+/* Room for the edge squares (dropzone.c: twice the cross's). */
+static gboolean roomy(gconstpointer widget)
+{
+  return gtk_widget_get_width((GtkWidget *)widget) >= 300 && gtk_widget_get_height((GtkWidget *)widget) >= 300;
+}
+
+static gboolean is_mapped(gconstpointer widget)
+{
+  return gtk_widget_get_mapped((GtkWidget *)widget);
+}
+
+/* A panel icon dragged over the window: the cross over a dock splits it (or adds the panel to it),
+ * the squares along the editor area's edges put it into a new dock on that side. */
+static void test_panel_drop(void)
+{
+  GtkWidget *view = gtk_overlay_get_child(GTK_OVERLAY(gtk_window_get_child(app.window)));
+  graphene_rect_t room;
+  double x, y;
+
+  reset_panel_layout(&app);
+  run_until(is_mapped, side_first_dock(&app, 2)->card); /* picked under the pointer: on the screen */
+  run_until(has_room, side_first_dock(&app, 2)->card);
+  run_for(100);
+  g_assert_true(gtk_widget_compute_bounds(side_first_dock(&app, 2)->card, view, &room));
+  g_assert_cmpint(
+      docks_drop_hover(&app, "testing", room.origin.x + room.size.width / 2, room.origin.y + room.size.height / 2), ==,
+      DROP_CENTER);
+  g_assert_true(docks_drop_marker(&app, DROP_BOTTOM, &x, &y));
+  g_assert_true(docks_drop(&app, "testing", x, y));
+  run_for(50);
+  g_assert_cmpint(dock_count(2), ==, 2);
+  g_assert_true(panel_dock(&app, "testing") != panel_dock(&app, "outline"));
+
+  GtkWidget *editors = gtk_widget_get_ancestor(app.editors.view, GTK_TYPE_SCROLLED_WINDOW);
+  run_until(roomy, editors);
+  g_assert_true(gtk_widget_compute_bounds(editors, view, &room));
+  g_assert_cmpint(
+      docks_drop_hover(&app, "hierarchy", room.origin.x + room.size.width / 2, room.origin.y + room.size.height / 2),
+      ==, DROP_NONE); /* no middle square over the editors */
+  g_assert_true(docks_drop_marker(&app, DROP_EDGE_LEFT, &x, &y));
+  g_assert_false(docks_drop_marker(&app, DROP_EDGE_TOP, &x, &y));
+  g_assert_true(docks_drop_marker(&app, DROP_EDGE_LEFT, &x, &y));
+  g_assert_true(docks_drop(&app, "hierarchy", x, y));
+  run_for(50);
+  g_assert_cmpint(panel_side(&app, "hierarchy"), ==, 0);
+  g_assert_cmpint(dock_count(0), ==, 2);
+  g_assert_false(docks_drop(&app, "outline", 1, 1)); /* not on a marker: nothing happens */
+
+  reset_panel_layout(&app);
+  run_for(50);
+}
+
 static void test_own_icons(void)
 {
   GtkIconTheme *theme = gtk_icon_theme_get_for_display(gdk_display_get_default());
@@ -3544,14 +3787,14 @@ static void test_panel_buttons(void)
   toggle_pane(&app, app.layout.left);
   g_assert_true(panel_shown(&app, "files"));
 
-  move_panel(&app, "files", 8); /* moved right, its dock hidden, the bottom collapsed */
+  move_panel_to_side(&app, "files", 2); /* moved right, its dock hidden, the bottom collapsed */
   click_panel("files");
   g_assert_false(panel_shown(&app, "files"));
   click_panel("shell");
   reset_panel_layout(&app);
   run_for(50);
   for (int i = 0; i < PANELS; i++)
-    g_assert_cmpint(panel_dock(&app, panel_names[i]), ==, panel_default_docks[i]);
+    g_assert_true(panel_dock(&app, panel_names[i]) == side_first_dock(&app, panel_default_sides[i]));
   g_assert_true(panel_shown(&app, "files"));
   g_assert_true(panel_shown(&app, "shell"));
   g_assert_true(gtk_widget_get_visible(app.layout.right)); /* Outline, Hierarchy, Testing */
@@ -3614,10 +3857,10 @@ static void test_panel_resize(void)
   reset_panel_layout(&app);
   run_for(100);
   for (int i = 0; i < PANELS; i++) {
-    int d = panel_dock(&app, panel_names[i]), min = 0;
-    GtkWidget *child = gtk_stack_get_child_by_name(app.dock.stacks[d], panel_names[i]);
+    int side = panel_side(&app, panel_names[i]), min = 0;
+    GtkWidget *child = gtk_stack_get_child_by_name(panel_stack(&app, panel_names[i]), panel_names[i]);
 
-    if (d / 4 == 1) /* the bottom's are as wide as the window */
+    if (side == 1) /* the bottom's are as wide as the window */
       continue;
     if (GTK_IS_SCROLLED_WINDOW(child))
       child = gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(child));
@@ -3703,14 +3946,14 @@ static void test_panel_resize(void)
 
   /* Seven icons in a narrow dock: some go into "more", which shows them. */
   for (int i = 0; i < PANELS; i++)
-    if (panel_default_docks[i] == 8)
-      move_panel(&app, panel_names[i], 0);
+    if (panel_default_sides[i] == 2)
+      move_panel_to_side(&app, panel_names[i], 0);
   gtk_paned_set_position(app.layout.hpaned, 180);
-  more = find_widget(app.dock.cards[0], GTK_TYPE_MENU_BUTTON, "More Panels", NULL);
+  more = find_widget(side_first_dock(&app, 0)->card, GTK_TYPE_MENU_BUTTON, "More Panels", NULL);
   g_assert_nonnull(more);
   run_until(more_shown, more);
   g_assert_true(gtk_widget_get_visible(more));
-  switcher = g_object_get_data(G_OBJECT(app.dock.stacks[0]), "tcode-switcher");
+  switcher = side_first_dock(&app, 0)->switcher;
   for (GtkWidget *icon = gtk_widget_get_first_child(switcher); icon; icon = gtk_widget_get_next_sibling(icon))
     hidden_icon |= gtk_widget_get_opacity(icon) == 0;
   g_assert_true(hidden_icon);
@@ -4151,12 +4394,12 @@ static void test_plugins_panel(void)
   GtkWindow *plugins;
 
   g_assert_nonnull(p);
-  g_assert_cmpint(panel_dock(&app, "plugins"), ==, 0);
+  g_assert_true(panel_dock(&app, "plugins") == side_first_dock(&app, 0));
   g_assert_cmpstr(panel_icon("plugins"), ==, "tcode-plugins-symbolic");
   run_command(&app, "View: Toggle Plugins");
   run_for(50);
   g_assert_true(panel_shown(&app, "plugins"));
-  panel = gtk_stack_get_child_by_name(app.dock.stacks[0], "plugins");
+  panel = gtk_stack_get_child_by_name(panel_stack(&app, "plugins"), "plugins");
   list = find_widget(panel, GTK_TYPE_LIST_BOX, NULL, NULL);
   g_assert_cmpint(count_of(list, GTK_TYPE_LIST_BOX_ROW), ==, (int)app.plugins->len);
   for (GtkWidget *r = gtk_widget_get_first_child(list); r; r = gtk_widget_get_next_sibling(r))
@@ -5265,6 +5508,8 @@ int main(int argc, char **argv)
   g_test_add_func("/window/panel-menu", test_panel_buttons);
   g_test_add_func("/window/panel-resize", test_panel_resize);
   g_test_add_func("/window/own-icons", test_own_icons);
+  g_test_add_func("/window/dock-tree", test_dock_tree);
+  g_test_add_func("/window/panel-drop", test_panel_drop);
   g_test_add_func("/window/terminal-tabs", test_terminal_tabs);
   g_test_add_func("/window/temporary-tabs", test_temporary);
   g_test_add_func("/window/temporary-per-group", test_temporary_per_group);
@@ -5282,6 +5527,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/socket-tapi-pick", test_socket_tapi_pick);
   g_test_add_func("/window/socket-tapi-diagnostics", test_socket_tapi_diagnostics);
   g_test_add_func("/window/socket-tapi-terminals", test_socket_tapi_terminals);
+  g_test_add_func("/window/socket-tapi-views", test_socket_tapi_views);
   g_test_add_func("/window/end-programs", test_end_programs);
   g_test_add_func("/window/socket-events", test_socket_events);
   g_test_add_func("/window/socket-stalled-subscriber", test_socket_stalled_subscriber);

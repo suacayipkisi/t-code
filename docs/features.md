@@ -293,7 +293,7 @@ Template…") picks one first and asks the name after, the template's file name 
 Delete Template…" removes one.
 
 **Split editor.** The editor area holds any number of tab groups, side by side and one over
-another (two on the left, three stacked on the right, ...). `Ctrl+\` (or the title bar button) puts
+another (two on the left, three stacked on the right, ...). `Ctrl+\` puts
 a new group right of the one you are in; pressed in that new, still empty group, it closes it again.
 "Split Editor Down", "Close Editor Group" and "Join All Editor Groups" are in the command palette,
 "Split Right" / "Split Down" in a tab's menu. Drag a tab and blue markers show where it can go: the
@@ -314,8 +314,13 @@ window, command palette, updates, quit), Settings, Panels (each panel, checked w
 About and Help (keyboard shortcuts, reset panel layout). The middle shows the project's name.
 
 **Panels.** Files, Source Control, Search and Run and Debug start on the left; the Terminal, Debug
-and Problems at the bottom; Outline, Hierarchy and Testing on the right. Drag a panel's icon to move
-it. Panels get narrower as their side does (shorter buttons; icons that no longer fit go into the
+and Problems at the bottom; Outline, Hierarchy and Testing on the right. Each side holds any number of
+docks, split either way. Drag a panel's icon and blue markers show where it can go: over a dock, its
+middle square adds the panel to that dock's tabs and the four around it give it a new dock on that
+side; over the dock's tab bar a line shows where among the tabs it lands; over the editor area,
+squares along its left, bottom and right edges put it into a new dock at the end of that side. A dock
+goes with its last panel, and the layout comes back next time. Plugins can add panels of their own
+(views, docs/plugins.md). Panels get narrower as their side does (shorter buttons; icons that no longer fit go into the
 dock's `⋯` menu). A side dragged smaller than it can show closes when you let go. Drag it back out
 before letting go and it stays. To open a hidden side, drag from that edge of the window, the way you
 would resize it.
@@ -343,7 +348,9 @@ for a group). **All** (or `Enter` in the field) asks, then replaces every match 
 files open in an editor change there (unsaved, `Ctrl+Z` takes it back), the others on disk.
 
 **Color themes.** Dark Classic and other dark and light themes (Gruvbox among them), each with a
-preview, in a rounded or a square look; the editor, the terminals and the panels all follow.
+preview, in a rounded or a square look; the editor, the terminals and the panels all follow. The
+rounded look's corner radius is a setting (Settings, Appearance: 0 to 24 px; buttons, tabs and menus
+follow).
 `theme.css` and the editor's style scheme can be edited by hand ("Preferences: Open …"). Plugins can
 bring more: each GtkSourceView style scheme in a plugin's `styles` folder is a theme (docs/plugins.md).
 

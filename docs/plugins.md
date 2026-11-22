@@ -535,6 +535,26 @@ start (`[line, col]`).
 - **Not restored:** it is not brought back with the project's other terminal tabs.
 - **Ownership:** a plugin can only send to and close its own tabs.
 
+**Views:**
+
+| Command | Argument | Answer | What it does |
+|---|---|---|---|
+| `view-open` | `{"id":"…","title":"…","where":"bottom","icon":"…","text":"…"}` | `ok` | Opens the plugin's view `id` (one word without `/`): a read-only text panel in a dock (`where`: `left`, `bottom` (the default) or `right`) or a tab in an editor group (`editor`: the active one, `side`: the one beside it). `title` names its tab (the id without one), `icon` an icon name for a dock's tab. A view already open gets the title and text and shows. |
+| `view-set` | `<id> <text>` | `ok` | Replaces the view's text. |
+| `view-append` | `<id> <text>` | `ok` | Adds a line to the view's text and scrolls to it. |
+| `view-show` | `<id>` | `ok` | Shows the view: its dock or tab, switched to. |
+| `view-close` | `<id>` | `ok` | Closes the view. |
+
+- **Its own:** a plugin reaches only its own views; another plugin's view of the same id is another
+  view. `view-set`, `view-append`, `view-show` and `view-close` answer `error no-view` when the
+  plugin has no such view open.
+- **Moving:** a view in a dock is dragged and split like t-code's panels; a view tab like any tab.
+- **Lines:** a double click or Enter on a line sends `view_activated` (below): a list of results opens
+  what a line names.
+- **Lifetime:** a view stays until the plugin closes it or the user closes its tab (`view_closed`);
+  it is not brought back with the project. Text with line breaks: send the request ended by a NUL
+  byte, or put the text in `view-open`'s JSON.
+
 ### Events
 
 Send `subscribe` and keep the connection open. t-code answers `ok` (a legacy connection gets
@@ -547,6 +567,8 @@ Send `subscribe` and keep the connection open. t-code answers `ok` (a legacy con
 {"event":"did_save","path":"/absolute/path/to/file.c","by":"plugin"}
 {"event":"did_close","path":"/absolute/path/to/file.c"}
 {"event":"project_changed","path":"/absolute/path/to/project"}
+{"event":"view_activated","plugin":"my-plugin","id":"results","line":3,"text":"src/main.c:12: warning"}
+{"event":"view_closed","plugin":"my-plugin","id":"results"}
 ```
 
 | Event | When |
@@ -557,6 +579,8 @@ Send `subscribe` and keep the connection open. t-code answers `ok` (a legacy con
 | `did_close` | A file's editor tab closed. |
 | `active_changed` | Another tab became the active one. The path is empty when the active tab is not an editor. |
 | `project_changed` | Another project folder opened. |
+| `view_activated` | A line of a plugin's view was double-clicked or got Enter: the plugin (`socket` for a connection without a plugin), the view's id, the line (from 1) and its text. |
+| `view_closed` | The user closed a plugin's view tab. |
 
 `did_change` and `did_save` carry `"by":"plugin"` when a socket request caused them: an `insert`,
 `edit` or `replace-all` (when every change since the last `did_change` came from the socket), or a

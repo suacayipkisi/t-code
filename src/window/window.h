@@ -2,24 +2,25 @@
  * The main window and its layout:
  *
  *   +-------------+-------------------------------+
- *   |             | [main.c x] [util.c x]         |  editor tabs (GtkSourceView);
- *   |    files    |                               |  split into two groups side by side
+ *   |             | [main.c x] [util.c x]         |  editor tabs (GtkSourceView), in any
+ *   |    files    |                               |  number of groups
  *   |             +-------------------------------+
  *   |             | shell                         |
  *   +-------------+-------------------------------+
  *   | branch  problems  Build  Run      Ln, Col  Keybinds |  status bar
  *
- * The panels (panel_names) sit in docks on the left, bottom and right, as tabs or stacked; they
- * can be dragged between them. window.c builds the window, titlebar.c its title bar, docks/ the
+ * The panels (panel_names, and the plugins' views) sit in docks on the left, bottom and right, any
+ * number of them on each side, as tabs or split; they can be dragged between them. window.c builds the window, titlebar.c its title bar, docks/ the
  * docks.
  */
 #pragma once
 
 #include "app.h"
 
-/* The panels that go into the docks around the editors, by name, and the dock each is in at first. */
+/* t-code's own panels that go into the docks around the editors, by name, and the side each is on at
+ * first (0 left, 1 bottom, 2 right). */
 extern const char *const panel_names[PANELS];
-extern const int panel_default_docks[PANELS];
+extern const int panel_default_sides[PANELS];
 
 /* Creates the window with everything in it, starts the shell and shows it. Called once, from
  * the application's "activate" or "open" signal. */
@@ -50,11 +51,21 @@ void toggle_pane(App *t, GtkWidget *pane);
  * the keyboard. */
 void show_sidebar_page(App *t, const char *page);
 
-/* Which dock holds page (0..3 left, 4..7 bottom, 8..11 right; see DOCKS in app.h), or -1. */
-int panel_dock(App *t, const char *page);
+/* The side page is on (0 left, 1 bottom, 2 right), or -1; the stack of its dock, or NULL. */
+int panel_side(App *t, const char *page);
+GtkStack *panel_stack(App *t, const char *page);
 
-/* Moves a panel (one of panel_names) to dock (0..DOCKS-1). */
-void move_panel(App *t, const char *page, int dock);
+/* Moves a panel into the first dock of a side (a new one when the side has none). */
+void move_panel_to_side(App *t, const char *page, int side);
+
+/* A panel of someone else's (a plugin's view) into the first dock of a side, shown; and taking it away. */
+void add_panel(App *t, const char *name, const char *title, const char *icon, GtkWidget *child, int side);
+void remove_panel(App *t, const char *name);
+
+/* The docks in session.ini's [window]: each side's tree and each dock's panels, collapsed or hidden. An
+ * older session.ini's twelve numbered docks are read too. */
+void docks_save(App *t, GKeyFile *kf);
+void docks_restore(App *t, GKeyFile *kf);
 
 /* Whether page shows: its dock and side are shown, not collapsed or squeezed to nothing, and it is
  * the dock's current tab. */

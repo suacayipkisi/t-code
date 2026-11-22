@@ -122,23 +122,30 @@ static void draw_marker(cairo_t *cr, const GdkRGBA *accent, DropZone zone, const
   cairo_fill(cr);
 }
 
-static void draw(GtkDrawingArea *area, cairo_t *cr, int width G_GNUC_UNUSED, int height G_GNUC_UNUSED, gpointer data)
+void drop_markers_draw(GtkWidget *widget, cairo_t *cr, const DropMarkers *markers, DropZone hot,
+                       const graphene_rect_t *preview)
 {
-  Drop *d = data;
   GdkRGBA accent;
 
-  gtk_widget_get_color(GTK_WIDGET(area), &accent);
-  if (d->zone != DROP_NONE) {
-    cairo_rectangle(cr, d->preview.origin.x, d->preview.origin.y, d->preview.size.width, d->preview.size.height);
-    set_color(cr, &accent, d->zone == DROP_STRIP ? 1 : 0.22);
+  gtk_widget_get_color(widget, &accent);
+  if (hot != DROP_NONE) {
+    cairo_rectangle(cr, preview->origin.x, preview->origin.y, preview->size.width, preview->size.height);
+    set_color(cr, &accent, hot == DROP_STRIP ? 1 : 0.22);
     cairo_fill_preserve(cr);
     set_color(cr, &accent, 0.9);
     cairo_set_line_width(cr, 1);
     cairo_stroke(cr);
   }
   for (int zone = DROP_CENTER; zone < DROP_MARKERS; zone++)
-    if (d->markers.shown[zone])
-      draw_marker(cr, &accent, zone, &d->markers.rect[zone], zone == (int)d->zone);
+    if (markers->shown[zone])
+      draw_marker(cr, &accent, zone, &markers->rect[zone], zone == (int)hot);
+}
+
+static void draw(GtkDrawingArea *area, cairo_t *cr, int width G_GNUC_UNUSED, int height G_GNUC_UNUSED, gpointer data)
+{
+  Drop *d = data;
+
+  drop_markers_draw(GTK_WIDGET(area), cr, &d->markers, d->zone, &d->preview);
 }
 
 /* Following the drag ----------------------------------------------------------------------------- */

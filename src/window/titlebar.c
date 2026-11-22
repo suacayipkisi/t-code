@@ -1,6 +1,6 @@
 /*
  * The window's title bar (see docks/docks.h): the menu bar (Files, T-Code, Settings, Panels, About,
- * Help) and the buttons that show or hide the sides and split the editor.
+ * Help) and the buttons that show or hide the sides.
  */
 #include "window/docks/docks.h"
 
@@ -9,12 +9,6 @@
 #include "window/window.h"
 
 #include <string.h>
-
-/* The Split Editor button in the title bar. */
-static void on_split_clicked(GtkButton *button G_GNUC_UNUSED, App *t)
-{
-  run_command(t, "Split Editor");
-}
 
 static void on_toggle_left(App *t)
 {
@@ -233,7 +227,6 @@ GtkWidget *title_bar(App *t)
   GtkWidget *left_btn = gtk_button_new_from_icon_name("tcode-sidebar-left-symbolic");
   GtkWidget *right_btn = gtk_button_new_from_icon_name("tcode-sidebar-right-symbolic");
   GtkWidget *bottom_btn = gtk_button_new_from_icon_name("tcode-panel-bottom-symbolic");
-  GtkWidget *split = gtk_button_new_from_icon_name("tcode-split-symbolic");
   GtkWidget *logo = gtk_image_new_from_icon_name("tcode-logo"); /* from the resources: also when not installed */
 
   add_menu_actions(t);
@@ -245,10 +238,6 @@ GtkWidget *title_bar(App *t)
   gtk_header_bar_pack_start(GTK_HEADER_BAR(header), logo);
   gtk_header_bar_pack_start(GTK_HEADER_BAR(header), menu_bar);
   g_object_unref(model);
-
-  gtk_widget_set_tooltip_text(split, "Split Editor (Ctrl+\\)");
-  g_signal_connect(split, "clicked", G_CALLBACK(on_split_clicked), t);
-  gtk_header_bar_pack_end(GTK_HEADER_BAR(header), split);
 
   gtk_widget_set_tooltip_text(right_btn, "Toggle Right Sidebar");
   g_signal_connect_swapped(right_btn, "clicked", G_CALLBACK(on_toggle_right), t);

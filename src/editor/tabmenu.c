@@ -250,9 +250,11 @@ void tab_menu(Tab *tab, GtkWidget *widget, double x, double y)
     items[n++] = (MenuItem){ "Move into New Window", on_new_window };
   if (tab->compare.old_side)
     items[n++] = (MenuItem){ "Stop Comparing", on_stop_comparing };
-  items[n++] = (MenuItem){ NULL, NULL };
-  items[n++] = (MenuItem){ "Copy Path", on_copy_path };
-  items[n++] = (MenuItem){ "Copy Relative Path", on_copy_relative };
+  if (tab->kind != TAB_VIEW) { /* a plugin's view has no file */
+    items[n++] = (MenuItem){ NULL, NULL };
+    items[n++] = (MenuItem){ "Copy Path", on_copy_path };
+    items[n++] = (MenuItem){ "Copy Relative Path", on_copy_relative };
+  }
   if (g_file_test(tab->path, G_FILE_TEST_EXISTS) && !tab->compare.with)
     items[n++] = (MenuItem){ "Reveal in Files", on_reveal };
   if (tab->kind == TAB_EDITOR && !tab->compare.with)

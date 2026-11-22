@@ -25,6 +25,7 @@
 #include "lsp/client/client.h"
 #include "lsp/json.h"
 #include "plugins/plugins.h"
+#include "plugins/views.h"
 #include "popups/picker.h"
 #include "project/project.h"
 #include "window/secondwindow.h"
@@ -392,6 +393,100 @@ static gboolean do_scm_message(Client *c, const char *arg) { scm_set_message(arg
 static gboolean do_lsp_refresh(Client *c, const char *arg G_GNUC_UNUSED) { lsp_reattach(c->app); answer_ok(c, NULL); return TRUE; }
 static gboolean do_lsp_restart(Client *c, const char *arg G_GNUC_UNUSED) { lsp_restart(c->app); answer_ok(c, NULL); return TRUE; }
 /* clang-format on */
+
+/* Views ------------------------------------------------------------------------------------- */
+
+/* A view id: one word without "/" (it names the view as "view:<plugin>/<id>"). */
+static gboolean good_view_id(const char *id)
+{
+  return id && *id && !strpbrk(id, " \t\n/");
+}
+
+/* view-open {"id":"…","title":"…","where":"left|bottom|right|editor|side","icon":"…","text":"…"}. */
+static gboolean do_view_open(Client *c, const char *arg)
+{
+  JsonNode *root = parse_json(c, arg);
+  JsonObject *object = root && JSON_NODE_HOLDS_OBJECT(root) ? json_node_get_object(root) : NULL;
+  const char *id = object ? json_object_get_string_member_with_default(object, "id", NULL) : NULL;
+  const char *where = object ? json_object_get_string_member_with_default(object, "where", "bottom") : NULL;
+  ViewPlace place;
+
+  if (!root)
+    return TRUE; /* parse_json answered */
+  if (!object || !good_view_id(id))
+    answer_error(c, "bad-argument", "a view needs an \"id\": one word without slashes");
+  else if (!view_place(where, &place))
+    answer_error(c, "bad-argument", "\"where\" is left, bottom, right, editor or side");
+  else {
+    view_open(c->app, owner_of(c), id, json_object_get_string_member_with_default(object, "title", NULL), place,
+              json_object_get_string_member_with_default(object, "icon", NULL),
+              json_object_get_string_member_with_default(object, "text", NULL));
+    answer_ok(c, NULL);
+  }
+  json_node_unref(root);
+  return TRUE;
+}
+
+/* "<id> <text>": the id, and where the text after it starts (NULL: none). */
+static char *view_arg(const char *arg, const char **text)
+{
+  const char *space = strchr(arg, ' ');
+
+  if (text)
+    *text = space ? space + 1 : "";
+  return space ? g_strndup(arg, space - arg) : g_strdup(arg);
+}
+
+static gboolean no_view(Client *c, const char *id)
+{
+  char *message = g_strdup_printf("no view \"%s\" of this plugin's is open", id);
+
+  answer_error(c, "no-view", message);
+  g_free(message);
+  return TRUE;
+}
+
+/* view-set / view-append <id> <text>. */
+static gboolean set_view_text(Client *c, const char *arg, gboolean append)
+{
+  const char *text;
+  char *id = view_arg(arg, &text);
+
+  if (view_set_text(c->app, owner_of(c), id, text, append))
+    answer_ok(c, NULL);
+  else
+    no_view(c, id);
+  g_free(id);
+  return TRUE;
+}
+
+static gboolean do_view_set(Client *c, const char *arg)
+{
+  return set_view_text(c, arg, FALSE);
+}
+
+static gboolean do_view_append(Client *c, const char *arg)
+{
+  return set_view_text(c, arg, TRUE);
+}
+
+static gboolean do_view_show(Client *c, const char *arg)
+{
+  if (view_show(c->app, owner_of(c), arg))
+    answer_ok(c, NULL);
+  else
+    no_view(c, arg);
+  return TRUE;
+}
+
+static gboolean do_view_close(Client *c, const char *arg)
+{
+  if (view_close(c->app, owner_of(c), arg))
+    answer_ok(c, NULL);
+  else
+    no_view(c, arg);
+  return TRUE;
+}
 
 /* Language servers and debuggers ------------------------------------------------------------- */
 
@@ -864,6 +959,11 @@ static const Request requests[] = {
   { "terminal-close",     NEEDS_NOTHING, 0,               FALSE, do_terminal_close },
   { "terminal-close-text", NEEDS_NOTHING, 0,              FALSE, do_terminal_close_text },
   { "scm-message",        NEEDS_NOTHING, 0,               FALSE, do_scm_message },
+  { "view-open",          NEEDS_NOTHING, 0,               FALSE, do_view_open },
+  { "view-set",           NEEDS_NOTHING, 0,               FALSE, do_view_set },
+  { "view-append",        NEEDS_NOTHING, 0,               FALSE, do_view_append },
+  { "view-show",          NEEDS_NOTHING, 0,               FALSE, do_view_show },
+  { "view-close",         NEEDS_NOTHING, 0,               FALSE, do_view_close },
   { "lsp-refresh",        NEEDS_NOTHING, 0,               FALSE, do_lsp_refresh },
   { "lsp-restart",        NEEDS_NOTHING, 0,               FALSE, do_lsp_restart },
   { "lsp-command",        NEEDS_NOTHING, 0,               FALSE, do_lsp_command },

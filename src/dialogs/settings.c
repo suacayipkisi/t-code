@@ -390,6 +390,9 @@ void show_settings(App *t)
   add_row(GTK_GRID(grid), &row, "Color theme", "Also \"Preferences: Color Theme\" in the command palette",
           color_themes());
   add_row(GTK_GRID(grid), &row, "Theme", "Rounded panels on a darker frame, or flat ones with lines between", theme);
+  add_row(GTK_GRID(grid), &row, "Corner radius",
+          "The rounded theme's panel corners in pixels; buttons, tabs and menus follow",
+          setting_spin(&t->settings.corner_radius, 0, 24, apply_theme));
   add_row(GTK_GRID(grid), &row, "Editor font", "Editors and the terminal", font_for(&t->settings.font));
   add_row(GTK_GRID(grid), &row, "Files panel font", "The names in the Files panel and Open Tabs",
           font_for(&t->settings.files_font));

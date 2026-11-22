@@ -134,12 +134,7 @@ static int side_remembered(App *t, int side)
 /* The bottom with every dock collapsed is small on purpose (only their tab bars). */
 static gboolean side_can_snap(App *t, int side)
 {
-  if (side != 1)
-    return TRUE;
-  for (int d = 4; d < 8; d++)
-    if (gtk_widget_get_visible(t->dock.cards[d]) && !t->dock.collapsed[d])
-      return TRUE;
-  return FALSE;
+  return side != 1 || side_has_expanded(t, 1);
 }
 
 /* A main paned moved. While the mouse drags it, a side smaller than side_snap squeezes to nothing
@@ -354,7 +349,7 @@ void build_window(App *t, GtkApplication *app)
   g_signal_connect(legacy, "event", G_CALLBACK(on_window_event), t);
   gtk_widget_add_controller(GTK_WIDGET(t->window), legacy);
   gtk_box_append(GTK_BOX(content), status_bar(t));
-  gtk_overlay_set_child(GTK_OVERLAY(overlay), content);
+  gtk_overlay_set_child(GTK_OVERLAY(overlay), docks_drop_view(t, content));
   picker_init(t, GTK_OVERLAY(overlay));
   gtk_window_set_child(t->window, overlay);
 
