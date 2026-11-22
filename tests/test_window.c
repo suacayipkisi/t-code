@@ -246,7 +246,7 @@ static Tab *old_version_of(const char *path)
 {
   for (int i = 0; i < tab_count(&app); i++) {
     Tab *tab = tab_nth(&app, i);
-    if (g_strcmp0(tab->path, path) == 0 && tab->compare.old_side)
+    if (g_strcmp0(tab->compare.with, path) == 0 && tab->compare.old_side)
       return tab->compare.old_side;
   }
   return NULL;
@@ -257,12 +257,30 @@ static gboolean compared(gconstpointer path)
   return old_version_of(path) != NULL;
 }
 
-/* A comparison is one tab with both sides ("tracked.txt ↔ <commit>"), on the left the working file:
- * Stop Comparing closes the old version and keeps the file; closing the tab closes both. */
+static gboolean loaded(gconstpointer tab)
+{
+  return !((const Tab *)tab)->view->loading;
+}
+
+/* The comparison tab of path: its working copy on the left, the old version on the right. */
+static Tab *comparison_of(const char *path)
+{
+  for (int i = 0; i < tab_count(&app); i++) {
+    Tab *tab = tab_nth(&app, i);
+    if (g_strcmp0(tab->compare.with, path) == 0 && tab->compare.old_side)
+      return tab;
+  }
+  return NULL;
+}
+
+/* A comparison is a tab of its own with both sides ("tracked.txt @ Working ↔ <commit>"), both
+ * read-only: the file's open tab stays as it was, and the left side shows its unsaved text too. Stop
+ * Comparing closes the comparison; comparing again replaces it. */
 static void test_comparison_one_tab(void)
 {
   char *path = file("tracked.txt");
-  Tab *tab;
+  Tab *tab, *work;
+  char *text = NULL;
 
   if (!git((const char *[]){ "init", "-q", NULL }) || !git((const char *[]){ "add", "tracked.txt", NULL }) ||
       !git((const char *[]){ "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one", NULL })) {
@@ -275,30 +293,39 @@ static void test_comparison_one_tab(void)
   g_set_str(&app.project.scm_top, app.project.repo_top);
 
   open_temporary("tracked.txt");
+  work = tab_nth(&app, 0);
+  run_until(loaded, work);
+  gtk_text_buffer_set_text(GTK_TEXT_BUFFER(work->buffer), "one\nTWO\nthree\n", -1); /* unsaved */
   compare_with_head(&app, path);
-  run_until(compared, path);  /* git answers in the background */
-  assert_tabs("tracked.txt"); /* one tab, kept (no longer temporary) */
-  tab = tab_nth(&app, 0);
-  g_assert_nonnull(tab->compare.old_side);
+  run_until(compared, path);              /* git answers in the background */
+  assert_tabs("tracked.txt tracked.txt"); /* the file's tab (kept by the edit), then the comparison */
+  g_assert_true(tab_nth(&app, 0) == work);
+  g_assert_null(work->compare.old_side); /* untouched */
+  tab = comparison_of(path);
+  g_assert_true(tab == tab_nth(&app, 1));
   g_assert_cmpstr(tab->compare.old_side->compare.with, ==, path);
-  g_assert_true(g_str_has_prefix(gtk_label_get_text(tab->label), "tracked.txt ↔ "));
+  g_assert_true(g_str_has_prefix(gtk_label_get_text(tab->label), "tracked.txt @ Working ↔ "));
+  g_assert_false(gtk_text_view_get_editable(GTK_TEXT_VIEW(tab->source)));
+  g_assert_true(g_file_get_contents(tab->path, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, "one\nTWO\nthree\n");
+  g_free(text);
   g_assert_cmpint(group_count(&app), ==, 1); /* no second group */
 
-  stop_comparing(&app); /* the file stays */
+  stop_comparing(&app); /* the comparison closes, the file stays */
   run_for(50);
   assert_tabs("tracked.txt");
-  g_assert_null(tab_nth(&app, 0)->compare.old_side);
-  g_assert_cmpstr(gtk_label_get_text(tab_nth(&app, 0)->label), ==, "tracked.txt");
+  g_assert_true(tab_nth(&app, 0) == work);
 
-  compare_with_head(&app, path);
-  run_until(compared, path);
-  stop_comparing(&app);
   compare_with_head(&app, path);
   run_until(compared, path);
   compare_with_head(&app, path); /* again: still one comparison */
   run_for(300);
+  assert_tabs("tracked.txt tracked.txt");
+  quit_editor(tab_nth(&app, 1)); /* closes both sides */
+  run_for(50);
   assert_tabs("tracked.txt");
-  quit_editor(tab_nth(&app, 0)); /* closes both */
+  gtk_text_buffer_set_modified(GTK_TEXT_BUFFER(work->buffer), FALSE);
+  quit_editor(work);
   run_for(50);
   assert_tabs("");
   g_free(path);
@@ -346,9 +373,10 @@ static void test_hg_comparison(void)
   char *text = NULL;
   g_assert_true(g_file_get_contents(old->path, &text, NULL, NULL));
   g_assert_cmpstr(text, ==, "one\ntwo\n");
-  const char *label = gtk_label_get_text(tab_nth(&app, 0)->label);
-  g_assert_true(g_str_has_prefix(label, "h.txt ↔ "));
-  g_assert_cmpuint(strlen(label + strlen("h.txt ↔ ")), ==, 12);
+  const char *label = gtk_label_get_text(comparison_of(path)->label);
+  g_assert_true(g_str_has_prefix(label, "h.txt @ Working ↔ "));
+  g_assert_cmpuint(strlen(label + strlen("h.txt @ Working ↔ ")), ==, 12);
+  quit_editor(comparison_of(path));
   quit_editor(tab_nth(&app, 0));
   run_for(50);
   assert_tabs("");
@@ -396,11 +424,6 @@ static void test_comparisons_in_a_row(void)
   close_everything();
   for (size_t i = 0; i < G_N_ELEMENTS(names); i++)
     g_free(paths[i]);
-}
-
-static gboolean loaded(gconstpointer tab)
-{
-  return !((const Tab *)tab)->view->loading;
 }
 
 static gboolean in_conflict(gconstpointer tab)

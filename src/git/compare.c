@@ -10,6 +10,7 @@
 
 #include "editor/gutter/diffgutter.h"
 #include "editor/editor.h"
+#include "editor/editorview.h"
 #include "editor/tabs.h"
 #include "git/gitstatus.h"
 #include "popups/picker.h"
@@ -259,27 +260,30 @@ static void show_side_by_side(Tab *left, Tab *right)
   select_tab(left);
 }
 
-/* The working file next to old_path (read-only, "name @ label") in one tab: the working file's
- * gutter compared with the commit base_rev (by name; it follows new commits when that is HEAD) or
- * else with old_path, the old version's with the working file. */
-static void compare_working(App *t, const char *path, const char *old_path, const char *label, const char *base_rev)
+/* The working file as it is now (its tab's text, unsaved edits included, else the file on disk) next
+ * to old_path, both read-only in a tab of their own ("name @ Working ↔ label"): the file's own tab
+ * stays as it is. */
+static void compare_working(App *t, const char *path, const char *old_path, const char *label)
 {
-  Tab *work = find_tab(t, TAB_EDITOR, path), *old;
+  Tab *work = find_tab(t, TAB_EDITOR, path), *left, *right;
+  char *content = NULL, *working_path;
 
-  if (!work)
-    work = open_editor(t, path, 0, 0, FALSE);
-  stop_comparing_tab(work); /* one comparison per file at a time */
-  keep_tab(work);           /* a click in Files must not replace it while it is compared */
-  t->editors.active = tab_group(work);
-  old = open_version(t, old_path, label, path);
-  if (base_rev && strcmp(base_rev, "HEAD") != 0)
-    diff_gutter_compare_rev(work, base_rev);
-  else if (base_rev)
-    diff_gutter_follow_head(work);
-  else
-    diff_gutter_compare_file(work, old_path);
-  diff_gutter_compare_file(old, path);
-  show_side_by_side(work, old);
+  if (work && !work->view->loading) {
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(GTK_TEXT_BUFFER(work->buffer), &start, &end);
+    content = gtk_text_buffer_get_text(GTK_TEXT_BUFFER(work->buffer), &start, &end, FALSE);
+  } else if (!g_file_get_contents(path, &content, NULL, NULL)) {
+    show_message(t, "Nothing to compare", "The file is no longer on disk.");
+    return;
+  }
+  working_path = write_old_version(t, path, content, "working");
+  left = open_version(t, working_path, "Working", path);
+  right = open_version(t, old_path, label, path);
+  diff_gutter_compare_file(left, old_path);
+  diff_gutter_compare_file(right, working_path);
+  show_side_by_side(left, right);
+  g_free(working_path);
+  g_free(content);
 }
 
 /* What compare_with() asked about: the file, its repository's kind and the version. */
@@ -318,7 +322,7 @@ static void compared_with(App *t, char **outs, gpointer data)
       g_free(detail);
     } else {
       char *old_path = write_old_version(t, path, outs[1], short_commit);
-      compare_working(t, path, old_path, short_commit, commit);
+      compare_working(t, path, old_path, short_commit);
       g_free(old_path);
     }
     g_free(short_commit);
@@ -360,7 +364,7 @@ static void compared_with_index(App *t, char **outs, gpointer data)
 
   if (outs[0]) {
     char *old_path = write_old_version(t, path, outs[0], "index");
-    compare_working(t, path, old_path, "Index", NULL);
+    compare_working(t, path, old_path, "Index");
     g_free(old_path);
   } else {
     show_message(t, "Nothing to compare with", "This file is not staged.");
@@ -390,7 +394,7 @@ void compare_with_disk(App *t, const char *path)
     return;
   }
   char *old_path = write_old_version(t, path, content, "disk");
-  compare_working(t, path, old_path, "Disk", NULL);
+  compare_working(t, path, old_path, "Disk");
   g_free(old_path);
   g_free(content);
 }

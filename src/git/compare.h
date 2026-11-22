@@ -1,7 +1,7 @@
 /*
- * Comparing a file with an older version from git, side by side in one tab: the working file on
- * the left, the old version (read-only, from a temporary file) on the right, each gutter marking
- * what differs from the other. Also File History, which lists a file's commits to compare with.
+ * Comparing a file with an older version from git, side by side in a tab of its own: the working
+ * file as it is now on the left, the old version on the right (both read-only, from temporary
+ * files; the file's own tab stays as it is), each gutter marking what differs from the other. Also File History, which lists a file's commits to compare with.
  */
 #pragma once
 
@@ -34,8 +34,8 @@ void file_history(App *t, const char *path);
  * side (the file was added or deleted). */
 void compare_revisions(App *t, const char *old_rev, const char *old_rel, const char *new_rev, const char *new_rel);
 
-/* Ends the current tab's comparison: an old version closes, the working file stays (its gutter
- * following HEAD again). */
+/* Ends the current tab's comparison: a tab of old versions closes, a working file joined with one
+ * stays (its gutter following HEAD again). */
 void stop_comparing(App *t);
 
 /* The same for one tab (the left side of a comparison); nothing when it compares nothing. */
