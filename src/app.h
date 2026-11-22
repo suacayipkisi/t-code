@@ -199,6 +199,7 @@ struct App {
     char *files_font;        /* the Files panel */
     gboolean square;         /* the square theme (flat panels, lines between them), not rounded cards */
     int corner_radius;       /* the rounded theme's panel corners in pixels (the controls' follow) */
+    int selection_opacity;   /* the editors' selection, in the accent color over the text: 0 to 100 % */
     char *color_theme;       /* window/palette.c's id: "dark-classic", ... */
     gboolean plain;          /* syntax coloring off (F7) */
     double font_scale;       /* editors, terminals and the Files panel (Ctrl+= / Ctrl+-); session.ini keeps it */

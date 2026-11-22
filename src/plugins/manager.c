@@ -1150,6 +1150,7 @@ void show_plugins_window_at(App *t, const char *id, gboolean browse)
   manager->window = gtk_window_new();
   gtk_window_set_title(GTK_WINDOW(manager->window), "Plugins");
   gtk_window_set_transient_for(GTK_WINDOW(manager->window), t->window);
+  gtk_widget_add_css_class(manager->window, "tcode-dialog"); /* window/theme.c: its edge */
   gtk_window_set_default_size(GTK_WINDOW(manager->window), 860, 560);
   gtk_widget_add_css_class(manager->window, "tcode-plugins");
 

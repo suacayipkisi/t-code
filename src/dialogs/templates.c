@@ -88,6 +88,7 @@ void show_save_template(App *t, Tab *tab)
   g_object_set_data_full(G_OBJECT(w->window), "tcode-save-template", w, save_window_free);
   gtk_window_set_title(GTK_WINDOW(w->window), "Save as Template");
   gtk_window_set_transient_for(GTK_WINDOW(w->window), t->window);
+  gtk_widget_add_css_class(GTK_WIDGET(w->window), "tcode-dialog"); /* window/theme.c: its edge */
   gtk_window_set_modal(GTK_WINDOW(w->window), TRUE);
   gtk_window_set_default_size(GTK_WINDOW(w->window), SAVE_WIDTH, -1);
   GtkEventController *keys = GTK_EVENT_CONTROLLER(gtk_shortcut_controller_new());

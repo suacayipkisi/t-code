@@ -167,6 +167,9 @@ static const Setting settings[] = {
               " first"),
   INT_SETTING("corner-radius", corner_radius, 10, 0, 24,
               " 0 to 24, the rounded theme's panel corners in pixels (10 by default); buttons, tabs and menus follow"),
+  INT_SETTING("selection-opacity", selection_opacity, 40, 0, 100,
+              " 0 to 100, how strongly the editors' selection (the theme's accent color, over the text) shows;"
+              " 40 by default"),
   BOOL_SETTING("tabs-to-spaces", tabs_to_spaces, TRUE, " The Tab key inserts spaces"),
   BOOL_SETTING("detect-indentation", detect_indent, TRUE, " Files indented with tabs or another number of spaces keep it"),
   BOOL_SETTING("autosave", autosave, TRUE, " Save a second after the last change"),

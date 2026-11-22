@@ -270,6 +270,7 @@ void settings_changed(App *t, gboolean restart_lsp)
     gtk_window_destroy(GTK_WINDOW(window));
   each_editor(t);
   apply_fonts(t);
+  editor_view_set_selection(t);
   apply_theme(t);
   if (g_strcmp0(palette_id(), t->settings.color_theme) != 0)
     color_theme_apply(t, t->settings.color_theme);
@@ -329,6 +330,7 @@ void show_settings(App *t)
   window = gtk_window_new();
   gtk_window_set_title(GTK_WINDOW(window), "Settings");
   gtk_window_set_transient_for(GTK_WINDOW(window), t->window);
+  gtk_widget_add_css_class(window, "tcode-dialog");          /* window/theme.c: its edge */
   gtk_window_set_default_size(GTK_WINDOW(window), 720, 480); /* a long page scrolls */
   gtk_widget_add_css_class(window, "tcode-settings");
   g_object_set_data(G_OBJECT(window), "t-code-app", t);
@@ -393,6 +395,9 @@ void show_settings(App *t)
   add_row(GTK_GRID(grid), &row, "Corner radius",
           "The rounded theme's panel corners in pixels; buttons, tabs and menus follow",
           setting_spin(&t->settings.corner_radius, 0, 24, apply_theme));
+  add_row(GTK_GRID(grid), &row, "Selection opacity (%)",
+          "How strongly the editors' selection shows over the text, in the theme's accent color",
+          setting_spin(&t->settings.selection_opacity, 0, 100, editor_view_set_selection));
   add_row(GTK_GRID(grid), &row, "Editor font", "Editors and the terminal", font_for(&t->settings.font));
   add_row(GTK_GRID(grid), &row, "Files panel font", "The names in the Files panel and Open Tabs",
           font_for(&t->settings.files_font));

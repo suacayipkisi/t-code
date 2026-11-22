@@ -87,6 +87,7 @@ void show_keybinds(App *t)
   window = gtk_window_new();
   gtk_window_set_title(GTK_WINDOW(window), "Keyboard Shortcuts");
   gtk_window_set_transient_for(GTK_WINDOW(window), t->window);
+  gtk_widget_add_css_class(window, "tcode-dialog"); /* window/theme.c: its edge */
   gtk_window_set_default_size(GTK_WINDOW(window), 620, 720);
   gtk_widget_add_css_class(window, "tcode-keybinds");
   g_object_add_weak_pointer(G_OBJECT(window), (gpointer *)&window);

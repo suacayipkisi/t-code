@@ -71,7 +71,8 @@ static const char *const css =
 
 #define OVERVIEW_WIDTH 8 /* pixels */
 
-static GtkCssProvider *font_provider; /* the editor font; editor_view_set_font() rewrites it */
+static GtkCssProvider *font_provider;      /* the editor font; editor_view_set_font() rewrites it */
+static GtkCssProvider *selection_provider; /* editor_view_set_selection() rewrites it */
 
 /* The first editor: the CSS all editors share, and where the style scheme is. */
 static void init_look(App *t)
@@ -83,6 +84,10 @@ static void init_look(App *t)
   gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(font_provider),
                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
   editor_view_set_font(t);
+  selection_provider = gtk_css_provider_new();
+  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(selection_provider),
+                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  editor_view_set_selection(t);
   if (t->paths.styles)
     gtk_source_style_scheme_manager_prepend_search_path(schemes, t->paths.styles);
   char *mine = user_colors_file(), *dir = g_path_get_dirname(mine);
@@ -120,6 +125,24 @@ void editor_view_set_font(App *t)
   gtk_css_provider_load_from_string(font_provider, rule);
   g_free(rule);
   pango_font_description_free(desc);
+}
+
+/* GtkTextView draws the selection over the text, so it must let the text through: GtkSourceView alone
+ * draws its scheme's selection color at 30%, which hardly shows on dark themes. */
+void editor_view_set_selection(App *t)
+{
+  int focused = CLAMP(t->settings.selection_opacity, 0, 100);
+  char *rule;
+
+  if (!selection_provider)
+    return;
+  rule = g_strdup_printf("textview.tcode-source text selection"
+                         " { background-color: color-mix(in srgb, var(--tc-fg) %d%%, transparent); }"
+                         "textview.tcode-source:focus text selection"
+                         " { background-color: color-mix(in srgb, var(--tc-accent) %d%%, transparent); }",
+                         focused / 2, focused);
+  gtk_css_provider_load_from_string(selection_provider, rule);
+  g_free(rule);
 }
 
 GtkSourceLanguage *editor_language(const char *path, const char *text)

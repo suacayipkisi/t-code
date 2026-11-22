@@ -71,6 +71,7 @@ void show_lsp_install(App *t, const char *server)
   gtk_window_set_title(GTK_WINDOW(window), text);
   g_free(text);
   gtk_window_set_transient_for(GTK_WINDOW(window), t->window);
+  gtk_widget_add_css_class(window, "tcode-dialog"); /* window/theme.c: its edge */
   gtk_window_set_modal(GTK_WINDOW(window), TRUE);
   gtk_window_set_default_size(GTK_WINDOW(window), INSTALL_WIDTH, -1);
   keys = GTK_EVENT_CONTROLLER(gtk_shortcut_controller_new());

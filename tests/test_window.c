@@ -3212,6 +3212,101 @@ static void test_theme_extreme_family(void)
   g_free(saved);
 }
 
+/* The selection's color at the given point of a view, drawn as the screen would show it. */
+static void view_pixel(GtkWidget *view, int x, int y, guchar pixel[4])
+{
+  int width = gtk_widget_get_width(view), height = gtk_widget_get_height(view);
+  GdkPaintable *paintable = gtk_widget_paintable_new(view);
+  GtkSnapshot *snapshot = gtk_snapshot_new();
+  gdk_paintable_snapshot(paintable, snapshot, width, height);
+  GskRenderNode *node = gtk_snapshot_free_to_node(snapshot);
+  GskRenderer *renderer = gtk_native_get_renderer(gtk_widget_get_native(view));
+  GdkTexture *texture = gsk_renderer_render_texture(renderer, node, &GRAPHENE_RECT_INIT(0, 0, width, height));
+  GdkTextureDownloader *downloader = gdk_texture_downloader_new(texture);
+  gsize stride;
+
+  gdk_texture_downloader_set_format(downloader, GDK_MEMORY_R8G8B8A8);
+  GBytes *bytes = gdk_texture_downloader_download_bytes(downloader, &stride);
+  memcpy(pixel, (const guchar *)g_bytes_get_data(bytes, NULL) + y * stride + x * 4, 4);
+  g_bytes_unref(bytes);
+  gdk_texture_downloader_free(downloader);
+  g_object_unref(texture);
+  gsk_render_node_unref(node);
+  g_object_unref(paintable);
+}
+
+static void assert_pixel_near(const guchar pixel[4], GdkRGBA want)
+{
+  g_assert_cmpint(ABS(pixel[0] - (int)(want.red * 255 + .5)), <=, 3);
+  g_assert_cmpint(ABS(pixel[1] - (int)(want.green * 255 + .5)), <=, 3);
+  g_assert_cmpint(ABS(pixel[2] - (int)(want.blue * 255 + .5)), <=, 3);
+}
+
+/* An editor's selection drawn in a window of its own (the main window is not drawn here): the pixel at
+ * the top of eight selected spaces, between two of them (no letter or space mark there), and the
+ * unselected background under it. */
+static void selection_pixel(guchar pixel[4], guchar background[4])
+{
+  GtkWidget *window = gtk_window_new();
+  GtkTextView *view = GTK_TEXT_VIEW(gtk_source_view_new());
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
+  GtkTextIter start, end;
+  GdkRectangle at;
+
+  gtk_widget_add_css_class(GTK_WIDGET(view), "tcode-source");
+  gtk_source_buffer_set_style_scheme(GTK_SOURCE_BUFFER(buffer), palette_scheme(&app));
+  gtk_text_buffer_set_text(buffer, "        x\ntwo\n", -1);
+  gtk_window_set_default_size(GTK_WINDOW(window), 200, 100);
+  gtk_window_set_child(GTK_WINDOW(window), GTK_WIDGET(view));
+  gtk_window_present(GTK_WINDOW(window));
+  gtk_text_buffer_get_start_iter(buffer, &start);
+  end = start;
+  gtk_text_iter_forward_chars(&end, 8);
+  gtk_text_buffer_select_range(buffer, &start, &end);
+  gtk_widget_grab_focus(GTK_WIDGET(view));
+  run_for(100);
+  g_assert_true(gtk_widget_has_focus(GTK_WIDGET(view)));
+  gtk_text_view_get_iter_location(view, &end, &at);
+  gtk_text_view_buffer_to_window_coords(view, GTK_TEXT_WINDOW_WIDGET, at.x / 2, at.y + 2, &at.x, &at.y);
+  view_pixel(GTK_WIDGET(view), at.x, at.y, pixel);
+  view_pixel(GTK_WIDGET(view), at.x, at.y + at.height, background); /* after "two", unselected */
+  gtk_window_destroy(GTK_WINDOW(window)); /* no main loop turn here: the caller reads the theme's colors */
+}
+
+/* The editor's selection is the theme's accent color at the "Selection opacity" setting, over the text
+ * (GtkSourceView alone draws its scheme's selection at 30%, too faint on dark themes). */
+static void test_selection_opacity(void)
+{
+  static const int levels[] = { 100, 50, 0 };
+  int opacity = app.settings.selection_opacity;
+  guchar pixel[4], background[4];
+
+  /* The theme stays: settings.ini, which earlier tests wrote, may set it back meanwhile. */
+  open_kept("selected.txt"); /* the editors' CSS is there once one has opened */
+  remove_tab(current_tab(&app));
+  for (size_t i = 0; i < G_N_ELEMENTS(levels); i++) {
+    double share = levels[i] / 100.0;
+    app.settings.selection_opacity = levels[i];
+    editor_view_set_selection(&app);
+    /* drawn again when the theme changed meanwhile (settings.ini, which earlier tests wrote, sets it back) */
+    for (int tries = 0; tries < 5; tries++) {
+      const char *theme = palette_id();
+      selection_pixel(pixel, background);
+      if (g_strcmp0(theme, palette_id()) == 0)
+        break;
+    }
+    /* the accent as drawn: read after drawing, with no main loop turn between; the editor's background
+     * as drawn too (a theme set back from settings.ini meanwhile changes it) */
+    GdkRGBA accent = *palette_rgba(PAL_ACCENT);
+    GdkRGBA panel = { background[0] / 255.0f, background[1] / 255.0f, background[2] / 255.0f, 1 };
+    assert_pixel_near(pixel, (GdkRGBA){ panel.red + (accent.red - panel.red) * share,
+                                        panel.green + (accent.green - panel.green) * share,
+                                        panel.blue + (accent.blue - panel.blue) * share, 1 });
+  }
+  app.settings.selection_opacity = opacity;
+  editor_view_set_selection(&app);
+}
+
 /* Every theme's editor scheme gets the theme's current line color (its key was misspelled once, so
  * every theme but Dark Classic kept Dark Classic's). */
 static void test_theme_current_line(void)
@@ -4539,6 +4634,25 @@ static GtkWindow *question_of(const char *name)
   return found;
 }
 
+/* Settings, Keyboard Shortcuts and the Process Monitor carry "tcode-dialog": an edge that shows on
+ * black themes too. */
+static void test_dialog_edge(void)
+{
+  static const char *const dialogs[][2] = { { "Settings…", "Settings" },
+                                            { "Keyboard Shortcuts", "Keyboard Shortcuts" },
+                                            { "Help: Process Monitor", "Process Monitor" } };
+
+  for (size_t i = 0; i < G_N_ELEMENTS(dialogs); i++) {
+    run_command(&app, dialogs[i][0]);
+    run_for(50);
+    GtkWindow *window = window_titled(dialogs[i][1]);
+    g_assert_nonnull(window);
+    g_assert_true(gtk_widget_has_css_class(GTK_WIDGET(window), "tcode-dialog"));
+    gtk_window_destroy(window);
+    run_for(20);
+  }
+}
+
 /* The first run's question goes over the main window when the Plugins window, still open, is behind it
  * (over that one it went unseen and the command seemed dead); asked again meanwhile, the status bar
  * says the question is open instead of nothing. */
@@ -5634,6 +5748,8 @@ int main(int argc, char **argv)
   g_test_add_func("/window/theme-current-line", test_theme_current_line);
   g_test_add_func("/window/theme-insane-dark", test_theme_insane_dark);
   g_test_add_func("/window/theme-extreme-family", test_theme_extreme_family);
+  g_test_add_func("/window/selection-opacity", test_selection_opacity);
+  g_test_add_func("/window/dialog-edge", test_dialog_edge);
   g_test_add_func("/window/theme-renamed", test_theme_renamed);
   g_test_add_func("/window/preview-look", test_preview_look);
   g_test_add_func("/window/preview-math", test_preview_math);

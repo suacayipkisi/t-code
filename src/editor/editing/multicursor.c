@@ -635,8 +635,9 @@ static void mc_draw_selection(MultiCursor *m, GtkTextView *view, GtkSnapshot *sn
                               const GdkRectangle *visible)
 {
   GtkTextIter start, end, line;
-  GdkRGBA color = *palette_rgba(PAL_EDITOR_SELECTION);
+  GdkRGBA color = *palette_rgba(PAL_ACCENT); /* as the main selection (editor/editorview.c) */
 
+  color.alpha = CLAMP(m->tab->app->settings.selection_opacity, 0, 100) / 100.0f;
   mc_caret_iters(m, c, &start, &end);
   if (gtk_text_iter_equal(&start, &end))
     return;

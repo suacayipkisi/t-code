@@ -154,6 +154,7 @@ static void show_update(Check *check)
   window = gtk_window_new();
   gtk_window_set_title(GTK_WINDOW(window), "Update t-code");
   gtk_window_set_transient_for(GTK_WINDOW(window), check->app->window);
+  gtk_widget_add_css_class(window, "tcode-dialog"); /* window/theme.c: its edge */
   gtk_window_set_default_size(GTK_WINDOW(window), 380, -1);
   g_object_add_weak_pointer(G_OBJECT(window), (gpointer *)&update_window);
   update_window = window;

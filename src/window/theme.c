@@ -44,6 +44,11 @@ static const char *const css =
     "headerbar menubar > item { min-height: 22px; padding: 0 8px; margin: 4px 1px; border-radius: 7px; color: var(--tc-fg); }"
     "headerbar menubar > item:hover { background: color-mix(in srgb, var(--tc-fg) 8%, transparent); }"
     "headerbar menubar > item:selected { background: color-mix(in srgb, var(--tc-fg) 14%, transparent); color: var(--tc-fg-strong); }"
+    /* Settings, Keybinds, ... (their windows' "tcode-dialog"): an edge that shows on any theme, black on
+     * black too, where the theme's dark shadow does not. */
+    "window.csd.tcode-dialog { box-shadow: 0 0 0 1px color-mix(in srgb, var(--tc-fg) 24%, var(--tc-panel)),"
+    "  0 4px 18px 4px rgba(0, 0, 0, .5); }"
+    "window.solid-csd.tcode-dialog, window.tcode-dialog:not(.csd) { border: 1px solid color-mix(in srgb, var(--tc-fg) 24%, var(--tc-panel)); }"
     "windowcontrols { border-spacing: 2px; margin-left: 8px; }" /* their icons: titlebar.c */
     "windowcontrols > button { min-width: 36px; min-height: 22px; padding: 0; margin: 4px 0; border-radius: 7px; }"
     "windowcontrols > button > image, windowcontrols > button:hover > image,"

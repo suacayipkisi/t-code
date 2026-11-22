@@ -358,6 +358,7 @@ void show_processes(App *t)
   monitor->window = gtk_window_new();
   gtk_window_set_title(GTK_WINDOW(monitor->window), "Process Monitor");
   gtk_window_set_transient_for(GTK_WINDOW(monitor->window), t->window);
+  gtk_widget_add_css_class(monitor->window, "tcode-dialog"); /* window/theme.c: its edge */
   gtk_window_set_default_size(GTK_WINDOW(monitor->window), 820, 600);
   gtk_widget_add_css_class(monitor->window, "tcode-processes");
 

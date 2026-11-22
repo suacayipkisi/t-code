@@ -90,6 +90,9 @@ void editor_view_apply_settings(Tab *tab);
 /* The editor font (t->settings.font at t->settings.font_scale) for all editors. */
 void editor_view_set_font(App *t);
 
+/* The editors' selection: the accent color at t->settings.selection_opacity, over the text. */
+void editor_view_set_selection(App *t);
+
 /* The problems strip draws the editor's diagnostics again. */
 void editor_view_show_problems(Tab *tab);
 

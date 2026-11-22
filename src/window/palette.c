@@ -117,15 +117,16 @@ static const char *const retro_gray_given[] = { "raised",           "#c0c0c0",  
                                                 "editor-selection", "#a6caf0",   "inactive-selection",
                                                 "#c0c0c0",          NULL };
 
-static const char *const hot_red_given[] = { "accent-fg", "#000000",          "selection", "#000000",      "hover",
-                                             "#cc0000",   "editor-selection", "#000000",   "current-line", "#e00000",
-                                             NULL };
+static const char *const hot_red_given[] = {
+  "accent-fg",    "#000000", "selection",           "#000000", "hover", "#cc0000", "editor-selection", "#000000",
+  "current-line", "#e00000", "selection-unfocused", "#990000", NULL
+};
 
 static const char *const cooltrix_given[] = {
   "raised",     "#121b15",          "input",          "#142018",      "border",
   "#19291f",    "border-strong",    "#264030",        "fg-dim",       "#7d9e87",
   "fg-faint",   "#4e6b56",          "cursor",         "#00ff66",      "selection",
-  "#18432c",    "editor-selection", "#163b27",        "current-line", "#111b15",
+  "#18432c",    "editor-selection", "#1f5a38",        "current-line", "#111b15",
   "bracket",    "#1e4a30",          "search",         "#384c20",      "guide",
   "#16281e",    "guide-active",     "#264b33",        "pair1",        "#ffd166",
   "pair2",      "#b87cf8",          "pair3",          "#38bdf8",      "diff-modified",
@@ -152,9 +153,9 @@ static const char *const insane_dark_given[] = { "raised",
                                                  "inactive-selection",
                                                  "#1a1a1a",
                                                  "editor-selection",
-                                                 "#123a6b",
+                                                 "#1c4f94",
                                                  "selection-unfocused",
-                                                 "#1c1c1c",
+                                                 "#2a2a2a",
                                                  "current-line",
                                                  "#0b0b0b",
                                                  "line-number",
@@ -188,7 +189,7 @@ static const char *const insane_light_given[] = {
 static const char *const ember_black_given[] = {
   "raised", "#0b0806", "input", "#140f0b", "border", "#1c1612", "border-strong", "#33281f",
   "fg-dim", "#a8968a", "fg-faint", "#6e6058", "hover", "#120d0a", "accent-fg", "#000000",
-  "selection", "#4a1e00", "inactive-selection", "#1c1612", "editor-selection", "#5c2700",
+  "selection", "#4a1e00", "inactive-selection", "#1c1612", "editor-selection", "#73320a",
   "selection-unfocused", "#201914", "current-line", "#0d0907", "line-number", "#54463c",
   "cursor", "#ff6a00", "bracket", "#3a2412", "search", "#5a3a00", "guide", "#18120e",
   "guide-active", "#3d3027", "warning-bg", "#1f1400", "warning-border", "#4d3300", NULL
@@ -197,7 +198,7 @@ static const char *const ember_black_given[] = {
 static const char *const ultraviolet_given[] = {
   "raised", "#0c0614", "input", "#140b20", "border", "#1d1230", "border-strong", "#34234f",
   "fg-dim", "#a597c9", "fg-faint", "#6d6090", "hover", "#130a1f",
-  "selection", "#3a1670", "inactive-selection", "#1d1230", "editor-selection", "#45208a",
+  "selection", "#3a1670", "inactive-selection", "#1d1230", "editor-selection", "#5126a3",
   "selection-unfocused", "#22183a", "current-line", "#0d0617", "line-number", "#52457a",
   "cursor", "#ff2fd6", "bracket", "#2f1d52", "search", "#4d2a66", "guide", "#181026",
   "guide-active", "#3a2a5a", "warning-bg", "#1f1a05", "warning-border", "#4d4210", NULL
@@ -206,7 +207,7 @@ static const char *const ultraviolet_given[] = {
 static const char *const abyss_blue_given[] = {
   "raised", "#040b1a", "input", "#081224", "border", "#0e1a30", "border-strong", "#1e3050",
   "fg-dim", "#8fa3c4", "fg-faint", "#5a6d8c", "hover", "#07101f", "accent-fg", "#000000",
-  "selection", "#00335c", "inactive-selection", "#0e1a30", "editor-selection", "#003f70",
+  "selection", "#00335c", "inactive-selection", "#0e1a30", "editor-selection", "#004c87",
   "selection-unfocused", "#111e36", "current-line", "#030a18", "line-number", "#3a4a66",
   "cursor", "#00e0ff", "bracket", "#13294a", "search", "#3d3300", "guide", "#0b1628",
   "guide-active", "#233a5e", "warning-bg", "#1a1500", "warning-border", "#4a3c00", NULL
