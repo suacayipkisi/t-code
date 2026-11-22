@@ -3186,6 +3186,32 @@ static void test_theme_insane_dark(void)
   g_free(saved);
 }
 
+/* The black and white themes after Insane Dark: each one applies with its own panel color and cursor. */
+static void test_theme_extreme_family(void)
+{
+  static const char *const themes[][3] = { { "insane-light", "#ffffff", "#ff3d00" },
+                                           { "ember-black", "#000000", "#ff6a00" },
+                                           { "ultraviolet", "#05000a", "#ff2fd6" },
+                                           { "abyss-blue", "#000510", "#00e0ff" } };
+  char *saved = g_strdup(app.settings.color_theme);
+
+  for (size_t i = 0; i < G_N_ELEMENTS(themes); i++) {
+    GtkSourceStyle *style;
+    char *foreground = NULL;
+
+    color_theme_apply(&app, themes[i][0]);
+    g_assert_cmpstr(palette_id(), ==, themes[i][0]);
+    g_assert_cmpstr(palette_hex(PAL_PANEL), ==, themes[i][1]);
+    style = gtk_source_style_scheme_get_style(palette_scheme(&app), "cursor");
+    g_assert_nonnull(style);
+    g_object_get(style, "foreground", &foreground, NULL);
+    g_assert_cmpint(g_ascii_strcasecmp(foreground, themes[i][2]), ==, 0);
+    g_free(foreground);
+  }
+  color_theme_apply(&app, saved);
+  g_free(saved);
+}
+
 /* Every theme's editor scheme gets the theme's current line color (its key was misspelled once, so
  * every theme but Dark Classic kept Dark Classic's). */
 static void test_theme_current_line(void)
@@ -5607,6 +5633,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/plugin-themes", test_plugin_themes);
   g_test_add_func("/window/theme-current-line", test_theme_current_line);
   g_test_add_func("/window/theme-insane-dark", test_theme_insane_dark);
+  g_test_add_func("/window/theme-extreme-family", test_theme_extreme_family);
   g_test_add_func("/window/theme-renamed", test_theme_renamed);
   g_test_add_func("/window/preview-look", test_preview_look);
   g_test_add_func("/window/preview-math", test_preview_math);

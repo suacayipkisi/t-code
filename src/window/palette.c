@@ -176,6 +176,44 @@ static const char *const insane_dark_given[] = { "raised",
                                                  NULL };
 
 /* clang-format off */
+static const char *const insane_light_given[] = {
+  "raised", "#f5f5f5", "input", "#f0f0f0", "border", "#e6e6e6", "border-strong", "#cfcfcf",
+  "fg-dim", "#555555", "fg-faint", "#808080", "hover", "#f2f2f2", "accent-fg", "#ffffff",
+  "selection", "#cce0ff", "inactive-selection", "#ebebeb", "editor-selection", "#b3d1ff",
+  "selection-unfocused", "#e3e3e3", "current-line", "#f7f7f7", "line-number", "#a0a0a0",
+  "cursor", "#ff3d00", "bracket", "#dcdcdc", "search", "#ffe27a", "guide", "#ececec",
+  "guide-active", "#c4c4c4", "warning-bg", "#fff6d6", "warning-border", "#f0d77a", NULL
+};
+
+static const char *const ember_black_given[] = {
+  "raised", "#0b0806", "input", "#140f0b", "border", "#1c1612", "border-strong", "#33281f",
+  "fg-dim", "#a8968a", "fg-faint", "#6e6058", "hover", "#120d0a", "accent-fg", "#000000",
+  "selection", "#4a1e00", "inactive-selection", "#1c1612", "editor-selection", "#5c2700",
+  "selection-unfocused", "#201914", "current-line", "#0d0907", "line-number", "#54463c",
+  "cursor", "#ff6a00", "bracket", "#3a2412", "search", "#5a3a00", "guide", "#18120e",
+  "guide-active", "#3d3027", "warning-bg", "#1f1400", "warning-border", "#4d3300", NULL
+};
+
+static const char *const ultraviolet_given[] = {
+  "raised", "#0c0614", "input", "#140b20", "border", "#1d1230", "border-strong", "#34234f",
+  "fg-dim", "#a597c9", "fg-faint", "#6d6090", "hover", "#130a1f",
+  "selection", "#3a1670", "inactive-selection", "#1d1230", "editor-selection", "#45208a",
+  "selection-unfocused", "#22183a", "current-line", "#0d0617", "line-number", "#52457a",
+  "cursor", "#ff2fd6", "bracket", "#2f1d52", "search", "#4d2a66", "guide", "#181026",
+  "guide-active", "#3a2a5a", "warning-bg", "#1f1a05", "warning-border", "#4d4210", NULL
+};
+
+static const char *const abyss_blue_given[] = {
+  "raised", "#040b1a", "input", "#081224", "border", "#0e1a30", "border-strong", "#1e3050",
+  "fg-dim", "#8fa3c4", "fg-faint", "#5a6d8c", "hover", "#07101f", "accent-fg", "#000000",
+  "selection", "#00335c", "inactive-selection", "#0e1a30", "editor-selection", "#003f70",
+  "selection-unfocused", "#111e36", "current-line", "#030a18", "line-number", "#3a4a66",
+  "cursor", "#00e0ff", "bracket", "#13294a", "search", "#3d3300", "guide", "#0b1628",
+  "guide-active", "#233a5e", "warning-bg", "#1a1500", "warning-border", "#4a3c00", NULL
+};
+/* clang-format on */
+
+/* clang-format off */
 static const Theme theme_table[] = {
   { "dark-classic", "Dark Classic", FALSE, "#1f1f1f", "#181818", "#cccccc", "#0078d4",
     { "#6a9955", "#569cd6", "#c586c0", "#4ec9b0", "#dcdcaa", "#9cdcfe", "#4fc1ff", "#ce9178", "#b5cea8", "#d7ba7d", "#d4d4d4" },
@@ -257,6 +295,22 @@ static const Theme theme_table[] = {
     { "#6b7280", "#ff4fd8", "#c77dff", "#00e5ff", "#ffd60a", "#f2f2f2", "#ff9f1c", "#39ff88", "#ff9f1c", "#ff5f5f", "#8ab4ff" },
     { "#000000", "#ff3b5c", "#39ff88", "#ffd60a", "#4d9fff", "#ff4fd8", "#00e5ff", "#d0d0d0",
       "#5a5a5a", "#ff6b81", "#7dffb0", "#ffe566", "#80bbff", "#ff85e6", "#66f0ff", "#ffffff" }, insane_dark_given },
+  { "insane-light", "Insane Light", TRUE, "#ffffff", "#ffffff", "#0a0a0a", "#0057ff",
+    { "#8a8f98", "#d1007a", "#8a00d4", "#0086a8", "#b35c00", "#111111", "#e04e00", "#008a3a", "#e04e00", "#d40000", "#0050c8" },
+    { "#000000", "#d0021b", "#00873c", "#b38600", "#0057ff", "#c4008a", "#007f99", "#d6d6d6",
+      "#6a6a6a", "#ff1f3d", "#00a84f", "#d9a400", "#3d7fff", "#e600a8", "#00a3c4", "#ffffff" }, insane_light_given },
+  { "ember-black", "Ember Black", FALSE, "#000000", "#000000", "#f0e6dc", "#ff6a00",
+    { "#7a6a5e", "#ff3d3d", "#ff6a8a", "#ffb000", "#ffd23f", "#f5ece4", "#ff8c42", "#c6e66a", "#ff8c42", "#ff5e5e", "#ffc48a" },
+    { "#000000", "#ff3d3d", "#a8d64a", "#ffb000", "#ff8c42", "#ff5e9a", "#ffd23f", "#d8cbbf",
+      "#5e5048", "#ff6b6b", "#c6e66a", "#ffd23f", "#ffae75", "#ff8ab8", "#ffe680", "#ffffff" }, ember_black_given },
+  { "ultraviolet", "Ultraviolet", FALSE, "#05000a", "#000000", "#ece4ff", "#a855ff",
+    { "#6e6290", "#ff2fd6", "#d36bff", "#5cf2ff", "#b9a6ff", "#f3eeff", "#ff79c6", "#7cffcb", "#ff79c6", "#ff4f9a", "#c6b8ff" },
+    { "#000000", "#ff3b7f", "#5cffb0", "#ffe36e", "#8f6bff", "#ff2fd6", "#5cf2ff", "#d4c8f0",
+      "#544870", "#ff6fa3", "#8dffc8", "#fff09e", "#b39dff", "#ff7ae4", "#9df7ff", "#ffffff" }, ultraviolet_given },
+  { "abyss-blue", "Abyss Blue", FALSE, "#000510", "#00020a", "#d6e4ff", "#00b4ff",
+    { "#4f6585", "#3d8bff", "#b38cff", "#00e0c6", "#7cd4ff", "#e0ebff", "#ffb86b", "#9be564", "#ffb86b", "#ff7a90", "#8fb8ff" },
+    { "#000000", "#ff5c7a", "#5ee08a", "#ffcc66", "#3d8bff", "#b38cff", "#00d4e6", "#c8d6ee",
+      "#3e4e68", "#ff8095", "#86f0a8", "#ffdd8a", "#6eaaff", "#cdb0ff", "#5ce8f5", "#ffffff" }, abyss_blue_given },
   /* Not for every day. */
   { "vaporwave", "Vaporwave (ａｅｓｔｈｅｔｉｃ)", FALSE, "#2b1b4a", "#1e1036", "#f8e9ff", "#ff71ce",
     { "#8b6bb8", "#ff71ce", "#01cdfe", "#05ffa1", "#b967ff", "#fffb96", "#01cdfe", "#05ffa1", "#fffb96", "#ff71ce", "#01cdfe" },
