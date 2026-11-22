@@ -1289,14 +1289,40 @@ static void core_choose(App *t, const char *payload)
   g_free(pid);
 }
 
+typedef struct {
+  App *t;
+  GtkWindow *window; /* a reference: the window may close before the list comes */
+} CoreListing;
+
+static gboolean listing_cores; /* coredumpctl runs: a second Open Core Dump waits for it */
+
+static void on_cores_listed(GObject *source G_GNUC_UNUSED, GAsyncResult *result, gpointer data)
+{
+  CoreListing *l = data;
+  GPtrArray *list = adapter_core_dumps_finish(result, NULL);
+
+  listing_cores = FALSE;
+  if (list && !gtk_widget_in_destruction(GTK_WIDGET(l->window)) && gtk_widget_get_visible(GTK_WIDGET(l->window)) &&
+      !busy(l->t)) {
+    if (ui.listed)
+      g_ptr_array_unref(ui.listed);
+    ui.listed = g_steal_pointer(&list);
+    picker_open(l->t, "Open which core dump? (the crashes systemd-coredump kept)", core_query, core_choose);
+  }
+  if (list)
+    g_ptr_array_unref(list);
+  g_object_unref(l->window);
+  g_free(l);
+}
+
 void debug_open_core(App *t)
 {
-  if (busy(t))
+  if (busy(t) || listing_cores)
     return;
-  if (ui.listed)
-    g_ptr_array_unref(ui.listed);
-  ui.listed = adapter_core_dumps();
-  picker_open(t, "Open which core dump? (the crashes systemd-coredump kept)", core_query, core_choose);
+  CoreListing *l = g_new(CoreListing, 1);
+  *l = (CoreListing){ t, g_object_ref(t->window) };
+  listing_cores = TRUE;
+  adapter_core_dumps_async(NULL, on_cores_listed, l);
 }
 
 /* The commands ------------------------------------------------------------------------------- */

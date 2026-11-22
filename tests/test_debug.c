@@ -683,6 +683,46 @@ static void test_core_dumps(void)
   g_ptr_array_unref(list);
 }
 
+static void on_listed(GObject *source G_GNUC_UNUSED, GAsyncResult *result, gpointer data)
+{
+  *(GPtrArray **)data = adapter_core_dumps_finish(result, NULL);
+}
+
+/* coredumpctl's list read in the background: a stand-in coredumpctl on PATH, then none at all. */
+static void test_core_dumps_async(void)
+{
+  char *dir = g_dir_make_tmp("t-code-cores-XXXXXX", NULL), *tool = g_build_filename(dir, "coredumpctl", NULL);
+  char *script = g_strdup_printf("#!/bin/sh\necho '[{\"time\":1,\"pid\":7,\"uid\":%d,\"sig\":11,"
+                                 "\"corefile\":\"present\",\"exe\":\"/p/demo\"}]'\n",
+                                 (int)getuid());
+  char *path = g_strdup(g_getenv("PATH"));
+  GPtrArray *list = NULL;
+
+  g_assert_true(g_file_set_contents(tool, script, -1, NULL));
+  g_assert_cmpint(g_chmod(tool, 0755), ==, 0);
+  g_setenv("PATH", dir, TRUE);
+  adapter_core_dumps_async(NULL, on_listed, &list);
+  while (!list)
+    g_main_context_iteration(NULL, TRUE);
+  g_assert_cmpuint(list->len, ==, 1);
+  g_assert_cmpint(((CoreDump *)g_ptr_array_index(list, 0))->pid, ==, 7);
+  g_clear_pointer(&list, g_ptr_array_unref);
+
+  g_remove(tool);
+  adapter_core_dumps_async(NULL, on_listed, &list); /* no coredumpctl: an empty list */
+  while (!list)
+    g_main_context_iteration(NULL, TRUE);
+  g_assert_cmpuint(list->len, ==, 0);
+  g_ptr_array_unref(list);
+
+  g_setenv("PATH", path, TRUE);
+  g_rmdir(dir);
+  g_free(path);
+  g_free(script);
+  g_free(tool);
+  g_free(dir);
+}
+
 /* The processes to attach to: the user's, without t-code's own (here: the test and its children). */
 static void test_attachable(void)
 {
@@ -832,6 +872,7 @@ int main(int argc, char **argv)
   g_test_add_func("/adapters/lldb-names", test_lldb_names);
   g_test_add_func("/adapters/noise", test_noise);
   g_test_add_func("/adapters/core-dumps", test_core_dumps);
+  g_test_add_func("/adapters/core-dumps-async", test_core_dumps_async);
   g_test_add_func("/adapters/attachable", test_attachable);
   return g_test_run();
 }

@@ -482,15 +482,35 @@ GPtrArray *adapter_parse_core_dumps(const char *json, int uid)
   return list;
 }
 
-GPtrArray *adapter_core_dumps(void)
+static void on_core_dumps_listed(GObject *source, GAsyncResult *result, gpointer data)
+{
+  GTask *task = data;
+  char *out = NULL;
+
+  g_subprocess_communicate_utf8_finish(G_SUBPROCESS(source), result, &out, NULL, NULL);
+  g_task_return_pointer(task, adapter_parse_core_dumps(out, (int)getuid()), (GDestroyNotify)g_ptr_array_unref);
+  g_free(out);
+  g_object_unref(task);
+}
+
+/* coredumpctl reads the journal, which may take seconds: never in the window's thread. */
+void adapter_core_dumps_async(GCancellable *cancellable, GAsyncReadyCallback callback, gpointer data)
 {
   const char *argv[] = { "coredumpctl", "list", "--json=short", "--no-pager", "--quiet", NULL };
-  char *out = NULL;
-  GPtrArray *list;
+  GTask *task = g_task_new(NULL, cancellable, callback, data);
+  GSubprocess *process =
+      g_subprocess_newv(argv, G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL);
 
-  g_spawn_sync(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL, &out, NULL,
-               NULL, NULL);
-  list = adapter_parse_core_dumps(out, (int)getuid());
-  g_free(out);
-  return list;
+  if (!process) {
+    g_task_return_pointer(task, adapter_parse_core_dumps(NULL, (int)getuid()), (GDestroyNotify)g_ptr_array_unref);
+    g_object_unref(task);
+    return;
+  }
+  g_subprocess_communicate_utf8_async(process, NULL, cancellable, on_core_dumps_listed, task);
+  g_object_unref(process);
+}
+
+GPtrArray *adapter_core_dumps_finish(GAsyncResult *result, GError **error)
+{
+  return g_task_propagate_pointer(G_TASK(result), error);
 }

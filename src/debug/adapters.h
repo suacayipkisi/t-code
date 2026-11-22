@@ -5,7 +5,7 @@
  */
 #pragma once
 
-#include <glib.h>
+#include <gio/gio.h>
 
 typedef enum {
   ADAPTER_GDB,
@@ -85,9 +85,11 @@ typedef struct {
   char *exe;
 } CoreDump;
 
-/* The user's core dumps that systemd-coredump still holds, the newest first (CoreDump; free with
- * g_ptr_array_unref); empty without coredumpctl. */
-GPtrArray *adapter_core_dumps(void);
+/* The user's core dumps that systemd-coredump still holds, the newest first, listed in the
+ * background; _finish gives them (CoreDump; free with g_ptr_array_unref): empty without coredumpctl,
+ * NULL when cancelled. */
+void adapter_core_dumps_async(GCancellable *cancellable, GAsyncReadyCallback callback, gpointer data);
+GPtrArray *adapter_core_dumps_finish(GAsyncResult *result, GError **error);
 
 /* The same from coredumpctl's "list --json=short" output (for the tests); uid: the user's. */
 GPtrArray *adapter_parse_core_dumps(const char *json, int uid);
