@@ -163,6 +163,22 @@ static void hide_side_if_empty(App *t, int side)
     gtk_widget_set_visible(w, FALSE);
 }
 
+/* The right side's paned's width once the left side's position is laid out: its allocation is
+ * from before a new position (a reset from a wide left side gave the right side all the room the left
+ * gave back). */
+static int right_paned_width(App *t)
+{
+  int whole = gtk_widget_get_width(GTK_WIDGET(t->layout.hpaned)),
+      w = gtk_widget_get_width(GTK_WIDGET(t->layout.rpaned));
+
+  if (whole <= 0)
+    return w; /* not laid out yet */
+  if (!gtk_widget_get_visible(t->layout.left))
+    return whole;
+  int handle = CLAMP(whole - gtk_widget_get_width(t->layout.left) - w, 0, 16); /* both from the last layout */
+  return MAX(whole - gtk_paned_get_position(t->layout.hpaned) - handle, 0);
+}
+
 /* Gives a side that is being shown room when its paned has squeezed it to (almost) nothing. */
 static void make_room(App *t, int side)
 {
@@ -173,7 +189,7 @@ static void make_room(App *t, int side)
     if (h > 200 && gtk_paned_get_position(t->layout.vpaned) > h - 60)
       gtk_paned_set_position(t->layout.vpaned, h - 240);
   } else if (side == 2 && t->layout.rpaned) {
-    int w = gtk_widget_get_width(GTK_WIDGET(t->layout.rpaned));
+    int w = right_paned_width(t);
     int pos = gtk_paned_get_position(t->layout.rpaned);
     if (w > 320 && (pos <= 0 || pos > w - 60))
       gtk_paned_set_position(t->layout.rpaned, w - 280);
@@ -673,7 +689,7 @@ void remove_panel(App *t, const char *name)
 
 void reset_panel_layout(App *t)
 {
-  int h = gtk_widget_get_height(GTK_WIDGET(t->layout.vpaned)), w = gtk_widget_get_width(GTK_WIDGET(t->layout.rpaned));
+  int h = gtk_widget_get_height(GTK_WIDGET(t->layout.vpaned));
 
   for (int i = 0; i < PANELS; i++) /* in panel_names' order: their tabs too */
     move_panel_to_side(t, panel_names[i], panel_default_sides[i]);
@@ -698,6 +714,7 @@ void reset_panel_layout(App *t)
   update_docks(t);
   gtk_paned_set_position(t->layout.hpaned, 280);
   gtk_paned_set_position(t->layout.vpaned, h > 400 ? h - 240 : 620);
+  int w = right_paned_width(t); /* with the left side's new width */
   gtk_paned_set_position(t->layout.rpaned, w > 600 ? w - 280 : 840);
   show_side(t, 0, TRUE);
   show_side(t, 1, TRUE);

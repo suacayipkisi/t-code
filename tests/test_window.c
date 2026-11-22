@@ -3849,6 +3849,16 @@ static gboolean more_hidden(gconstpointer more)
  * cut-off rows); dragged smaller than that, a side squeezes to nothing and hides on release (to open
  * at its last size), dragged back out first it stays; a hidden side's edge strip opens it when
  * dragged inwards. A dock's icons that do not fit its tab bar go into its "more" menu. */
+/* The right side at about the width it opens at (its default or the last one dragged), not more. */
+static gboolean right_side_usual(gconstpointer data G_GNUC_UNUSED)
+{
+  int max = 0, size;
+
+  g_object_get(app.layout.rpaned, "max-position", &max, NULL);
+  size = max - gtk_paned_get_position(app.layout.rpaned);
+  return size >= 270 && size <= 320;
+}
+
 static void test_panel_resize(void)
 {
   int w = gtk_widget_get_width(GTK_WIDGET(app.layout.rpaned));
@@ -3967,7 +3977,10 @@ static void test_panel_resize(void)
   run_until(more_hidden, more);
   g_assert_false(gtk_widget_get_visible(more));
 
+  /* Reset from a wide left side: the right side keeps its width, the room the left gives back goes to the editors */
   reset_panel_layout(&app);
+  run_until(right_side_usual, NULL);
+  g_assert_true(right_side_usual(NULL));
   run_for(50);
 }
 
