@@ -3143,6 +3143,26 @@ static void test_theme_renamed(void)
   g_assert_cmpstr(palette_known_id("no-such-theme"), ==, "dark-classic");
 }
 
+/* Insane Dark: pure black panels and frame, with its own cursor color in the editor's scheme. */
+static void test_theme_insane_dark(void)
+{
+  char *saved = g_strdup(app.settings.color_theme);
+  GtkSourceStyle *style;
+  char *foreground = NULL;
+
+  color_theme_apply(&app, "insane-dark");
+  g_assert_cmpstr(palette_id(), ==, "insane-dark");
+  g_assert_cmpstr(palette_hex(PAL_PANEL), ==, "#000000");
+  g_assert_cmpstr(palette_hex(PAL_FRAME), ==, "#000000");
+  style = gtk_source_style_scheme_get_style(palette_scheme(&app), "cursor");
+  g_assert_nonnull(style);
+  g_object_get(style, "foreground", &foreground, NULL);
+  g_assert_cmpint(g_ascii_strcasecmp(foreground, "#ff9f1c"), ==, 0);
+  g_free(foreground);
+  color_theme_apply(&app, saved);
+  g_free(saved);
+}
+
 /* Every theme's editor scheme gets the theme's current line color (its key was misspelled once, so
  * every theme but Dark Classic kept Dark Classic's). */
 static void test_theme_current_line(void)
@@ -5563,6 +5583,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/theme-preview", test_theme_preview);
   g_test_add_func("/window/plugin-themes", test_plugin_themes);
   g_test_add_func("/window/theme-current-line", test_theme_current_line);
+  g_test_add_func("/window/theme-insane-dark", test_theme_insane_dark);
   g_test_add_func("/window/theme-renamed", test_theme_renamed);
   g_test_add_func("/window/preview-look", test_preview_look);
   g_test_add_func("/window/preview-math", test_preview_math);
