@@ -205,9 +205,36 @@ static void on_about_action(GSimpleAction *action G_GNUC_UNUSED, GVariant *param
   show_about(t);
 }
 
-static void on_open_recent_action(GSimpleAction *action G_GNUC_UNUSED, GVariant *param, gpointer t)
+typedef struct {
+  App *t;
+  GtkWindow *window; /* a reference: the window may close before the idle runs */
+  char *root;
+} RecentOpen;
+
+static gboolean open_recent_later(gpointer data)
 {
-  open_project(t, g_variant_get_string(param, NULL));
+  RecentOpen *open = data;
+
+  if (!gtk_widget_in_destruction(GTK_WIDGET(open->window)) && gtk_widget_get_visible(GTK_WIDGET(open->window)))
+    open_project(open->t, open->root);
+  g_object_unref(open->window);
+  g_free(open->root);
+  g_free(open);
+  return G_SOURCE_REMOVE;
+}
+
+/* The menu item sits in the Recent Folders submenu, a grabbing popup while it is open: switching
+ * there (closing every tab, rebuilding that submenu's model) breaks the popup chain on Wayland and
+ * the window takes no more clicks. Switch once the menu has closed. */
+static void on_open_recent_action(GSimpleAction *action G_GNUC_UNUSED, GVariant *param, gpointer data)
+{
+  App *t = data;
+  RecentOpen *open = g_new(RecentOpen, 1);
+
+  open->t = t;
+  open->window = g_object_ref(t->window);
+  open->root = g_variant_dup_string(param, NULL);
+  g_idle_add(open_recent_later, open);
 }
 
 /* win.open-folder, win.open-recent, win.keybinds and win.about, used by the title bar buttons and menus; and the recent menu. */
