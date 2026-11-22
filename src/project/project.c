@@ -136,6 +136,7 @@ static void switch_project(App *t, const char *root)
 #endif
 
   g_set_str(&t->project.root, root);
+  g_message("Switched to the project %s", root); /* for the log: what came before a warning */
   restart_shell_pane(t); /* before session_load_project opens the terminals the new project kept */
   session_load_project(t);
   update_title(t);

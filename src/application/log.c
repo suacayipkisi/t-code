@@ -19,6 +19,8 @@
 static char *file_path;
 static FILE *file;  /* from log_start() to log_stop() */
 static GMutex lock; /* messages come from any thread */
+static LogHook hook;
+static thread_local gboolean in_hook; /* the hook's own warnings do not call it again */
 
 char *log_default_path(void)
 {
@@ -111,7 +113,17 @@ static GLogWriterOutput write_log(GLogLevelFlags level, const GLogField *fields,
     }
     g_mutex_unlock(&lock);
   }
+  if (hook && message && (level & (G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING)) && !in_hook) {
+    in_hook = TRUE;
+    hook(domain, message);
+    in_hook = FALSE;
+  }
   return g_log_writer_default(level, fields, n, NULL); /* stderr or the journal, and fatal levels */
+}
+
+void log_set_hook(LogHook new_hook)
+{
+  hook = new_hook;
 }
 
 void log_start(const char *path)

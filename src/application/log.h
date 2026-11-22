@@ -26,3 +26,9 @@ void log_stop(void);
 
 /* The file messages go to, or NULL before log_start(). */
 const char *log_path(void);
+
+/* hook(domain, message) runs after each warning or critical is written (from the thread that sent
+ * it), to log what a warning alone does not tell; messages it sends itself do not call it again.
+ * NULL: none. */
+typedef void (*LogHook)(const char *domain, const char *message);
+void log_set_hook(LogHook hook);

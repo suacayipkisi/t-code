@@ -115,12 +115,65 @@ static void on_open(GApplication *app, GFile **files, int n, const char *hint G_
     session_restore_tabs(t);
 }
 
+/* A widget's place for the log: its type, name and CSS classes, then its parents'. */
+static char *widget_place(GtkWidget *widget)
+{
+  GString *place = g_string_new(NULL);
+
+  for (int depth = 0; widget && depth < 6; widget = gtk_widget_get_parent(widget), depth++) {
+    const char *type = G_OBJECT_TYPE_NAME(widget), *name = gtk_widget_get_name(widget);
+    char **classes = gtk_widget_get_css_classes(widget);
+    g_string_append_printf(place, "%s%s", depth ? " < " : "", type);
+    if (name && strcmp(name, type) != 0)
+      g_string_append_printf(place, "#%s", name);
+    for (int i = 0; classes && classes[i]; i++)
+      g_string_append_printf(place, ".%s", classes[i]);
+    g_strfreev(classes);
+  }
+  return g_string_free(place, FALSE);
+}
+
+static void log_popovers_in(GtkWidget *widget, int *count)
+{
+  if (GTK_IS_POPOVER(widget) && gtk_widget_get_visible(widget)) {
+    GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(widget));
+    char *place = widget_place(gtk_widget_get_parent(widget));
+    g_message("  %s%s, %s, its surface %s, on %s", G_OBJECT_TYPE_NAME(widget),
+              gtk_popover_get_autohide(GTK_POPOVER(widget)) ? " (grabbing)" : "",
+              gtk_widget_get_mapped(widget) ? "mapped" : "not mapped",
+              surface && gdk_surface_get_mapped(surface) ? "shown" : "not shown", place);
+    g_free(place);
+    (*count)++;
+  }
+  for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child))
+    log_popovers_in(child, count);
+}
+
+/* GDK or GTK warned about a popup or a grab (a window that then took no clicks came after "Tried
+ * to map a grabbing popup with a non-top most parent"): the log gets the popovers open then. */
+static void on_log_warning(const char *domain, const char *message)
+{
+  if ((g_strcmp0(domain, "Gdk") != 0 && g_strcmp0(domain, "Gtk") != 0) ||
+      (!strstr(message, "popup") && !strstr(message, "grab")) || !g_main_context_is_owner(g_main_context_default()))
+    return;
+  GList *windows = gtk_window_list_toplevels();
+  int count = 0;
+
+  g_message("The popovers open at this warning:");
+  for (GList *l = windows; l; l = l->next)
+    log_popovers_in(l->data, &count);
+  if (!count)
+    g_message("  none");
+  g_list_free(windows);
+}
+
 /* After cli.c's handle-local-options, which ends the emission for --version and --send: t-code
  * really starts, so the log file gets this run's line (before GTK opens the display, whose failure
  * is worth logging too). */
 static int start_log(void)
 {
   log_start(NULL);
+  log_set_hook(on_log_warning);
   return -1; /* go on */
 }
 

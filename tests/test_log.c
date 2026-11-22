@@ -74,6 +74,44 @@ static void test_log_flood(void)
   g_string_free(runs, TRUE);
 }
 
+static int hook_calls;
+static char *hook_seen;
+
+static void send(GLogLevelFlags level, const char *domain, const char *message)
+{
+  const GLogField fields[] = { { "GLIB_DOMAIN", domain, -1 }, { "MESSAGE", message, -1 } };
+
+  write_log(level, fields, G_N_ELEMENTS(fields), NULL);
+}
+
+static void on_warning(const char *domain, const char *message)
+{
+  hook_calls++;
+  g_free(hook_seen);
+  hook_seen = g_strconcat(domain, ": ", message, NULL);
+  send(G_LOG_LEVEL_WARNING, "Test", "the hook's own warning"); /* does not call it again */
+}
+
+/* The hook runs after warnings and criticals, not after notes, and not for its own warnings. */
+static void test_log_hook(void)
+{
+  GLogLevelFlags fatal = g_log_set_always_fatal(G_LOG_FATAL_MASK); /* g_test_init made warnings fatal */
+
+  log_set_hook(on_warning);
+  send(G_LOG_LEVEL_MESSAGE, "Test", "a note");
+  g_assert_cmpint(hook_calls, ==, 0);
+  send(G_LOG_LEVEL_WARNING, "Gdk", "Tried to map a grabbing popup");
+  g_assert_cmpint(hook_calls, ==, 1);
+  g_assert_cmpstr(hook_seen, ==, "Gdk: Tried to map a grabbing popup");
+  send(G_LOG_LEVEL_CRITICAL, "Gtk", "assertion failed");
+  g_assert_cmpint(hook_calls, ==, 2);
+  log_set_hook(NULL);
+  send(G_LOG_LEVEL_WARNING, "Gdk", "after");
+  g_assert_cmpint(hook_calls, ==, 2);
+  g_log_set_always_fatal(fatal);
+  g_free(hook_seen);
+}
+
 int main(int argc, char **argv)
 {
   GString *old = g_string_new(NULL);
@@ -93,6 +131,7 @@ int main(int argc, char **argv)
   g_test_add_func("/log/runs", test_log_runs);
   g_test_add_func("/log/bytes", test_log_bytes);
   g_test_add_func("/log/flood", test_log_flood);
+  g_test_add_func("/log/hook", test_log_hook);
   status = g_test_run();
   char *rm[] = { "rm", "-rf", dir, NULL };
   g_spawn_sync(NULL, rm, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
