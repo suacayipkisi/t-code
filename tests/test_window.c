@@ -3542,8 +3542,10 @@ static void test_dock_tree(void)
   reset_panel_layout(&app);
   run_for(50);
   g_assert_cmpint(dock_count(0), ==, 1);
+  GtkWidget *held = g_object_ref(side_first_dock(&app, 0)->card); /* outlives the tree it leaves (a11y may) */
   docks_restore(&app, kf);
-  run_for(50);
+  run_for(50); /* the queued prune leaves it alone */
+  g_object_unref(held);
   g_assert_cmpint(dock_count(0), ==, 3);
   g_assert_true(panel_dock(&app, "run") != panel_dock(&app, "search"));
   g_assert_cmpint(panel_side(&app, "search"), ==, 0);

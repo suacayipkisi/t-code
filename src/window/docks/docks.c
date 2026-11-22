@@ -905,8 +905,15 @@ void docks_restore(App *t, GKeyFile *kf)
       g_ptr_array_unref(names);
     }
     g_ptr_array_unref(left);
-    if (old)
-      gtk_box_remove(GTK_BOX(root), old); /* its docks are empty now */
+    if (old) { /* its docks are empty now: they leave the list here, not when the last ref goes (a queued prune
+                * would find a card outside the window) */
+      GPtrArray *cards = g_ptr_array_new();
+      split_collect(old, is_dock, cards);
+      for (guint i = 0; i < cards->len; i++)
+        g_ptr_array_remove(t->dock.list, dock_of(g_ptr_array_index(cards, i)));
+      g_ptr_array_unref(cards);
+      gtk_box_remove(GTK_BOX(root), old);
+    }
     if (tree) {
       g_object_ref(tree);
       gtk_box_remove(GTK_BOX(roots[side]), tree);
