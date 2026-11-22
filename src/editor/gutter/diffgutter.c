@@ -17,6 +17,7 @@
 #define WIDTH 4       /* pixels */
 #define CONTEXT 3     /* unchanged lines a comparison keeps around a change */
 #define MIN_FOLDED 4  /* fewer unchanged lines than this stay shown */
+#define RESIZE_MS 120 /* a comparison's gaps follow its width once it rests this long */
 
 typedef enum { BASE_HEAD, BASE_FILE, BASE_NONE } BaseKind;
 
@@ -32,14 +33,18 @@ struct DiffGutter {
   Tab *partner;          /* the other tab in a side-by-side comparison, or NULL */
   gboolean is_old_side;  /* TRUE for the right-hand (older) tab in a comparison */
   GArray *gaps;          /* DiffGap per hunk gap when partner != NULL */
-  GPtrArray *gap_tags;   /* GtkTextTag* created for the current gaps */
+  GPtrArray *gap_tags;   /* GtkTextTag* for each of gaps, in the same order */
+  GPtrArray *fold_tags;  /* GtkTextTag* for the rows standing for folded lines */
+  GArray *hunks;         /* the comparison's DiffHunk list for texts (kept on the new side) */
   int wrap_width;        /* the width the gaps were made for with word wrap (0: no wrap) */
+  int pending_width;     /* the width a relayout waits to rest at */
   GArray *changed;       /* guint8 per line: TRUE where the line differs from the other side */
   GArray *folds;         /* Folded: the unchanged stretches a comparison hides, in line order */
   int fold_px;           /* the height of the row standing for each of them */
   gboolean show_all;     /* the comparison hides no unchanged lines (kept on the new side) */
-  char *paired;          /* a checksum of what the gaps were made from: the same again changes nothing */
-  guint relayout_id;     /* the gaps are made again (the view's width changed) */
+  char *texts;           /* a checksum of both texts and show_all: the same again keeps folds and colors */
+  char *paired;          /* a checksum of the lines' heights the gaps were made from */
+  guint relayout_id;     /* the gaps are made again (a view's width changed; on the new side) */
   gboolean jumped;       /* a comparison went to its first change once */
   gboolean base_pending; /* git show waits for the tab to be shown */
   guint update_id;
@@ -275,13 +280,18 @@ static void remove_gap_tags(DiffGutter *g)
     gtk_text_buffer_remove_tag_by_name(buffer, UNCHANGED, &start, &end);
   g_clear_pointer(&g->changed, g_array_unref);
   g_clear_pointer(&g->folds, g_array_unref);
+  g_clear_pointer(&g->hunks, g_array_unref);
+  g_clear_pointer(&g->texts, g_free);
   g_clear_pointer(&g->paired, g_free);
-  if (g->gap_tags) {
-    GtkTextTagTable *table = gtk_text_buffer_get_tag_table(GTK_TEXT_BUFFER(g->tab->buffer));
-    for (guint i = 0; i < g->gap_tags->len; i++)
-      gtk_text_tag_table_remove(table, g_ptr_array_index(g->gap_tags, i));
+  GtkTextTagTable *table = gtk_text_buffer_get_tag_table(buffer);
+  for (guint i = 0; g->gap_tags && i < g->gap_tags->len; i++)
+    gtk_text_tag_table_remove(table, g_ptr_array_index(g->gap_tags, i));
+  for (guint i = 0; g->fold_tags && i < g->fold_tags->len; i++)
+    gtk_text_tag_table_remove(table, g_ptr_array_index(g->fold_tags, i));
+  if (g->gap_tags)
     g_ptr_array_set_size(g->gap_tags, 0);
-  }
+  if (g->fold_tags)
+    g_ptr_array_set_size(g->fold_tags, 0);
   g_clear_pointer(&g->gaps, g_array_unref);
 }
 
@@ -292,27 +302,51 @@ static void clear_side_gaps(DiffGutter *g)
   gtk_widget_queue_draw(GTK_WIDGET(g->tab->source));
 }
 
+/* Puts gaps (in line order) in place of the side's current gaps. A gap on the same line and edge as
+ * before keeps its tag, set to the new height when that changed: each tag added, removed or changed
+ * lays its line out again, and a new width changes only a few gaps' heights. */
 static void apply_side_gaps(DiffGutter *g, GArray *gaps)
 {
   GtkTextBuffer *buf = GTK_TEXT_BUFFER(g->tab->buffer);
+  GtkTextTagTable *table = gtk_text_buffer_get_tag_table(buf);
+  GArray *old = g->gaps;
+  GPtrArray *old_tags = g->gap_tags;
+  guint j = 0;
 
-  if (!g->gap_tags)
-    g->gap_tags = g_ptr_array_new();
   g->gaps = gaps;
+  g->gap_tags = g_ptr_array_new();
   for (guint i = 0; i < gaps->len; i++) {
     DiffGap *gap = &g_array_index(gaps, DiffGap, i);
-    GtkTextTag *tag = gtk_text_buffer_create_tag(buf, NULL, gap->above ? "pixels-above-lines" : "pixels-below-lines",
-                                                 gap->count + gap->pad, NULL);
-    GtkTextIter start, end;
-    gtk_text_buffer_get_iter_at_line(buf, &start, gap->line);
-    end = start;
-    if (!gtk_text_iter_ends_line(&end))
-      gtk_text_iter_forward_to_line_end(&end);
-    else
-      gtk_text_iter_forward_char(&end);
-    gtk_text_buffer_apply_tag(buf, tag, &start, &end);
+    const char *property = gap->above ? "pixels-above-lines" : "pixels-below-lines";
+    int px = gap->count + gap->pad;
+    GtkTextTag *tag = NULL;
+    for (; old && j < old->len && g_array_index(old, DiffGap, j).line < gap->line; j++)
+      gtk_text_tag_table_remove(table, g_ptr_array_index(old_tags, j));
+    if (old && j < old->len && g_array_index(old, DiffGap, j).line == gap->line &&
+        g_array_index(old, DiffGap, j).above == gap->above) {
+      DiffGap *was = &g_array_index(old, DiffGap, j);
+      tag = g_ptr_array_index(old_tags, j++);
+      if (was->count + was->pad != px)
+        g_object_set(tag, property, px, NULL);
+    } else {
+      GtkTextIter start, end;
+      tag = gtk_text_buffer_create_tag(buf, NULL, property, px, NULL);
+      gtk_text_buffer_get_iter_at_line(buf, &start, gap->line);
+      end = start;
+      if (!gtk_text_iter_ends_line(&end))
+        gtk_text_iter_forward_to_line_end(&end);
+      else
+        gtk_text_iter_forward_char(&end);
+      gtk_text_buffer_apply_tag(buf, tag, &start, &end);
+    }
     g_ptr_array_add(g->gap_tags, tag);
   }
+  for (; old && j < old->len; j++)
+    gtk_text_tag_table_remove(table, g_ptr_array_index(old_tags, j));
+  if (old)
+    g_array_unref(old);
+  if (old_tags)
+    g_ptr_array_free(old_tags, TRUE);
   gtk_widget_queue_draw(GTK_WIDGET(g->tab->source));
 }
 
@@ -325,6 +359,8 @@ static void apply_side_folds(DiffGutter *g, GArray *folds, int line_px)
 
   if (!hidden)
     hidden = gtk_text_buffer_create_tag(buf, UNCHANGED, "invisible", TRUE, NULL);
+  if (!g->fold_tags)
+    g->fold_tags = g_ptr_array_new();
   g->folds = g_array_new(FALSE, FALSE, sizeof(Folded));
   g->fold_px = line_px;
   for (guint i = 0; i < folds->len; i++) {
@@ -339,7 +375,7 @@ static void apply_side_folds(DiffGutter *g, GArray *folds, int line_px)
       gtk_text_iter_forward_to_line_end(&end);
     GtkTextTag *row = gtk_text_buffer_create_tag(buf, NULL, "pixels-above-lines", line_px, NULL);
     gtk_text_buffer_apply_tag(buf, row, &start, &end);
-    g_ptr_array_add(g->gap_tags, row);
+    g_ptr_array_add(g->fold_tags, row);
     g_array_append_val(g->folds, folded);
   }
 }
@@ -392,8 +428,10 @@ static int row_height(GtkTextView *view)
 
 /* The height in pixels each line of text takes in tab's view, as the view lays it out: with word
  * wrap at its width, font and tab stops (a line's height is rounded once, for all its rows: three
- * rows are not three times one). *width_out: the wrap width (0: no wrap). */
-static int *line_heights(Tab *tab, const char *text, int *width_out)
+ * rows are not three times one). Lines folds hides (DiffFold, its old side's lines when old_side;
+ * NULL: none) take no height in the view and are not laid out: they count as one row, on both sides.
+ * *width_out: the wrap width (0: no wrap). */
+static int *line_heights(Tab *tab, const char *text, const GArray *folds, gboolean old_side, int *width_out)
 {
   GtkTextView *view = GTK_TEXT_VIEW(tab->source);
   GtkWrapMode mode = gtk_text_view_get_wrap_mode(view);
@@ -420,9 +458,22 @@ static int *line_heights(Tab *tab, const char *text, int *width_out)
     pango_layout_set_tabs(layout, tabs);
     pango_tab_array_free(tabs);
   }
+  guint fold = 0;
   for (const char *p = text; i < n; i++) {
     const char *nl = strchr(p, '\n');
     int height;
+    for (; folds && fold < folds->len; fold++) { /* the fold that hides line i or comes after it */
+      const DiffFold *f = &g_array_index(folds, DiffFold, fold);
+      if (i < (old_side ? f->old_line : f->new_line) + f->count)
+        break;
+    }
+    if (folds && fold < folds->len &&
+        i >= (old_side ? g_array_index(folds, DiffFold, fold).old_line
+                       : g_array_index(folds, DiffFold, fold).new_line)) {
+      heights[i] = one;
+      p = nl ? nl + 1 : p + strlen(p);
+      continue;
+    }
     pango_layout_set_text(layout, p, nl ? (int)(nl - p) : -1);
     pango_layout_get_size(layout, NULL, &height);
     heights[i] = pango_layout_get_line_count(layout) > 1 ? PANGO_PIXELS(height) : one;
@@ -478,25 +529,23 @@ gboolean diff_gutter_line_changed(Tab *tab, int line)
          g_array_index(g->changed, guint8, line);
 }
 
-/* A checksum of what a comparison's gaps are made from. */
-static char *pair_key(const char *new_text, const char *old_text, const int *new_heights, guint new_lines,
-                      const int *old_heights, guint old_lines, gboolean show_all)
+/* A checksum of two blocks and a flag. */
+static char *pair_key(const void *a, gsize a_size, const void *b, gsize b_size, gboolean flag)
 {
   GChecksum *sum = g_checksum_new(G_CHECKSUM_SHA1);
   char *key;
 
-  g_checksum_update(sum, (const guchar *)new_text, (gssize)strlen(new_text) + 1); /* with its '\0' */
-  g_checksum_update(sum, (const guchar *)old_text, (gssize)strlen(old_text) + 1);
-  g_checksum_update(sum, (const guchar *)new_heights, (gssize)(new_lines * sizeof(int)));
-  g_checksum_update(sum, (const guchar *)old_heights, (gssize)(old_lines * sizeof(int)));
-  g_checksum_update(sum, (const guchar *)&show_all, sizeof show_all);
+  g_checksum_update(sum, a, (gssize)a_size);
+  g_checksum_update(sum, b, (gssize)b_size);
+  g_checksum_update(sum, (const guchar *)&flag, sizeof flag);
   key = g_strdup(g_checksum_get_string(sum));
   g_checksum_free(sum);
   return key;
 }
 
 /* Both sides' gap rows, changed lines and words, and folded unchanged lines, made again (each tag
- * change lays the views out again: nothing happens when nothing they depend on changed). */
+ * change lays the views out again: nothing happens when nothing they depend on changed, and only the
+ * gaps when only the lines' heights did, as a new width does). */
 static void sync_pair_gaps(DiffGutter *g)
 {
   if (!g || !g->partner)
@@ -513,31 +562,47 @@ static void sync_pair_gaps(DiffGutter *g)
   char *new_text = gtk_text_buffer_get_text(GTK_TEXT_BUFFER(new_tab->buffer), &s1, &e1, TRUE);
   char *old_text = gtk_text_buffer_get_text(GTK_TEXT_BUFFER(old_tab->buffer), &s2, &e2, TRUE);
 
-  int *new_heights = line_heights(new_tab, new_text, &ng->wrap_width);
-  int *old_heights = line_heights(old_tab, old_text, &og->wrap_width);
-  guint new_lines = line_count(new_text);
-  char *key = pair_key(new_text, old_text, new_heights, new_lines, old_heights, line_count(old_text), ng->show_all);
+  guint new_lines = line_count(new_text), old_lines = line_count(old_text);
+  char *texts = pair_key(new_text, strlen(new_text) + 1, old_text, strlen(old_text) + 1, ng->show_all);
+  gboolean same_texts = ng->hunks && g_strcmp0(texts, ng->texts) == 0 && g_strcmp0(texts, og->texts) == 0;
+  GArray *hunks = same_texts ? g_array_ref(ng->hunks) : line_diff_hunks(old_text, new_text);
+  GArray *folds = ng->show_all ? g_array_new(FALSE, FALSE, sizeof(DiffFold))
+                               : line_diff_folds(hunks, new_lines, CONTEXT, MIN_FOLDED);
+  int *new_heights = line_heights(new_tab, new_text, folds, FALSE, &ng->wrap_width);
+  int *old_heights = line_heights(old_tab, old_text, folds, TRUE, &og->wrap_width);
+  ng->pending_width = ng->wrap_width;
+  og->pending_width = og->wrap_width;
+  char *heights = pair_key(new_heights, new_lines * sizeof(int), old_heights, old_lines * sizeof(int), FALSE);
 
-  if (g_strcmp0(key, ng->paired) != 0 || g_strcmp0(key, og->paired) != 0) {
-    GArray *hunks = line_diff_hunks(old_text, new_text);
-    GArray *folds = ng->show_all ? g_array_new(FALSE, FALSE, sizeof(DiffFold))
-                                 : line_diff_folds(hunks, new_lines, CONTEXT, MIN_FOLDED);
+  if (!same_texts) {
     int row = row_height(GTK_TEXT_VIEW(new_tab->source));
     clear_side_gaps(ng);
     clear_side_gaps(og);
-    ng->paired = key;
-    og->paired = g_strdup(key);
+    ng->texts = texts;
+    og->texts = g_strdup(texts);
+    ng->hunks = g_array_ref(hunks);
+    ng->paired = heights;
+    og->paired = g_strdup(heights);
     apply_side_gaps(ng, line_diff_gaps(old_text, new_text, hunks, old_heights, new_heights, FALSE));
     apply_side_gaps(og, line_diff_gaps(old_text, new_text, hunks, old_heights, new_heights, TRUE));
     apply_side_folds(ng, folds, row);
     apply_side_folds(og, folds, row);
     apply_side_changes(ng, line_diff_spans(old_text, new_text, hunks, FALSE));
     apply_side_changes(og, line_diff_spans(old_text, new_text, hunks, TRUE));
-    g_array_unref(folds);
-    g_array_unref(hunks);
+  } else if (g_strcmp0(heights, ng->paired) != 0 || g_strcmp0(heights, og->paired) != 0) {
+    g_free(texts);
+    g_free(ng->paired);
+    g_free(og->paired);
+    ng->paired = heights;
+    og->paired = g_strdup(heights);
+    apply_side_gaps(ng, line_diff_gaps(old_text, new_text, hunks, old_heights, new_heights, FALSE));
+    apply_side_gaps(og, line_diff_gaps(old_text, new_text, hunks, old_heights, new_heights, TRUE));
   } else {
-    g_free(key);
+    g_free(texts);
+    g_free(heights);
   }
+  g_array_unref(folds);
+  g_array_unref(hunks);
   if (!ng->jumped) { /* a comparison opens at its first change, not at the file's top */
     int first = -1;
     for (guint i = 0; ng->changed && i < ng->changed->len && first < 0; i++)
@@ -738,20 +803,28 @@ static gboolean relayout_now(gpointer data)
   return G_SOURCE_REMOVE;
 }
 
+/* A side's width changed: both sides' gaps are made again (once, on the new side), when the width
+ * rests: dragging a comparison's middle changes it every frame, and a long file's lines take a while
+ * to lay out. The first width (nothing laid out yet) is taken at once. */
 void diff_gutter_check_width(Tab *tab)
 {
   DiffGutter *g = tab && tab->view ? tab->view->diff : NULL;
   GtkTextView *view;
+  DiffGutter *ng;
   int width;
 
-  if (!g || !g->partner || g->relayout_id)
+  if (!g || !g->partner)
     return;
+  ng = new_side(g);
   view = GTK_TEXT_VIEW(tab->source);
   width = wrap_width(view);
   if (gtk_text_view_get_wrap_mode(view) == GTK_WRAP_NONE)
     width = 0;
-  if (width != g->wrap_width)
-    g->relayout_id = g_idle_add(relayout_now, g);
+  if (ng->relayout_id ? width == g->pending_width : width == g->wrap_width)
+    return;
+  g->pending_width = width;
+  g_clear_handle_id(&ng->relayout_id, g_source_remove);
+  ng->relayout_id = g->wrap_width > 0 ? g_timeout_add(RESIZE_MS, relayout_now, ng) : g_idle_add(relayout_now, ng);
 }
 
 static void on_source_mapped(GtkWidget *widget G_GNUC_UNUSED, DiffGutter *g)
@@ -814,6 +887,8 @@ void diff_gutter_free(DiffGutter *g)
   remove_gap_tags(g);
   if (g->gap_tags)
     g_ptr_array_free(g->gap_tags, TRUE);
+  if (g->fold_tags)
+    g_ptr_array_free(g->fold_tags, TRUE);
   /* The view's "map" handler went with the view, which is gone (the page goes first). */
   g_signal_handlers_disconnect_by_data(g->tab->buffer, g);
   /* The page went first: the renderer lives on with our reference, and must not draw for us. */

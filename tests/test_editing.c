@@ -1207,7 +1207,7 @@ static void test_wrapped_heights(void)
   for (int margin = 2; margin < 12 && gtk_widget_get_mapped(GTK_WIDGET(tab->source)); margin++) {
     gtk_text_view_set_right_margin(GTK_TEXT_VIEW(tab->source), margin);
     run_for(100);
-    int wrap, *heights = line_heights(tab, text->str, &wrap);
+    int wrap, *heights = line_heights(tab, text->str, NULL, FALSE, &wrap);
     GtkAdjustment *vertical = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(tab->source));
     for (int line = 0; line < 60; line++) {
       GtkTextIter iter;
@@ -1258,6 +1258,78 @@ static void check_compared_lines(Tab *tab, const char *expected)
 /* A comparison shows its changes with three lines around each: the other unchanged lines are hidden
  * on both sides alike (but the last), a row standing for each stretch, and the sides stay lined up.
  * The toggle, or the cursor going into hidden lines, shows them all. */
+/* Dragging a comparison's middle with word wrap on a long file: each width change made everything
+ * again from every line's layout, twice (a second per frame on 3000 lines). Now the gaps follow the
+ * width once it rests, once for both sides, without laying out hidden lines, and the sides still line up. */
+static void test_comparison_resize(void)
+{
+  GString *old_text = g_string_new(NULL), *new_text = g_string_new(NULL);
+  GtkWidget *window = gtk_window_new(), *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+
+  for (int n = 0; n < 3000; n++) {
+    char *line = g_strdup_printf("  call_%d(%.*s);\n", n, (n * 37) % 110,
+                                 "first_argument, second_argument, third_argument, "
+                                 "fourth_argument, fifth_argument, sixth_argument, seventh_argument, eighth");
+    g_string_append(old_text, line);
+    g_string_append(new_text, n % 300 == 5 ? "  changed_line(with_some_more_text_here_to_wrap_it);\n" : line);
+    g_free(line);
+  }
+  app.settings.word_wrap = TRUE;
+  Tab *new_side = new_tab(new_text->str), *old_side = new_tab(old_text->str);
+  editor_view_apply_settings(new_side);
+  editor_view_apply_settings(old_side);
+  gtk_paned_set_start_child(GTK_PANED(paned), new_side->page);
+  gtk_paned_set_end_child(GTK_PANED(paned), old_side->page);
+  gtk_window_set_default_size(GTK_WINDOW(window), 1000, 600);
+  gtk_window_set_child(GTK_WINDOW(window), paned);
+  gtk_window_present(GTK_WINDOW(window));
+  for (gint64 until = g_get_monotonic_time() + 3 * G_USEC_PER_SEC;
+       !gtk_widget_get_mapped(GTK_WIDGET(new_side->source)) && g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, TRUE);
+  diff_gutter_pair(new_side, old_side);
+  run_for(500);
+  if (!gtk_widget_get_mapped(GTK_WIDGET(new_side->source))) {
+    g_test_skip("the window was not shown");
+  } else {
+    DiffGutter *ng = new_side->view->diff, *og = old_side->view->diff;
+    GtkTextTag *fold_row = g_ptr_array_index(ng->fold_tags, 0);
+    int new_width = ng->wrap_width, old_width = og->wrap_width;
+    for (int step = 1; step <= 10; step++) { /* dragged: nothing is made again meanwhile */
+      int width = gtk_widget_get_width(GTK_WIDGET(new_side->source));
+      gtk_paned_set_position(GTK_PANED(paned), gtk_paned_get_position(GTK_PANED(paned)) - 15);
+      for (gint64 until = g_get_monotonic_time() + G_USEC_PER_SEC;
+           gtk_widget_get_width(GTK_WIDGET(new_side->source)) == width && g_get_monotonic_time() < until;)
+        g_main_context_iteration(NULL, FALSE);
+      diff_gutter_check_width(new_side);
+      diff_gutter_check_width(old_side);
+      g_assert_cmpuint(ng->relayout_id, !=, 0); /* once, for both sides, when the width rests */
+      g_assert_cmpuint(og->relayout_id, ==, 0);
+      g_assert_cmpint(ng->wrap_width, !=, wrap_width(GTK_TEXT_VIEW(new_side->source)));
+    }
+    run_for(RESIZE_MS + 400); /* it rests */
+    g_assert_cmpint(ng->wrap_width, <, new_width);
+    g_assert_cmpint(og->wrap_width, >, old_width);
+    g_assert_true(g_ptr_array_index(ng->fold_tags, 0) == fold_row); /* the folds stay: only the gaps follow */
+    for (int line = 5; line < 3000; line += 300) { /* the sides line up at each change, laid out for real */
+      int new_y, old_y, height;
+      GtkAdjustment *vertical = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(new_side->source));
+      line_yrange(new_side, line, &new_y, &height);
+      gtk_adjustment_set_value(vertical, new_y);
+      run_for(30);
+      line_yrange(new_side, line, &new_y, &height);
+      line_yrange(old_side, line, &old_y, &height);
+      g_assert_cmpint(new_y, ==, old_y);
+    }
+  }
+  gtk_window_set_child(GTK_WINDOW(window), NULL);
+  gtk_window_destroy(GTK_WINDOW(window));
+  free_tab(old_side);
+  free_tab(new_side);
+  app.settings.word_wrap = FALSE;
+  g_string_free(old_text, TRUE);
+  g_string_free(new_text, TRUE);
+}
+
 static void test_comparison_folds(void)
 {
   GString *old_text = g_string_new(NULL), *new_text = g_string_new(NULL);
@@ -1751,6 +1823,7 @@ int main(int argc, char **argv)
   g_test_add_func("/diff-gutter/trailing-newline", test_trailing_newline);
   g_test_add_func("/diff-gutter/comparison-gaps", test_comparison_gaps);
   g_test_add_func("/diff-gutter/comparison-folds", test_comparison_folds);
+  g_test_add_func("/diff-gutter/comparison-resize", test_comparison_resize);
   g_test_add_func("/diff-gutter/wrapped-heights", test_wrapped_heights);
   g_test_add_func("/folding/fold-unfold", test_folding);
   g_test_add_func("/sticky/heads", test_sticky);
