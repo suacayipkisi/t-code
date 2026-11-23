@@ -16,7 +16,7 @@ the mouse. On top of that:
   with the list open over a placeholder, `Tab` takes the proposal first), and the `#include` it needs is added by itself.
 - **Parameter hints**: in a call's arguments, the signature shows above the cursor with the
   argument being typed in bold.
-- **Go to Definition** (`F12`, `Ctrl+Click`; while Ctrl is held, the name under the pointer is underlined) and back (`Alt+←`), **Find All References**
+- **Go to Definition** (`F12`, `Ctrl+Click`; while Ctrl is held, the name under the pointer is underlined; `Ctrl+Click` on a web link — `https://`, `www.`, `mailto:` — opens it in the default browser, with or without a language server) and back (`Alt+←`), **Find All References**
   (`Shift+F12`), **Rename Symbol** (`F2`, in every file), **Format Document** (`Shift+Alt+F`, with
   the project's `.clang-format`), **Go to Symbol in File** (`Ctrl+Shift+.`), **Go to Symbol in
   Workspace** (from the command palette), **Switch Source / Header** (`Alt+O`).
@@ -468,6 +468,7 @@ palette) finds any command by name.
 | editor      | `Ctrl+Z` / `Ctrl+Y`, `Ctrl+Shift+Z`    | undo / redo                               |
 | editor      | `Ctrl+Space` / `Ctrl+Shift+Space`      | completion / parameter hints              |
 | editor      | `F12`, `Ctrl+Click` / `Alt+←`          | go to definition / back                   |
+| editor      | `Ctrl+Click` on a web link             | open it in the default browser            |
 | editor      | `Shift+F12` / `F2`                     | find all references / rename symbol       |
 | editor      | `Shift+Alt+H`                          | call hierarchy (the Hierarchy panel)      |
 | editor      | hold `Ctrl+Alt`                        | inlay hints the other way while held      |

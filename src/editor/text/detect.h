@@ -1,6 +1,7 @@
 /*
  * What a file's text says about it, without a display (GLib only, so tests/ can run it): its own
- * indentation, whether a header is C++, and whether a .m file is Objective-C or MATLAB.
+ * indentation, whether a header is C++, whether a .m file is Objective-C or MATLAB, and the web
+ * links in a line.
  */
 #pragma once
 
@@ -19,3 +20,8 @@ gboolean is_cxx_text(const char *text, gssize len);
  * #import, @interface or @implementation at a line's start say so; a line starting with % or
  * "function" says MATLAB; otherwise its folder decides (a .mm file, or a header of the same name). */
 gboolean is_objc_m(const char *path, const char *text);
+
+/* The web link (http://, https://, ftp://, file://, mailto: or www.) in line (len bytes, -1: up to
+ * its NUL) that covers the byte at index: its bytes [*start, *end), without the punctuation that
+ * ends a sentence or closes brackets around it. FALSE: none there. */
+gboolean url_at(const char *line, gssize len, int index, int *start, int *end);

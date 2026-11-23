@@ -1693,6 +1693,37 @@ static void test_ctrl_link(void)
   free_tab(tab);
 }
 
+/* Ctrl held over a web link underlines all of it, with a language server or without one; Ctrl+click
+ * opens it (a www. link as https). */
+static void test_ctrl_url(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/url.c", "// docs: www.gnu.org/software. or https://x.org/a?b=1\nint y;\n");
+  Link *l = g_object_get_data(G_OBJECT(tab->source), "tcode-link");
+  GtkTextIter at = iter_at(tab, 0, 12), start, end;
+  char *url;
+
+  link_at(l, &at); /* no server */
+  g_assert_nonnull(l->from);
+  gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &start, l->from);
+  gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &end, l->to);
+  g_assert_cmpint(gtk_text_iter_get_offset(&start), ==, 9);
+  g_assert_cmpint(gtk_text_iter_get_offset(&end), ==, 29);
+  g_assert_cmpstr(gdk_cursor_get_name(gtk_widget_get_cursor(GTK_WIDGET(tab->source))), ==, "pointer");
+  url = url_range(&at, &start, &end);
+  g_assert_cmpstr(url, ==, "https://www.gnu.org/software");
+  g_free(url);
+  at = iter_at(tab, 0, 40);
+  url = url_range(&at, &start, &end);
+  g_assert_cmpstr(url, ==, "https://x.org/a?b=1");
+  g_free(url);
+
+  at = iter_at(tab, 1, 4); /* y, without a server: nothing */
+  link_at(l, &at);
+  g_assert_null(l->from);
+  g_assert_null(url_range(&at, &start, &end));
+  free_tab(tab);
+}
+
 static void test_semantic_timeout_close(void)
 {
   Tab *tab = new_tab("/tmp/t-code-test/semantic-timeout.c", "");
@@ -2095,6 +2126,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/snippet-text", test_snippet_text);
   g_test_add_func("/lsp/semantic-colors", test_semantic_colors);
   g_test_add_func("/lsp/ctrl-link", test_ctrl_link);
+  g_test_add_func("/lsp/ctrl-url", test_ctrl_url);
   g_test_add_func("/lsp/semantic-timeout-close", test_semantic_timeout_close);
   g_test_add_func("/lsp/semantic-delta", test_semantic_delta);
   g_test_add_func("/lsp/problem-end", test_problem_end);

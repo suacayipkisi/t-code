@@ -82,6 +82,35 @@ static void put(const char *folder, const char *name, const char *text)
   g_free(path);
 }
 
+/* Web links in a line: the one under an index, without the sentence's or brackets' punctuation. */
+static void test_urls(void)
+{
+  const char *line = "// see https://example.org/a_(b). or (www.gnu.org), mailto:x@y.z";
+  int start, end;
+
+  g_assert_true(url_at(line, -1, 10, &start, &end));
+  g_assert_cmpint(start, ==, 7);
+  g_assert_cmpint(end, ==, 32); /* https://example.org/a_(b) */
+  g_assert_false(url_at(line, -1, 32, &start, &end));
+  g_assert_false(url_at(line, -1, 3, &start, &end));
+  g_assert_true(url_at(line, -1, 40, &start, &end));
+  g_assert_cmpint(start, ==, 38);
+  g_assert_cmpint(end, ==, 49); /* www.gnu.org, not "www.gnu.org)" */
+  g_assert_true(url_at(line, -1, (int)strlen(line) - 1, &start, &end));
+  g_assert_cmpint(end, ==, (int)strlen(line));
+  line = "[https://x.org/v/coc.html][v2.1]. and [docs](https://y.org/a.) too";
+  g_assert_true(url_at(line, -1, 3, &start, &end));
+  g_assert_cmpint(start, ==, 1);
+  g_assert_cmpint(end, ==, 25); /* https://x.org/v/coc.html */
+  g_assert_true(url_at(line, -1, 50, &start, &end));
+  g_assert_cmpint(start, ==, 45);
+  g_assert_cmpint(end, ==, 60); /* https://y.org/a */
+  g_assert_false(url_at("char *s = \"http\";", -1, 12, &start, &end));
+  g_assert_true(url_at("\"https://x.org/q?a=1\"", -1, 3, &start, &end));
+  g_assert_cmpint(start, ==, 1);
+  g_assert_cmpint(end, ==, 20);
+}
+
 /* .m: Objective-C by its text, else by a .mm or a same-named header next to it; MATLAB otherwise. */
 static void test_objc_m(void)
 {
@@ -231,6 +260,7 @@ int main(int argc, char **argv)
   g_test_add_func("/detect/crlf", test_crlf);
   g_test_add_func("/detect/cxx-headers", test_cxx_headers);
   g_test_add_func("/detect/objc-m", test_objc_m);
+  g_test_add_func("/detect/urls", test_urls);
   g_test_add_func("/detect/editorconfig", test_editorconfig);
   g_test_add_func("/detect/clang-format", test_clang_format);
   g_test_add_func("/blocks/heads", test_blocks);

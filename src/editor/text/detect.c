@@ -102,3 +102,40 @@ gboolean is_objc_m(const char *path, const char *text)
   g_free(folder);
   return found;
 }
+
+gboolean url_at(const char *line, gssize len, int index, int *start, int *end)
+{
+  static GRegex *url;
+  GMatchInfo *info = NULL;
+  gboolean found = FALSE;
+
+  if (!url)
+    url = g_regex_new("\\b(?:(?:https?|ftp|file)://|mailto:|www\\.)[^\\s<>\"'`]+", G_REGEX_CASELESS | G_REGEX_OPTIMIZE,
+                      0, NULL);
+  if (len < 0)
+    len = (gssize)strlen(line);
+  g_regex_match_full(url, line, len, 0, 0, &info, NULL);
+  for (; !found && g_match_info_matches(info); g_match_info_next(info, NULL)) {
+    int s, e;
+    g_match_info_fetch_pos(info, 0, &s, &e);
+    int depth[3] = { 0 };         /* ( [ { opened inside the link */
+    for (int i = s; i < e; i++) { /* a bracket it did not open ends it: (see x.org), [x.org][ref], [a](x.org) */
+      const char *open = strchr("([{", line[i]), *close = strchr(")]}", line[i]);
+      if (open && line[i])
+        depth[open - "([{"]++;
+      else if (close && line[i] && depth[close - ")]}"]-- == 0) {
+        e = i;
+        break;
+      }
+    }
+    while (e > s && strchr(".,;:!?", line[e - 1])) /* the end of a sentence */
+      e--;
+    if (index >= s && index < e) {
+      *start = s;
+      *end = e;
+      found = TRUE;
+    }
+  }
+  g_match_info_free(info);
+  return found;
+}

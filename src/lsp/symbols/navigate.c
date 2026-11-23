@@ -7,6 +7,7 @@
 #include "editor/editor.h"
 #include "editor/editorview.h"
 #include "editor/tabs.h"
+#include "editor/text/detect.h"
 #include "git/gitstatus.h"
 #include "lsp/client/client.h"
 #include "lsp/inline/diagnostics.h"
@@ -316,6 +317,30 @@ typedef struct {
   GdkCursor *cursor;      /* the view's own, while the pointer is a hand */
 } Link;
 
+/* The web link at: its text between start and end, the address to open returned (NULL: none). */
+static char *url_range(const GtkTextIter *at, GtkTextIter *start, GtkTextIter *end)
+{
+  GtkTextIter line = *at, line_end;
+  int from, to;
+  char *text, *url = NULL;
+
+  gtk_text_iter_set_line_offset(&line, 0);
+  line_end = line;
+  if (!gtk_text_iter_ends_line(&line_end))
+    gtk_text_iter_forward_to_line_end(&line_end);
+  text = gtk_text_iter_get_slice(&line, &line_end); /* bytes as the buffer counts them */
+  if (url_at(text, -1, gtk_text_iter_get_line_index(at), &from, &to)) {
+    char *link = g_strndup(text + from, to - from);
+    url = g_ascii_strncasecmp(link, "www.", 4) == 0 ? g_strconcat("https://", link, NULL) : g_strdup(link);
+    g_free(link);
+    *start = *end = line;
+    gtk_text_iter_set_line_index(start, from);
+    gtk_text_iter_set_line_index(end, to);
+  }
+  g_free(text);
+  return url;
+}
+
 /* The text Ctrl+click on at would go from: the server's colored token there, or with a server that
  * colors nothing, the name there outside comments and strings. FALSE: nothing. */
 static gboolean link_range(Tab *tab, const GtkTextIter *at, gboolean tokens, GtkTextIter *start, GtkTextIter *end)
@@ -374,12 +399,18 @@ static void link_clear(Link *l)
   g_clear_object(&l->to);
 }
 
-/* Underlines what Ctrl+click on at would go from (at NULL: nothing). */
+/* Underlines what Ctrl+click on at would go from (at NULL: nothing): a web link, else with a
+ * language server the symbol there. */
 static void link_at(Link *l, const GtkTextIter *at)
 {
   GtkTextBuffer *buffer = GTK_TEXT_BUFFER(l->tab->buffer);
   GtkTextIter start, end, old;
-  gboolean found = at && link_range(l->tab, at, lsp_capability(l->tab, "semanticTokensProvider") != NULL, &start, &end);
+  char *url = at ? url_range(at, &start, &end) : NULL;
+  gboolean found =
+      url || (at && lsp_has(l->tab) &&
+              link_range(l->tab, at, lsp_capability(l->tab, "semanticTokensProvider") != NULL, &start, &end));
+
+  g_free(url);
 
   if (found && l->from) { /* the same text: nothing to do */
     gtk_text_buffer_get_iter_at_mark(buffer, &old, l->from);
@@ -418,7 +449,7 @@ static void link_update(Link *l)
   int bx, by;
   gboolean over = FALSE;
 
-  if (l->inside && l->ctrl && lsp_has(l->tab)) {
+  if (l->inside && l->ctrl) {
     gtk_text_view_window_to_buffer_coords(view, GTK_TEXT_WINDOW_WIDGET, (int)l->x, (int)l->y, &bx, &by);
     over = gtk_text_view_get_iter_at_location(view, &at, bx, by);
   }
@@ -470,18 +501,29 @@ static void link_attach(Tab *tab)
   gtk_widget_add_controller(GTK_WIDGET(tab->source), key);
 }
 
-/* Ctrl+click: the definition of what was clicked. */
+/* Ctrl+click: a web link opens in the default browser; anything else goes to its definition. */
 static void on_click(GtkGestureClick *click, int n G_GNUC_UNUSED, double x, double y, Tab *tab)
 {
   GdkModifierType state = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(click));
   GtkTextView *view = GTK_TEXT_VIEW(tab->source);
-  GtkTextIter iter;
+  GtkTextIter iter, start, end;
   int bx, by;
+  char *url;
 
-  if (!(state & GDK_CONTROL_MASK) || !lsp_has(tab))
+  if (!(state & GDK_CONTROL_MASK))
     return;
   gtk_text_view_window_to_buffer_coords(view, GTK_TEXT_WINDOW_WIDGET, (int)x, (int)y, &bx, &by);
-  gtk_text_view_get_iter_at_location(view, &iter, bx, by);
+  if (gtk_text_view_get_iter_at_location(view, &iter, bx, by) && (url = url_range(&iter, &start, &end))) {
+    GtkUriLauncher *launcher = gtk_uri_launcher_new(url);
+    gtk_gesture_set_state(GTK_GESTURE(click), GTK_EVENT_SEQUENCE_CLAIMED);
+    link_at(g_object_get_data(G_OBJECT(tab->source), "tcode-link"), NULL);
+    gtk_uri_launcher_launch(launcher, GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(view))), NULL, NULL, NULL);
+    g_object_unref(launcher);
+    g_free(url);
+    return;
+  }
+  if (!lsp_has(tab))
+    return;
   gtk_text_buffer_place_cursor(GTK_TEXT_BUFFER(tab->buffer), &iter);
   gtk_gesture_set_state(GTK_GESTURE(click), GTK_EVENT_SEQUENCE_CLAIMED); /* no selection starts */
   link_at(g_object_get_data(G_OBJECT(tab->source), "tcode-link"), NULL);
