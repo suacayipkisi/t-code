@@ -180,6 +180,11 @@ static void open_kept(const char *name)
   run_for(20);
 }
 
+static gboolean loaded(gconstpointer tab)
+{
+  return !((const Tab *)tab)->view->loading;
+}
+
 /* A click replaces the last click's tab, in its place; opening a file for good, or editing it, keeps
  * its tab. */
 static void test_temporary(void)
@@ -200,6 +205,7 @@ static void test_temporary(void)
   open_temporary("b.txt");           /* already open: shown, nothing replaced */
   assert_tabs("b.txt e.txt* d.txt");
 
+  run_until(loaded, tab_nth(&app, 1)); /* an edit while the file comes in is not typing */
   gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(tab_nth(&app, 1)->buffer), "x", -1); /* edited */
   assert_tabs("b.txt e.txt d.txt");
   gtk_text_buffer_set_modified(GTK_TEXT_BUFFER(tab_nth(&app, 1)->buffer), FALSE); /* nothing to ask */
@@ -255,11 +261,6 @@ static Tab *old_version_of(const char *path)
 static gboolean compared(gconstpointer path)
 {
   return old_version_of(path) != NULL;
-}
-
-static gboolean loaded(gconstpointer tab)
-{
-  return !((const Tab *)tab)->view->loading;
 }
 
 /* The comparison tab of path: its working copy on the left, the old version on the right. */
