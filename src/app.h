@@ -65,24 +65,29 @@ typedef struct Tab {
   } compare;              /* a comparison's two sides (git/compare.c) */
 } Tab;
 
-#define PANELS 11 /* t-code's own panels that go into the docks (window.h's panel_names) */
+#define PANELS 11               /* t-code's own panels that go into the docks (window.h's panel_names) */
+#define PANEL_SCM_OFF (1u << 1) /* settings.panels_off's bit of Source Control (panel_names[1]) */
 
 struct App {
   GtkWindow *window;
 
   /* layout */
   struct {
-    GtkPaned *hpaned;    /* the left side | the rest */
-    GtkPaned *rpaned;    /* the editors and the bottom side | the right side */
-    GtkPaned *vpaned;    /* the editors over the bottom side */
-    GtkWidget *left;     /* the left side: the root of a tree of docks (window/splits.h, window/docks/) */
-    GtkWidget *bottom;   /* the bottom side: another */
-    GtkWidget *right;    /* the right side: another */
-    gboolean pressed;    /* a mouse button is down in the window (a paned may be being dragged) */
-    guint snapped;       /* a bit per side dragged below its smallest size: it hides on release */
-    int sizes[3];        /* each side's last size that was big enough, given back when it shows again */
-    guint placed;        /* a bit per side (bottom, right) given its size at its paned's first allocation */
-    GtkWidget *edges[3]; /* thin strips on the left, bottom and right edges: dragging one shows that hidden side */
+    GtkPaned *hpaned;     /* the left side | the rest */
+    GtkPaned *rpaned;     /* the editors and the bottom side | the right side */
+    GtkPaned *vpaned;     /* the editors over the bottom side */
+    GtkWidget *left;      /* the left side: the root of a tree of docks (window/splits.h, window/docks/) */
+    GtkWidget *bottom;    /* the bottom side: another */
+    GtkWidget *right;     /* the right side: another */
+    gboolean pressed;     /* a mouse button is down in the window (a paned may be being dragged) */
+    guint snapped;        /* a bit per side dragged below its smallest size: it hides on release */
+    int sizes[3];         /* each side's last size that was big enough, given back when it shows again */
+    guint placed;         /* a bit per side (bottom, right) given its size at its paned's first allocation */
+    GtkWidget *edges[3];  /* thin strips on the left, bottom and right edges: dragging one shows that hidden side */
+    GtkWidget *menu_bar;  /* the title bar's menus (window/titlebar.c) */
+    GtkWidget *logo;      /* t-code's icon left of them */
+    GtkWidget *logo_menu; /* the icon as a button opening the same menus, while the menu bar is off */
+    GtkWidget *side_buttons[3]; /* the title bar's buttons showing or hiding the left, bottom and right sides */
   } layout;
 
   /* dock */
@@ -118,6 +123,8 @@ struct App {
 
   /* status */
   struct {
+    GtkWidget *bar;              /* the status bar itself */
+    GtkWidget *build_buttons[2]; /* its Build and Run buttons */
     GtkLabel *branch, *build, *position;
     GtkLabel *errors, *warnings; /* the open files' problems, each after its icon */
     GtkLabel *progress;          /* "rust-analyzer: Indexing 45%": what a language server is busy with */
@@ -204,5 +211,11 @@ struct App {
     gboolean plain;          /* syntax coloring off (F7) */
     double font_scale;       /* editors, terminals and the Files panel (Ctrl+= / Ctrl+-); session.ini keeps it */
     double preview_scale;    /* Markdown previews' text size; session.ini keeps it */
+    guint panels_off;        /* t-code's own panels turned off: bit 1 << their index in panel_names */
+    gboolean menu_bar;       /* the menu bar in the title bar; off: its menus open from t-code's icon */
+    gboolean status_bar;     /* the status bar under everything */
+    gboolean build_buttons;  /* the status bar's Build and Run buttons */
+    char **status_off;       /* status bar items turned off, by id ("branch", "position", "plugin:<key>", ...) */
+    gboolean side_buttons;   /* the title bar's buttons showing or hiding the sides */
   } settings;
 };

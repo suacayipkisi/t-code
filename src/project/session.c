@@ -183,6 +183,12 @@ static const Setting settings[] = {
                " When started from the app menu (not from a folder in a terminal)"),
   BOOL_SETTING("check-updates", check_updates, TRUE,
                " Once at start-up, the latest release on GitHub goes against this version; a newer one asks"),
+  BOOL_SETTING("menu-bar", menu_bar, TRUE,
+               " The menus in the title bar (Files, T-Code, Settings, ...); off: they open from t-code's icon"),
+  BOOL_SETTING("status-bar", status_bar, TRUE, " The bar along the window's bottom (branch, problems, Ln / Col, ...)"),
+  BOOL_SETTING("build-buttons", build_buttons, TRUE,
+               " The status bar's Build and Run buttons (Ctrl+Shift+B and Ctrl+F5 work without them)"),
+  BOOL_SETTING("sidebar-buttons", side_buttons, TRUE, " The title bar's buttons that show or hide the sides"),
 };
 /* clang-format on */
 
@@ -219,6 +225,17 @@ void session_load_settings(App *t)
     if (kind != SERVER_NONE)
       t->settings.servers_off |= 1u << kind;
   }
+  g_strfreev(off);
+  g_strfreev(t->settings.status_off);
+  t->settings.status_off = g_key_file_get_string_list(kf, "settings", "status-items-off", NULL, NULL);
+  for (int i = 0; t->settings.status_off && t->settings.status_off[i]; i++)
+    g_strstrip(t->settings.status_off[i]);
+  off = g_key_file_get_string_list(kf, "settings", "panels-off", NULL, NULL);
+  t->settings.panels_off = 0;
+  for (int i = 0; off && off[i]; i++)
+    for (int p = 0; p < PANELS; p++)
+      if (strcmp(g_strstrip(off[i]), panel_names[p]) == 0)
+        t->settings.panels_off |= 1u << p;
   g_strfreev(off);
   g_free(t->settings.font);
   g_free(t->settings.files_font);
@@ -284,6 +301,22 @@ void session_save_settings(App *t)
           " Built-in language servers turned off, by name: clangd;pylsp;gopls;rust-analyzer;\n"
           " typescript-language-server;vscode-json-language-server;yaml-language-server;marksman;neocmakelsp.\n"
           " A plugin's server for the same files takes their place");
+  off = g_ptr_array_new();
+  for (int p = 0; p < PANELS; p++)
+    if (t->settings.panels_off & (1u << p))
+      g_ptr_array_add(off, (gpointer)panel_names[p]);
+  g_key_file_set_string_list(kf, "settings", "panels-off", (const char *const *)off->pdata, off->len);
+  g_ptr_array_free(off, TRUE);
+  g_key_file_set_string_list(
+      kf, "settings", "status-items-off",
+      (const char *const *)(t->settings.status_off ? t->settings.status_off : (char *[]){ NULL }),
+      t->settings.status_off ? g_strv_length(t->settings.status_off) : 0);
+  explain(kf, "status-items-off",
+          " Status bar items turned off (right-click the status bar): branch;problems;flags;build-status;progress;\n"
+          " no-lsp;font-scale;indent;position;keybinds, and a plugin's item as plugin:<its key>");
+  explain(kf, "panels-off",
+          " Panels turned off, by name: files;scm;search;shell;debug;run;problems;outline;hierarchy;testing;plugins.\n"
+          " They open nowhere (scm: no git in the background either); the Panels menu turns them on again");
   g_key_file_set_string(kf, "settings", "font", t->settings.font);
   explain(kf, "font", " Editors and the terminal: a font name and size, like Cascadia Code 11");
   g_key_file_set_string(kf, "settings", "file-manager-font", t->settings.files_font);

@@ -266,6 +266,13 @@ static GtkWidget *with_edges(App *t, GtkPaned *paned, int first, int last)
 
 /* The window --------------------------------------------------------------------------------- */
 
+void apply_interface(App *t)
+{
+  apply_panels(t);
+  title_bar_apply(t);
+  status_bar_apply(t);
+}
+
 void build_window(App *t, GtkApplication *app)
 {
   GtkWidget *overlay = gtk_overlay_new();                        /* the picker (Ctrl+P) floats over the content */
@@ -356,6 +363,7 @@ void build_window(App *t, GtkApplication *app)
   /* The last session's sizes, then start the programs and show it. */
   add_shortcuts(t);
   session_apply_window(t);
+  apply_interface(t); /* after the docks are where the session left them */
   session_load_project(t);
   if (strcmp(t->project.root, g_get_home_dir()) != 0) /* home means no folder (see reopen_last_project) */
     session_add_recent(t);

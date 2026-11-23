@@ -6,7 +6,9 @@
 
 #include "editor/tabs.h"
 #include "files/files.h"
+#include "git/gitstatus.h"
 #include "lsp/problems.h"
+#include "project/session.h"
 #include "search/search.h"
 #include "window/terminal.h"
 #include "window/window.h"
@@ -74,6 +76,16 @@ static gboolean dock_has_pages(Dock *dock)
   return gtk_widget_get_first_child(GTK_WIDGET(dock->stack)) != NULL;
 }
 
+/* Whether a dock holds a panel turned on (the others' pages are hidden, apply_panels). */
+static gboolean dock_shows_pages(Dock *dock)
+{
+  for (GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(dock->stack)); child;
+       child = gtk_widget_get_next_sibling(child))
+    if (gtk_widget_get_visible(child))
+      return TRUE;
+  return FALSE;
+}
+
 Dock *panel_dock(App *t, const char *page)
 {
   for (guint i = 0; page && t->dock.list && i < t->dock.list->len; i++) {
@@ -104,7 +116,7 @@ gboolean side_has_pages(App *t, int side)
   gboolean any = FALSE;
 
   for (guint i = 0; i < docks->len && !any; i++)
-    any = dock_has_pages(g_ptr_array_index(docks, i));
+    any = dock_shows_pages(g_ptr_array_index(docks, i));
   g_ptr_array_unref(docks);
   return any;
 }
@@ -117,7 +129,7 @@ static gboolean side_shows(App *t, int side, gboolean expanded)
 
   for (guint i = 0; i < docks->len && !any; i++) {
     Dock *dock = g_ptr_array_index(docks, i);
-    any = dock_has_pages(dock) && gtk_widget_get_visible(dock->card) && (!expanded || !dock->collapsed);
+    any = dock_shows_pages(dock) && gtk_widget_get_visible(dock->card) && (!expanded || !dock->collapsed);
   }
   g_ptr_array_unref(docks);
   return any;
@@ -356,7 +368,7 @@ void show_sidebar_page(App *t, const char *page)
 {
   Dock *dock = panel_dock(t, page);
 
-  if (!dock)
+  if (!dock || !panel_enabled(t, page))
     return;
   gtk_widget_set_visible(dock->card, TRUE);
   if (dock->collapsed)
@@ -372,7 +384,7 @@ gboolean panel_shown(App *t, const char *page)
 {
   Dock *dock = panel_dock(t, page);
 
-  return dock && gtk_widget_get_visible(dock->card) && !dock->collapsed &&
+  return dock && panel_enabled(t, page) && gtk_widget_get_visible(dock->card) && !dock->collapsed &&
          gtk_widget_get_visible(side_widget(t, dock->side)) && !side_squeezed(t, dock->side) &&
          g_strcmp0(gtk_stack_get_visible_child_name(dock->stack), page) == 0;
 }
@@ -401,6 +413,8 @@ void toggle_pane(App *t, GtkWidget *pane)
 
 void toggle_panel(App *t, const char *page)
 {
+  if (!panel_enabled(t, page))
+    return;
   if (panel_shown(t, page))
     hide_dock(panel_dock(t, page));
   else
@@ -408,7 +422,7 @@ void toggle_panel(App *t, const char *page)
   queue_panel_checks(t);
 }
 
-/* The Panels menu checks the panels that show (their win.panel-<name> actions' state). */
+/* The Panels menu checks the panels turned on (their win.panel-<name> actions' state). */
 static gboolean sync_panel_checks(gpointer data)
 {
   App *t = data;
@@ -419,7 +433,7 @@ static gboolean sync_panel_checks(gpointer data)
     GAction *action = g_action_map_lookup_action(G_ACTION_MAP(t->window), name);
 
     if (action)
-      g_simple_action_set_state(G_SIMPLE_ACTION(action), g_variant_new_boolean(panel_shown(t, panel_names[i])));
+      g_simple_action_set_state(G_SIMPLE_ACTION(action), g_variant_new_boolean(panel_enabled(t, panel_names[i])));
     g_free(name);
   }
   if (!t->closing)
@@ -721,8 +735,69 @@ void reset_panel_layout(App *t)
   show_side(t, 2, TRUE);
   gtk_stack_set_visible_child_name(panel_stack(t, "outline"), "outline");
   gtk_stack_set_visible_child_name(panel_stack(t, "shell"), "shell");
+  apply_panels(t); /* the docks holding only panels turned off hide again */
   show_sidebar_page(t, "files");
   queue_panel_checks(t);
+}
+
+/* Turning panels on and off ----------------------------------------------------------------------- */
+
+gboolean panel_enabled(App *t, const char *page)
+{
+  for (int i = 0; page && i < PANELS; i++)
+    if (strcmp(page, panel_names[i]) == 0)
+      return !(t->settings.panels_off & (1u << i));
+  return TRUE;
+}
+
+void apply_panels(App *t)
+{
+  gboolean scm_was = TRUE, scm_is = TRUE;
+
+  for (int i = 0; i < PANELS; i++) {
+    GtkStack *stack = panel_stack(t, panel_names[i]);
+    GtkWidget *child = stack ? gtk_stack_get_child_by_name(stack, panel_names[i]) : NULL;
+    gboolean on = !(t->settings.panels_off & (1u << i));
+    if (!child)
+      continue;
+    if (i == 1) { /* Source Control */
+      scm_was = gtk_widget_get_visible(child);
+      scm_is = on;
+    }
+    if (gtk_widget_get_visible(child) == on)
+      continue;
+    GtkWidget *focus = gtk_root_get_focus(GTK_ROOT(t->window));
+    if (!on && focus && (focus == child || gtk_widget_is_ancestor(focus, child)))
+      focus_current_tab(t);
+    gtk_widget_set_visible(child, on); /* its icon goes with it; the stack shows another page */
+  }
+  for (guint i = 0; i < t->dock.list->len; i++) {
+    Dock *dock = g_ptr_array_index(t->dock.list, i);
+    if (!dock_shows_pages(dock) && gtk_widget_get_visible(dock->card))
+      hide_dock(dock);
+  }
+  for (int side = 0; side < 3; side++) {
+    hide_side_if_empty(t, side);
+    fit_side(t, side);
+  }
+  if (scm_was != scm_is)
+    git_status_enabled_changed(t);
+  queue_panel_checks(t);
+}
+
+void set_panel_enabled(App *t, const char *page, gboolean on)
+{
+  for (int i = 0; i < PANELS; i++)
+    if (strcmp(page, panel_names[i]) == 0) {
+      if (on)
+        t->settings.panels_off &= ~(1u << i);
+      else
+        t->settings.panels_off |= 1u << i;
+    }
+  apply_panels(t);
+  if (on)
+    show_sidebar_page(t, page);
+  session_save_settings(t);
 }
 
 /* The session ------------------------------------------------------------------------------------ */

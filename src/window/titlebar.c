@@ -1,13 +1,16 @@
 /*
  * The window's title bar (see docks/docks.h): the menu bar (Files, T-Code, Settings, Panels, About,
- * Help) and the buttons that show or hide the sides.
+ * Help) and the buttons that show or hide the sides. The Panels menu turns t-code's panels and parts of
+ * the window on and off; with the menu bar off, t-code's icon opens the same menus.
  */
 #include "window/docks/docks.h"
 
 #include "editor/tabs.h"
+#include "project/session.h"
 #include "window/commands.h"
 #include "window/window.h"
 
+#include <stddef.h>
 #include <string.h>
 
 static void on_toggle_left(App *t)
@@ -26,10 +29,40 @@ static void on_toggle_bottom(App *t)
   toggle_pane(t, side_has_pages(t, 1) ? t->layout.bottom : t->shell.panel);
 }
 
-/* win.panel-<name> (the Panels menu): shows or hides that panel. */
+/* win.panel-<name> (the Panels menu): turns that panel on or off. */
 static void on_panel_action(GSimpleAction *action, GVariant *param G_GNUC_UNUSED, gpointer t)
 {
-  toggle_panel(t, g_action_get_name(G_ACTION(action)) + strlen("panel-"));
+  const char *page = g_action_get_name(G_ACTION(action)) + strlen("panel-");
+
+  set_panel_enabled(t, page, !panel_enabled(t, page));
+}
+
+/* The parts of the window the Panels menu turns on and off: each one's action and setting. */
+static const struct {
+  const char *action, *label;
+  size_t field; /* offsetof(App, settings.<name>), a gboolean */
+} parts[] = {
+  { "ui-menu-bar", "Menu Bar", offsetof(App, settings.menu_bar) },
+  { "ui-status-bar", "Status Bar", offsetof(App, settings.status_bar) },
+  { "ui-build-buttons", "Build and Run Buttons", offsetof(App, settings.build_buttons) },
+  { "ui-side-buttons", "Sidebar Buttons", offsetof(App, settings.side_buttons) },
+};
+
+static gboolean *part_setting(App *t, size_t i)
+{
+  return (gboolean *)((char *)t + parts[i].field);
+}
+
+/* win.ui-<part>: turns that part of the window on or off. */
+static void on_part_action(GSimpleAction *action, GVariant *param G_GNUC_UNUSED, gpointer data)
+{
+  App *t = data;
+
+  for (size_t i = 0; i < G_N_ELEMENTS(parts); i++)
+    if (strcmp(g_action_get_name(G_ACTION(action)), parts[i].action) == 0)
+      *part_setting(t, i) = !*part_setting(t, i);
+  apply_interface(t);
+  session_save_settings(t);
 }
 
 /* win.command: runs commands[]'s command of that name (window/commands.c), for the menu bar. */
@@ -44,7 +77,7 @@ static void on_quit_action(GSimpleAction *action G_GNUC_UNUSED, GVariant *param 
   gtk_window_close(((App *)t)->window);
 }
 
-/* The menu bar's actions: a checked one per panel, win.command and win.quit. */
+/* The menu bar's actions: a checked one per panel and part of the window, win.command and win.quit. */
 static void add_menu_actions(App *t)
 {
   static const GActionEntry actions[] = {
@@ -61,6 +94,12 @@ static void add_menu_actions(App *t)
     g_action_map_add_action(G_ACTION_MAP(t->window), G_ACTION(action));
     g_object_unref(action);
     g_free(name);
+  }
+  for (size_t i = 0; i < G_N_ELEMENTS(parts); i++) {
+    GSimpleAction *action = g_simple_action_new_stateful(parts[i].action, NULL, g_variant_new_boolean(TRUE));
+    g_signal_connect(action, "activate", G_CALLBACK(on_part_action), t);
+    g_action_map_add_action(G_ACTION_MAP(t->window), G_ACTION(action));
+    g_object_unref(action);
   }
 }
 
@@ -88,23 +127,36 @@ static void add_submenu(GMenu *bar, const char *label, GMenu *menu)
   g_object_unref(menu);
 }
 
-/* Files, T-Code, Settings, Plugins, Panels (checked while they show), About and Help. */
-static GMenu *menu_bar_model(App *t)
+GMenu *panels_menu(void)
 {
   static const char *const labels[PANELS] = { "Files",     "Source Control", "Search",   "Terminal",
                                               "Debug",     "Run and Debug",  "Problems", "Outline",
                                               "Hierarchy", "Testing",        "Plugins" };
-  static const char *const accels[PANELS] = { "<Alt>1",
-                                              "<Control><Shift>g",
-                                              "<Control><Shift>f",
-                                              "<Control>j",
-                                              NULL,
-                                              "<Control><Shift>d",
-                                              "<Control><Shift>m",
-                                              NULL,
-                                              NULL,
-                                              NULL,
-                                              NULL };
+  GMenu *menu = g_menu_new(), *section = g_menu_new();
+
+  for (int i = 0; i < PANELS; i++) {
+    char *action = g_strconcat("win.panel-", panel_names[i], NULL);
+
+    add_item(section, labels[i], action, NULL, NULL);
+    g_free(action);
+  }
+  g_menu_append_section(menu, "Panels", G_MENU_MODEL(section));
+  g_object_unref(section);
+  section = g_menu_new();
+  for (size_t i = 0; i < G_N_ELEMENTS(parts); i++) {
+    char *action = g_strconcat("win.", parts[i].action, NULL);
+
+    add_item(section, parts[i].label, action, NULL, NULL);
+    g_free(action);
+  }
+  g_menu_append_section(menu, "Window", G_MENU_MODEL(section));
+  g_object_unref(section);
+  return menu;
+}
+
+/* Files, T-Code, Settings, Plugins, Panels (checked while turned on), About and Help. */
+static GMenu *menu_bar_model(App *t)
+{
   GMenu *bar = g_menu_new(), *menu = g_menu_new(), *section = g_menu_new();
 
   add_command(menu, "Open Folder…", "Open Folder…", "<Control><Shift>o");
@@ -136,7 +188,7 @@ static GMenu *menu_bar_model(App *t)
   section = g_menu_new();
   add_command(menu, "Manage Plugins…", "Plugins: Manage Plugins", NULL);
   add_command(menu, "Browse the Registry…", "Plugins: Browse the Registry", NULL);
-  add_item(menu, "Plugins Panel", "win.panel-plugins", NULL, NULL);
+  add_command(menu, "Plugins Panel", "View: Toggle Plugins", NULL);
   add_command(section, "Reload Installed Plugins", "Plugins: Reload Installed Plugins", NULL);
   add_command(section, "Open Plugins Folder", "Plugins: Open Plugins Folder", NULL);
   add_command(section, "Process Monitor…", "Help: Process Monitor", NULL);
@@ -144,14 +196,7 @@ static GMenu *menu_bar_model(App *t)
   g_object_unref(section);
   add_submenu(bar, "Plugins", menu);
 
-  menu = g_menu_new();
-  for (int i = 0; i < PANELS; i++) {
-    char *action = g_strconcat("win.panel-", panel_names[i], NULL);
-
-    add_item(menu, labels[i], action, NULL, accels[i]);
-    g_free(action);
-  }
-  add_submenu(bar, "Panels", menu);
+  add_submenu(bar, "Panels", panels_menu());
 
   menu = g_menu_new();
   add_item(menu, "About t-code", "win.about", NULL, NULL);
@@ -260,6 +305,48 @@ static void on_header_realize(GtkWidget *header)
   controls_changed(header);
 }
 
+/* GtkHeaderBar leaves the children it did not add: the right-click menu goes with it. */
+static void on_header_destroy(GtkWidget *header)
+{
+  GtkWidget *pop = g_object_steal_data(G_OBJECT(header), "t-code-panels-pop");
+
+  if (pop)
+    gtk_widget_unparent(pop);
+}
+
+/* Right-click on the title bar's empty part: the Panels menu (panels and the window's parts on and off)
+ * and the layout's reset, instead of the window manager's menu. On its menus and buttons nothing
+ * changes. */
+static void on_header_right_click(GtkGestureClick *gesture, int n_press G_GNUC_UNUSED, double x, double y,
+                                  gpointer data G_GNUC_UNUSED)
+{
+  GtkWidget *header = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  GtkWidget *picked = gtk_widget_pick(header, x, y, GTK_PICK_DEFAULT);
+  GType types[] = { GTK_TYPE_BUTTON, GTK_TYPE_MENU_BUTTON, GTK_TYPE_POPOVER_MENU_BAR, GTK_TYPE_WINDOW_CONTROLS,
+                    GTK_TYPE_POPOVER };
+  GtkPopover *pop;
+
+  for (size_t i = 0; picked && i < G_N_ELEMENTS(types); i++)
+    if (G_TYPE_CHECK_INSTANCE_TYPE(picked, types[i]) || gtk_widget_get_ancestor(picked, types[i]))
+      return;
+  gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+  pop = g_object_get_data(G_OBJECT(header), "t-code-panels-pop");
+  if (!pop) {
+    GMenu *menu = panels_menu(), *section = g_menu_new();
+    g_menu_append(section, "Reset Panel Layout", "win.reset-panels");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
+    g_object_unref(section);
+    pop = GTK_POPOVER(gtk_popover_menu_new_from_model(G_MENU_MODEL(menu)));
+    g_object_unref(menu);
+    gtk_popover_set_has_arrow(pop, FALSE);
+    gtk_widget_set_halign(GTK_WIDGET(pop), GTK_ALIGN_START);
+    gtk_widget_set_parent(GTK_WIDGET(pop), header);
+    g_object_set_data(G_OBJECT(header), "t-code-panels-pop", pop);
+  }
+  gtk_popover_set_pointing_to(pop, &(const GdkRectangle){ (int)x, (int)y, 1, 1 });
+  gtk_popover_popup(pop);
+}
+
 GtkWidget *title_bar(App *t)
 {
   GtkWidget *header = gtk_header_bar_new();
@@ -269,16 +356,41 @@ GtkWidget *title_bar(App *t)
   GtkWidget *right_btn = gtk_button_new_from_icon_name("tcode-sidebar-right-symbolic");
   GtkWidget *bottom_btn = gtk_button_new_from_icon_name("tcode-panel-bottom-symbolic");
   GtkWidget *logo = gtk_image_new_from_icon_name("tcode-logo"); /* from the resources: also when not installed */
+  GtkWidget *logo_menu = gtk_menu_button_new(), *logo_image = gtk_image_new_from_icon_name("tcode-logo");
 
   add_menu_actions(t);
   g_signal_connect(header, "realize", G_CALLBACK(on_header_realize), NULL);
+  /* in the capture phase, before the window handle's own right-click (the window manager's menu) */
+  GtkGesture *right = gtk_gesture_click_new();
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(right), GDK_BUTTON_SECONDARY);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(right), GTK_PHASE_CAPTURE);
+  g_signal_connect(right, "pressed", G_CALLBACK(on_header_right_click), NULL);
+  gtk_widget_add_controller(header, GTK_EVENT_CONTROLLER(right));
+  g_signal_connect(header, "destroy", G_CALLBACK(on_header_destroy), NULL);
   /* t-code's icon, left of the menus. */
   gtk_image_set_pixel_size(GTK_IMAGE(logo), 18);
   gtk_widget_set_tooltip_text(logo, "t-code");
   gtk_widget_set_margin_start(logo, 4);
   gtk_header_bar_pack_start(GTK_HEADER_BAR(header), logo);
+  /* The menu bar off: the same menus from the icon. */
+  gtk_image_set_pixel_size(GTK_IMAGE(logo_image), 18);
+  gtk_menu_button_set_child(GTK_MENU_BUTTON(logo_menu), logo_image);
+  /* nested, as the menu bar's: each submenu its own popover as wide as its items (sliding ones share
+   * the widest one's width) */
+  gtk_menu_button_set_popover(GTK_MENU_BUTTON(logo_menu),
+                              gtk_popover_menu_new_from_model_full(G_MENU_MODEL(model), GTK_POPOVER_MENU_NESTED));
+  gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(logo_menu), FALSE);
+  gtk_widget_set_tooltip_text(logo_menu, "Menu");
+  gtk_widget_set_visible(logo_menu, FALSE);
+  gtk_header_bar_pack_start(GTK_HEADER_BAR(header), logo_menu);
   gtk_header_bar_pack_start(GTK_HEADER_BAR(header), menu_bar);
   g_object_unref(model);
+  t->layout.logo = logo;
+  t->layout.logo_menu = logo_menu;
+  t->layout.menu_bar = menu_bar;
+  t->layout.side_buttons[0] = left_btn;
+  t->layout.side_buttons[1] = bottom_btn;
+  t->layout.side_buttons[2] = right_btn;
 
   gtk_widget_set_tooltip_text(right_btn, "Toggle Right Sidebar");
   g_signal_connect_swapped(right_btn, "clicked", G_CALLBACK(on_toggle_right), t);
@@ -292,4 +404,22 @@ GtkWidget *title_bar(App *t)
   g_signal_connect_swapped(left_btn, "clicked", G_CALLBACK(on_toggle_left), t);
   gtk_header_bar_pack_end(GTK_HEADER_BAR(header), left_btn);
   return header;
+}
+
+void title_bar_apply(App *t)
+{
+  gboolean bar = t->settings.menu_bar;
+
+  if (!t->layout.menu_bar)
+    return;
+  gtk_widget_set_visible(t->layout.menu_bar, bar);
+  gtk_widget_set_visible(t->layout.logo, bar);
+  gtk_widget_set_visible(t->layout.logo_menu, !bar);
+  for (int side = 0; side < 3; side++)
+    gtk_widget_set_visible(t->layout.side_buttons[side], t->settings.side_buttons);
+  for (size_t i = 0; i < G_N_ELEMENTS(parts); i++) {
+    GAction *action = g_action_map_lookup_action(G_ACTION_MAP(t->window), parts[i].action);
+    if (action)
+      g_simple_action_set_state(G_SIMPLE_ACTION(action), g_variant_new_boolean(*part_setting(t, i)));
+  }
 }

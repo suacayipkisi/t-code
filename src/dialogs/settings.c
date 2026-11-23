@@ -277,6 +277,13 @@ void settings_changed(App *t, gboolean restart_lsp)
   if (restart_lsp)
     lsp_restart_clangd(t);
   lsp_reattach(t); /* a built-in server turned on or off */
+  apply_interface(t);
+}
+
+/* A panel's switch on the Interface page. */
+static void on_panel_switch(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, gpointer data)
+{
+  set_panel_enabled(app_of(GTK_WIDGET(toggle)), panel_names[GPOINTER_TO_INT(data)], gtk_switch_get_active(toggle));
 }
 
 /* A built-in language server's switch: off, its editors move to a plugin's server or to none. */
@@ -405,6 +412,34 @@ void show_settings(App *t)
           spin_for(50, 300, 10, t->settings.font_scale * 100, G_CALLBACK(on_text_size)));
   add_row(GTK_GRID(grid), &row, "Preview size (%)", "Markdown previews; also Ctrl+= and Ctrl+- in a preview tab",
           spin_for(50, 300, 10, t->settings.preview_scale * 100, G_CALLBACK(on_preview_size)));
+
+  grid = add_page(GTK_STACK(stack), "interface", "Interface", &row);
+  add_row(GTK_GRID(grid), &row, "Menu bar", "Off: the menus open from t-code's icon in the title bar",
+          setting_switch(&t->settings.menu_bar, apply_interface));
+  add_row(GTK_GRID(grid), &row, "Status bar", "The bar along the window's bottom",
+          setting_switch(&t->settings.status_bar, apply_interface));
+  add_row(GTK_GRID(grid), &row, "Build and Run buttons",
+          "In the status bar; Ctrl+Shift+B and Ctrl+F5 work without them",
+          setting_switch(&t->settings.build_buttons, apply_interface));
+  add_row(GTK_GRID(grid), &row, "Sidebar buttons", "The title bar's buttons that show or hide the sides",
+          setting_switch(&t->settings.side_buttons, apply_interface));
+  add_heading(GTK_GRID(grid), &row, "Panels");
+  /* clang-format off */
+  static const char *const panel_titles[PANELS][2] = {
+    { "Files", NULL },
+    { "Source Control", "Off: no git in the background either (no branch, file colors, diff marks or line blame)" },
+    { "Search", NULL }, { "Terminal", "Build and Run still type into it" }, { "Debug", NULL },
+    { "Run and Debug", NULL }, { "Problems", NULL }, { "Outline", NULL }, { "Hierarchy", NULL },
+    { "Testing", NULL }, { "Plugins", NULL },
+  };
+  /* clang-format on */
+  for (int i = 0; i < PANELS; i++) {
+    GtkWidget *toggle = gtk_switch_new();
+    gtk_switch_set_active(GTK_SWITCH(toggle), panel_enabled(t, panel_names[i]));
+    g_signal_connect(toggle, "notify::active", G_CALLBACK(on_panel_switch), GINT_TO_POINTER(i));
+    add_row(GTK_GRID(grid), &row, panel_titles[i][0],
+            panel_titles[i][1] ? panel_titles[i][1] : "Off: it opens nowhere, its shortcut does nothing", toggle);
+  }
 
   grid = add_page(GTK_STACK(stack), "c", "C / C++", &row);
   add_row(GTK_GRID(grid), &row, "Format on save",

@@ -64,6 +64,7 @@ static void reload_settings(App *t)
   old.font = g_strdup(t->settings.font);
   old.files_font = g_strdup(t->settings.files_font);
   old.color_theme = g_strdup(t->settings.color_theme);
+  old.status_off = g_strdupv(t->settings.status_off);
   session_load_settings(t);
   same = old.plain == t->settings.plain && old.minimap == t->settings.minimap &&
          old.sticky_scroll == t->settings.sticky_scroll && old.reopen_last == t->settings.reopen_last &&
@@ -75,14 +76,20 @@ static void reload_settings(App *t)
          old.autosave_ms == t->settings.autosave_ms && old.clang_tidy == t->settings.clang_tidy &&
          old.servers_off == t->settings.servers_off && old.format_on_save == t->settings.format_on_save &&
          old.square == t->settings.square && old.corner_radius == t->settings.corner_radius &&
-         old.selection_opacity == t->settings.selection_opacity && g_strcmp0(old.font, t->settings.font) == 0 &&
-         g_strcmp0(old.files_font, t->settings.files_font) == 0 &&
+         old.selection_opacity == t->settings.selection_opacity && old.panels_off == t->settings.panels_off &&
+         old.menu_bar == t->settings.menu_bar && old.status_bar == t->settings.status_bar &&
+         old.build_buttons == t->settings.build_buttons && old.side_buttons == t->settings.side_buttons &&
+         (old.status_off && t->settings.status_off
+              ? g_strv_equal((const char *const *)old.status_off, (const char *const *)t->settings.status_off)
+              : !old.status_off == !t->settings.status_off) &&
+         g_strcmp0(old.font, t->settings.font) == 0 && g_strcmp0(old.files_font, t->settings.files_font) == 0 &&
          g_strcmp0(old.color_theme, t->settings.color_theme) == 0;
   if (!same)
     settings_changed(t, old.clang_tidy != t->settings.clang_tidy);
   g_free(old.font);
   g_free(old.files_font);
   g_free(old.color_theme);
+  g_strfreev(old.status_off);
 }
 
 /* The editor's colors changed: every editor gets the scheme read again. */

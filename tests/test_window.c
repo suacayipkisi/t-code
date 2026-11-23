@@ -3521,19 +3521,26 @@ static GAction *panel_action(const char *page)
   return action;
 }
 
+/* Whether the Panels menu checks page (turned on). */
+static gboolean menu_checked(const char *action)
+{
+  GVariant *state = g_action_get_state(g_action_map_lookup_action(G_ACTION_MAP(app.window), action));
+  gboolean on = g_variant_get_boolean(state);
+
+  g_variant_unref(state);
+  return on;
+}
+
+/* A panel's View command: hides it when it shows, else brings it from wherever it is. */
 static void click_panel(const char *page)
 {
-  g_action_activate(panel_action(page), NULL);
+  toggle_panel(&app, page);
   run_for(50);
 }
 
 static gboolean button_on(const char *page)
 {
-  GVariant *state = g_action_get_state(panel_action(page));
-  gboolean on = g_variant_get_boolean(state);
-
-  g_variant_unref(state);
-  return on;
+  return panel_shown(&app, page);
 }
 
 /* The interface uses t-code's own icons (assets/icons/ui, built in): the panels' tabs, the status
@@ -3923,18 +3930,15 @@ static void test_terminal_tabs(void)
   g_free(made);
 }
 
-/* Each panel has an item in the Panels menu, checked while the panel shows: choosing it hides a
- * shown panel and brings a hidden one back from wherever it is, also from a side squeezed to
- * nothing (a size saved on a bigger screen), which Ctrl+J then shows too instead of hiding it.
- * "View: Reset Panel Layout" puts everything back. */
+/* Each panel's View command hides a shown panel and brings a hidden one back from wherever it is, also
+ * from a side squeezed to nothing (a size saved on a bigger screen), which Ctrl+J then shows too
+ * instead of hiding it. "View: Reset Panel Layout" puts everything back. */
 static void test_panel_buttons(void)
 {
   int h = gtk_widget_get_height(GTK_WIDGET(app.layout.vpaned));
 
   reset_panel_layout(&app);
   run_for(50);
-  for (int i = 0; i < PANELS; i++)
-    g_assert_nonnull(panel_action(panel_names[i]));
   g_assert_true(button_on("files"));
   g_assert_false(button_on("scm")); /* a tab behind Files */
   g_assert_true(button_on("shell"));
@@ -3986,6 +3990,145 @@ static void test_panel_buttons(void)
   g_assert_true(panel_shown(&app, "shell"));
   g_assert_true(gtk_widget_get_visible(app.layout.right)); /* Outline, Hierarchy, Testing */
   g_assert_true(button_on("files"));
+}
+
+/* The Panels menu turns panels and parts of the window off and on. A panel turned off opens nowhere
+ * (its command, its shortcut's show_sidebar_page), its icon is gone and a dock left with nothing else
+ * hides; Source Control off runs no git (no branch). Turned on, it shows where it was. The menu bar
+ * off: t-code's icon opens the same menus. */
+static void test_interface_off(void)
+{
+  reset_panel_layout(&app);
+  run_for(50);
+  for (int i = 0; i < PANELS; i++) {
+    char *name = g_strconcat("panel-", panel_names[i], NULL);
+    g_assert_true(menu_checked(name));
+    g_free(name);
+  }
+  g_assert_true(panel_shown(&app, "outline"));
+
+  g_action_activate(panel_action("scm"), NULL);
+  run_for(50);
+  g_assert_false(panel_enabled(&app, "scm"));
+  g_assert_false(menu_checked("panel-scm"));
+  g_assert_true(app.settings.panels_off & PANEL_SCM_OFF);
+  show_sidebar_page(&app, "scm");
+  click_panel("scm");
+  g_assert_false(panel_shown(&app, "scm"));
+  g_assert_true(panel_shown(&app, "files"));
+  GtkWidget *scm = gtk_stack_get_child_by_name(panel_stack(&app, "scm"), "scm");
+  g_assert_false(gtk_widget_get_visible(scm));
+  g_assert_false(gtk_widget_get_visible(GTK_WIDGET(app.status.branch)));
+  g_assert_null(app.project.repo_top);
+
+  /* the right side's panels all off: its dock and the side hide; one back on shows them */
+  set_panel_enabled(&app, "outline", FALSE);
+  set_panel_enabled(&app, "hierarchy", FALSE);
+  set_panel_enabled(&app, "testing", FALSE);
+  run_for(50);
+  g_assert_false(gtk_widget_get_visible(app.layout.right));
+  g_assert_false(side_has_pages(&app, 2));
+  set_panel_enabled(&app, "outline", TRUE);
+  run_for(50);
+  g_assert_true(panel_shown(&app, "outline"));
+  g_assert_true(panel_side(&app, "outline") == 2);
+  set_panel_enabled(&app, "hierarchy", TRUE);
+  set_panel_enabled(&app, "testing", TRUE);
+  set_panel_enabled(&app, "scm", TRUE);
+  run_for(50);
+  g_assert_true(gtk_widget_get_visible(scm));
+  g_assert_true(panel_shown(&app, "scm"));
+  g_assert_true(menu_checked("panel-scm"));
+
+  /* the window's parts */
+  g_assert_true(gtk_widget_get_visible(app.layout.menu_bar));
+  g_assert_false(gtk_widget_get_visible(app.layout.logo_menu));
+  g_action_activate(g_action_map_lookup_action(G_ACTION_MAP(app.window), "ui-menu-bar"), NULL);
+  g_action_activate(g_action_map_lookup_action(G_ACTION_MAP(app.window), "ui-status-bar"), NULL);
+  g_action_activate(g_action_map_lookup_action(G_ACTION_MAP(app.window), "ui-build-buttons"), NULL);
+  g_action_activate(g_action_map_lookup_action(G_ACTION_MAP(app.window), "ui-side-buttons"), NULL);
+  run_for(50);
+  g_assert_false(gtk_widget_get_visible(app.layout.menu_bar));
+  g_assert_false(gtk_widget_get_visible(app.layout.logo));
+  g_assert_true(gtk_widget_get_visible(app.layout.logo_menu));
+  g_assert_true(GTK_IS_POPOVER_MENU(gtk_menu_button_get_popover(GTK_MENU_BUTTON(app.layout.logo_menu))));
+  g_assert_cmpint(
+      gtk_popover_menu_get_flags(GTK_POPOVER_MENU(gtk_menu_button_get_popover(GTK_MENU_BUTTON(app.layout.logo_menu)))),
+      ==, GTK_POPOVER_MENU_NESTED); /* each submenu as wide as its items */
+  g_assert_false(gtk_widget_get_visible(app.status.bar));
+  g_assert_false(gtk_widget_get_visible(gtk_widget_get_parent(app.status.build_buttons[0])));
+  g_assert_false(gtk_widget_get_visible(app.layout.side_buttons[0]));
+  g_assert_false(menu_checked("ui-status-bar"));
+  app.settings.menu_bar = app.settings.status_bar = app.settings.build_buttons = app.settings.side_buttons = TRUE;
+  apply_interface(&app);
+  session_save_settings(&app);
+  g_assert_true(gtk_widget_get_visible(app.layout.menu_bar));
+  g_assert_true(gtk_widget_get_visible(app.status.bar));
+  g_assert_true(gtk_widget_get_visible(gtk_widget_get_parent(app.status.build_buttons[1])));
+  g_assert_true(gtk_widget_get_visible(app.layout.side_buttons[2]));
+  g_assert_true(menu_checked("ui-menu-bar"));
+
+  /* the tab bar's right-click menu: the Panels menu's actions, and its own dock's */
+  Dock *dock = panel_dock(&app, "shell");
+  GtkWidget *header = gtk_widget_get_first_child(dock->card);
+  g_assert_true(gtk_widget_has_css_class(header, "tcode-dock-header"));
+  g_assert_true(gtk_widget_activate_action(header, "dock.collapse", NULL));
+  g_assert_true(dock->collapsed);
+  g_assert_true(gtk_widget_activate_action(header, "dock.collapse", NULL));
+  g_assert_false(dock->collapsed);
+  g_assert_true(gtk_widget_activate_action(header, "win.panel-problems", NULL));
+  g_assert_false(panel_enabled(&app, "problems"));
+  g_assert_true(gtk_widget_activate_action(header, "dock.hide", NULL));
+  g_assert_false(gtk_widget_get_visible(dock->card));
+  set_panel_enabled(&app, "problems", TRUE);
+
+  /* the title bar's empty middle: the Panels menu instead of the window manager's (headless, its
+   * buttons get no size here: that they keep their own clicks is not checked) */
+  GtkWidget *titlebar = gtk_window_get_titlebar(app.window);
+  GListModel *controllers = gtk_widget_observe_controllers(titlebar);
+  GtkGesture *right = NULL;
+  for (guint i = 0; i < g_list_model_get_n_items(controllers) && !right; i++) {
+    GObject *controller = g_list_model_get_item(controllers, i);
+    if (GTK_IS_GESTURE_CLICK(controller) &&
+        gtk_gesture_single_get_button(GTK_GESTURE_SINGLE(controller)) == GDK_BUTTON_SECONDARY &&
+        gtk_event_controller_get_propagation_phase(GTK_EVENT_CONTROLLER(controller)) == GTK_PHASE_CAPTURE)
+      right = GTK_GESTURE(controller);
+    g_object_unref(controller);
+  }
+  g_object_unref(controllers);
+  g_assert_nonnull(right);
+  g_signal_emit_by_name(right, "pressed", 1, gtk_widget_get_width(titlebar) / 2.0,
+                        gtk_widget_get_height(titlebar) / 2.0);
+  run_for(50);
+  GtkWidget *title_pop = g_object_get_data(G_OBJECT(titlebar), "t-code-panels-pop");
+  g_assert_true(GTK_IS_POPOVER_MENU(title_pop));
+  g_assert_true(gtk_widget_get_visible(title_pop));
+  gtk_popover_popdown(GTK_POPOVER(title_pop));
+
+  /* the status bar's items one by one (its right-click menu): their slots hide, a plugin's item too,
+   * also one that comes after the setting */
+  GtkWidget *position = gtk_widget_get_parent(GTK_WIDGET(app.status.position));
+  status_plugin_set(&app, "demo/one", "One");
+  GtkWidget *one = find_widget(app.status.bar, GTK_TYPE_LABEL, "One", NULL);
+  g_assert_nonnull(one);
+  g_assert_true(gtk_widget_get_visible(position));
+  g_strfreev(app.settings.status_off);
+  app.settings.status_off = g_strdupv((char *[]){ "position", "plugin:demo/one", "plugin:demo/two", NULL });
+  status_bar_apply(&app);
+  g_assert_false(gtk_widget_get_visible(position));
+  g_assert_false(gtk_widget_get_visible(one));
+  g_assert_true(gtk_widget_get_visible(gtk_widget_get_parent(GTK_WIDGET(app.status.build))));
+  status_plugin_set(&app, "demo/two", "Two");
+  g_assert_false(gtk_widget_get_visible(find_widget(app.status.bar, GTK_TYPE_LABEL, "Two", NULL)));
+  g_clear_pointer(&app.settings.status_off, g_strfreev);
+  status_bar_apply(&app);
+  g_assert_true(gtk_widget_get_visible(position));
+  g_assert_true(gtk_widget_get_visible(one));
+  status_plugin_clear(&app, "demo/one");
+  status_plugin_clear(&app, "demo/two");
+  session_save_settings(&app);
+  reset_panel_layout(&app);
+  run_for(50);
 }
 
 /* The label under widget that shows text, or NULL. */
@@ -5706,6 +5849,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/plugins-browse", test_plugins_browse);
   g_test_add_func("/window/example-plugins", test_example_plugins);
   g_test_add_func("/window/panel-menu", test_panel_buttons);
+  g_test_add_func("/window/interface-off", test_interface_off);
   g_test_add_func("/window/panel-resize", test_panel_resize);
   g_test_add_func("/window/own-icons", test_own_icons);
   g_test_add_func("/window/dock-tree", test_dock_tree);

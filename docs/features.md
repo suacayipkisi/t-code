@@ -30,7 +30,7 @@ the mouse. On top of that:
   From clangd, rust-analyzer, gopls and the TypeScript server, for the shown lines; the "Inlay hints"
   setting turns them off. Holding `Ctrl+Alt` (alone) turns them the other way while held: shows them
   when they are off, hides them when they are on.
-- **Outline and breadcrumbs:** the **Outline** panel (Panels menu, or "View: Toggle Outline") lists
+- **Outline and breadcrumbs:** the **Outline** panel ("View: Toggle Outline") lists
   the current file's classes, functions and fields as the language server sees them, the one around
   the cursor selected; a click goes there. Over each editor, the breadcrumbs show the file's folders
   and the symbols around the cursor (`src › shape.cpp › Shape › draw`); a symbol's crumb goes to it.
@@ -173,7 +173,7 @@ picked interpreter or its venv.
 Gradle or `pytest` in a Python project. Output stays in the integrated shell; Ctrl-click a
 `file:line:column` location to open the failing source.
 
-**Testing panel.** The **Testing** panel (Panels menu, or "View: Toggle Testing") lists the
+**Testing panel.** The **Testing** panel ("View: Toggle Testing") lists the
 project's tests as a tree: CTest's (a CMake build folder: `build/` or another one in the project
 folder; GoogleTest cases come under their suite, whether through `gtest_discover_tests` or from a
 GoogleTest program that CTest runs as one test: its cases are listed with `--gtest_list_tests` and
@@ -324,6 +324,15 @@ goes with its last panel, and the layout comes back next time. Plugins can add p
 dock's `⋯` menu). A side dragged smaller than it can show closes when you let go. Drag it back out
 before letting go and it stays. To open a hidden side, drag from that edge of the window, the way you
 would resize it.
+
+**A cleaner window.** The **Panels** menu (also Settings → Interface) turns off what you do not use.
+A panel turned off opens nowhere: its icon goes, its shortcut does nothing, and it comes back where it
+was when you turn it on again. Source Control turned off also stops git in the background (no branch,
+file colors, diff marks or line blame). Under **Window** the same menu hides the menu bar (t-code's icon
+then opens the menus), the status bar, its Build and Run buttons and the title bar's sidebar buttons.
+Right-click the title bar's empty part for the same choices (instead of the window manager's menu),
+or a dock's tab bar beside its icons for them plus collapsing or hiding that dock. Right-click the status bar to choose each of its items: the branch, errors and warnings, Build
+and Run, the line and column, every plugin's item one by one, and the rest.
 
 **Projects.** For a second project next to the first, middle-click the dock icon (or pick "New Window" from
 its menu, or run `t-code --new-window`): a new window opens and asks for a folder.

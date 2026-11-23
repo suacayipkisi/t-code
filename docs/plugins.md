@@ -662,7 +662,7 @@ A plugin declares what it does:
 plugin in the Plugins panel) opens a window: every plugin found on the left, with a dot in its
 state's color (green running, red failed, hollow off), the one picked on the right.
 
-The **Plugins panel** (its icon in the left dock by default; Panels menu, or "View: Toggle Plugins")
+The **Plugins panel** (its icon in the left dock by default; "View: Toggle Plugins")
 is the short version: each plugin with its dot and its on / off switch, the count at the top with
 Reload and a ⋯ menu (Manage Plugins…, Open Plugins Folder, Process Monitor), and **Browse the
 Registry…** at the bottom. A click on a plugin opens it in the window.

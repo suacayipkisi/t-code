@@ -18,6 +18,7 @@
 
 static GPtrArray *repos;                        /* GitRepo */
 static gboolean resolving;                      /* git rev-parse (or the look for repositories) has not answered yet */
+static gboolean started;                        /* git_status_start() ran */
 static int branch_busy;                         /* status commands running */
 static guint branch_soon_id;                    /* refresh_branch()'s timeout */
 static GFileMonitor *git_monitor, *scm_monitor; /* the project's repository folder; the shown one's */
@@ -598,8 +599,8 @@ static gboolean poll_branch(gpointer data)
 
   if (t->closing)
     return G_SOURCE_REMOVE;
-  if (resolving)
-    return G_SOURCE_CONTINUE; /* watch_git() asks once it knows the repositories */
+  if (resolving || (t->settings.panels_off & PANEL_SCM_OFF))
+    return G_SOURCE_CONTINUE; /* watch_git() asks once it knows the repositories; none while Source Control is off */
   git_repos();
   if (repos->len == 0)
     show_no_git(t);
@@ -741,6 +742,12 @@ void watch_git(App *t)
   g_clear_pointer(&t->project.scm_top, g_free);
   t->project.repo_kind = t->project.scm_kind = VCS_NONE;
   scm_repos_changed(t);
+  if (t->settings.panels_off & PANEL_SCM_OFF) { /* Source Control off: no repositories, no git at all */
+    resolving = FALSE;
+    show_no_git(t);
+    files_git_changed(t);
+    return;
+  }
   resolving = TRUE;
 
   /* hg and svn are found by their folders; git's top comes from git (worktrees, GIT_DIR). */
@@ -769,6 +776,15 @@ void watch_git(App *t)
 
 void git_status_start(App *t)
 {
+  started = TRUE;
   watch_git(t);
   g_timeout_add_seconds(10, poll_branch, t);
+}
+
+void git_status_enabled_changed(App *t)
+{
+  if (started && !t->closing) {
+    watch_git(t);
+    diff_gutter_head_moved(t); /* their marks go, or come back */
+  }
 }

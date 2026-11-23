@@ -77,3 +77,14 @@ void toggle_panel(App *t, const char *page);
 /* Puts every panel back in its first dock, every dock open, the sides at their first sizes
  * ("View: Reset Panel Layout"). */
 void reset_panel_layout(App *t);
+
+/* Whether t-code's own panel page is turned on (settings.panels_off; any other panel is). One turned
+ * off opens nowhere: its icon is gone from its dock, which keeps its place for when it comes back. */
+gboolean panel_enabled(App *t, const char *page);
+
+/* Turns page on (and shows it) or off, saving the setting (the Panels menu, the Settings window). */
+void set_panel_enabled(App *t, const char *page, gboolean on);
+
+/* Puts the interface settings into effect: the panels turned off, the menu bar or t-code's icon as
+ * its button, the status bar, its Build and Run buttons and the title bar's side buttons. */
+void apply_interface(App *t);

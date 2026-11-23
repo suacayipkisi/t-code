@@ -197,7 +197,8 @@ static void load_base(DiffGutter *g)
     g->loading->gutter = NULL;
     g->loading = NULL;
   }
-  if (g->kind == BASE_NONE || !g->tab->path) {
+  if (g->kind == BASE_NONE || !g->tab->path ||
+      (g->kind == BASE_HEAD && (g->tab->app->settings.panels_off & PANEL_SCM_OFF))) { /* Source Control off */
     set_base(g, NULL);
     return;
   }

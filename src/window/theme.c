@@ -89,7 +89,21 @@ static const char *const css =
     "tooltip, tooltip.background { border-radius: 8px; background: var(--tc-raised); border: 1px solid var(--tc-border-strong); color: var(--tc-fg); }"
     "popover > contents, popover > arrow { background: var(--tc-raised); border-color: var(--tc-border-strong); }"
     "popover > contents { border-radius: 10px; }"
-    "popover modelbutton { border-radius: 6px; }";
+    "popover modelbutton { border-radius: 6px; }"
+    /* Menus (the menu bar's, t-code's icon's, the right-click ones): roomy rows, t-code's hover and
+     * chevrons, dim shortcuts and section titles. */
+    "popover.menu > contents { padding: 5px; }"
+    "popover.menu modelbutton { min-height: 26px; padding: 0 10px; color: var(--tc-fg); }"
+    "popover.menu modelbutton:hover, popover.menu modelbutton:selected {"
+    "  background: color-mix(in srgb, var(--tc-fg) 10%, transparent); color: var(--tc-fg-strong); }"
+    "popover.menu modelbutton:disabled { color: var(--tc-fg-dim); }"
+    "popover.menu modelbutton accelerator { color: var(--tc-fg-dim); margin-left: 28px; }"
+    "popover.menu modelbutton > arrow { -gtk-icon-source: -gtk-icontheme('tcode-chevron-right-symbolic');"
+    "  -gtk-icon-size: 12px; min-width: 12px; min-height: 12px; margin-left: 16px; color: var(--tc-fg-dim); }"
+    "popover.menu modelbutton > check { margin-right: 8px; }"
+    "popover.menu modelbutton > check:checked { color: var(--tc-accent); }"
+    "popover.menu label.title { color: var(--tc-fg-dim); font-size: smaller; font-weight: bold; padding: 6px 10px 2px; }"
+    "popover.menu separator { background: var(--tc-border); margin: 4px 6px; min-height: 1px; }";
 
 /* The square theme: flat panels, side by side with a line between them, square tabs with
  * the accent line on top of the current one, and small corners on the controls. Over the panels'

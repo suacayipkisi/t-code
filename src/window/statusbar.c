@@ -5,6 +5,8 @@
  *   right  what a language server is busy with ("rust-analyzer: Indexing 45%"), "No LSP" when the current file's language server is not installed (a click shows how to
  *          install it), the current editor's indentation ("Spaces: 4", a click chooses the
  *          project's), cursor line and column, and the Keybinds button
+ * Each item sits in its own slot, which right-clicking the bar turns off and on (settings.status_off; the
+ * Build and Run buttons follow settings.build_buttons); a plugin's items one by one.
  */
 #include "window/statusbar.h"
 
@@ -399,6 +401,9 @@ void status_plugin_set(App *t, const char *key, const char *text)
     gtk_widget_set_name(GTK_WIDGET(label), key);
     gtk_label_set_ellipsize(label, PANGO_ELLIPSIZE_END);
     gtk_label_set_max_width_chars(label, 40);
+    char *id = g_strconcat("plugin:", key, NULL);
+    gtk_widget_set_visible(GTK_WIDGET(label), !status_item_off(t, id));
+    g_free(id);
   }
   gtk_label_set_text(label, text);
   gtk_widget_set_tooltip_text(GTK_WIDGET(label), text);
@@ -424,15 +429,156 @@ static void on_font_scale_reset(App *t)
   set_font_scale(t, 1.0);
 }
 
+/* The bar's items, in its order: each one's id (settings.status_off) and its name in the right-click
+ * menu. */
+static const struct {
+  const char *id, *label;
+} items[] = {
+  { "branch", "Git Branch" },
+  { "problems", "Errors and Warnings" },
+  { "flags", "No Compile Flags Warning" },
+  { "build", "Build and Run Buttons" },
+  { "build-status", "Build Target and Messages" },
+  { "plugins", NULL }, /* each plugin item on its own */
+  { "progress", "Language Server Progress" },
+  { "no-lsp", "No LSP Warning" },
+  { "font-scale", "Text Size" },
+  { "indent", "Indentation" },
+  { "position", "Line and Column" },
+  { "keybinds", "Keybinds Button" },
+};
+
+gboolean status_item_off(App *t, const char *id)
+{
+  return t->settings.status_off && g_strv_contains((const char *const *)t->settings.status_off, id);
+}
+
+/* A box on the bar holding item id's widgets: they show or hide themselves, the slot follows the
+ * setting. */
+static GtkWidget *status_slot(GtkWidget *bar, const char *id)
+{
+  GtkWidget *slot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+
+  g_object_set_data(G_OBJECT(slot), "t-code-status-item", (gpointer)id);
+  gtk_box_append(GTK_BOX(bar), slot);
+  return slot;
+}
+
+void status_bar_apply(App *t)
+{
+  if (!t->status.bar)
+    return;
+  gtk_widget_set_visible(t->status.bar, t->settings.status_bar);
+  for (GtkWidget *child = gtk_widget_get_first_child(t->status.bar); child;
+       child = gtk_widget_get_next_sibling(child)) {
+    const char *id = g_object_get_data(G_OBJECT(child), "t-code-status-item");
+    if (id)
+      gtk_widget_set_visible(child, strcmp(id, "build") == 0 ? t->settings.build_buttons : !status_item_off(t, id));
+  }
+  for (GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(t->status.plugins)); child;
+       child = gtk_widget_get_next_sibling(child)) {
+    char *id = g_strconcat("plugin:", gtk_widget_get_name(child), NULL);
+    gtk_widget_set_visible(child, !status_item_off(t, id));
+    g_free(id);
+  }
+}
+
+/* status.item: turns the item of that id off or on. */
+static void on_item_action(GSimpleAction *action, GVariant *param G_GNUC_UNUSED, gpointer data)
+{
+  App *t = data;
+  const char *id = g_object_get_data(G_OBJECT(action), "t-code-id");
+  GStrvBuilder *builder = g_strv_builder_new();
+  gboolean was_off = status_item_off(t, id);
+
+  for (int i = 0; t->settings.status_off && t->settings.status_off[i]; i++)
+    if (strcmp(t->settings.status_off[i], id) != 0)
+      g_strv_builder_add(builder, t->settings.status_off[i]);
+  if (!was_off)
+    g_strv_builder_add(builder, id);
+  g_strfreev(t->settings.status_off);
+  t->settings.status_off = g_strv_builder_end(builder);
+  g_strv_builder_unref(builder);
+  status_bar_apply(t);
+  session_save_settings(t);
+}
+
+/* One check item of the menu for id (its action in group). */
+static void add_item_check(App *t, GMenu *menu, GSimpleActionGroup *group, int n, const char *id, const char *label)
+{
+  char name[32], detailed[48];
+  GSimpleAction *action;
+
+  g_snprintf(name, sizeof(name), "item-%d", n);
+  action = g_simple_action_new_stateful(name, NULL, g_variant_new_boolean(!status_item_off(t, id)));
+  g_object_set_data_full(G_OBJECT(action), "t-code-id", g_strdup(id), g_free);
+  g_signal_connect(action, "activate", G_CALLBACK(on_item_action), t);
+  g_action_map_add_action(G_ACTION_MAP(group), G_ACTION(action));
+  g_object_unref(action);
+  g_snprintf(detailed, sizeof(detailed), "status.%s", name);
+  g_menu_append(menu, label, detailed);
+}
+
+/* Right-click on the bar: a check per item (each plugin item too, as it is now), and the bar itself. */
+static void on_bar_right_click(GtkGestureClick *gesture, int n_press G_GNUC_UNUSED, double x, double y, App *t)
+{
+  GtkWidget *bar = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  GtkPopover *pop = g_object_get_data(G_OBJECT(bar), "t-code-items-pop");
+  GSimpleActionGroup *group = g_simple_action_group_new();
+  GMenu *menu = g_menu_new(), *section = g_menu_new(), *rest = g_menu_new();
+  int n = 0;
+
+  for (size_t i = 0; i < G_N_ELEMENTS(items); i++) {
+    if (strcmp(items[i].id, "build") == 0) {
+      g_menu_append(section, items[i].label, "win.ui-build-buttons");
+      continue;
+    }
+    if (strcmp(items[i].id, "plugins") != 0) {
+      add_item_check(t, section, group, n++, items[i].id, items[i].label);
+      continue;
+    }
+    for (GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(t->status.plugins)); child;
+         child = gtk_widget_get_next_sibling(child)) {
+      char *id = g_strconcat("plugin:", gtk_widget_get_name(child), NULL);
+      char *label = g_strdup_printf("Plugin: %s", gtk_widget_get_name(child));
+      add_item_check(t, section, group, n++, id, label);
+      g_free(label);
+      g_free(id);
+    }
+  }
+  g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
+  g_menu_append(rest, "Status Bar", "win.ui-status-bar");
+  g_menu_append_section(menu, NULL, G_MENU_MODEL(rest));
+  gtk_widget_insert_action_group(bar, "status", G_ACTION_GROUP(group));
+  if (!pop) {
+    pop = GTK_POPOVER(gtk_popover_menu_new_from_model(NULL));
+    gtk_popover_set_has_arrow(pop, FALSE);
+    gtk_widget_set_parent(GTK_WIDGET(pop), bar);
+    g_object_set_data(G_OBJECT(bar), "t-code-items-pop", pop);
+  }
+  gtk_popover_menu_set_menu_model(GTK_POPOVER_MENU(pop), G_MENU_MODEL(menu));
+  gtk_popover_set_pointing_to(pop, &(const GdkRectangle){ (int)x, (int)y, 1, 1 });
+  gtk_popover_popup(pop);
+  g_object_unref(rest);
+  g_object_unref(section);
+  g_object_unref(menu);
+  g_object_unref(group);
+}
+
 GtkWidget *status_bar(App *t)
 {
   GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkGesture *right = gtk_gesture_click_new();
 
   palette_add_css(css);
   gtk_widget_add_css_class(bar, "tcode-status");
+  t->status.bar = bar;
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(right), GDK_BUTTON_SECONDARY);
+  g_signal_connect(right, "pressed", G_CALLBACK(on_bar_right_click), t);
+  gtk_widget_add_controller(bar, GTK_EVENT_CONTROLLER(right));
 
-  t->status.branch = status_label(bar, FALSE);
+  t->status.branch = status_label(status_slot(bar, "branch"), FALSE);
   gtk_widget_set_visible(GTK_WIDGET(t->status.branch), FALSE);
   /* A click switches branches (or makes one). */
   GtkGesture *branch_click = gtk_gesture_click_new();
@@ -447,30 +593,37 @@ GtkWidget *status_bar(App *t)
   t->status.errors = status_label(problems, FALSE);
   status_icon(problems, "tcode-warning-symbolic");
   t->status.warnings = status_label(problems, FALSE);
-  gtk_box_append(GTK_BOX(bar), problems);
-  t->status.flags = status_button(bar, "tcode-warning-symbolic", "No compile flags", NULL, G_CALLBACK(on_flags), t);
+  gtk_box_append(GTK_BOX(status_slot(bar, "problems")), problems);
+  t->status.flags = status_button(status_slot(bar, "flags"), "tcode-warning-symbolic", "No compile flags", NULL,
+                                  G_CALLBACK(on_flags), t);
   gtk_widget_add_css_class(t->status.flags, "warning");
   gtk_widget_set_visible(t->status.flags, FALSE);
-  status_button(bar, "tcode-build-symbolic", "Build", "Build (Ctrl+Shift+B)", G_CALLBACK(on_build), t);
-  status_button(bar, "tcode-run-symbolic", "Run", "Build and run, without debugging (Ctrl+F5)", G_CALLBACK(on_run), t);
-  t->status.build = status_label(bar, TRUE);
+  GtkWidget *build = status_slot(bar, "build");
+  t->status.build_buttons[0] =
+      status_button(build, "tcode-build-symbolic", "Build", "Build (Ctrl+Shift+B)", G_CALLBACK(on_build), t);
+  t->status.build_buttons[1] = status_button(build, "tcode-run-symbolic", "Run",
+                                             "Build and run, without debugging (Ctrl+F5)", G_CALLBACK(on_run), t);
+  t->status.build = status_label(status_slot(bar, "build-status"), TRUE);
 
   gtk_widget_set_hexpand(spacer, TRUE);
   gtk_box_append(GTK_BOX(bar), spacer);
   t->status.plugins = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
   gtk_box_append(GTK_BOX(bar), GTK_WIDGET(t->status.plugins));
-  t->status.progress = status_label(bar, TRUE);
+  t->status.progress = status_label(status_slot(bar, "progress"), TRUE);
   gtk_label_set_ellipsize(t->status.progress, PANGO_ELLIPSIZE_END);
   gtk_label_set_max_width_chars(t->status.progress, 48);
   gtk_widget_set_visible(GTK_WIDGET(t->status.progress), FALSE);
-  t->status.no_lsp = status_button(bar, "tcode-warning-symbolic", "No LSP", NULL, G_CALLBACK(on_no_lsp), t);
+  t->status.no_lsp =
+      status_button(status_slot(bar, "no-lsp"), "tcode-warning-symbolic", "No LSP", NULL, G_CALLBACK(on_no_lsp), t);
   gtk_widget_add_css_class(t->status.no_lsp, "warning");
   gtk_widget_set_visible(t->status.no_lsp, FALSE);
-  t->status.font_scale = status_button(bar, NULL, "", "Reset Text Size (Ctrl + 0)", G_CALLBACK(on_font_scale_reset), t);
+  t->status.font_scale = status_button(status_slot(bar, "font-scale"), NULL, "", "Reset Text Size (Ctrl + 0)",
+                                       G_CALLBACK(on_font_scale_reset), t);
   gtk_widget_set_visible(t->status.font_scale, FALSE);
-  t->status.indent = status_button(bar, NULL, "", NULL, G_CALLBACK(status_pick_indent), t);
+  t->status.indent = status_button(status_slot(bar, "indent"), NULL, "", NULL, G_CALLBACK(status_pick_indent), t);
   gtk_widget_set_visible(t->status.indent, FALSE);
-  t->status.position = status_label(bar, FALSE);
-  status_button(bar, "tcode-keyboard-symbolic", "Keybinds", "All keyboard shortcuts", G_CALLBACK(show_keybinds), t);
+  t->status.position = status_label(status_slot(bar, "position"), FALSE);
+  status_button(status_slot(bar, "keybinds"), "tcode-keyboard-symbolic", "Keybinds", "All keyboard shortcuts",
+                G_CALLBACK(show_keybinds), t);
   return bar;
 }

@@ -12,6 +12,13 @@
 /* Creates the bar; its labels go to t->status. */
 GtkWidget *status_bar(App *t);
 
+/* The bar shown or not, and each of its items (settings.status_off, build_buttons; right-clicking the
+ * bar turns them off and on). */
+void status_bar_apply(App *t);
+
+/* Whether the item of id ("branch", "position", "plugin:<key>", ...) is turned off. */
+gboolean status_item_off(App *t, const char *id);
+
 /* Starts git status (git/gitstatus.c), whose answers fill the branch label, and fills the bar. */
 void start_status_updates(App *t);
 

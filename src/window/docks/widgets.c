@@ -221,6 +221,7 @@ static void on_switcher_right_click(GtkGestureClick *gesture, int n_press G_GNUC
 
   if (!page || !header)
     return;
+  gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED); /* not the tab bar's menu too */
   g_set_str(&menu_target_page, page);
   menu_app = t;
   pop = g_object_get_data(G_OBJECT(header), "tcode-pop");
@@ -276,6 +277,43 @@ static void on_close_dock_clicked(GtkButton *btn G_GNUC_UNUSED, Dock *dock)
 static void on_collapse_dock_clicked(GtkButton *btn G_GNUC_UNUSED, Dock *dock)
 {
   set_dock_collapsed(dock, !dock->collapsed);
+}
+
+/* dock.collapse and dock.hide: the tab bar's right-click menu on its own dock. */
+static void on_dock_collapse_action(GSimpleAction *action G_GNUC_UNUSED, GVariant *param G_GNUC_UNUSED, gpointer dock)
+{
+  set_dock_collapsed(dock, !((Dock *)dock)->collapsed);
+}
+
+static void on_dock_hide_action(GSimpleAction *action G_GNUC_UNUSED, GVariant *param G_GNUC_UNUSED, gpointer dock)
+{
+  hide_dock(dock);
+}
+
+/* Right-click on the tab bar beside the icons (or its buttons): the Panels menu (panels and the
+ * window's parts on and off) and this dock's collapse, hide and the layout's reset. */
+static void on_header_right_click(GtkGestureClick *gesture, int n_press G_GNUC_UNUSED, double x, double y,
+                                  gpointer data G_GNUC_UNUSED)
+{
+  GtkWidget *header = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+  GtkPopover *pop = g_object_get_data(G_OBJECT(header), "tcode-panels-pop");
+
+  if (!pop) {
+    GMenu *menu = panels_menu(), *section = g_menu_new();
+    g_menu_append(section, "Collapse / Expand Dock", "dock.collapse");
+    g_menu_append(section, "Hide Dock", "dock.hide");
+    g_menu_append(section, "Reset Panel Layout", "win.reset-panels");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
+    g_object_unref(section);
+    pop = GTK_POPOVER(gtk_popover_menu_new_from_model(G_MENU_MODEL(menu)));
+    g_object_unref(menu);
+    gtk_popover_set_has_arrow(pop, FALSE);
+    gtk_widget_set_halign(GTK_WIDGET(pop), GTK_ALIGN_START);
+    gtk_widget_set_parent(GTK_WIDGET(pop), header);
+    g_object_set_data(G_OBJECT(header), "tcode-panels-pop", pop);
+  }
+  gtk_popover_set_pointing_to(pop, &(const GdkRectangle){ (int)x, (int)y, 1, 1 });
+  gtk_popover_popup(pop);
 }
 
 static void on_stack_switched(GtkStack *stack G_GNUC_UNUSED, GParamSpec *pspec G_GNUC_UNUSED, Dock *dock)
@@ -429,6 +467,18 @@ Dock *dock_new(App *t, int side)
   gtk_widget_add_controller(switcher, GTK_EVENT_CONTROLLER(drag));
 
   gtk_widget_add_css_class(header, "tcode-dock-header");
+  const GActionEntry dock_actions[] = {
+    { .name = "collapse", .activate = on_dock_collapse_action },
+    { .name = "hide", .activate = on_dock_hide_action },
+  };
+  GSimpleActionGroup *group = g_simple_action_group_new();
+  g_action_map_add_action_entries(G_ACTION_MAP(group), dock_actions, G_N_ELEMENTS(dock_actions), dock);
+  gtk_widget_insert_action_group(header, "dock", G_ACTION_GROUP(group));
+  g_object_unref(group);
+  GtkGesture *header_right = gtk_gesture_click_new();
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(header_right), GDK_BUTTON_SECONDARY);
+  g_signal_connect(header_right, "pressed", G_CALLBACK(on_header_right_click), NULL);
+  gtk_widget_add_controller(header, GTK_EVENT_CONTROLLER(header_right));
   gtk_box_append(GTK_BOX(header), collapse_btn);
   GtkWidget *bar = clip_box(switcher, FALSE);
   g_object_set_data(G_OBJECT(bar), "t-code-dock-bar", GINT_TO_POINTER(1));

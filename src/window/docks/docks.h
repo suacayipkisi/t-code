@@ -61,8 +61,8 @@ Dock *panel_dock(App *t, const char *page);
 GPtrArray *side_docks(App *t, int side);
 Dock *side_first_dock(App *t, int side);
 
-/* Whether a side holds any panel; whether one of its shown docks is open (not collapsed); a side's
- * widget. */
+/* Whether a side holds any panel turned on; whether one of its shown docks is open (not collapsed); a
+ * side's widget. */
 gboolean side_has_pages(App *t, int side);
 gboolean side_has_expanded(App *t, int side);
 GtkWidget *side_widget(App *t, int side);
@@ -94,7 +94,16 @@ void update_scm_badge(GtkStackPage *sp, GParamSpec *pspec, App *t);
  * idle). */
 void on_layout_changed(GObject *object, GParamSpec *spec, App *t);
 
+/* The panels turned off hide (their docks too when nothing else is left in them), the others show
+ * (window.h's apply_interface). */
+void apply_panels(App *t);
+
 /* titlebar.c: the menu bar on the left; the sides' toggles on the right. */
 GtkWidget *title_bar(App *t);
+/* The menu bar or t-code's icon as its button, the side buttons, the Panels menu's checks. */
+void title_bar_apply(App *t);
+/* The Panels menu: a section turning t-code's panels on and off, one for the window's parts (win.
+ * actions; also the docks' right-click menu). A new menu. */
+GMenu *panels_menu(void);
 /* A gtk-decoration-layout without "icon" (the title bar shows its own logo); free with g_free. */
 char *title_bar_layout_without_icon(const char *layout);

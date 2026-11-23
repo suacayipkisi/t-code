@@ -39,6 +39,10 @@ void git_status_start(App *t);
  * staying so outside a repository); call again after the root changes. */
 void watch_git(App *t);
 
+/* Source Control was turned on or off (settings.panels_off): off, the repositories are forgotten and
+ * no git runs (no branch, Files colors, diff gutters or line blame); on, they are found again. */
+void git_status_enabled_changed(App *t);
+
 /* Runs the status shortly; changes that come together (a commit touches several files) share one. */
 void refresh_branch(App *t);
 
