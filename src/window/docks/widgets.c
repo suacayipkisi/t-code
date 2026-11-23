@@ -330,13 +330,16 @@ static void fill_more(GtkMenuButton *more, gpointer data G_GNUC_UNUSED)
 static gboolean fit_icons(gpointer data)
 {
   GtkWidget *more = data;
+
+  g_object_set_data(G_OBJECT(more), "tcode-fit", NULL);
+  if (!gtk_widget_get_root(more)) /* its dock went meanwhile, and the stack with it (we hold only more) */
+    return G_SOURCE_REMOVE;
   GtkStack *stack = g_object_get_data(G_OBJECT(more), "tcode-stack");
   GtkWidget *switcher = g_object_get_data(G_OBJECT(stack), "tcode-switcher");
   GtkWidget *bar = gtk_widget_get_ancestor(switcher, GTK_TYPE_SCROLLED_WINDOW);
   int width = gtk_widget_get_width(bar);
   gboolean overflow = FALSE;
 
-  g_object_set_data(G_OBJECT(more), "tcode-fit", NULL);
   if (gtk_widget_get_visible(more)) /* without "more" the bar would be this much wider */
     width += gtk_widget_get_width(more);
   for (int pass = 0; pass < 2; pass++) {
