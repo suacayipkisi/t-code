@@ -20,6 +20,14 @@ void refresh_shortcuts(App *t);
  * The editor's right-click menu uses it. */
 void run_command(App *t, const char *name);
 
+/* The command palette is Go to File's picker (popups/quickopen.c) with this typed: text starting with
+ * '#' finds commands (the table's and the plugins'), anything else files. */
+#define COMMANDS_PREFIX "# "
+
+/* PickerQuery and PickerChoose for the commands: query gets the text after the '#'. */
+void command_palette_query(App *t, const char *text, guint generation);
+void command_palette_choose(App *t, const char *payload);
+
 /* A command and its shortcut, for the Keybinds window. */
 typedef struct {
   const char *name;

@@ -1,5 +1,6 @@
 /*
- * Ctrl+P: open a file by typing part of its name.
+ * Ctrl+P and the title bar's search: open a file by typing part of its name, or with '#' first a
+ * command (window/commands.c's palette).
  * The file list comes from git, hg or svn when the project is a repository (so their ignore rules
  * apply), otherwise from walking the project, skipping hidden folders and build output. It is built
  * on a worker thread; the picker shows the previous list of the same project until then.
@@ -9,15 +10,20 @@
 #include "editor/editor.h"
 #include "git/vcs.h"
 #include "popups/picker.h"
+#include "window/commands.h"
 
 #include <string.h>
 
 #define MAX_WALK 20000
 
-static GPtrArray *files;  /* paths relative to the project root */
-static char *files_root;  /* the root they belong to */
-static gboolean listing;  /* a worker is building the list */
-static guint list_number; /* drops lists of a project that was left meanwhile */
+static GPtrArray *files;     /* paths relative to the project root */
+static char *files_root;     /* the root they belong to */
+static gboolean listing;     /* a worker is building the list */
+static guint list_number;    /* drops lists of a project that was left meanwhile */
+static gboolean list_wanted; /* opened, and the files not listed yet: the first file query lists them */
+static gboolean commands;    /* the rows shown are commands (the text starts with '#') */
+
+static void list_files_start(App *t);
 
 static gboolean from_git(GPtrArray *files, const char *root)
 {
@@ -128,9 +134,18 @@ static int by_score(gconstpointer a, gconstpointer b)
   return x->score != y->score ? y->score - x->score : strcmp(x->path, y->path);
 }
 
-/* PickerQuery: the files that match text, best first (in list order while nothing is typed). */
+/* PickerQuery: the files that match text, best first (in list order while nothing is typed); with
+ * '#' first the commands that match the rest. */
 static void query(App *t, const char *text, guint generation)
 {
+  commands = text[0] == '#';
+  if (commands) {
+    command_palette_query(t, text + 1 + strspn(text + 1, " "), generation);
+    return;
+  }
+  if (list_wanted)
+    list_files_start(t);
+
   GArray *matches = g_array_new(FALSE, FALSE, sizeof(Match));
 
   for (guint i = 0; i < files->len; i++) {
@@ -156,9 +171,13 @@ static void query(App *t, const char *text, guint generation)
   g_array_free(matches, TRUE);
 }
 
-/* PickerChoose: opens the picked file. */
+/* PickerChoose: opens the picked file, or runs the picked command. */
 static void choose(App *t, const char *relative)
 {
+  if (commands) {
+    command_palette_choose(t, relative);
+    return;
+  }
   char *path = g_build_filename(t->project.root, relative, NULL);
 
   open_file(t, path);
@@ -210,8 +229,10 @@ static void on_listed(GObject *source G_GNUC_UNUSED, GAsyncResult *result, gpoin
   picker_requery(t, query);
 }
 
-void quick_open_show(App *t)
+/* Lists the project's files on a worker thread (once per opening), unless one is listing them. */
+static void list_files_start(App *t)
 {
+  list_wanted = FALSE;
   if (!files || g_strcmp0(files_root, t->project.root) != 0) {
     g_clear_pointer(&files, g_ptr_array_unref);
     files = g_ptr_array_new_with_free_func(g_free);
@@ -230,5 +251,15 @@ void quick_open_show(App *t)
     g_task_run_in_thread(task, list_files);
     g_object_unref(task);
   }
-  picker_open(t, "Go to file by name", query, choose);
+}
+
+void quick_open_show(App *t)
+{
+  quick_open_show_text(t, "");
+}
+
+void quick_open_show_text(App *t, const char *text)
+{
+  list_wanted = TRUE;
+  picker_open_text(t, "Go to file by name (# for commands)", text, query, choose);
 }

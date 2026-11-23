@@ -1963,6 +1963,140 @@ static gboolean entry_focused(gconstpointer data G_GNUC_UNUSED)
   return focused_entry() != NULL;
 }
 
+/* The picker's first row's label, NULL when it has none. */
+static const char *first_row_label(GtkListBox *list)
+{
+  GtkListBoxRow *row = gtk_list_box_get_row_at_index(list, 0);
+  GtkWidget *label = row ? find_widget(GTK_WIDGET(row), GTK_TYPE_LABEL, NULL, NULL) : NULL;
+
+  return label ? gtk_label_get_text(GTK_LABEL(label)) : NULL;
+}
+
+/* The title bar's search, a third of the window wide, opens Go to File as its own dropdown; '#' first
+ * finds commands, and Ctrl+Shift+P opens it with "# " typed. Enter on a command runs it. With the bar
+ * off, the same picker opens over the window's content. */
+static void test_search_bar(void)
+{
+  GtkWidget *entry, *bar = app.layout.search_bar, *popover = NULL;
+  GtkListBox *list;
+  GListModel *controllers = gtk_widget_observe_controllers(bar);
+  GtkEventController *click = NULL;
+
+  for (guint i = 0; i < g_list_model_get_n_items(controllers) && !click; i++) {
+    GObject *controller = g_list_model_get_item(controllers, i);
+    if (GTK_IS_GESTURE_CLICK(controller))
+      click = GTK_EVENT_CONTROLLER(controller);
+    g_object_unref(controller);
+  }
+  g_object_unref(controllers);
+  for (GtkWidget *child = gtk_widget_get_first_child(bar); child; child = gtk_widget_get_next_sibling(child))
+    if (GTK_IS_POPOVER(child))
+      popover = child;
+
+  /* the bar is the picker's entry, empty, a third of the window wide */
+  run_for(100); /* its size after the window's */
+  g_assert_true(gtk_widget_get_visible(bar));
+  entry = find_widget(bar, GTK_TYPE_SEARCH_ENTRY, NULL, NULL);
+  g_assert_nonnull(entry);
+  g_assert_nonnull(popover);
+  g_assert_nonnull(click);
+  list = GTK_LIST_BOX(find_widget(popover, GTK_TYPE_LIST_BOX, NULL, NULL));
+  g_assert_nonnull(list);
+  int width = gtk_widget_get_width(GTK_WIDGET(app.window)), bar_width = gtk_widget_get_width(bar);
+  g_assert_cmpint(bar_width, <=, width / 3); /* a third at most, its border included */
+  g_assert_cmpint(bar_width, >=, 160 - 2);   /* (the width here is without it) */
+  graphene_rect_t box, menus;
+  g_assert_true(gtk_widget_compute_bounds(bar, GTK_WIDGET(app.window), &box));
+  g_assert_true(gtk_widget_compute_bounds(app.layout.menu_bar, GTK_WIDGET(app.window), &menus));
+  g_assert_cmpfloat(box.origin.x, >=, menus.origin.x + menus.size.width); /* beside the menus */
+  g_assert_true(gtk_widget_compute_bounds(app.layout.side_buttons[0], GTK_WIDGET(app.window), &menus));
+  g_assert_cmpfloat(box.origin.x + box.size.width, <=, menus.origin.x); /* and the buttons */
+
+  /* a click: Go to File, typed into the bar, the results dropping down from it as wide as it */
+  g_signal_emit_by_name(click, "pressed", 1, 10.0, 10.0);
+  run_for(100);
+  g_assert_true(focused_entry() == entry);
+  g_assert_true(gtk_widget_get_visible(popover));
+  g_assert_true(gtk_widget_has_css_class(bar, "open"));
+  g_assert_cmpint(gtk_widget_get_width(gtk_popover_get_child(GTK_POPOVER(popover))), ==, bar_width - 8);
+  g_signal_emit_by_name(entry, "stop-search");
+  run_for(50);
+  g_assert_false(gtk_widget_get_visible(popover));
+  g_assert_false(gtk_widget_has_css_class(bar, "open"));
+
+  /* a click anywhere else in the window closes it; one on the bar does not */
+  GtkEventController *window_click = NULL;
+  controllers = gtk_widget_observe_controllers(GTK_WIDGET(app.window));
+  for (guint i = 0; i < g_list_model_get_n_items(controllers); i++) {
+    GObject *controller = g_list_model_get_item(controllers, i);
+    if (GTK_IS_GESTURE_CLICK(controller) &&
+        gtk_event_controller_get_propagation_phase(GTK_EVENT_CONTROLLER(controller)) == GTK_PHASE_CAPTURE &&
+        gtk_gesture_single_get_button(GTK_GESTURE_SINGLE(controller)) == 0)
+      window_click = GTK_EVENT_CONTROLLER(controller);
+    g_object_unref(controller);
+  }
+  g_object_unref(controllers);
+  g_assert_nonnull(window_click);
+  graphene_point_t in_bar;
+  g_assert_true(gtk_widget_compute_point(bar, GTK_WIDGET(app.window), &GRAPHENE_POINT_INIT(10, 10), &in_bar));
+  run_command(&app, "Go to File…");
+  run_for(50);
+  g_signal_emit_by_name(window_click, "pressed", 1, (double)in_bar.x, (double)in_bar.y);
+  run_for(50);
+  g_assert_true(gtk_widget_get_visible(popover));
+  g_signal_emit_by_name(window_click, "pressed", 1, (double)width / 2, 400.0); /* the editors */
+  run_for(50);
+  g_assert_false(gtk_widget_get_visible(popover));
+  g_assert_false(gtk_widget_has_css_class(bar, "open"));
+
+  /* the bar off: the picker over the content, with its own entry */
+  app.settings.search_bar = FALSE;
+  apply_interface(&app);
+  run_command(&app, "Go to File…");
+  run_for(50);
+  g_assert_false(gtk_widget_is_ancestor(focused_entry(), bar));
+  g_assert_true(gtk_widget_get_ancestor(GTK_WIDGET(list), GTK_TYPE_POPOVER) == NULL);
+  g_signal_emit_by_name(focused_entry(), "stop-search");
+  run_for(50);
+  app.settings.search_bar = TRUE;
+  apply_interface(&app);
+  run_for(50);
+  g_assert_true(gtk_widget_is_ancestor(entry, bar));
+
+  run_command(&app, "Command Palette…");
+  run_for(50);
+  entry = focused_entry();
+  g_assert_cmpstr(gtk_editable_get_text(GTK_EDITABLE(entry)), ==, "# ");
+  g_assert_cmpint(gtk_editable_get_position(GTK_EDITABLE(entry)), ==, 2); /* typing goes after it */
+  g_assert_cmpstr(first_row_label(list), ==, "Save"); /* the table's order */
+
+  gtk_editable_set_text(GTK_EDITABLE(entry), "#toggle line comment");
+  g_signal_emit_by_name(entry, "search-changed");
+  run_for(50);
+  g_assert_cmpstr(first_row_label(list), ==, "Toggle Line Comment");
+  gtk_editable_set_text(GTK_EDITABLE(entry), "# toggle line comment"); /* spaces after '#' are not searched */
+  g_signal_emit_by_name(entry, "search-changed");
+  run_for(50);
+  g_assert_cmpstr(first_row_label(list), ==, "Toggle Line Comment");
+
+  gtk_editable_set_text(GTK_EDITABLE(entry), "toggle line comment"); /* without '#': files, none of them */
+  g_signal_emit_by_name(entry, "search-changed");
+  run_for(50);
+  g_assert_null(first_row_label(list));
+
+  gtk_editable_set_text(GTK_EDITABLE(entry), "#Command Palette");
+  g_signal_emit_by_name(entry, "search-changed");
+  run_for(50);
+  g_assert_cmpstr(first_row_label(list), ==, "Command Palette…");
+  g_signal_emit_by_name(entry, "activate"); /* runs it: the palette opens again, "# " typed */
+  run_for(50);
+  entry = focused_entry();
+  g_assert_nonnull(entry);
+  g_assert_cmpstr(gtk_editable_get_text(GTK_EDITABLE(entry)), ==, "# ");
+  g_signal_emit_by_name(entry, "stop-search");
+  run_for(50);
+}
+
 /* "Preferences: Color Theme": the arrows show each theme at once, unsaved; Escape goes back to the
  * saved one, Enter keeps the one shown. */
 static void test_theme_preview(void)
@@ -4047,7 +4181,9 @@ static void test_interface_off(void)
   g_action_activate(g_action_map_lookup_action(G_ACTION_MAP(app.window), "ui-status-bar"), NULL);
   g_action_activate(g_action_map_lookup_action(G_ACTION_MAP(app.window), "ui-build-buttons"), NULL);
   g_action_activate(g_action_map_lookup_action(G_ACTION_MAP(app.window), "ui-side-buttons"), NULL);
+  g_action_activate(g_action_map_lookup_action(G_ACTION_MAP(app.window), "ui-search-bar"), NULL);
   run_for(50);
+  g_assert_false(gtk_widget_get_visible(app.layout.search_bar));
   g_assert_false(gtk_widget_get_visible(app.layout.menu_bar));
   g_assert_false(gtk_widget_get_visible(app.layout.logo));
   g_assert_true(gtk_widget_get_visible(app.layout.logo_menu));
@@ -4060,7 +4196,10 @@ static void test_interface_off(void)
   g_assert_false(gtk_widget_get_visible(app.layout.side_buttons[0]));
   g_assert_false(menu_checked("ui-status-bar"));
   app.settings.menu_bar = app.settings.status_bar = app.settings.build_buttons = app.settings.side_buttons = TRUE;
+  app.settings.search_bar = TRUE;
   apply_interface(&app);
+  g_assert_true(gtk_widget_get_visible(app.layout.search_bar));
+  g_assert_true(menu_checked("ui-search-bar"));
   session_save_settings(&app);
   g_assert_true(gtk_widget_get_visible(app.layout.menu_bar));
   g_assert_true(gtk_widget_get_visible(app.status.bar));
@@ -5850,6 +5989,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/example-plugins", test_example_plugins);
   g_test_add_func("/window/panel-menu", test_panel_buttons);
   g_test_add_func("/window/interface-off", test_interface_off);
+  g_test_add_func("/window/search-bar", test_search_bar);
   g_test_add_func("/window/panel-resize", test_panel_resize);
   g_test_add_func("/window/own-icons", test_own_icons);
   g_test_add_func("/window/dock-tree", test_dock_tree);

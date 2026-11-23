@@ -79,6 +79,7 @@ static void reload_settings(App *t)
          old.selection_opacity == t->settings.selection_opacity && old.panels_off == t->settings.panels_off &&
          old.menu_bar == t->settings.menu_bar && old.status_bar == t->settings.status_bar &&
          old.build_buttons == t->settings.build_buttons && old.side_buttons == t->settings.side_buttons &&
+         old.search_bar == t->settings.search_bar &&
          (old.status_off && t->settings.status_off
               ? g_strv_equal((const char *const *)old.status_off, (const char *const *)t->settings.status_off)
               : !old.status_off == !t->settings.status_off) &&

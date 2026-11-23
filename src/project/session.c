@@ -189,6 +189,8 @@ static const Setting settings[] = {
   BOOL_SETTING("build-buttons", build_buttons, TRUE,
                " The status bar's Build and Run buttons (Ctrl+Shift+B and Ctrl+F5 work without them)"),
   BOOL_SETTING("sidebar-buttons", side_buttons, TRUE, " The title bar's buttons that show or hide the sides"),
+  BOOL_SETTING("search-bar", search_bar, TRUE,
+               " The title bar's search: files by name, commands after '#' (Ctrl+P and Ctrl+Shift+P work without it)"),
 };
 /* clang-format on */
 

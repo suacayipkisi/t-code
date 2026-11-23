@@ -557,8 +557,8 @@ static int by_score(gconstpointer a, gconstpointer b)
   return x->score != y->score ? y->score - x->score : x->index - y->index;
 }
 
-/* The table order when nothing is typed, otherwise the best match first. */
-static void query(App *t, const char *text, guint generation)
+/* The table order when nothing is typed, otherwise the best match first; then the plugins' commands. */
+void command_palette_query(App *t, const char *text, guint generation)
 {
   Match matches[G_N_ELEMENTS(commands)];
   int n = 0;
@@ -580,16 +580,16 @@ static void query(App *t, const char *text, guint generation)
     picker_message(t, generation, "No matching commands");
 }
 
-/* PickerChoose: runs the picked command (its index in the table). */
-static void choose(App *t, const char *index)
+/* PickerChoose: runs the picked command (its index in the table, or a plugin's command). */
+void command_palette_choose(App *t, const char *index)
 {
   if (plugins_palette_choose(t, index))
     return;
   commands[atoi(index)].run(t);
 }
 
-/* Opens the command palette. */
+/* Opens the command palette: Go to File's picker with "# " typed, as in the title bar's search. */
 static void command_palette(App *t)
 {
-  picker_open(t, "Type a command", query, choose);
+  quick_open_show_text(t, COMMANDS_PREFIX);
 }

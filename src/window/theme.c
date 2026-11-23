@@ -140,7 +140,10 @@ static const char *const square_css =
     ".tcode-keybinds .keys, .tcode-signature { border-radius: 2px; }"
     ".tcode-find { border-radius: 0; }"
     ".tcode-picker { border-radius: 4px; }"
-    ".tcode-picker row { border-radius: 2px; }"
+    ".tcode-picker-list row { border-radius: 2px; }"
+    ".tcode-search-bar { border-radius: 2px; }"
+    ".tcode-search-bar.open { border-radius: 2px 2px 0 0; }"
+    ".tcode-picker-pop > contents { border-radius: 0 0 2px 2px; }"
     ".tcode-editor scrollbar slider { border-radius: 0; }";
 
 static GtkCssProvider *square;    /* square_css while the square theme is on, else corners_css() */
@@ -195,6 +198,13 @@ static char *corners_css(int radius)
     g_string_append_printf(out, "%s { border-radius: %dpx; }", corners[i].selector,
                            (corners[i].at_ten * radius + 5) / 10);
   g_string_append_printf(out, ".tcode-tab { border-radius: %dpx %dpx 0 0; }", tab, tab);
+  /* the title bar's search and its dropdown: one frame */
+  int bar = (8 * radius + 5) / 10;
+  g_string_append_printf(
+      out,
+      ".tcode-search-bar { border-radius: %dpx; } .tcode-search-bar.open { border-radius: %dpx %dpx 0 0; }"
+      " .tcode-picker-pop > contents { border-radius: 0 0 %dpx %dpx; }",
+      bar, bar, bar, bar, bar);
   return g_string_free(out, FALSE);
 }
 

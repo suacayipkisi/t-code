@@ -329,7 +329,7 @@ would resize it.
 A panel turned off opens nowhere: its icon goes, its shortcut does nothing, and it comes back where it
 was when you turn it on again. Source Control turned off also stops git in the background (no branch,
 file colors, diff marks or line blame). Under **Window** the same menu hides the menu bar (t-code's icon
-then opens the menus), the status bar, its Build and Run buttons and the title bar's sidebar buttons.
+then opens the menus), the status bar, its Build and Run buttons, the title bar's sidebar buttons and its search bar.
 Right-click the title bar's empty part for the same choices (instead of the window manager's menu),
 or a dock's tab bar beside its icons for them plus collapsing or hiding that dock. Right-click the status bar to choose each of its items: the branch, errors and warnings, Build
 and Run, the line and column, every plugin's item one by one, and the rest.
@@ -423,9 +423,15 @@ video and fonts open in the desktop's app for them instead of as text.
 The **Keybinds** button in the status bar shows all of them, and `Ctrl+Shift+P` (command
 palette) finds any command by name.
 
+**The search bar** in the middle of the title bar is where `Ctrl+P` types: click it (or press the
+key) and the results drop down from the bar. Type part of a file's name to open it, or start with `#`
+to find a command instead, t-code's own and every plugin's. `Ctrl+Shift+P` opens it with `# ` already
+typed; delete the `#` and it is back to files. Turn the bar off under **Panels → Window** or Settings →
+Interface: both keys keep working, in a box over the top of the editors.
+
 | Where       | Key                                    | Action                                    |
 |-------------|----------------------------------------|-------------------------------------------|
-| anywhere    | `Ctrl+P`                               | open a file by typing part of its name    |
+| anywhere    | `Ctrl+P`                               | open a file by typing part of its name (`#` first: a command) |
 | anywhere    | `Ctrl+Shift+F`                         | search the text of all files (the Search tab) |
 | anywhere    | `Ctrl+Shift+P`, `F1`                   | command palette                           |
 | anywhere    | `Ctrl+G`                               | go to line                                |

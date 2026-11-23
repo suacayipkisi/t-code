@@ -1,11 +1,13 @@
 /*
  * The window's title bar (see docks/docks.h): the menu bar (Files, T-Code, Settings, Panels, About,
  * Help) and the buttons that show or hide the sides. The Panels menu turns t-code's panels and parts of
- * the window on and off; with the menu bar off, t-code's icon opens the same menus.
+ * the window on and off; with the menu bar off, t-code's icon opens the same menus. In the middle, the
+ * search: Go to File's picker, where '#' first finds commands.
  */
 #include "window/docks/docks.h"
 
 #include "editor/tabs.h"
+#include "popups/picker.h"
 #include "project/session.h"
 #include "window/commands.h"
 #include "window/window.h"
@@ -46,6 +48,7 @@ static const struct {
   { "ui-status-bar", "Status Bar", offsetof(App, settings.status_bar) },
   { "ui-build-buttons", "Build and Run Buttons", offsetof(App, settings.build_buttons) },
   { "ui-side-buttons", "Sidebar Buttons", offsetof(App, settings.side_buttons) },
+  { "ui-search-bar", "Search Bar", offsetof(App, settings.search_bar) },
 };
 
 static gboolean *part_setting(App *t, size_t i)
@@ -293,8 +296,44 @@ static void sync_decoration_layout(GtkSettings *settings, GParamSpec *pspec G_GN
   g_free(layout);
 }
 
+/* How wide a side of the title bar wants to be: the widgets beside the search bar on that side. */
+static int side_width(GtkWidget *side)
+{
+  int natural = 0;
+
+  if (side && gtk_widget_get_visible(side))
+    gtk_widget_measure(side, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &natural, NULL, NULL);
+  return natural;
+}
+
+/* The search bar is a third of the window wide, but no wider than leaves it in the middle beside the
+ * menus and buttons (at least 160 pixels): after the window's allocation, which the surface's size does
+ * not tell (it has the shadow around the window too). */
+static gboolean size_search_bar_idle(gpointer bar)
+{
+  GtkRoot *root = gtk_widget_get_root(bar);
+  int width = root ? gtk_widget_get_width(GTK_WIDGET(root)) : 0, now;
+  int sides = MAX(side_width(gtk_widget_get_prev_sibling(bar)), side_width(gtk_widget_get_next_sibling(bar)));
+  int want = MAX(MIN(width / 3, width - 2 * sides - 24), 160);
+
+  gtk_widget_get_size_request(bar, &now, NULL);
+  if (now != want)
+    gtk_widget_set_size_request(bar, want, -1);
+  return G_SOURCE_REMOVE;
+}
+
+/* Each time the window's size changes. */
+static void size_search_bar(GdkSurface *surface G_GNUC_UNUSED, int width G_GNUC_UNUSED, int height G_GNUC_UNUSED,
+                            GtkWidget *bar)
+{
+  g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, size_search_bar_idle, g_object_ref(bar), g_object_unref);
+}
+
 static void on_header_realize(GtkWidget *header)
 {
+  App *t = g_object_get_data(G_OBJECT(header), "t-code-app");
+  GdkSurface *surface = gtk_native_get_surface(gtk_widget_get_native(header));
+
   GtkSettings *settings = gtk_widget_get_settings(header);
 
   g_signal_connect_object(settings, "notify::gtk-decoration-layout", G_CALLBACK(sync_decoration_layout), header, 0);
@@ -303,6 +342,10 @@ static void on_header_realize(GtkWidget *header)
   g_signal_connect_object(gtk_widget_get_root(header), "notify::maximized", G_CALLBACK(controls_changed), header,
                           G_CONNECT_SWAPPED);
   controls_changed(header);
+  if (t && surface) {
+    g_signal_connect_object(surface, "layout", G_CALLBACK(size_search_bar), t->layout.search_bar, 0);
+    size_search_bar(surface, 0, 0, t->layout.search_bar);
+  }
 }
 
 /* GtkHeaderBar leaves the children it did not add: the right-click menu goes with it. */
@@ -322,8 +365,8 @@ static void on_header_right_click(GtkGestureClick *gesture, int n_press G_GNUC_U
 {
   GtkWidget *header = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
   GtkWidget *picked = gtk_widget_pick(header, x, y, GTK_PICK_DEFAULT);
-  GType types[] = { GTK_TYPE_BUTTON, GTK_TYPE_MENU_BUTTON, GTK_TYPE_POPOVER_MENU_BAR, GTK_TYPE_WINDOW_CONTROLS,
-                    GTK_TYPE_POPOVER };
+  GType types[] = { GTK_TYPE_SEARCH_ENTRY,     GTK_TYPE_BUTTON,          GTK_TYPE_MENU_BUTTON,
+                    GTK_TYPE_POPOVER_MENU_BAR, GTK_TYPE_WINDOW_CONTROLS, GTK_TYPE_POPOVER };
   GtkPopover *pop;
 
   for (size_t i = 0; picked && i < G_N_ELEMENTS(types); i++)
@@ -347,6 +390,20 @@ static void on_header_right_click(GtkGestureClick *gesture, int n_press G_GNUC_U
   gtk_popover_popup(pop);
 }
 
+/* The search in the middle of the title bar: popups/picker.c puts its entry here (picker_place), so
+ * typing goes into the bar and the results drop down from it. A click opens Go to File; '#' first finds
+ * commands, as Ctrl+Shift+P opens it. */
+static GtkWidget *search_bar(void)
+{
+  GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+
+  gtk_widget_add_css_class(bar, "tcode-search-bar");
+  gtk_widget_set_size_request(bar, 160, -1); /* a third of the window once it has a size */
+  gtk_widget_set_hexpand(bar, FALSE);        /* the entry's hexpand would stretch it over the title bar */
+  gtk_widget_set_valign(bar, GTK_ALIGN_CENTER);
+  return bar;
+}
+
 GtkWidget *title_bar(App *t)
 {
   GtkWidget *header = gtk_header_bar_new();
@@ -359,6 +416,7 @@ GtkWidget *title_bar(App *t)
   GtkWidget *logo_menu = gtk_menu_button_new(), *logo_image = gtk_image_new_from_icon_name("tcode-logo");
 
   add_menu_actions(t);
+  g_object_set_data(G_OBJECT(header), "t-code-app", t);
   g_signal_connect(header, "realize", G_CALLBACK(on_header_realize), NULL);
   /* in the capture phase, before the window handle's own right-click (the window manager's menu) */
   GtkGesture *right = gtk_gesture_click_new();
@@ -391,6 +449,8 @@ GtkWidget *title_bar(App *t)
   t->layout.side_buttons[0] = left_btn;
   t->layout.side_buttons[1] = bottom_btn;
   t->layout.side_buttons[2] = right_btn;
+  t->layout.search_bar = search_bar();
+  gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), t->layout.search_bar);
 
   gtk_widget_set_tooltip_text(right_btn, "Toggle Right Sidebar");
   g_signal_connect_swapped(right_btn, "clicked", G_CALLBACK(on_toggle_right), t);
@@ -417,6 +477,8 @@ void title_bar_apply(App *t)
   gtk_widget_set_visible(t->layout.logo_menu, !bar);
   for (int side = 0; side < 3; side++)
     gtk_widget_set_visible(t->layout.side_buttons[side], t->settings.side_buttons);
+  picker_place(t);
+  gtk_widget_set_visible(t->layout.search_bar, t->settings.search_bar);
   for (size_t i = 0; i < G_N_ELEMENTS(parts); i++) {
     GAction *action = g_action_map_lookup_action(G_ACTION_MAP(t->window), parts[i].action);
     if (action)

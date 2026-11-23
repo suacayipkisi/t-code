@@ -88,6 +88,7 @@ struct App {
     GtkWidget *logo;      /* t-code's icon left of them */
     GtkWidget *logo_menu; /* the icon as a button opening the same menus, while the menu bar is off */
     GtkWidget *side_buttons[3]; /* the title bar's buttons showing or hiding the left, bottom and right sides */
+    GtkWidget *search_bar;      /* the title bar's search: opens Go to File, '#' for commands */
   } layout;
 
   /* dock */
@@ -217,5 +218,6 @@ struct App {
     gboolean build_buttons;  /* the status bar's Build and Run buttons */
     char **status_off;       /* status bar items turned off, by id ("branch", "position", "plugin:<key>", ...) */
     gboolean side_buttons;   /* the title bar's buttons showing or hiding the sides */
+    gboolean search_bar;     /* the title bar's search (Ctrl+P and Ctrl+Shift+P work without it) */
   } settings;
 };

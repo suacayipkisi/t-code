@@ -423,6 +423,9 @@ void show_settings(App *t)
           setting_switch(&t->settings.build_buttons, apply_interface));
   add_row(GTK_GRID(grid), &row, "Sidebar buttons", "The title bar's buttons that show or hide the sides",
           setting_switch(&t->settings.side_buttons, apply_interface));
+  add_row(GTK_GRID(grid), &row, "Search bar",
+          "In the title bar: files by name, commands after '#'; Ctrl+P and Ctrl+Shift+P work without it",
+          setting_switch(&t->settings.search_bar, apply_interface));
   add_heading(GTK_GRID(grid), &row, "Panels");
   /* clang-format off */
   static const char *const panel_titles[PANELS][2] = {
