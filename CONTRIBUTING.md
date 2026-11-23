@@ -4,6 +4,8 @@ Thank you for your interest in contributing to **T-Code**!
 
 T-Code is designed to be a lightweight, ultra-fast, and native C/C++ IDE for Linux built with GTK4 and C23. To keep the project clean, fast, and maintainable, please follow these guidelines when contributing.
 
+By participating, you agree to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ---
 
 ## 1. Pull Request Guidelines
