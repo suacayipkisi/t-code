@@ -1901,6 +1901,16 @@ static int list_rows(GtkListBox *list)
   return n;
 }
 
+/* Runs the main loop until the list has n rows (it refills on idle) or 5 seconds pass. */
+static void wait_rows(GtkListBox *list, int n)
+{
+  gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+
+  while (list_rows(list) != n && g_get_monotonic_time() < end)
+    g_main_context_iteration(NULL, FALSE);
+  run_for(20);
+}
+
 /* Open Tabs lists every group's tabs (with group headings once two groups have tabs), the current
  * one selected; a click shows a tab; it folds, and the session keeps that. */
 static void test_open_tabs(void)
@@ -1910,7 +1920,7 @@ static void test_open_tabs(void)
 
   open_kept("o1.txt");
   open_kept("o2.txt");
-  run_for(50);
+  wait_rows(list, 2);
   g_assert_cmpint(list_rows(list), ==, 2);
   g_assert_true(gtk_list_box_get_selected_row(list) == gtk_list_box_get_row_at_index(list, 1)); /* o2 */
 
@@ -1920,7 +1930,7 @@ static void test_open_tabs(void)
   g_assert_true(current_tab(&app) == tab_nth(&app, 0)); /* o1 */
 
   move_tab(tab_nth(&app, 1), split_group(window_first_group(&app, 0), SPLIT_RIGHT));
-  run_for(50);
+  wait_rows(list, 4);
   g_assert_cmpint(list_rows(list), ==, 4); /* GROUP 1, o1, GROUP 2, o2 */
 
   open_tabs_show(FALSE);
@@ -1932,7 +1942,7 @@ static void test_open_tabs(void)
   open_tabs_show(TRUE);
   session_save(&app);
   close_everything();
-  run_for(50);
+  wait_rows(list, 0);
   g_assert_cmpint(list_rows(list), ==, 0);
 }
 
