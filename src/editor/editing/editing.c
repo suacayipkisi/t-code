@@ -378,7 +378,8 @@ static gboolean closer_fits(const GtkTextIter *cursor)
 {
   gunichar next = gtk_text_iter_get_char(cursor);
 
-  return next == 0 || next == '\n' || next == '\r' || next == ' ' || next == '\t' || strchr(")]};,", (int)next);
+  return next == 0 || next == '\n' || next == '\r' || next == ' ' || next == '\t' ||
+         (next < 0x80 && strchr(")]};,", (int)next)); /* strchr finds the NUL of U+0100, U+0200...: ASCII only */
 }
 
 /* Whether the cursor is in a comment; at the end of a "//" line too, which the comment's context

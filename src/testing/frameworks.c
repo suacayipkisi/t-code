@@ -1032,7 +1032,7 @@ static void parse_cargo_results(GHashTable *results, const char *out)
 
   for (int i = 0; lines[i]; i++) {
     char *line = lines[i], *dots;
-    if (g_str_has_prefix(line, "---- ") && g_str_has_suffix(line, " ----")) {
+    if (strlen(line) > 10 && g_str_has_prefix(line, "---- ") && g_str_has_suffix(line, " ----")) {
       char *name = g_strndup(line + 5, strlen(line) - 10), *space = strrchr(name, ' ');
       if (space) /* " stdout" */
         *space = '\0';

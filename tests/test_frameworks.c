@@ -472,6 +472,8 @@ static void test_cargo_recorded(void)
   assert_state(tests, "tests::bad", TEST_FAILED, "panicked at src/lib.rs:5:44");
   g_assert_null(strstr(find(tests, "tests::bad")->output, "failures:"));
   assert_state(tests, "outside", TEST_PASSED, NULL);
+  /* a test's own output with a "---- ----" line (prefix and suffix overlap): not a block header */
+  g_assert_cmpuint(test_apply_results(TEST_CARGO, tests, "test tests::ok ... ok\n---- ----\n", NULL), ==, 1);
   g_ptr_array_unref(tests);
 }
 

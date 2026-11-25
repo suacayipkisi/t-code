@@ -96,7 +96,8 @@ fn string_at(text: &str, at: &mut usize) -> Option<String> {
                         let rest = chars.as_str();
                         if let Some(low) = rest.strip_prefix("\\u").and_then(|r| r.get(..4)) {
                             let low = u32::from_str_radix(low, 16).ok()?;
-                            code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+                            // A bad low surrogate (below 0xDC00) is a bad escape, not an underflow.
+                            code = 0x10000 + ((code - 0xD800) << 10) + low.checked_sub(0xDC00)?;
                             for _ in 0..6 {
                                 chars.next();
                             }
@@ -148,6 +149,8 @@ mod tests {
         assert_eq!(member(event, "none"), "");
         assert_eq!(member(r#"{"path":"x\"event\":\"no","event":"yes"}"#, "event"), "yes");
         assert_eq!(member(r#"{"path": "ç🙂"}"#, "path"), "ç🙂");
+        assert_eq!(member(r#"{"path": "\ud83d\ude42"}"#, "path"), "🙂");
+        assert_eq!(member(r#"{"path": "\ud83d\u0041"}"#, "path"), ""); // a bad low surrogate
     }
 
     #[test]

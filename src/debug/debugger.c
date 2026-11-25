@@ -210,7 +210,7 @@ static void finish(Debugger *s)
   dap_free(s->dap);
   if (s->child) { /* the program the debugger had started, with what it started in turn */
     const char *id = g_subprocess_get_identifier(s->child);
-    if (id)
+    if (id && atoi(id) > 1) /* never 0: that would be t-code's own process group */
       kill(-atoi(id), SIGKILL);
     g_object_unref(s->child);
   }

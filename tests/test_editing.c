@@ -454,6 +454,16 @@ static void test_brackets(void)
   free_tab(tab);
 }
 
+/* Before a letter outside ASCII, "(" is just "(" too (U+0100's low byte is 0, which strchr finds). */
+static void test_no_pair_unicode(void)
+{
+  Tab *tab = new_tab("\xc4\x80x"); /* "Āx" */
+
+  type_text(tab, "(");
+  assert_text(tab, "(\xc4\x80x");
+  free_tab(tab);
+}
+
 /* A ")" that was there already is typed, not stepped over. */
 static void test_closer_not_ours(void)
 {
@@ -1018,6 +1028,32 @@ static void git_in(const char *dir, const char *const *args)
 static gboolean blame_shown(gconstpointer tab)
 {
   return blame_text((Tab *)tab) != NULL;
+}
+
+/* A short subject is shown whole, a long one cut at SUMMARY_MAX - 1 characters with "…". */
+static void test_blame_summary(void)
+{
+  char *porcelain, *text, *long_subject = g_strnfill(70, 'x'), *cut = g_strnfill(SUMMARY_MAX - 1, 'x');
+  char *expected;
+  gint64 now = g_get_real_time() / G_USEC_PER_SEC;
+
+  porcelain = g_strdup_printf("%s 1 1 1\nauthor Ada\nauthor-time %" G_GINT64_FORMAT "\nsummary Short\n\tint a;",
+                              "1111111111111111111111111111111111111111", now);
+  text = blame_line_text(porcelain);
+  g_assert_cmpstr(text, ==, BLAME_GAP "Ada, just now · Short");
+  g_free(text);
+  g_free(porcelain);
+
+  porcelain = g_strdup_printf("%s 1 1 1\nauthor Ada\nauthor-time %" G_GINT64_FORMAT "\nsummary %s\n\tint a;",
+                              "1111111111111111111111111111111111111111", now, long_subject);
+  text = blame_line_text(porcelain);
+  expected = g_strdup_printf(BLAME_GAP "Ada, just now · %s…", cut);
+  g_assert_cmpstr(text, ==, expected);
+  g_free(expected);
+  g_free(text);
+  g_free(porcelain);
+  g_free(cut);
+  g_free(long_subject);
 }
 
 /* The cursor's line says who committed it; once edited, that it is not committed. */
@@ -1849,6 +1885,7 @@ int main(int argc, char **argv)
   g_test_add_func("/editing/undo-redo", test_undo_redo);
   g_test_add_func("/editing/brackets", test_brackets);
   g_test_add_func("/editing/closer-not-ours", test_closer_not_ours);
+  g_test_add_func("/editing/no-pair-unicode", test_no_pair_unicode);
   g_test_add_func("/editing/no-pair", test_no_pair);
   g_test_add_func("/editing/backspace-pair", test_backspace_pair);
   g_test_add_func("/editing/wrap-selection", test_wrap_selection);
@@ -1879,6 +1916,7 @@ int main(int argc, char **argv)
   g_test_add_func("/guides/blank-lines", test_guide_blank_lines);
   g_test_add_func("/signature/outlived", test_signature_outlived);
   g_test_add_func("/editing/line-blame", test_line_blame);
+  g_test_add_func("/editing/blame-summary", test_blame_summary);
   g_test_add_func("/editing/multi-undo-word", test_multi_undo_word);
   g_test_add_func("/editing/conflicts", test_conflicts);
   g_test_add_func("/editing/breadcrumbs-no-width", test_breadcrumbs_no_width);

@@ -9,6 +9,7 @@
 #include "application/identity.h"
 #include "plugins/ed25519.h"
 
+#include <errno.h>
 #include <glib/gstdio.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
@@ -423,7 +424,11 @@ char *registry_tree_hash(const char *dir, GError **error)
     char *path = g_build_filename(dir, inside, NULL), *contents = NULL, *line;
     gsize length = 0;
     GStatBuf info;
-    if ((good = g_file_get_contents(path, &contents, &length, error) && g_stat(path, &info) == 0)) {
+    if ((good = g_file_get_contents(path, &contents, &length, error)) && g_stat(path, &info) != 0) {
+      g_set_error(error, G_IO_ERROR, g_io_error_from_errno(errno), "cannot read %s", inside);
+      good = FALSE;
+    }
+    if (good) {
       char *file_hash = g_compute_checksum_for_data(G_CHECKSUM_SHA256, (const guchar *)contents, length);
       line = g_strdup_printf("%s %c %s\n", file_hash, info.st_mode & 0111 ? 'x' : '-', inside);
       g_checksum_update(tree, (const guchar *)line, -1);

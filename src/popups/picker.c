@@ -85,7 +85,7 @@ int fuzzy_score(const char *query, const char *text)
     prev = at;
     p++;
   }
-  return total * 16 - (int)strlen(text);
+  return MAX(total * 16 - (int)strlen(text), 0); /* a long text that matches still matches */
 }
 
 /* Rows --------------------------------------------------------------------------------------- */

@@ -531,7 +531,8 @@ void lsp_request(Tab *tab, const char *method, const char *params, GCancellable 
   Doc *doc = doc_of(tab);
 
   if (!doc || !doc->opened || !doc->lsp->ready || (cancel && g_cancellable_is_cancelled(cancel))) {
-    reply(NULL, data);
+    if (reply) /* a notification-like request (a code action's command) waits for nothing */
+      reply(NULL, data);
     return;
   }
   doc->use = ++doc->lsp->use;

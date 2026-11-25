@@ -372,11 +372,13 @@ static void display(GtkSourceCompletionProvider *provider G_GNUC_UNUSED, GtkSour
 static char *snippet_text(const char *snippet)
 {
   GString *text = g_string_new(NULL);
+  int open = 0; /* placeholders "${" not closed yet: only their "}" goes */
 
   for (const char *p = snippet; *p; p++) {
     if (*p == '\\' && p[1]) { /* an escaped "$", "}" or "\\" */
       g_string_append_c(text, *++p);
     } else if (*p == '$' && p[1] == '{') { /* ${n:default}: the default */
+      open++;
       p += 2;
       while (g_ascii_isdigit(*p))
         p++;
@@ -385,7 +387,9 @@ static char *snippet_text(const char *snippet)
     } else if (*p == '$' && g_ascii_isdigit(p[1])) { /* $n: nothing */
       while (g_ascii_isdigit(p[1]))
         p++;
-    } else if (*p != '}') {
+    } else if (*p == '}' && open > 0) {
+      open--;
+    } else {
       g_string_append_c(text, *p);
     }
   }

@@ -83,8 +83,8 @@ static char *blame_line_text(const char *porcelain)
   if (lines[0] && strspn(lines[0], "0") == 40) /* git's name for the text that is not committed */
     text = g_strdup(BLAME_GAP "Not committed yet");
   else if (author && when >= 0) {
-    char *ago = time_ago(when), *subject = g_utf8_substring(summary, 0, SUMMARY_MAX - 1);
     gboolean cut = g_utf8_strlen(summary, -1) > SUMMARY_MAX;
+    char *ago = time_ago(when), *subject = cut ? g_utf8_substring(summary, 0, SUMMARY_MAX - 1) : NULL;
     text = g_strdup_printf(BLAME_GAP "%s, %s%s%s%s", author, ago, *summary ? " · " : "", cut ? subject : summary,
                            cut ? "…" : "");
     g_free(subject);

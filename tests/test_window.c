@@ -46,6 +46,7 @@
 #include "window/statusbar.h"
 #include "window/terminal.h"
 #include "window/palette.h"
+#include "popups/picker.h"
 #include "window/docks/docks.h"
 #include "window/theme.h"
 #include "window/window.h"
@@ -1791,6 +1792,30 @@ static void count_free(gpointer data G_GNUC_UNUSED)
   menu_freed++;
 }
 
+static void on_clipboard_text(GObject *clipboard, GAsyncResult *result, gpointer data)
+{
+  char **text = data;
+
+  *text = gdk_clipboard_read_text_finish(GDK_CLIPBOARD(clipboard), result, NULL);
+  if (!*text)
+    *text = g_strdup("");
+}
+
+static gboolean has_text(gconstpointer text)
+{
+  return *(char *const *)text != NULL;
+}
+
+/* The clipboard's text (to free). */
+static char *clipboard_text(void)
+{
+  char *text = NULL;
+
+  gdk_clipboard_read_text_async(gdk_display_get_clipboard(gdk_display_get_default()), NULL, on_clipboard_text, &text);
+  run_until(has_text, &text);
+  return text;
+}
+
 /* A right-click menu runs the chosen item once it closed and frees its data, chosen or not; a
  * tab's menu closes the tabs right of it, moves a tab to the other group, and previews a Markdown
  * file (only a Markdown file). */
@@ -1860,6 +1885,24 @@ static void test_context_menus(void)
   choose_menu_item(widget, "Open Preview");
   g_assert_cmpint(current_tab(&app)->kind, ==, TAB_PREVIEW);
   g_assert_true(g_str_has_suffix(current_tab(&app)->path, "notes.md"));
+  close_everything();
+
+  /* "Copy Relative Path": from the project's folder; the whole path when no project is open */
+  open_kept("m1.txt");
+  run_for(20);
+  widget = tab_nth(&app, 0)->item;
+  tab_menu(tab_nth(&app, 0), widget, 1, 1);
+  choose_menu_item(widget, "Copy Relative Path");
+  char *copied = clipboard_text();
+  g_assert_cmpstr(copied, ==, "m1.txt");
+  g_free(copied);
+  char *root = g_steal_pointer(&app.project.root);
+  tab_menu(tab_nth(&app, 0), widget, 1, 1);
+  choose_menu_item(widget, "Copy Relative Path");
+  copied = clipboard_text();
+  g_assert_cmpstr(copied, ==, tab_nth(&app, 0)->path);
+  g_free(copied);
+  app.project.root = root;
   close_everything();
 }
 
@@ -3516,6 +3559,17 @@ static void test_first_run_layout(void)
   g_assert_true(panel_dock(&app, "hierarchy") == side_first_dock(&app, 2));
   g_assert_true(panel_dock(&app, "testing") == side_first_dock(&app, 2));
   g_assert_true(gtk_widget_get_visible(app.layout.right));
+}
+
+/* A long path or command that holds the query is a match (score 0 or more), whatever its length. */
+static void test_fuzzy_long(void)
+{
+  const char *path = "src/very/long/directory/names/that/go/on/and/on/for/a/while/x.c";
+
+  g_assert_cmpint(fuzzy_score("y", path), >=, 0); /* one letter inside a word: 16 points, 63 characters */
+  g_assert_cmpint(fuzzy_score("snip", "Preferences: Open User Snippets"), >=, 0);
+  g_assert_cmpint(fuzzy_score("zq", path), ==, -1);
+  g_assert_cmpint(fuzzy_score("xc", "x.c"), >, fuzzy_score("xc", path)); /* shorter still ranks first */
 }
 
 /* A font that is not installed falls back to monospace, not to a proportional one. */
@@ -6217,6 +6271,7 @@ int main(int argc, char **argv)
 
   g_test_add_func("/window/first-run-layout", test_first_run_layout);
   g_test_add_func("/window/font-fallback", test_font_fallback);
+  g_test_add_func("/window/fuzzy-long", test_fuzzy_long);
   g_test_add_func("/window/settings-moved", test_settings_moved);
   g_test_add_func("/window/commit-message-kept", test_commit_message_kept);
   g_test_add_func("/window/settings-edited", test_settings_edited);

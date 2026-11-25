@@ -668,6 +668,15 @@ static void test_cancel_shutdown(void)
   free_tab(tab);
 }
 
+/* A request nobody waits for (a code action's command) on a file the server does not have: nothing to call. */
+static void test_request_no_reply(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/no-reply.c", "x\n");
+
+  lsp_request(tab, "workspace/executeCommand", "{\"command\":\"x\",\"arguments\":[]}", NULL, NULL, NULL);
+  free_tab(tab);
+}
+
 /* An editor that goes takes its waiting requests with it: they get NULL at once. */
 static void test_close_waiting(void)
 {
@@ -1793,6 +1802,12 @@ static void test_snippet_text(void)
   text = snippet_text("a\\$b ${10:c}");
   g_assert_cmpstr(text, ==, "a$b c");
   g_free(text);
+  text = snippet_text("foo() {$0}"); /* a "}" of the text stays, a placeholder's goes */
+  g_assert_cmpstr(text, ==, "foo() {}");
+  g_free(text);
+  text = snippet_text("if (${1:x}) {\n\t${2}\n}");
+  g_assert_cmpstr(text, ==, "if (x) {\n\t\n}");
+  g_free(text);
 }
 
 /* Semantic tokens get their colors through the server's legend; a readonly variable is a
@@ -2290,6 +2305,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/sync-utf16", test_sync_utf16);
   g_test_add_func("/lsp/reload", test_reload);
   g_test_add_func("/lsp/hover", test_hover);
+  g_test_add_func("/lsp/request-no-reply", test_request_no_reply);
   g_test_add_func("/lsp/plugin-server", test_plugin_server);
   g_test_add_func("/lsp/uri-contents", test_uri_contents);
   g_test_add_func("/lsp/hover-fixes", test_hover_fixes);

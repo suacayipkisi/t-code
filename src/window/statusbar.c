@@ -136,7 +136,7 @@ void status_show_font_scale(App *t)
   if (fs == 100) {
     gtk_widget_set_visible(GTK_WIDGET(t->status.font_scale), FALSE);
   } else {
-    char *text = g_strdup_printf("%s%d", "Text Scale: %", fs);
+    char *text = g_strdup_printf("Text Scale: %d%%", fs);
     char *tip = g_strdup_printf("CTRL + OR CTRL -");
     gtk_button_set_label(GTK_BUTTON(t->status.font_scale), text);
     gtk_widget_set_tooltip_text(GTK_WIDGET(t->status.font_scale), tip);

@@ -201,7 +201,8 @@ static void on_copy_relative(gpointer data)
   size_t len = root ? strlen(root) : 0;
 
   if (tab)
-    copy_to_clipboard(strncmp(tab->path, root, len) == 0 && tab->path[len] == '/' ? tab->path + len + 1 : tab->path);
+    copy_to_clipboard(root && strncmp(tab->path, root, len) == 0 && tab->path[len] == '/' ? tab->path + len + 1
+                                                                                          : tab->path);
 }
 
 static void on_reveal(gpointer data)

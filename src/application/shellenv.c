@@ -142,7 +142,7 @@ static gboolean on_timeout(gpointer data)
 
   load->timeout_id = 0;
   load->timed_out = TRUE;
-  if (pid)
+  if (pid && atoi(pid) > 1) /* never 0: that would be t-code's own process group */
     kill(-(pid_t)atoi(pid), SIGKILL);
   g_cancellable_cancel(load->cancel);
   return G_SOURCE_REMOVE;

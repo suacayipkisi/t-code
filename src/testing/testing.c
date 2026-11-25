@@ -755,7 +755,7 @@ static gboolean kill_if_running(gpointer data)
 {
   const char *id = g_subprocess_get_identifier(G_SUBPROCESS(data));
 
-  if (id)
+  if (id && atoi(id) > 1) /* never 0: that would be t-code's own process group */
     kill(-(pid_t)atoi(id), SIGKILL);
   return G_SOURCE_REMOVE;
 }
@@ -774,7 +774,7 @@ void testing_stop(void)
   if (testing.job && testing.job->proc) {
     testing.job->stopped = TRUE;
     const char *id = g_subprocess_get_identifier(testing.job->proc);
-    if (id) {
+    if (id && atoi(id) > 1) {
       kill(-(pid_t)atoi(id), SIGTERM);
       g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 2, kill_if_running, g_object_ref(testing.job->proc),
                                  g_object_unref);
