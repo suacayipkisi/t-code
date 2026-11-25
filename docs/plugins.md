@@ -1151,6 +1151,30 @@ Declarations only: `snippets/` and `styles/*.xml` folders, no program (see [Colo
 
 ### Language models
 
+#### Claude Code (`claude-code`, in this repository: `plugins/builtin/claude-code`, in Rust)
+- **Does:**
+  - **Claude Code: Open the Session** (`Ctrl+Alt+K`): the `claude` command in a "Claude" terminal tab of
+    the project, one per project; t-code types `/exit` into it when it closes.
+  - **Send the Selection to the Session** (`Ctrl+Alt+J`): asks for a prompt (`ask`) and types it into
+    the session with the selection as a reference (`@src/main.c#L5-10 why is this slow?`, from
+    `get-selection-range`); starts the session when there is none.
+  - **Ask About This File**: `claude -p` (read-only tools) streams its answer into a "Claude" view on
+    the right, a line at a time (`view-append`); closing the view (`view_closed`) stops it.
+  - **Review This File**: the buffer (`get-text`, unsaved edits too) goes to `claude -p` with a JSON
+    schema; the findings become diagnostics (source `claude`) and lines of a "Claude Review" view at
+    the bottom. **Clear the Review** removes both.
+  - **Rewrite the Selection**: asks how, and replaces the selection with claude's text as one undo
+    step (`edit`), then selects the new text (`set-selection`); nothing changes when the tab or the
+    text changed meanwhile.
+  - With the project (`start`): a double click or Enter on a view's line naming `path:line`
+    (`view_activated`) opens that place.
+- **Permissions:** `terminal`, `edit`, `network` (claude talks to its service), `start`.
+- **Plugin:** Rust, standard library only (a small JSON reader for claude's `stream-json`); `run.sh`
+  builds it with `cargo` into `~/.cache/t-code-claude-code/`. Needs Claude Code's `claude` command,
+  logged in.
+- **Limits:** Claude Code's own editor integration (its diff view, its live selection) is not there:
+  the session gets the selection only when it is sent.
+
 #### Assistant (`llm`, with ollama or a hosted API)
 - **Does:**
   - Explain Selection: the answer opens in a new Markdown tab.

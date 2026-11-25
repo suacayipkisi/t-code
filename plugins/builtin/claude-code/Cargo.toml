@@ -1,0 +1,14 @@
+[package]
+name = "claude-code"
+version = "0.1.0"
+edition = "2021"
+description = "t-code's Claude Code plugin"
+license = "MIT"
+publish = false
+
+# No dependencies: run.sh builds it offline, so installing it needs no network.
+[dependencies]
+
+[profile.release]
+opt-level = "s"
+strip = true
