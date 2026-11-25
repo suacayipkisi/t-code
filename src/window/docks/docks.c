@@ -671,7 +671,7 @@ void move_panel_to_side(App *t, const char *page, int side)
   move_panel_at(t, page, to, G_MAXINT);
 }
 
-void add_panel(App *t, const char *name, const char *title, const char *icon, GtkWidget *child, int side)
+void add_panel(App *t, const char *name, const char *title, const char *icon, GtkWidget *child, int side, gboolean show)
 {
   Dock *dock;
 
@@ -679,11 +679,16 @@ void add_panel(App *t, const char *name, const char *title, const char *icon, Gt
     return;
   side = CLAMP(side, 0, 2);
   dock = side_first_dock(t, side);
-  if (!dock)
+  if (!dock) {
     dock = append_dock(t, side);
+    show = TRUE; /* a dock of its own: nothing else would show there */
+  }
   add_dock_page(dock, child, name, title, icon);
   panel_id(name); /* it can be dragged */
-  panel_moved(t, name, NULL, dock);
+  if (show)
+    panel_moved(t, name, NULL, dock);
+  else
+    queue_panel_checks(t); /* its tab beside the others; the page shown stays */
 }
 
 void remove_panel(App *t, const char *name)

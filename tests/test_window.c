@@ -3816,7 +3816,8 @@ static gboolean press_enter(GtkWidget *text)
 }
 
 /* A chat view: Markdown text that grows as it is streamed (view-extend), an input whose Enter sends
- * view_input with the mode picked, a prompt whose choice sends view_choice, and the busy line's Stop. */
+ * view_input with the mode picked, a prompt whose choice sends view_choice, and the busy line's Stop;
+ * a view opened with "show": false adds its tab without switching to it. */
 static void test_socket_tapi_view_chat(void)
 {
   TapiConn c = tapi_connect("hello tapi_1"), events = tapi_connect("hello tapi_1");
@@ -3884,6 +3885,14 @@ static void test_socket_tapi_view_chat(void)
   g_free(message);
   tapi_expect(&c, "view-busy chat", "ok");
   g_assert_false(gtk_widget_get_visible(gtk_widget_get_parent(button)));
+
+  /* "show": false: its tab only, the chat still the page shown and the input keeping the keyboard */
+  tapi_expect(&c, "view-open {\"id\":\"quiet\",\"title\":\"Quiet\",\"where\":\"right\",\"show\":false}", "ok");
+  run_for(50);
+  g_assert_true(panel_stack(&app, "view:socket/quiet") == panel_stack(&app, name));
+  g_assert_cmpstr(gtk_stack_get_visible_child_name(panel_stack(&app, name)), ==, name);
+  g_assert_true(gtk_widget_has_focus(input));
+  tapi_expect(&c, "view-close quiet", "ok");
 
   /* a view without an input takes none of these */
   tapi_expect(&c, "view-open {\"id\":\"plain\",\"where\":\"right\"}", "ok");

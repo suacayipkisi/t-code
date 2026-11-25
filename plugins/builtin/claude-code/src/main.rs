@@ -1,17 +1,18 @@
 //! Claude Code for t-code, in Rust (the standard library only). It needs the claude command,
 //! installed and signed in: the plugin only puts it into t-code.
 //!
-//! - `chat`: opens the "Claude" panel on the right: a conversation in Markdown, a box to write in and
-//!   the mode beside it (Ask: no tools; Read: reads files; Edit: changes them). What claude wants to
-//!   do that needs permission shows as a question with Allow and Deny.
+//! - `chat`: shows the "Claude" panel on the right (its tab comes with the project): a
+//!   conversation in Markdown, a box to write in and the mode beside it (Ask: no tools; Read: reads
+//!   files; Edit: changes them). What claude wants to do that needs permission shows as a question
+//!   with Allow and Deny.
 //! - `send`: puts a reference to the selection ("@src/main.c#L5-10") into the chat's box.
 //! - `ask`: puts a reference to the active file into the chat's box.
 //! - `review`: has claude review the active buffer: its findings go to Problems (diagnostics) and
 //!   to the "Claude Review" view at the bottom.
 //! - `rewrite`: rewrites the selection as asked, as one undo step (`edit`), and selects the new text.
 //! - `clear`: takes the review's diagnostics and its view away.
-//! - `start` (with the project): runs the chat's conversations with claude, and opens the place
-//!   ("src/main.c:42") a line of the review's view names when the line is activated.
+//! - `start` (with the project): adds the chat's tab, runs its conversations with claude, and
+//!   opens the place ("src/main.c:42") a line of the review's view names when the line is activated.
 
 mod chat;
 mod claude;
@@ -262,20 +263,24 @@ fn clear() -> io::Result<()> {
 
 // The chat -------------------------------------------------------------------------------------
 
-/// Shows the chat's panel, opening it (with the welcome text) when it is not open.
+/// The chat's panel with the welcome text, a new conversation's: its tab added beside the others, or
+/// also switched to (show).
+fn new_chat(p: &mut Plugin, show: bool) -> io::Result<()> {
+    let modes: Vec<String> = chat::MODES.iter().map(|m| quote(m)).collect();
+    let view = format!(
+        r#"{{"id":"{CHAT}","title":"Claude","where":"right","icon":"tcode-chat-symbolic","markdown":true,"input":"Ask Claude…","modes":[{}],"mode":{},"text":{},"show":{show}}}"#,
+        modes.join(","),
+        quote(chat::MODES[0]),
+        quote(chat::WELCOME)
+    );
+    p.request("view-open", &view).map(|_| ())
+}
+
+/// Shows the chat's panel, opening it when it is not open (the start program opens it with the project).
 fn open_chat(p: &mut Plugin) -> io::Result<()> {
     match p.request("view-show", CHAT) {
         Ok(_) => Ok(()),
-        Err(e) if is_code(&e, "no-view") => {
-            let modes: Vec<String> = chat::MODES.iter().map(|m| quote(m)).collect();
-            let view = format!(
-                r#"{{"id":"{CHAT}","title":"Claude","where":"right","icon":"tcode-chat-symbolic","markdown":true,"input":"Ask Claude…","modes":[{}],"mode":{},"text":{}}}"#,
-                modes.join(","),
-                quote(chat::MODES[0]),
-                quote(chat::WELCOME)
-            );
-            p.request("view-open", &view).map(|_| ())
-        }
+        Err(e) if is_code(&e, "no-view") => new_chat(p, true),
         Err(e) => Err(e),
     }
 }
@@ -515,6 +520,7 @@ fn start() -> io::Result<()> {
     events.request("subscribe")?;
     let me = env("TCODE_PLUGIN_ID");
     let shared: Shared = Arc::default();
+    new_chat(&mut p, false)?; // the Claude tab is there with the project, a new conversation
     let exists = |path: &Path| path.is_file();
     while let Some(line) = events.line()? {
         if tcode::member(&line, "plugin") != me {

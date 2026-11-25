@@ -312,6 +312,7 @@ void view_open(App *t, const char *owner, const char *id, const char *title, Vie
                const char *text, const ViewOptions *options)
 {
   View *view = find_view(owner, id);
+  gboolean hidden = options && options->hidden && place <= VIEW_RIGHT;
 
   if (!title || !*title)
     title = id;
@@ -319,7 +320,7 @@ void view_open(App *t, const char *owner, const char *id, const char *title, Vie
     view = new_view(t, owner, id, title, options);
     if (place <= VIEW_RIGHT) {
       view->in_dock = TRUE;
-      add_panel(t, view->name, title, icon && *icon ? icon : "tcode-plugins-symbolic", view->page, (int)place);
+      add_panel(t, view->name, title, icon && *icon ? icon : "tcode-plugins-symbolic", view->page, (int)place, !hidden);
     } else {
       if (place == VIEW_SIDE)
         side_group(t);
@@ -339,7 +340,8 @@ void view_open(App *t, const char *owner, const char *id, const char *title, Vie
   }
   if (text)
     view_set_text(t, owner, id, text, VIEW_TEXT_SET);
-  view_show(t, owner, id);
+  if (!hidden)
+    view_show(t, owner, id);
 }
 
 gboolean view_set_text(App *t G_GNUC_UNUSED, const char *owner, const char *id, const char *text, ViewTextChange change)

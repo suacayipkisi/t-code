@@ -25,10 +25,11 @@ typedef struct {
   const char *input;  /* an input box under it, this its placeholder; NULL: none */
   char *const *modes; /* the modes picked beside the input (NULL or empty: none) ... */
   const char *mode;   /* ... and the one picked first (NULL: the first) */
+  gboolean hidden;    /* a dock's view: only its tab added, nothing switched to (opened with a project) */
 } ViewOptions;
 
 /* Opens owner's view id with title and text (NULL: none), or, when it is open already, gives it the
- * title and text and shows it. icon: an icon name for a dock's tab (NULL: a default one). options:
+ * title and text and shows it (options->hidden: neither shows it). icon: an icon name for a dock's tab (NULL: a default one). options:
  * NULL for a plain view. */
 void view_open(App *t, const char *owner, const char *id, const char *title, ViewPlace place, const char *icon,
                const char *text, const ViewOptions *options);

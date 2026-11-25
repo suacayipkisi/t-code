@@ -437,7 +437,7 @@ static char **member_list(JsonObject *object, const char *name, gboolean *bad)
 }
 
 /* view-open {"id":"…","title":"…","where":"left|bottom|right|editor|side","icon":"…","text":"…",
- * "markdown":true,"input":"placeholder","modes":["…"],"mode":"…"}. */
+ * "markdown":true,"input":"placeholder","modes":["…"],"mode":"…","show":false}. */
 static gboolean do_view_open(Client *c, const char *arg)
 {
   JsonNode *root = parse_json(c, arg);
@@ -456,6 +456,7 @@ static gboolean do_view_open(Client *c, const char *arg)
     options.input = json_object_get_string_member_with_default(object, "input", NULL);
     options.modes = modes;
     options.mode = json_object_get_string_member_with_default(object, "mode", NULL);
+    options.hidden = !json_object_get_boolean_member_with_default(object, "show", TRUE);
   }
   if (!object || !good_view_id(id))
     answer_error(c, "bad-argument", "a view needs an \"id\": one word without slashes");

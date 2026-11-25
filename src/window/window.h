@@ -58,8 +58,11 @@ GtkStack *panel_stack(App *t, const char *page);
 /* Moves a panel into the first dock of a side (a new one when the side has none). */
 void move_panel_to_side(App *t, const char *page, int side);
 
-/* A panel of someone else's (a plugin's view) into the first dock of a side, shown; and taking it away. */
-void add_panel(App *t, const char *name, const char *title, const char *icon, GtkWidget *child, int side);
+/* A panel of someone else's (a plugin's view) into the first dock of a side, shown (show: its side and
+ * dock open and it switched to; else only its tab added, the side and the page shown left as they are,
+ * unless the side has no dock yet); and taking it away. */
+void add_panel(App *t, const char *name, const char *title, const char *icon, GtkWidget *child, int side,
+               gboolean show);
 void remove_panel(App *t, const char *name);
 
 /* The docks in session.ini's [window]: each side's tree and each dock's panels, collapsed or hidden. An

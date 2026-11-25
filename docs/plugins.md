@@ -578,7 +578,7 @@ start (`[line, col]`).
 
 | Command | Argument | Answer | What it does |
 |---|---|---|---|
-| `view-open` | `{"id":"…","title":"…","where":"bottom","icon":"…","text":"…"}` | `ok` | Opens the plugin's view `id` (one word without `/`): a read-only text panel in a dock (`where`: `left`, `bottom` (the default) or `right`) or a tab in an editor group (`editor`: the active one, `side`: the one beside it). `title` names its tab (the id without one), `icon` an icon name for a dock's tab. A view already open gets the title and text and shows. More fields make a chat of it (below): `"markdown":true`, `"input":"placeholder"`, `"modes":["…"]`, `"mode":"…"`. |
+| `view-open` | `{"id":"…","title":"…","where":"bottom","icon":"…","text":"…"}` | `ok` | Opens the plugin's view `id` (one word without `/`): a read-only text panel in a dock (`where`: `left`, `bottom` (the default) or `right`) or a tab in an editor group (`editor`: the active one, `side`: the one beside it). `title` names its tab (the id without one), `icon` an icon name for a dock's tab. A view already open gets the title and text and shows. `"show":false`: a dock's view gets its tab and nothing is switched to (a view a plugin opens with the project). More fields make a chat of it (below): `"markdown":true`, `"input":"placeholder"`, `"modes":["…"]`, `"mode":"…"`. |
 | `view-set` | `<id> <text>` | `ok` | Replaces the view's text. |
 | `view-append` | `<id> <text>` | `ok` | Adds a line to the view's text and scrolls to it. |
 | `view-extend` | `<id> <text>` | `ok` | Adds the text at the end of the view's text, on the same line: streamed text, a piece at a time. |
@@ -1213,9 +1213,9 @@ Declarations only: `snippets/` and `styles/*.xml` folders, no program (see [Colo
 
 #### Claude Code (`claude-code`, in this repository: `plugins/builtin/claude-code`, in Rust)
 - **Does:**
-  - **Claude Code: Open the Chat** (`Ctrl+Alt+K`): a "Claude" panel on the right (a view with
-    `markdown`, `input` and `modes`): the conversation in Markdown, a box to write in and the mode
-    beside it. Each message goes to the same conversation, with the active file and its cursor or
+  - A "Claude" tab on the right, there with the project (a view with `markdown`, `input` and
+    `modes`, opened with `"show":false`): the conversation in Markdown, a box to write in and the mode
+    beside it. **Claude Code: Open the Chat** (`Ctrl+Alt+K`) switches to it. Each message goes to the same conversation, with the active file and its cursor or
     selection named after it (not in Ask).
     - **Ask**: no tools; it answers from the conversation and suggests Read when it needs a file.
     - **Read**: reads, greps and globs: the active file first, other files when the question needs
@@ -1233,8 +1233,8 @@ Declarations only: `snippets/` and `styles/*.xml` folders, no program (see [Colo
   - **Rewrite the Selection**: asks how, and replaces the selection with claude's text as one undo
     step (`edit`), then selects the new text (`set-selection`); nothing changes when the tab or the
     text changed meanwhile.
-  - With the project (`start`): runs the chat's conversations (`view_input`, `view_choice`,
-    `view_stop`), and a double click or Enter on a review line naming `path:line` (`view_activated`)
+  - With the project (`start`): adds the chat's tab (a new conversation for each project), runs its
+    conversations (`view_input`, `view_choice`, `view_stop`), and a double click or Enter on a review line naming `path:line` (`view_activated`)
     opens that place.
 - **How:** one `claude -p --input-format stream-json --output-format stream-json
   --include-partial-messages --permission-prompt-tool stdio` per conversation and mode, in the
