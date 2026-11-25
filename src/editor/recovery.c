@@ -50,6 +50,9 @@ void recovery_save_snapshot(Tab *tab)
     return;
   if (!tab->view || tab->view->readonly || tab->view->loading)
     return;
+  /* The bar still offers the last session's journal: writing this one over it would lose it. */
+  if (tab->view->recovery_bar && gtk_widget_get_visible(tab->view->recovery_bar))
+    return;
 
   char *journal = journal_path_for(tab->path);
   if (!journal)
@@ -65,7 +68,9 @@ void recovery_save_snapshot(Tab *tab)
 
   /* Header: TCODE_RECOVERY_V1 <timestamp> <path>\n */
   gint64 now = g_get_real_time() / G_USEC_PER_SEC;
-  char *content = g_strdup_printf("TCODE_RECOVERY_V1 %" G_GINT64_FORMAT " %s\n%s", now, tab->path, text);
+  char *shown = g_strescape(tab->path, NULL); /* one line, whatever the name holds */
+  char *content = g_strdup_printf("TCODE_RECOVERY_V1 %" G_GINT64_FORMAT " %s\n%s", now, shown, text);
+  g_free(shown);
 
   if (g_file_set_contents(journal, content, -1, NULL))
     tab->view->journaled = TRUE;
@@ -154,6 +159,8 @@ static void on_restore(GtkButton *btn G_GNUC_UNUSED, gpointer data)
   char *body = read_journal_content(journal, &stamp);
   g_free(journal);
 
+  if (body && !g_utf8_validate(body, -1, NULL)) /* damaged: the buffer takes UTF-8 only */
+    g_clear_pointer(&body, g_free);
   if (body) {
     gtk_text_buffer_set_text(GTK_TEXT_BUFFER(tab->buffer), body, -1);
     gtk_text_buffer_set_modified(GTK_TEXT_BUFFER(tab->buffer), TRUE);

@@ -163,14 +163,25 @@ static void on_stashes(gboolean ok, const char *out, const char *err G_GNUC_UNUS
   picker_requery(scm.app, stashes_query);
 }
 
+typedef struct {
+  char *payload; /* see on_saved_for_stash */
+  char *top;     /* the repository asked about: the answer may come after another project opened */
+} DropAsked;
+
 static void on_drop_answer(GObject *source, GAsyncResult *result, gpointer data)
 {
-  char *payload = data;
+  DropAsked *asked = data;
 
-  if (gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), result, NULL) == 1)
-    save_all(scm.app, on_saved_for_stash, payload);
-  else
-    g_free(payload);
+  if (gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), result, NULL) != 1) {
+    g_free(asked->payload);
+  } else if (g_strcmp0(asked->top, scm.app->project.scm_top) != 0) {
+    scm_set_note("Another repository is open now: no stash was dropped", TRUE);
+    g_free(asked->payload);
+  } else {
+    save_all(scm.app, on_saved_for_stash, asked->payload);
+  }
+  g_free(asked->top);
+  g_free(asked);
 }
 
 static void stashes_choose(App *t, const char *ref)
@@ -188,7 +199,10 @@ static void stashes_choose(App *t, const char *ref)
   gtk_alert_dialog_set_buttons(dialog, buttons);
   gtk_alert_dialog_set_cancel_button(dialog, 0);
   gtk_alert_dialog_set_default_button(dialog, 0);
-  gtk_alert_dialog_choose(dialog, t->window, NULL, on_drop_answer, payload);
+  DropAsked *asked = g_new0(DropAsked, 1);
+  asked->payload = payload;
+  asked->top = g_strdup(t->project.scm_top);
+  gtk_alert_dialog_choose(dialog, t->window, NULL, on_drop_answer, asked);
   g_object_unref(dialog);
 }
 

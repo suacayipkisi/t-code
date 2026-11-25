@@ -50,6 +50,8 @@ struct EditorView {
   GFileMonitor *monitor; /* the file changed on disk: reloaded when nothing is unsaved */
   GCancellable *cancel;  /* cancelled when the tab goes, for loads and saves in flight */
   gboolean readonly;
+  gboolean lossy;    /* the buffer cannot become the file's bytes again (not text, compressed): not saved */
+  gboolean utf16_be; /* a UTF-16 file whose byte order mark is big-endian */
   gboolean loading;
   guint changes;               /* counts changes, to know whether a save wrote the latest text */
   char *etag;                  /* the file on disk as last loaded or saved: other changes reload it */

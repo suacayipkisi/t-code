@@ -344,6 +344,38 @@ static void test_replace_all(void)
   g_free(path);
 }
 
+/* A Replace All whose file list comes after the project changed writes nothing: not in the new project's
+ * files of the same name, nor in the old ones. */
+static void test_replace_after_switch(void)
+{
+  char *mine = g_build_filename(tmp, "same.txt", NULL), *theirs = g_build_filename(other, "same.txt", NULL), *text;
+
+  g_assert_true(g_file_set_contents(mine, "omega\n", -1, NULL));
+  g_assert_true(g_file_set_contents(theirs, "omega\n", -1, NULL));
+  reset_options();
+  search_for("omega");
+  gtk_toggle_button_set_active(option("Toggle Replace"), TRUE);
+  gtk_editable_set_text(entry_with(panel, "Replace"), "OMEGA");
+  search_replace_run();
+  app.project.root = other; /* before rg's list comes back */
+  search_reset();
+  run_for(1000);
+  g_assert_true(g_file_get_contents(theirs, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, "omega\n");
+  g_free(text);
+  g_assert_true(g_file_get_contents(mine, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, "omega\n");
+  g_free(text);
+  app.project.root = tmp;
+  search_reset();
+  wait_for_results();
+  gtk_toggle_button_set_active(option("Toggle Replace"), FALSE);
+  g_unlink(mine);
+  g_unlink(theirs);
+  g_free(theirs);
+  g_free(mine);
+}
+
 static void write_file(const char *dir, const char *rel, const char *contents)
 {
   g_free(write_at(dir, rel, contents, -1, 0));
@@ -392,6 +424,7 @@ int main(int argc, char **argv)
   g_test_add_func("/search-panel/project-switch", test_project_switch);
   g_test_add_func("/search-panel/replace-running", test_replace_running);
   g_test_add_func("/search-panel/replace-all", test_replace_all);
+  g_test_add_func("/search-panel/replace-after-switch", test_replace_after_switch);
   status = g_test_run();
 
   gtk_window_destroy(GTK_WINDOW(window));

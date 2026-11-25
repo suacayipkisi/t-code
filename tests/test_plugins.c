@@ -5,6 +5,7 @@
 #include "util.h"
 
 #include <glib/gstdio.h>
+#include <unistd.h>
 
 static char *tmp_dir;
 
@@ -794,6 +795,17 @@ static void test_enabled(void)
   g_clear_error(&error);
   p->source = PLUGIN_FROM_USER;
   char *dir = g_strdup(p->dir);
+  if (geteuid() != 0) { /* root deletes anyway */
+    /* an uninstall that fails leaves the plugin as it was: still off */
+    plugin_set_enabled(&app, p, FALSE);
+    g_assert_cmpint(g_chmod(dir, 0500), ==, 0);
+    g_assert_false(plugin_uninstall(&app, p, &error));
+    g_clear_error(&error);
+    g_assert_cmpint(g_chmod(dir, 0700), ==, 0);
+    p = plugin_find(&app, "switchy");
+    g_assert_nonnull(p);
+    g_assert_false(p->enabled);
+  }
   g_assert_true(plugin_uninstall(&app, p, &error));
   g_assert_no_error(error);
   g_assert_false(g_file_test(dir, G_FILE_TEST_EXISTS));

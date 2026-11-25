@@ -496,6 +496,7 @@ void scm_unstage_all(void)
 
 typedef struct {
   char *path, *old_path;
+  char *top; /* the repository asked about: the answer may come after another project opened */
   gboolean untracked;
 } Discard;
 
@@ -518,7 +519,10 @@ static void on_discard_answer(GObject *dialog, GAsyncResult *result, gpointer da
 {
   Discard *d = data;
 
-  if (gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, NULL) == 1) {
+  if (gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(dialog), result, NULL) != 1) {
+  } else if (g_strcmp0(d->top, scm.app->project.scm_top) != 0) {
+    scm_set_note("Another repository is open now: nothing was discarded", TRUE);
+  } else {
     if (d->untracked) {
       /* Never in git: to the trash, where it can still be found. */
       char *full = g_build_filename(scm.app->project.scm_top, d->path, NULL);
@@ -549,6 +553,7 @@ static void on_discard_answer(GObject *dialog, GAsyncResult *result, gpointer da
   }
   g_free(d->path);
   g_free(d->old_path);
+  g_free(d->top);
   g_free(d);
 }
 
@@ -562,6 +567,7 @@ void scm_discard(const Change *c)
   d->path = g_strdup(c->path);
   d->old_path = g_strdup(c->old_path);
   d->untracked = c->code == 'U';
+  d->top = g_strdup(scm.app->project.scm_top);
   gtk_alert_dialog_set_detail(dialog, d->untracked ? "The file is not in the repository; it goes to the trash."
                                       : scm_kind() != VCS_GIT ? "Its changes are lost."
                                                               : "Its unstaged changes are lost.");

@@ -1657,6 +1657,37 @@ static void test_edits(void)
   json_node_unref(edits);
 }
 
+/* Touching edits in reverse order (as some servers send them) each replace their own text; a position
+ * past a CRLF line's end stays before the "\r"; bytes that are not UTF-8 count one each. */
+static void test_edits_reverse(void)
+{
+  JsonNode *edits =
+      json_of("[{\"range\":{\"start\":{\"line\":0,\"character\":5},\"end\":{\"line\":0,\"character\":10}},"
+              "\"newText\":\"WORLD\"},"
+              "{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":5}},"
+              "\"newText\":\"HELLO\"}]");
+  JsonNode *past_end = json_of("[{\"range\":{\"start\":{\"line\":0,\"character\":99},\"end\":{\"line\":0,"
+                               "\"character\":99}},\"newText\":\";\"}]");
+  Tab *tab = new_tab("/tmp/t-code-test/edits-reverse.c", "helloworld\n");
+  char *text = edits_apply_text("helloworld\n", edits, FALSE);
+
+  g_assert_cmpstr(text, ==, "HELLOWORLD\n");
+  g_free(text);
+  edits_apply(tab, edits, FALSE);
+  text = text_of(tab);
+  g_assert_cmpstr(text, ==, "HELLOWORLD\n");
+  g_free(text);
+  text = edits_apply_text("int a\r\nint b\r\n", past_end, FALSE);
+  g_assert_cmpstr(text, ==, "int a;\r\nint b\r\n");
+  g_free(text);
+  text = edits_apply_text("ab\xe2", past_end, FALSE); /* a cut UTF-8 sequence at the very end */
+  g_assert_cmpstr(text, ==, "ab\xe2;");
+  g_free(text);
+  free_tab(tab);
+  json_node_unref(past_end);
+  json_node_unref(edits);
+}
+
 /* Positions after a non-ASCII character: bytes in UTF-8, units in UTF-16. */
 static void test_edits_encodings(void)
 {
@@ -2306,6 +2337,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/reload", test_reload);
   g_test_add_func("/lsp/hover", test_hover);
   g_test_add_func("/lsp/request-no-reply", test_request_no_reply);
+  g_test_add_func("/lsp/edits-reverse", test_edits_reverse);
   g_test_add_func("/lsp/plugin-server", test_plugin_server);
   g_test_add_func("/lsp/uri-contents", test_uri_contents);
   g_test_add_func("/lsp/hover-fixes", test_hover_fixes);

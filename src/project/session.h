@@ -18,8 +18,12 @@ char *settings_file(void);
  * settings.ini yet, the settings session.ini kept before 0.3 move into one. */
 void session_load_settings(App *t);
 
+/* NULL when settings.ini parses (or is not there), else why not (to free): a typo made by hand. */
+char *session_settings_problem(void);
+
 /* Writes t->settings to settings.ini, each with a comment saying what it does (keeping what was
- * added by hand), and the text size to session.ini. */
+ * added by hand; a settings.ini that does not parse is kept as settings.ini.bad first), and the text size
+ * to session.ini. */
 void session_save_settings(App *t);
 /* The plain settings whose settings.ini key starts with prefix ("clangd-") go back to their defaults
  * (not saved). */

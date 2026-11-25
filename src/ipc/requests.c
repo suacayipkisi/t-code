@@ -33,6 +33,7 @@
 #include "window/terminal.h"
 #include <json-glib/json-glib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifndef TCODE_VERSION /* set by the Makefile */
@@ -282,6 +283,23 @@ static gboolean do_set_selection(Client *c, const char *arg)
   return TRUE;
 }
 
+typedef struct {
+  int start, end; /* character offsets in the text before any edit */
+  const char *text;
+  guint index;
+} EditSpan;
+
+/* Later spans first (of two at one place, the later one in the list): applied from the end, each
+ * leaves the offsets before it as they were. */
+static int later_span_first(const void *a, const void *b)
+{
+  const EditSpan *x = a, *y = b;
+
+  if (x->start != y->start)
+    return x->start < y->start ? 1 : -1;
+  return x->index < y->index ? 1 : -1;
+}
+
 /* edit [{"range":[l1,c1,l2,c2],"text":".."}, ...]: all of them as one undo step. The ranges are the
  * text's before any of them (they must not overlap); the cursor stays where it was. */
 static gboolean do_edit(Client *c, const char *arg)
@@ -290,8 +308,7 @@ static gboolean do_edit(Client *c, const char *arg)
   JsonNode *root = parse_json(c, arg);
   JsonArray *edits = root && JSON_NODE_HOLDS_ARRAY(root) ? json_node_get_array(root) : NULL;
   guint n = edits ? json_array_get_length(edits) : 0;
-  GPtrArray *marks = g_ptr_array_new();
-  GPtrArray *texts = g_ptr_array_new();
+  EditSpan *spans = g_new0(EditSpan, MAX(n, 1));
 
   if (root && !edits)
     answer_error(c, "bad-argument", "needs a list of edits");
@@ -311,28 +328,25 @@ static gboolean do_edit(Client *c, const char *arg)
     }
     iter_at_place(buffer, (int)json_array_get_int_element(range, 0), (int)json_array_get_int_element(range, 1), &start);
     iter_at_place(buffer, (int)json_array_get_int_element(range, 2), (int)json_array_get_int_element(range, 3), &end);
-    if (gtk_text_iter_compare(&end, &start) < 0)
-      end = start;
-    g_ptr_array_add(marks, gtk_text_buffer_create_mark(buffer, NULL, &start, TRUE));
-    g_ptr_array_add(marks, gtk_text_buffer_create_mark(buffer, NULL, &end, FALSE));
-    g_ptr_array_add(texts, (gpointer)json_node_get_string(text));
+    spans[i].start = gtk_text_iter_get_offset(&start);
+    spans[i].end = MAX(gtk_text_iter_get_offset(&end), spans[i].start);
+    spans[i].text = json_node_get_string(text);
+    spans[i].index = i;
   }
   if (edits) {
+    qsort(spans, n, sizeof *spans, later_span_first);
     gtk_text_buffer_begin_user_action(buffer);
-    for (guint i = 0; i < texts->len; i++) {
+    for (guint i = 0; i < n; i++) {
       GtkTextIter start, end;
-      gtk_text_buffer_get_iter_at_mark(buffer, &start, g_ptr_array_index(marks, 2 * i));
-      gtk_text_buffer_get_iter_at_mark(buffer, &end, g_ptr_array_index(marks, 2 * i + 1));
+      gtk_text_buffer_get_iter_at_offset(buffer, &start, spans[i].start);
+      gtk_text_buffer_get_iter_at_offset(buffer, &end, spans[i].end);
       gtk_text_buffer_delete(buffer, &start, &end);
-      gtk_text_buffer_insert(buffer, &start, g_ptr_array_index(texts, i), -1);
+      gtk_text_buffer_insert(buffer, &start, spans[i].text, -1);
     }
     gtk_text_buffer_end_user_action(buffer);
     answer_ok(c, NULL);
   }
-  for (guint i = 0; i < marks->len; i++)
-    gtk_text_buffer_delete_mark(buffer, g_ptr_array_index(marks, i));
-  g_ptr_array_unref(marks);
-  g_ptr_array_unref(texts);
+  g_free(spans);
   if (root)
     json_node_unref(root);
   return TRUE;

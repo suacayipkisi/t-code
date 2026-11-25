@@ -44,13 +44,26 @@ char *settings_file(void)
   return g_build_filename(g_get_user_config_dir(), TCODE_NAME, "settings.ini", NULL);
 }
 
+/* path's key file (empty when it is not there); *problem says why one that is there does not parse. */
+static GKeyFile *load_checked(const char *path, GError **problem)
+{
+  GKeyFile *kf = g_key_file_new();
+  GError *error = NULL;
+
+  if (!g_key_file_load_from_file(kf, path, G_KEY_FILE_KEEP_COMMENTS, &error) &&
+      !g_error_matches(error, G_FILE_ERROR, G_FILE_ERROR_NOENT)) {
+    g_key_file_free(kf); /* what it read before the error is not all there is */
+    kf = g_key_file_new();
+    g_propagate_error(problem, g_steal_pointer(&error));
+  }
+  g_clear_error(&error);
+  return kf;
+}
+
 /* A key file as it is now (empty when there is none yet). */
 static GKeyFile *load_from(const char *path)
 {
-  GKeyFile *kf = g_key_file_new();
-
-  g_key_file_load_from_file(kf, path, G_KEY_FILE_KEEP_COMMENTS, NULL);
-  return kf;
+  return load_checked(path, NULL);
 }
 
 /* The session file as it is now (empty when there is none yet). */
@@ -312,11 +325,36 @@ static void explain(GKeyFile *kf, const char *key, const char *comment)
   g_key_file_set_comment(kf, "settings", key, comment, NULL);
 }
 
+char *session_settings_problem(void)
+{
+  char *path = settings_file(), *why = NULL;
+  GError *error = NULL;
+
+  g_key_file_free(load_checked(path, &error));
+  if (error)
+    why = g_strdup(error->message);
+  g_clear_error(&error);
+  g_free(path);
+  return why;
+}
+
 void session_save_settings(App *t)
 {
   char *path = settings_file();
-  GKeyFile *kf = load_from(path); /* keeps what was added by hand */
+  GError *problem = NULL;
+  GKeyFile *kf = load_checked(path, &problem); /* keeps what was added by hand */
   GKeyFile *session = load();
+
+  if (problem) { /* written over with t-code's settings only: what was typed by hand goes aside, not away */
+    char *bad = g_strconcat(path, ".bad", NULL), *text = NULL;
+    gsize length = 0;
+    if (g_file_get_contents(path, &text, &length, NULL))
+      g_file_set_contents(bad, text, (gssize)length, NULL);
+    g_warning("%s does not parse (%s): kept as %s", path, problem->message, bad);
+    g_free(text);
+    g_free(bad);
+    g_error_free(problem);
+  }
 
   g_key_file_set_comment(kf, NULL, NULL,
                          " t-code's settings, also in the Settings window (Ctrl+,). A change saved here applies at"

@@ -482,6 +482,73 @@ static void test_save_conflict(void)
   g_free(path);
 }
 
+/* Saving writes the file back as it came: its line ends, encoding and byte order mark, the edit
+ * included. */
+static void test_save_keeps_format(void)
+{
+  static const struct {
+    const char *name, *before;
+    gssize before_len;
+    const char *after;
+    gssize after_len;
+  } cases[] = {
+    { "crlf.txt", "one\r\ntwo\r\n", -1, "one\r\ntwo\r\nx", -1 },
+    { "latin1.txt", "caf\xe9\n", -1, "caf\xe9\nx", -1 },
+    { "bom.txt", "\xef\xbb\xbfhi\n", -1, "\xef\xbb\xbfhi\nx", -1 },
+    { "utf16le.txt", "\xff\xfeh\0i\0\n\0", 8, "\xff\xfeh\0i\0\n\0x\0", 10 },
+    { "utf16be.txt", "\xfe\xff\0h\0i\0\n", 8, "\xfe\xff\0h\0i\0\n\0x", 10 },
+  };
+
+  for (size_t i = 0; i < G_N_ELEMENTS(cases); i++) {
+    char *path = g_build_filename(app.project.root, cases[i].name, NULL), *text = NULL;
+    gsize length = 0, want = cases[i].after_len < 0 ? strlen(cases[i].after) : (gsize)cases[i].after_len;
+    GtkTextIter end;
+    Tab *tab;
+
+    g_assert_true(g_file_set_contents(path, cases[i].before, cases[i].before_len, NULL));
+    open_file(&app, path);
+    tab = find_tab(&app, TAB_EDITOR, path);
+    run_until(loaded, tab);
+    g_assert_false(tab->view->lossy);
+    gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(tab->buffer), &end);
+    gtk_text_buffer_insert(GTK_TEXT_BUFFER(tab->buffer), &end, "x", -1);
+    save_editor(tab);
+    run_until(saved, tab);
+    g_assert_true(g_file_get_contents(path, &text, &length, NULL));
+    g_assert_cmpmem(text, length, cases[i].after, want);
+    g_free(text);
+    close_everything();
+    g_free(path);
+  }
+}
+
+/* A file that is not text opens read-only and is never written: its bytes stay. */
+static void test_save_binary_refused(void)
+{
+  static const char bytes[] = "\x7f"
+                              "ELF\x02\0\0\xe9\n";
+  char *path = g_build_filename(app.project.root, "program.bin", NULL), *text = NULL;
+  gsize length = 0;
+  Tab *tab;
+
+  g_assert_true(g_file_set_contents(path, bytes, sizeof bytes - 1, NULL));
+  open_file(&app, path);
+  tab = find_tab(&app, TAB_EDITOR, path);
+  run_until(loaded, tab);
+  g_assert_true(tab->view->lossy);
+  g_assert_false(gtk_text_view_get_editable(GTK_TEXT_VIEW(tab->source)));
+  gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(tab->buffer), "x", -1); /* as a plugin's edit could */
+  save_editor(tab);
+  run_for(100);
+  g_assert_true(g_file_get_contents(path, &text, &length, NULL));
+  g_assert_cmpmem(text, length, bytes, sizeof bytes - 1);
+  g_free(text);
+  tab->view->save_failed = FALSE;
+  gtk_text_buffer_set_modified(GTK_TEXT_BUFFER(tab->buffer), FALSE);
+  close_everything();
+  g_free(path);
+}
+
 /* An edit is journaled for crash recovery; saving it (or undoing it back to the saved text)
  * deletes the journal, so it is not offered again the next time the file opens. */
 static void test_recovery_journal(void)
@@ -509,6 +576,51 @@ static void test_recovery_journal(void)
   g_assert_false(g_file_test(journal, G_FILE_TEST_EXISTS));
   close_everything();
   g_free(journal);
+  g_free(hash);
+  g_free(path);
+}
+
+/* While the bar offers the last session's journal, new edits do not write over it: Restore still
+ * brings back what was there before the crash. */
+static void test_recovery_bar_keeps_journal(void)
+{
+  char *path = g_build_filename(app.project.root, "crashed.txt", NULL);
+  char *hash = g_compute_checksum_for_string(G_CHECKSUM_SHA1, path, -1);
+  char *dir = g_build_filename(g_get_user_cache_dir(), "t-code", "recovery", NULL);
+  char *journal = g_build_filename(dir, hash, NULL), *text = NULL;
+  char *content = g_strdup_printf("TCODE_RECOVERY_V1 %" G_GINT64_FORMAT " %s\nbefore the crash\n",
+                                  g_get_real_time() / G_USEC_PER_SEC + 60, path);
+  Tab *tab;
+
+  g_assert_true(g_file_set_contents(path, "saved\n", -1, NULL));
+  g_mkdir_with_parents(dir, 0700);
+  g_assert_true(g_file_set_contents(journal, content, -1, NULL));
+  open_file(&app, path);
+  tab = find_tab(&app, TAB_EDITOR, path);
+  run_until(loaded, tab);
+  g_assert_nonnull(tab->view->recovery_bar);
+  g_assert_true(gtk_widget_get_visible(tab->view->recovery_bar));
+
+  gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(tab->buffer), "x", -1);
+  recovery_save_snapshot(tab); /* what the timer does a moment after the edit */
+  g_assert_true(g_file_get_contents(journal, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, content);
+  g_free(text);
+
+  GtkWidget *restore = gtk_widget_get_next_sibling(gtk_widget_get_first_child(tab->view->recovery_bar));
+  g_signal_emit_by_name(restore, "clicked");
+  GtkTextIter start, end;
+  gtk_text_buffer_get_bounds(GTK_TEXT_BUFFER(tab->buffer), &start, &end);
+  text = gtk_text_buffer_get_text(GTK_TEXT_BUFFER(tab->buffer), &start, &end, TRUE);
+  g_assert_cmpstr(text, ==, "before the crash\n");
+  g_free(text);
+  g_assert_false(gtk_widget_get_visible(tab->view->recovery_bar));
+  gtk_text_buffer_set_modified(GTK_TEXT_BUFFER(tab->buffer), FALSE); /* not saved: the journal goes */
+  close_everything();
+  g_unlink(journal);
+  g_free(content);
+  g_free(journal);
+  g_free(dir);
   g_free(hash);
   g_free(path);
 }
@@ -872,6 +984,13 @@ static void test_socket_tapi_editing(void)
   text = tapi_text(&c);
   g_assert_cmpstr(text, ==, "alpha\nbeta\ngamma\n");
   g_free(text);
+  /* touching ranges in reverse order: each replaces its own text only */
+  tapi_expect(&c, "edit [{\"range\":[1,4,1,6],\"text\":\"HA\"},{\"range\":[1,1,1,4],\"text\":\"ALP\"}]", "ok");
+  tapi_expect(&c, "get-text", "ok");
+  text = tapi_text(&c);
+  g_assert_cmpstr(text, ==, "ALPHA\nbeta\ngamma\n");
+  g_free(text);
+  gtk_text_buffer_undo(GTK_TEXT_BUFFER(tab->buffer));
   text = tapi(&c, "edit {\"not\":\"a list\"}");
   g_assert_true(g_str_has_prefix(text, "error bad-argument "));
   g_free(text);
@@ -3650,6 +3769,39 @@ static void test_settings_edited(void)
   g_free(path);
 }
 
+/* A typo in settings.ini changes nothing (the settings stay, none goes back to its default); the next save
+ * keeps the typed text as settings.ini.bad before writing a good one. */
+static void test_settings_typo(void)
+{
+  char *path = settings_file(), *bad = g_strconcat(path, ".bad", NULL), *text = NULL, *saved = NULL;
+
+  g_assert_false(app.settings.square);
+  g_assert_true(g_file_get_contents(path, &text, NULL, NULL));
+  char **parts = g_strsplit(text, "theme=rounded", -1);
+  char *square = g_strjoinv("theme=square", parts);
+  char *broken = g_strconcat(square, "\n[unclosed group\nfont=x\n", NULL);
+  g_assert_true(g_file_set_contents(path, broken, -1, NULL));
+  run_for(800); /* the reload after the change */
+  g_assert_false(app.settings.square);
+
+  g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "*settings.ini does not parse*");
+  session_save_settings(&app);
+  g_test_assert_expected_messages();
+  g_assert_true(g_file_get_contents(bad, &saved, NULL, NULL));
+  g_assert_cmpstr(saved, ==, broken);
+  g_free(saved);
+  char *problem = session_settings_problem();
+  g_assert_null(problem);
+  run_for(400);
+  g_unlink(bad);
+  g_free(broken);
+  g_free(square);
+  g_strfreev(parts);
+  g_free(text);
+  g_free(bad);
+  g_free(path);
+}
+
 /* The files to edit by hand open in tabs: theme.css made with its examples, a copy of the colors. */
 static void test_open_user_files(void)
 {
@@ -6272,9 +6424,13 @@ int main(int argc, char **argv)
   g_test_add_func("/window/first-run-layout", test_first_run_layout);
   g_test_add_func("/window/font-fallback", test_font_fallback);
   g_test_add_func("/window/fuzzy-long", test_fuzzy_long);
+  g_test_add_func("/window/save-keeps-format", test_save_keeps_format);
+  g_test_add_func("/window/save-binary-refused", test_save_binary_refused);
+  g_test_add_func("/window/recovery-bar-keeps-journal", test_recovery_bar_keeps_journal);
   g_test_add_func("/window/settings-moved", test_settings_moved);
   g_test_add_func("/window/commit-message-kept", test_commit_message_kept);
   g_test_add_func("/window/settings-edited", test_settings_edited);
+  g_test_add_func("/window/settings-typo", test_settings_typo);
   g_test_add_func("/window/open-user-files", test_open_user_files);
   g_test_add_func("/window/settings-pages", test_settings_pages);
   g_test_add_func("/window/settings-clangd-presets", test_settings_clangd_presets);

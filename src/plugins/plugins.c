@@ -651,7 +651,7 @@ void plugin_set_enabled(App *t, Plugin *p, gboolean enabled)
 
 gboolean plugin_uninstall(App *t, Plugin *p, GError **error)
 {
-  char *dir;
+  char *dir, *id;
   gboolean done;
 
   if (p->source != PLUGIN_FROM_USER) {
@@ -661,10 +661,14 @@ gboolean plugin_uninstall(App *t, Plugin *p, GError **error)
     return FALSE;
   }
   dir = g_strdup(p->dir);
-  plugins_choose_disabled(p->id, FALSE); /* not left in "disabled" */
-  registry_set_record(p->id, NULL);
+  id = g_strdup(p->id);
   plugin_stop(p);
   done = files_delete(dir, error);
+  if (done) { /* only once it is gone: a plugin left behind stays off and keeps its review state */
+    plugins_choose_disabled(id, FALSE); /* not left in "disabled" */
+    registry_set_record(id, NULL);
+  }
+  g_free(id);
   g_free(dir);
   plugins_reload(t);
   return done;

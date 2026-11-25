@@ -10,6 +10,7 @@
 #include "editor/editing/snippets.h"
 #include "editor/tabs.h"
 #include "project/session.h"
+#include "window/statusbar.h"
 #include "window/theme.h"
 
 #include <glib/gstdio.h>
@@ -61,6 +62,15 @@ static void reload_settings(App *t)
 {
   typeof(t->settings) old = t->settings;
   gboolean same, clangd_same;
+  char *problem = session_settings_problem();
+
+  if (problem) { /* a typo while editing it: the settings stay, nothing goes back to its default */
+    char *message = g_strdup_printf("settings.ini not applied: %s", problem);
+    status_say(t, message);
+    g_free(message);
+    g_free(problem);
+    return;
+  }
 
   old.font = g_strdup(t->settings.font);
   old.files_font = g_strdup(t->settings.files_font);

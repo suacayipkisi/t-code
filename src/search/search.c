@@ -514,9 +514,11 @@ static int replace_in_file(const char *path, GRegex *regex, const char *replacem
   return count;
 }
 
-/* The files with a match came: each is replaced in, the results are searched again. */
-static void on_files_listed(GObject *source, GAsyncResult *result, gpointer data G_GNUC_UNUSED)
+/* The files with a match came: each is replaced in, the results are searched again. data: the
+ * project's folder they were listed in (to free). */
+static void on_files_listed(GObject *source, GAsyncResult *result, gpointer data)
 {
+  g_autofree char *root = data;
   GBytes *out = NULL;
   GError *error = NULL;
 
@@ -524,6 +526,11 @@ static void on_files_listed(GObject *source, GAsyncResult *result, gpointer data
     if (!g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
       set_summary(error->message, TRUE);
     g_clear_error(&error);
+    return;
+  }
+  if (g_strcmp0(root, search.app->project.root) != 0) { /* another project now: its files are not these */
+    if (out)
+      g_bytes_unref(out);
     return;
   }
   SearchQuery q = panel_query();
@@ -538,7 +545,7 @@ static void on_files_listed(GObject *source, GAsyncResult *result, gpointer data
     gsize len = nul ? (gsize)(nul - path) : size - at;
     char *relative = g_strndup(path, len), *full;
     g_strstrip(relative);
-    full = g_build_filename(search.app->project.root, g_str_has_prefix(relative, "./") ? relative + 2 : relative, NULL);
+    full = g_build_filename(root, g_str_has_prefix(relative, "./") ? relative + 2 : relative, NULL);
     Tab *tab = *relative ? find_tab(search.app, TAB_EDITOR, full) : NULL;
     int count = !*relative ? 0
                 : tab      ? replace_in_editor(tab, regex, replacement, q.regex)
@@ -589,7 +596,8 @@ void search_replace_run(void)
   g_clear_object(&search.replace_cancel);
   search.replace_cancel = g_cancellable_new();
   set_summary("Replacing…", FALSE);
-  g_subprocess_communicate_async(proc, NULL, search.replace_cancel, on_files_listed, NULL);
+  g_subprocess_communicate_async(proc, NULL, search.replace_cancel, on_files_listed,
+                                 g_strdup(search.app->project.root));
   g_object_unref(proc);
 }
 
@@ -920,6 +928,7 @@ void search_focus(void)
 /* Another project: the same search there. */
 void search_reset(void)
 {
+  g_cancellable_cancel(search.replace_cancel); /* a Replace All listing the old project's files */
   if (search.entry)
     start_search();
 }

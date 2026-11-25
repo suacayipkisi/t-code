@@ -194,6 +194,69 @@ static void open_with_commits(void)
   g_assert_cmpstr(tab_title(), ==, "SOURCE CONTROL  2");
 }
 
+/* The button labelled label in a widget tree, or NULL. */
+static GtkWidget *button_labelled(GtkWidget *root, const char *label)
+{
+  if (GTK_IS_BUTTON(root) && g_strcmp0(gtk_button_get_label(GTK_BUTTON(root)), label) == 0)
+    return root;
+  for (GtkWidget *child = gtk_widget_get_first_child(root); child; child = gtk_widget_get_next_sibling(child)) {
+    GtkWidget *found = button_labelled(child, label);
+    if (found)
+      return found;
+  }
+  return NULL;
+}
+
+/* Presses the button labelled label in an open dialog (a GtkAlertDialog's window). */
+static void press_dialog_button(const char *label)
+{
+  GtkWidget *button = NULL;
+
+  for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC; !button && g_get_monotonic_time() < until;) {
+    GListModel *windows = gtk_window_get_toplevels();
+    for (guint i = 0; !button && i < g_list_model_get_n_items(windows); i++) {
+      GtkWidget *window = g_list_model_get_item(windows, i);
+      button = button_labelled(window, label);
+      g_object_unref(window);
+    }
+    g_main_context_iteration(NULL, FALSE);
+  }
+  g_assert_nonnull(button);
+  g_signal_emit_by_name(button, "clicked");
+}
+
+/* "Discard changes?" answered after another project opened: nothing is discarded, in either repository
+ * (not the new one's file of the same name either). */
+static void test_discard_after_switch(void)
+{
+  char *other = make_dir("discard-other", "a.txt"), *theirs = g_build_filename(other, "a.txt", NULL);
+  char *mine = g_build_filename(with_commits, "a.txt", NULL), *text = NULL;
+  Change change = { "a.txt", NULL, 'M' };
+
+  git(other, (const char *[]){ "init", "-q", NULL });
+  git(other, (const char *[]){ "add", "a.txt", NULL });
+  git(other, (const char *[]){ "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "one", NULL });
+  g_assert_true(g_file_set_contents(theirs, "theirs\n", -1, NULL));
+  open_with_commits();
+  scm_discard(&change);
+  open_project_at(other);
+  for (gint64 until = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+       g_strcmp0(app.project.scm_top, other) != 0 && g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, FALSE);
+  g_assert_cmpstr(app.project.scm_top, ==, other);
+  press_dialog_button("Discard");
+  run_for(500);
+  g_assert_true(g_file_get_contents(theirs, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, "theirs\n");
+  g_free(text);
+  g_assert_true(g_file_get_contents(mine, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, "two\n");
+  g_free(text);
+  g_free(mine);
+  g_free(theirs);
+  g_free(other);
+}
+
 static void test_repository(void)
 {
   open_with_commits();
@@ -1528,6 +1591,7 @@ int main(int argc, char **argv)
   gtk_stack_add_titled(app.dock.scm_stack, app.scm, "scm", "SOURCE CONTROL");
 
   g_test_add_func("/scm/repository", test_repository);
+  g_test_add_func("/scm/discard-after-switch", test_discard_after_switch);
   g_test_add_func("/scm/no-git", test_no_git);
   g_test_add_func("/scm/no-commits", test_no_commits);
   g_test_add_func("/scm/same-status", test_same_status);

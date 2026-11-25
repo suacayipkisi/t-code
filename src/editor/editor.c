@@ -26,6 +26,9 @@
 #include "window/statusbar.h"
 #include "ipc/socket.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #define RELOAD_MS 200     /* a burst of changes on disk is looked at once */
 #define SNIFF_BYTES 65536 /* the start of a file, enough to tell its language and indentation */
 
@@ -220,7 +223,8 @@ typedef struct {
   GCancellable *cancel;
   GArray *waiters; /* SaveWaiter */
   guint changes;   /* the buffer's change count when its text was taken */
-  char *text;
+  char *text;      /* the file's bytes: in its own encoding */
+  gsize length;
 } SaveJob;
 
 static void start_save(Tab *tab, GArray *waiters);
@@ -281,6 +285,36 @@ static void on_saved(GObject *source, GAsyncResult *result, gpointer data)
   g_free(job);
 }
 
+/* text (UTF-8, taken) as the file's bytes: back in the encoding it was loaded from (with a UTF-16 file's
+ * byte order mark), or NULL when that encoding cannot hold a character of it. */
+static char *file_bytes(EditorView *v, char *text, gsize *length)
+{
+  const GtkSourceEncoding *encoding = gtk_source_file_get_encoding(v->file);
+  const char *charset = encoding ? gtk_source_encoding_get_charset(encoding) : "UTF-8";
+  gboolean utf16 = g_ascii_strcasecmp(charset, "UTF-16") == 0;
+  gsize written = 0;
+  char *converted;
+
+  if (g_ascii_strcasecmp(charset, "UTF-8") == 0) {
+    *length = strlen(text);
+    return text;
+  }
+  converted =
+      g_convert(text, -1, utf16 ? (v->utf16_be ? "UTF-16BE" : "UTF-16LE") : charset, "UTF-8", NULL, &written, NULL);
+  g_free(text);
+  if (converted && utf16) { /* the loader took the byte order mark out of the text */
+    char *marked = g_malloc(written + 2);
+    marked[0] = v->utf16_be ? '\xfe' : '\xff';
+    marked[1] = v->utf16_be ? '\xff' : '\xfe';
+    memcpy(marked + 2, converted, written);
+    g_free(converted);
+    converted = marked;
+    written += 2;
+  }
+  *length = written;
+  return converted;
+}
+
 /* Writes the buffer's text to the file (replacing it whole, so a crash never leaves half a file). A
  * save that comes while one is in flight follows it. */
 static void start_save(Tab *tab, GArray *waiters)
@@ -298,19 +332,40 @@ static void start_save(Tab *tab, GArray *waiters)
     return;
   }
   gtk_text_buffer_get_bounds(buffer, &start, &end);
+  char *bytes = NULL;
+  gsize length = 0;
+  if (!v->lossy) /* the file exactly (see editorview.c), in its own encoding */
+    bytes = file_bytes(v, gtk_text_buffer_get_text(buffer, &start, &end, TRUE), &length);
+  if (!bytes) {
+    if (!v->save_failed) { /* autosave would say it every second */
+      char *name = g_path_get_basename(tab->path), *message = g_strdup_printf("Could not save %s", name);
+      const GtkSourceEncoding *encoding = gtk_source_file_get_encoding(v->file);
+      char *detail = v->lossy ? g_strdup("It is not text t-code can write back as it was: it is open read-only.")
+                              : g_strdup_printf("Its encoding, %s, cannot hold every character in it.",
+                                                encoding ? gtk_source_encoding_get_charset(encoding) : "?");
+      v->save_failed = TRUE;
+      show_error(tab, message, detail);
+      g_free(detail);
+      g_free(message);
+      g_free(name);
+    }
+    call_waiters(waiters, FALSE);
+    return;
+  }
   job = g_new0(SaveJob, 1);
   job->tab = tab;
   job->cancel = g_object_ref(v->cancel);
   job->waiters = waiters;
   job->changes = v->changes;
-  job->text = gtk_text_buffer_get_text(buffer, &start, &end, TRUE); /* the file exactly (see editorview.c) */
+  job->text = bytes;
+  job->length = length;
   v->saving = TRUE;
   file = g_file_new_for_path(tab->path);
   /* Only over the file as it was loaded or last saved: one changed on disk since then (git, another
    * program) fails with G_IO_ERROR_WRONG_ETAG, and the user chooses. Not cancelled when the tab
    * goes: a save that started finishes. */
-  g_file_replace_contents_async(file, job->text, strlen(job->text), v->overwrite ? NULL : v->etag, FALSE,
-                                G_FILE_CREATE_NONE, NULL, on_saved, job);
+  g_file_replace_contents_async(file, job->text, job->length, v->overwrite ? NULL : v->etag, FALSE, G_FILE_CREATE_NONE,
+                                NULL, on_saved, job);
   v->overwrite = FALSE;
   g_object_unref(file);
 }
@@ -381,7 +436,22 @@ static void watch_file(Tab *tab);
 typedef struct {
   Tab *tab; /* gone when cancel is cancelled */
   GCancellable *cancel;
+  gboolean legacy; /* the second try, without UTF-8 */
 } LoadJob;
+
+static void load_as(Tab *tab, int line, int column, gboolean legacy);
+
+/* Whether a UTF-16 file starts with a big-endian byte order mark. */
+static gboolean utf16_big_endian(const char *path)
+{
+  FILE *file = fopen(path, "rb");
+  unsigned char mark[2] = { 0 };
+  gboolean big = file && fread(mark, 1, 2, file) == 2 && mark[0] == 0xfe && mark[1] == 0xff;
+
+  if (file)
+    fclose(file);
+  return big;
+}
 
 /* The text from the buffer's start, up to max bytes (about). */
 static char *buffer_start(GtkTextBuffer *buffer, int max)
@@ -399,17 +469,34 @@ static void on_loaded(GObject *source, GAsyncResult *result, gpointer data)
   LoadJob *job = data;
   GError *error = NULL;
   gboolean ok = gtk_source_file_loader_load_finish(GTK_SOURCE_FILE_LOADER(source), result, &error);
+  gboolean fallback =
+      g_error_matches(error, GTK_SOURCE_FILE_LOADER_ERROR, GTK_SOURCE_FILE_LOADER_ERROR_CONVERSION_FALLBACK);
 
-  if (!g_cancellable_is_cancelled(job->cancel)) {
+  if (!g_cancellable_is_cancelled(job->cancel) && fallback && !job->legacy) {
+    /* Not UTF-8: while UTF-8 is a candidate, GtkSourceView keeps it with the bad bytes as "\E9" text,
+     * which a save would write. Again with the 8-bit encodings only. */
+    load_as(job->tab, job->tab->view->goto_line, job->tab->view->goto_column, TRUE);
+  } else if (!g_cancellable_is_cancelled(job->cancel)) {
     Tab *tab = job->tab;
     EditorView *v = tab->view;
     GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
     char *text = buffer_start(buffer, SNIFF_BYTES);
+    const GtkSourceEncoding *encoding = gtk_source_file_get_encoding(v->file);
 
     v->loading = FALSE;
+    v->lossy = fallback || gtk_source_file_get_compression_type(v->file) != GTK_SOURCE_COMPRESSION_TYPE_NONE;
+    v->utf16_be = encoding && g_ascii_strcasecmp(gtk_source_encoding_get_charset(encoding), "UTF-16") == 0 &&
+                  utf16_big_endian(tab->path);
     hide_conflict(tab); /* the file as it is on disk now */
-    gtk_text_view_set_editable(GTK_TEXT_VIEW(tab->source), !v->readonly);
-    if (!ok && !g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND)) { /* not found: a new file */
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(tab->source), !v->readonly && !v->lossy);
+    if (v->lossy) {
+      char *name = g_path_get_basename(tab->path), *message = g_strdup_printf("%s is open read-only", name);
+      show_error(tab, message,
+                 fallback ? "It is not text in UTF-8 or a one-byte encoding: saving it would change its bytes."
+                          : "It is compressed: t-code would save it uncompressed.");
+      g_free(message);
+      g_free(name);
+    } else if (!ok && !g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND)) { /* not found: a new file */
       char *name = g_path_get_basename(tab->path), *message = g_strdup_printf("Could not open %s", name);
       show_error(tab, message, error->message);
       g_free(message);
@@ -460,8 +547,25 @@ static void on_loaded(GObject *source, GAsyncResult *result, gpointer data)
   g_object_unref(source);
 }
 
+/* The encodings for a file that is not UTF-8: the locale's when it is another one, then ISO-8859-15,
+ * which takes every byte (so the file's bytes come back on save). */
+static GSList *legacy_encodings(void)
+{
+  const char *charset = NULL;
+  const GtkSourceEncoding *locale = g_get_charset(&charset) ? NULL : gtk_source_encoding_get_from_charset(charset);
+  GSList *list = locale ? g_slist_append(NULL, (gpointer)locale) : NULL;
+
+  return g_slist_append(list, (gpointer)gtk_source_encoding_get_from_charset("ISO-8859-15"));
+}
+
 /* Reads the file into the buffer in the background; the cursor then goes to line and column. */
 static void load(Tab *tab, int line, int column)
+{
+  load_as(tab, line, column, FALSE);
+}
+
+/* load, with the 8-bit encodings only when legacy. */
+static void load_as(Tab *tab, int line, int column, gboolean legacy)
 {
   EditorView *v = tab->view;
   GFile *file = g_file_new_for_path(tab->path);
@@ -470,7 +574,13 @@ static void load(Tab *tab, int line, int column)
 
   gtk_source_file_set_location(v->file, file);
   loader = gtk_source_file_loader_new(tab->buffer, v->file);
+  if (legacy) {
+    GSList *encodings = legacy_encodings();
+    gtk_source_file_loader_set_candidate_encodings(loader, encodings);
+    g_slist_free(encodings);
+  }
   job->tab = tab;
+  job->legacy = legacy;
   job->cancel = g_object_ref(v->cancel);
   v->goto_line = line;
   v->goto_column = column;
