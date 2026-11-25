@@ -194,18 +194,21 @@ static gboolean is_monospace(gpointer item, gpointer data G_GNUC_UNUSED)
   return PANGO_IS_FONT_FAMILY(family) && pango_font_family_is_monospace(family);
 }
 
-/* A font button for a font setting. Only fixed width fonts are listed: code is aligned by columns,
- * and a terminal puts every character in a cell of the same width. */
-static GtkWidget *font_for(char **setting)
+/* A font button for a font setting. monospace: only fixed width fonts are listed (code is aligned by
+ * columns, and a terminal puts every character in a cell of the same width); else every font (file names
+ * need no columns, though a fixed width one is still there to pick). */
+static GtkWidget *font_for(char **setting, gboolean monospace)
 {
   GtkFontDialog *dialog = gtk_font_dialog_new();
   GtkWidget *button = gtk_font_dialog_button_new(dialog); /* takes the dialog */
   PangoFontDescription *desc = pango_font_description_from_string(*setting);
-  GtkCustomFilter *filter = gtk_custom_filter_new(is_monospace, NULL, NULL);
 
   gtk_font_dialog_set_title(dialog, "Font");
-  gtk_font_dialog_set_filter(dialog, GTK_FILTER(filter));
-  g_object_unref(filter);
+  if (monospace) {
+    GtkCustomFilter *filter = gtk_custom_filter_new(is_monospace, NULL, NULL);
+    gtk_font_dialog_set_filter(dialog, GTK_FILTER(filter));
+    g_object_unref(filter);
+  }
   gtk_font_dialog_button_set_font_desc(GTK_FONT_DIALOG_BUTTON(button), desc);
   pango_font_description_free(desc);
   g_signal_connect(button, "notify::font-desc", G_CALLBACK(on_font), setting);
@@ -486,9 +489,9 @@ void show_settings(App *t)
   add_row(GTK_GRID(grid), &row, "Selection opacity (%)",
           "How strongly the editors' selection shows over the text, in the theme's accent color",
           setting_spin(&t->settings.selection_opacity, 0, 100, editor_view_set_selection));
-  add_row(GTK_GRID(grid), &row, "Editor font", "Editors and the terminal", font_for(&t->settings.font));
+  add_row(GTK_GRID(grid), &row, "Editor font", "Editors and the terminal", font_for(&t->settings.font, TRUE));
   add_row(GTK_GRID(grid), &row, "Files panel font", "The names in the Files panel and Open Tabs",
-          font_for(&t->settings.files_font));
+          font_for(&t->settings.files_font, FALSE));
   add_row(GTK_GRID(grid), &row, "Text size (%)", "Also Ctrl+= and Ctrl+-",
           spin_for(50, 300, 10, t->settings.font_scale * 100, G_CALLBACK(on_text_size)));
   add_row(GTK_GRID(grid), &row, "Preview size (%)", "Markdown previews; also Ctrl+= and Ctrl+- in a preview tab",

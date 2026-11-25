@@ -5076,6 +5076,15 @@ static GtkStack *settings_stack(GtkWindow *settings)
   return NULL;
 }
 
+/* The font buttons under widget, in order. */
+static void font_buttons(GtkWidget *widget, GPtrArray *found)
+{
+  if (GTK_IS_FONT_DIALOG_BUTTON(widget))
+    g_ptr_array_add(found, widget);
+  for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child))
+    font_buttons(child, found);
+}
+
 /* The Settings window lists its pages on the left, each scrolling when the window is smaller; every
  * setting is still there, and it opens again on the page it closed on. */
 static void test_settings_pages(void)
@@ -5101,6 +5110,13 @@ static void test_settings_pages(void)
     switches += count_of(page, GTK_TYPE_SWITCH);
   }
   g_assert_cmpint(switches, ==, 20 + SERVER_NONE); /* none lost on the way; one per built-in server */
+  /* the editor's font: fixed width ones only; the Files panel's: any */
+  GPtrArray *fonts = g_ptr_array_new();
+  font_buttons(gtk_stack_get_child_by_name(stack, "appearance"), fonts);
+  g_assert_cmpuint(fonts->len, ==, 2);
+  g_assert_nonnull(gtk_font_dialog_get_filter(gtk_font_dialog_button_get_dialog(fonts->pdata[0])));
+  g_assert_null(gtk_font_dialog_get_filter(gtk_font_dialog_button_get_dialog(fonts->pdata[1])));
+  g_ptr_array_free(fonts, TRUE);
   g_assert_cmpstr(gtk_stack_get_visible_child_name(stack), ==, "general");
 
   gtk_stack_set_visible_child_name(stack, "appearance");

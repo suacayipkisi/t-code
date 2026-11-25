@@ -406,7 +406,7 @@ void session_save_settings(App *t)
   g_key_file_set_string(kf, "settings", "font", t->settings.font);
   explain(kf, "font", " Editors and the terminal: a font name and size, like Cascadia Code 11");
   g_key_file_set_string(kf, "settings", "file-manager-font", t->settings.files_font);
-  explain(kf, "file-manager-font", " The Files panel");
+  explain(kf, "file-manager-font", " The Files panel and Open Tabs: any font, fixed width or not");
   g_key_file_set_string(kf, "settings", "clangd-extra-flags", t->settings.clangd.extra ? t->settings.clangd.extra : "");
   explain(kf, "clangd-extra-flags",
           " More clangd flags, as in a shell (--header-insertion=never --log=verbose ...), after t-code's: they"
