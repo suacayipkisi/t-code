@@ -199,8 +199,7 @@ terminal.
     "install": {
       "fedora": "sudo dnf install cargo",
       "debian": "sudo apt install cargo",
-      "arch": "sudo pacman -S rust",
-      "any": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+      "arch": "sudo pacman -S rust"
     }
   },
   { "program": ["latexmk", "tectonic"], "for": "building the documents" },
@@ -215,7 +214,8 @@ terminal.
 | `optional` | boolean | no | Only some commands need it; the plugin works without it. |
 | `install` | object | no | Commands by system: the keys are os-release `ID` and `ID_LIKE` words (`fedora`, `debian`, `ubuntu`, `arch`, `opensuse`, …) and `any`. t-code shows the one for its system's `ID`, else the first `ID_LIKE` word that has one (Ubuntu and Mint get `debian`'s), else `any`; with none of those, all of them. In a Flatpak, the host's system. |
 
-A broken entry is left out with a warning in the log. The registry's entry carries the same
+A broken entry is left out with a warning in the log. The registry refuses a download piped into a
+shell (`curl … | sh`) here as anywhere in a plugin: give a package manager's command. The registry's entry carries the same
 `requires` as the plugin's `plugin.json`.
 
 ### Declarations without a program

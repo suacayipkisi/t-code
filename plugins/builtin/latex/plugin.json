@@ -14,8 +14,7 @@
         "fedora": "sudo dnf install cargo",
         "debian": "sudo apt install cargo",
         "arch": "sudo pacman -S rust",
-        "opensuse": "sudo zypper install cargo",
-        "any": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+        "opensuse": "sudo zypper install cargo"
       }
     },
     {

@@ -14,15 +14,14 @@
         "fedora": "sudo dnf install cargo",
         "debian": "sudo apt install cargo",
         "arch": "sudo pacman -S rust",
-        "opensuse": "sudo zypper install cargo",
-        "any": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+        "opensuse": "sudo zypper install cargo"
       }
     },
     {
       "program": "claude",
       "for": "the chat, review and rewrite: Claude Code, installed and signed in (claude auth login)",
       "install": {
-        "any": "curl -fsSL https://claude.ai/install.sh | bash"
+        "any": "npm install -g @anthropic-ai/claude-code"
       }
     }
   ],
