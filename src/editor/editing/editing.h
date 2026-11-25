@@ -17,6 +17,11 @@ gboolean editor_word_at(const GtkTextIter *iter, GtkTextIter *start, GtkTextIter
  * all are. Without a line comment (CSS, HTML), the language's block comment goes around them. */
 void editor_toggle_comment(Tab *tab);
 
+/* The language's block comment (C's slash-star pair): on a blank line an empty one with the cursor
+ * inside, around the selection, or around the cursor's line; out again when it is one already.
+ * Nothing for a language without block comments. */
+void editor_toggle_block_comment(Tab *tab);
+
 /* Copies the selected lines (or the cursor's line) below themselves. */
 void editor_duplicate_lines(Tab *tab);
 

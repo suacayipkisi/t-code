@@ -76,7 +76,8 @@ the mouse. On top of that:
 
 - Find and replace (`Ctrl+F`, `Ctrl+H`; case, whole word, regular expressions), go to line
   (`Ctrl+G`).
-- Comment lines (`Ctrl+/`), duplicate (`Shift+Alt+↓`), move (`Alt+↑` / `Alt+↓`) and delete
+- Comment lines (`Ctrl+/`), a block comment (`Alt+C`: an empty `/*  */` on a blank line, or around
+  the selection or the line; again takes it out), duplicate (`Shift+Alt+↓`), move (`Alt+↑` / `Alt+↓`) and delete
   (`Ctrl+Shift+K`) lines; brackets and quotes that close by themselves (and wrap a selection).
 - `Enter` after an opening bracket goes one level deeper (between a pair the closer gets its own
   line), and `}` outdents. A double click selects a name only (letters, digits, `_`).
@@ -591,6 +592,10 @@ The Terminal panel holds the shells as tabs.
   (the project's `.clang-tidy`; off by default), debugging with lldb-dap.
 - **Language Servers:** each built-in one on or off (off: its files go to a plugin's server for
   them, or to none).
+- **Keyboard Shortcuts:** every command with its keys, and a filter. Click a command's keys and
+  press new ones (`Escape` keeps the old ones, `Backspace` removes them); a command that had the
+  same keys loses them, and the arrow beside gives the default back. They are kept in
+  `~/.config/t-code/keybindings.ini`.
 
 Changes apply at once, to the open editors too, and are kept in `~/.config/t-code/settings.ini` (a
 comment over each key; a hand edit applies at once).
@@ -667,8 +672,8 @@ gdb, each terminal tab's shell and what runs in it, and short-lived helpers (git
 
 ## Keys
 
-The **Keybinds** button in the status bar shows all of them, and `Ctrl+Shift+P` (command
-palette) finds any command by name.
+The **Keybinds** button in the status bar shows all of them, `Ctrl+Shift+P` (command
+palette) finds any command by name, and **Settings → Keyboard Shortcuts** changes them.
 
 **The search bar** in the middle of the title bar is where `Ctrl+P` types: click it (or press the
 key) and the results drop down from the bar.
@@ -718,6 +723,7 @@ key) and the results drop down from the bar.
 | editor      | `Ctrl+S` / `Ctrl+W`                    | save / close this tab                     |
 | editor      | `Ctrl+F` / `Ctrl+H`, `F3` / `Shift+F3` | find / replace, next / previous           |
 | editor      | `Ctrl+/`, `Shift+Alt+↓`, `Ctrl+Shift+K` | comment lines, duplicate, delete them    |
+| editor      | `Alt+C`                                | block comment (`/*  */` on a blank line)  |
 | editor      | `Ctrl+D` / `Ctrl+Shift+L`              | add the next occurrence / all occurrences as cursors |
 | editor      | `Ctrl+Shift+↑` / `↓`, `Alt+Click`, `Shift+Alt+drag` | add a cursor above / below, at the click, a column selection |
 | editor      | `Alt+↑` / `Alt+↓`                      | move lines up / down                      |

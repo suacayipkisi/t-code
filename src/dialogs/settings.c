@@ -1,10 +1,11 @@
 /*
  * The Settings window (Ctrl+, or the gear in the title bar): pages listed on the left (General,
- * Editor, Indentation, Appearance, C / C++, Language Servers, Edit by Hand). Every change applies at once, to the open
+ * Editor, Indentation, Appearance, C / C++, Language Servers, Keyboard Shortcuts, Edit by Hand). Every change applies at once, to the open
  * editors too, and is saved in settings.ini, which can also be edited by hand.
  */
 #include "dialogs/settings.h"
 
+#include "dialogs/keybinds.h"
 #include "editor/editor.h"
 #include "editor/editorview.h"
 #include "editor/tabs.h"
@@ -465,6 +466,9 @@ void show_settings(App *t)
     add_row(GTK_GRID(grid), &row, server_id(kind), note, toggle);
     g_free(note);
   }
+
+  grid = add_page(GTK_STACK(stack), "keys", "Keyboard Shortcuts", &row);
+  gtk_grid_attach(GTK_GRID(grid), keybinds_editor(t), 0, row++, 2, 1);
 
   grid = add_page(GTK_STACK(stack), "files", "Edit by Hand", &row);
   add_row(GTK_GRID(grid), &row, "Settings file", "settings.ini: these settings, each with a note",

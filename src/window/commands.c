@@ -4,6 +4,7 @@
  */
 #include "window/commands.h"
 
+#include "application/identity.h"
 #include "application/log.h"
 #include "debug/debugger.h"
 #include "debug/view/debugview.h"
@@ -46,6 +47,7 @@
 #include "window/window.h"
 #include "window/theme.h"
 
+#include <glib/gstdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -197,6 +199,7 @@ static void replace(App *t) { Tab *tab = current_editor(t); if (tab) findbar_sho
 static void find_next(App *t) { Tab *tab = current_editor(t); if (tab) findbar_next(tab, FALSE); }
 static void find_previous(App *t) { Tab *tab = current_editor(t); if (tab) findbar_next(tab, TRUE); }
 static void comment(App *t) { Tab *tab = current_editor(t); if (tab) editor_toggle_comment(tab); }
+static void block_comment(App *t) { Tab *tab = current_editor(t); if (tab) editor_toggle_block_comment(tab); }
 static void duplicate(App *t) { Tab *tab = current_editor(t); if (tab) editor_duplicate_lines(tab); }
 static void add_next(App *t) { Tab *tab = current_editor(t); if (tab) multicursor_add_next(tab); }
 static void select_occurrences(App *t) { Tab *tab = current_editor(t); if (tab) multicursor_select_all(tab); }
@@ -329,6 +332,7 @@ static const Command commands[] = {
   { "Find Next", "F3", "F3, Enter", find_next, TRUE, FALSE, FALSE },
   { "Find Previous", "<Shift>F3", "Shift+F3, Shift+Enter", find_previous, TRUE, FALSE, FALSE },
   { "Toggle Line Comment", "<Control>slash|<Control>KP_Divide|<Alt>slash", "Ctrl+/", comment, TRUE, FALSE, FALSE },
+  { "Toggle Block Comment", "<Alt>c", "Alt+C", block_comment, TRUE, FALSE, FALSE },
   { "Duplicate Line", "<Shift><Alt>Down", "Shift+Alt+↓", duplicate, TRUE, FALSE, FALSE },
   { "Add Selection to Next Find Match", "<Control>d", "Ctrl+D", add_next, TRUE, FALSE, FALSE },
   { "Select All Occurrences", "<Control><Shift>l", "Ctrl+Shift+L", select_occurrences, TRUE, FALSE, FALSE },
@@ -456,6 +460,230 @@ static const Command commands[] = {
   { "Plugins: Open Plugins Folder", NULL, NULL, open_plugins_folder, FALSE, FALSE, FALSE },
 };
 
+/* The user's shortcuts -------------------------------------------------------------------------- */
+
+/* keybindings.ini: [keybindings] with a command's name = its keys (GTK accelerators, '|' between
+ * several; empty: none). Commands not in it keep the table's keys. */
+#define KEYS_GROUP "keybindings"
+
+static GHashTable *own_keys;                     /* command name -> trigger ("" : none) */
+static char *own_labels[G_N_ELEMENTS(commands)]; /* the user's keys of command i as shown */
+
+static char *keybindings_path(void)
+{
+  return g_build_filename(g_get_user_config_dir(), TCODE_NAME, "keybindings.ini", NULL);
+}
+
+static int command_index(const char *name)
+{
+  for (size_t i = 0; i < G_N_ELEMENTS(commands); i++)
+    if (strcmp(commands[i].name, name) == 0)
+      return (int)i;
+  return -1;
+}
+
+/* Whether every alternative of trigger ("<Alt>c|F12") is a key GTK understands; "" is none. */
+static gboolean valid_trigger(const char *trigger)
+{
+  char **alternatives = g_strsplit(trigger, "|", -1);
+  gboolean valid = TRUE;
+
+  for (int i = 0; alternatives[i] && valid; i++) {
+    guint key = 0;
+    valid = gtk_accelerator_parse(alternatives[i], &key, NULL) && key != 0;
+  }
+  g_strfreev(alternatives);
+  return valid;
+}
+
+/* The keys of trigger as shown ("Alt+C, F12"); NULL for none. */
+static char *trigger_label(const char *trigger)
+{
+  char **alternatives = g_strsplit(trigger, "|", -1);
+  GString *label = g_string_new(NULL);
+
+  for (int i = 0; alternatives[i]; i++) {
+    guint key;
+    GdkModifierType mods;
+    if (!*alternatives[i] || !gtk_accelerator_parse(alternatives[i], &key, &mods))
+      continue;
+    char *one = gtk_accelerator_get_label(key, mods);
+    g_string_append_printf(label, "%s%s", label->len ? ", " : "", one);
+    g_free(one);
+  }
+  g_strfreev(alternatives);
+  return label->len ? g_string_free(label, FALSE) : (g_string_free(label, TRUE), NULL);
+}
+
+/* Command i's keys are the user's trigger from now on (NULL: the table's again). */
+static void set_own(size_t i, const char *trigger)
+{
+  g_clear_pointer(&own_labels[i], g_free);
+  if (!trigger) {
+    g_hash_table_remove(own_keys, commands[i].name);
+    return;
+  }
+  g_hash_table_insert(own_keys, g_strdup(commands[i].name), g_strdup(trigger));
+  own_labels[i] = trigger_label(trigger);
+}
+
+/* Reads keybindings.ini once; unknown commands and keys GTK does not understand go to the log. */
+static void load_own_keys(void)
+{
+  GKeyFile *file;
+  char *path, **names;
+
+  if (own_keys)
+    return;
+  own_keys = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+  file = g_key_file_new();
+  path = keybindings_path();
+  if (g_key_file_load_from_file(file, path, G_KEY_FILE_NONE, NULL)) {
+    names = g_key_file_get_keys(file, KEYS_GROUP, NULL, NULL);
+    for (int i = 0; names && names[i]; i++) {
+      char *trigger = g_key_file_get_string(file, KEYS_GROUP, names[i], NULL);
+      int index = command_index(names[i]);
+      if (index < 0)
+        g_warning("keybindings.ini: no command named \"%s\"", names[i]);
+      else if (!trigger || !valid_trigger(trigger))
+        g_warning("keybindings.ini: \"%s\" for \"%s\" is not a key", trigger ? trigger : "", names[i]);
+      else
+        set_own(index, trigger);
+      g_free(trigger);
+    }
+    g_strfreev(names);
+  }
+  g_free(path);
+  g_key_file_free(file);
+}
+
+/* Writes the user's keys to keybindings.ini (the file goes when there are none). */
+static void save_own_keys(void)
+{
+  char *path = keybindings_path();
+  GKeyFile *file;
+  GError *error = NULL;
+
+  if (g_hash_table_size(own_keys) == 0) {
+    g_remove(path);
+    g_free(path);
+    return;
+  }
+  file = g_key_file_new();
+  for (size_t i = 0; i < G_N_ELEMENTS(commands); i++) {
+    const char *trigger = g_hash_table_lookup(own_keys, commands[i].name);
+    if (trigger)
+      g_key_file_set_string(file, KEYS_GROUP, commands[i].name, trigger);
+  }
+  g_key_file_set_comment(file, KEYS_GROUP, NULL,
+                         " The keyboard shortcuts changed in Settings > Keyboard Shortcuts: a command's name\n"
+                         " (as the command palette lists it) = its keys, GTK accelerators like <Control><Shift>k,\n"
+                         " with | between several; empty: no shortcut. Read at start-up.",
+                         NULL);
+  char *dir = g_path_get_dirname(path);
+  g_mkdir_with_parents(dir, 0700);
+  if (!g_key_file_save_to_file(file, path, &error)) {
+    g_warning("Could not save %s: %s", path, error->message);
+    g_error_free(error);
+  }
+  g_free(dir);
+  g_key_file_free(file);
+  g_free(path);
+}
+
+/* Command i's trigger: the user's or the table's; NULL when it has none. */
+static const char *trigger_of(size_t i)
+{
+  const char *own;
+
+  load_own_keys();
+  own = g_hash_table_lookup(own_keys, commands[i].name);
+  if (own)
+    return *own ? own : NULL;
+  return commands[i].trigger;
+}
+
+int command_count(void)
+{
+  return G_N_ELEMENTS(commands);
+}
+
+const char *command_name(int i)
+{
+  return commands[i].name;
+}
+
+const char *command_shortcut(int i)
+{
+  load_own_keys();
+  return g_hash_table_contains(own_keys, commands[i].name) ? own_labels[i] : commands[i].keys;
+}
+
+gboolean command_shortcut_changed(int i)
+{
+  load_own_keys();
+  return g_hash_table_contains(own_keys, commands[i].name);
+}
+
+/* Takes key out of command i's trigger; TRUE when it was there. */
+static gboolean take_key(size_t i, guint key, GdkModifierType mods)
+{
+  const char *trigger = trigger_of(i);
+  char **alternatives;
+  GString *rest;
+  gboolean found = FALSE;
+
+  if (!trigger)
+    return FALSE;
+  alternatives = g_strsplit(trigger, "|", -1);
+  rest = g_string_new(NULL);
+  for (int a = 0; alternatives[a]; a++) {
+    guint other;
+    GdkModifierType other_mods;
+    if (gtk_accelerator_parse(alternatives[a], &other, &other_mods) && gdk_keyval_to_lower(other) == key &&
+        other_mods == mods) {
+      found = TRUE;
+      continue;
+    }
+    g_string_append_printf(rest, "%s%s", rest->len ? "|" : "", alternatives[a]);
+  }
+  if (found)
+    set_own(i, rest->str);
+  g_string_free(rest, TRUE);
+  g_strfreev(alternatives);
+  return found;
+}
+
+int command_set_shortcut(App *t, int i, guint key, GdkModifierType mods)
+{
+  int taken = -1;
+
+  load_own_keys();
+  if (key == 0) {
+    set_own(i, "");
+  } else {
+    key = gdk_keyval_to_lower(key);
+    mods &= gtk_accelerator_get_default_mod_mask();
+    for (size_t j = 0; j < G_N_ELEMENTS(commands); j++)
+      if ((int)j != i && take_key(j, key, mods) && taken < 0)
+        taken = (int)j;
+    char *trigger = gtk_accelerator_name(key, mods);
+    set_own(i, trigger);
+    g_free(trigger);
+  }
+  save_own_keys();
+  refresh_shortcuts(t);
+  return taken;
+}
+
+void command_reset_shortcut(App *t, int i)
+{
+  load_own_keys();
+  set_own(i, NULL);
+  save_own_keys();
+  refresh_shortcuts(t);
+}
+
 void run_command(App *t, const char *name)
 {
   for (size_t i = 0; i < G_N_ELEMENTS(commands); i++)
@@ -470,7 +698,7 @@ const KeyHelp *window_keys(int *n)
   static KeyHelp keys[G_N_ELEMENTS(commands)];
 
   for (size_t i = 0; i < G_N_ELEMENTS(commands); i++)
-    keys[i] = (KeyHelp){ commands[i].name, commands[i].keys };
+    keys[i] = (KeyHelp){ commands[i].name, command_shortcut((int)i) };
   *n = G_N_ELEMENTS(commands);
   return keys;
 }
@@ -515,11 +743,11 @@ void add_shortcuts_to(App *t, GtkWindow *window)
   /* Capture phase: the window sees these keys before the focused terminal or editor does. */
   gtk_event_controller_set_propagation_phase(controller, GTK_PHASE_CAPTURE);
   for (size_t i = 0; i < G_N_ELEMENTS(commands); i++) {
-    if (!commands[i].trigger)
+    if (!trigger_of(i))
       continue;
     gtk_shortcut_controller_add_shortcut(
         GTK_SHORTCUT_CONTROLLER(controller),
-        gtk_shortcut_new(gtk_shortcut_trigger_parse_string(commands[i].trigger),
+        gtk_shortcut_new(gtk_shortcut_trigger_parse_string(trigger_of(i)),
                          gtk_callback_action_new(on_shortcut, (gpointer)&commands[i], NULL)));
   }
   plugins_add_shortcuts(GTK_SHORTCUT_CONTROLLER(controller), t);
@@ -572,7 +800,7 @@ void command_palette_query(App *t, const char *text, guint generation)
   for (int i = 0; i < n; i++) {
     const Command *c = &commands[matches[i].index];
     char *index = g_strdup_printf("%d", matches[i].index);
-    picker_add(t, generation, c->name, c->keys, index);
+    picker_add(t, generation, c->name, command_shortcut(matches[i].index), index);
     g_free(index);
   }
   int plugin_matches = plugins_palette_query(t, text, generation);

@@ -368,6 +368,31 @@ static void test_block_comment(void)
   free_tab(tab);
 }
 
+/* Alt+C: an empty block comment on a blank line (the cursor inside), around a selection, around the
+ * cursor's line; each one out again. */
+static void test_toggle_block_comment(void)
+{
+  Tab *tab = new_tab("int a;\n    \nint b = 1;\n");
+
+  cursor_at(tab, 1, 4);
+  editor_toggle_block_comment(tab);
+  assert_text(tab, "int a;\n    /*  */\nint b = 1;\n");
+  assert_cursor(tab, 1, 7);
+
+  select_lines(tab, 2, 8, 2, 9); /* the 1 */
+  editor_toggle_block_comment(tab);
+  assert_text(tab, "int a;\n    /*  */\nint b = /* 1 */;\n");
+  editor_toggle_block_comment(tab); /* the selection is still on the comment */
+  assert_text(tab, "int a;\n    /*  */\nint b = 1;\n");
+
+  cursor_at(tab, 0, 2);
+  editor_toggle_block_comment(tab);
+  assert_text(tab, "/* int a; */\n    /*  */\nint b = 1;\n");
+  editor_toggle_block_comment(tab);
+  assert_text(tab, "int a;\n    /*  */\nint b = 1;\n");
+  free_tab(tab);
+}
+
 /* Lines -------------------------------------------------------------------------------------- */
 
 static void test_duplicate(void)
@@ -1801,6 +1826,7 @@ int main(int argc, char **argv)
   g_test_add_func("/editing/indent-order", test_indent_order);
   g_test_add_func("/editing/comment-indented", test_comment_indented);
   g_test_add_func("/editing/block-comment", test_block_comment);
+  g_test_add_func("/editing/toggle-block-comment", test_toggle_block_comment);
   g_test_add_func("/editing/duplicate", test_duplicate);
   g_test_add_func("/editing/delete-line", test_delete_line);
   g_test_add_func("/editing/undo-redo", test_undo_redo);

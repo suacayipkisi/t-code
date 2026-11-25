@@ -2079,7 +2079,7 @@ static void test_search_bar(void)
   entry = focused_entry();
   g_assert_cmpstr(gtk_editable_get_text(GTK_EDITABLE(entry)), ==, "# ");
   g_assert_cmpint(gtk_editable_get_position(GTK_EDITABLE(entry)), ==, 2); /* typing goes after it */
-  g_assert_cmpstr(first_row_label(list), ==, "Save"); /* the table's order */
+  g_assert_cmpstr(first_row_label(list), ==, "Save");                     /* the table's order */
 
   gtk_editable_set_text(GTK_EDITABLE(entry), "#toggle line comment");
   g_signal_emit_by_name(entry, "search-changed");
@@ -4745,9 +4745,8 @@ static GtkStack *settings_stack(GtkWindow *settings)
  * setting is still there, and it opens again on the page it closed on. */
 static void test_settings_pages(void)
 {
-  static const char *const pages[] = {
-    "general", "editor", "indentation", "appearance", "c", "servers", "files", NULL
-  };
+  static const char *const pages[] = { "general", "editor", "indentation", "appearance", "c",
+                                       "servers", "keys",   "files",       NULL };
   GtkWindow *settings;
   GtkStack *stack;
   int switches = 0;
@@ -4785,6 +4784,67 @@ static void test_settings_pages(void)
   run_for(50);
 }
 
+/* Whether a label under root says text. */
+static gboolean says(GtkWidget *root, const char *text)
+{
+  if (GTK_IS_LABEL(root) && g_strcmp0(gtk_label_get_text(GTK_LABEL(root)), text) == 0)
+    return TRUE;
+  for (GtkWidget *child = gtk_widget_get_first_child(root); child; child = gtk_widget_get_next_sibling(child))
+    if (says(child, text))
+      return TRUE;
+  return FALSE;
+}
+
+static int command_named(const char *name)
+{
+  for (int i = 0; i < command_count(); i++)
+    if (strcmp(command_name(i), name) == 0)
+      return i;
+  g_assert_not_reached();
+}
+
+/* Settings > Keyboard Shortcuts: a key given to one command leaves the one that had it, goes into
+ * keybindings.ini and shows on the page; the defaults come back and the file goes. */
+static void test_user_shortcuts(void)
+{
+  int line = command_named("Toggle Line Comment"), block = command_named("Toggle Block Comment");
+  char *path = g_build_filename(g_get_user_config_dir(), "t-code", "keybindings.ini", NULL), *text = NULL;
+  GtkWindow *settings;
+  GtkWidget *page;
+
+  g_assert_cmpstr(command_shortcut(block), ==, "Alt+C");
+  g_assert_false(command_shortcut_changed(block));
+  g_assert_cmpint(command_set_shortcut(&app, line, GDK_KEY_C, GDK_ALT_MASK), ==, block);
+  g_assert_cmpstr(command_shortcut(line), ==, "Alt+C");
+  g_assert_null(command_shortcut(block));
+  g_assert_true(command_shortcut_changed(block));
+  g_assert_true(g_file_get_contents(path, &text, NULL, NULL));
+  g_assert_nonnull(strstr(text, "Toggle Line Comment=<Alt>c"));
+  g_assert_nonnull(strstr(text, "Toggle Block Comment="));
+  g_free(text);
+
+  show_settings(&app);
+  run_for(50);
+  settings = settings_window();
+  page = gtk_stack_get_child_by_name(settings_stack(settings), "keys");
+  g_assert_nonnull(page);
+  g_assert_cmpint(count_of(page, GTK_TYPE_SEARCH_ENTRY), ==, 1);
+  g_assert_true(says(page, "Toggle Block Comment"));
+  g_assert_true(says(page, "Alt+C"));
+  gtk_window_destroy(settings);
+  run_for(50);
+
+  command_set_shortcut(&app, block, GDK_KEY_k, GDK_CONTROL_MASK | GDK_SHIFT_MASK); /* Delete Line's */
+  g_assert_null(command_shortcut(command_named("Delete Line")));
+  command_reset_shortcut(&app, command_named("Delete Line"));
+  command_reset_shortcut(&app, block);
+  command_reset_shortcut(&app, line);
+  g_assert_cmpstr(command_shortcut(block), ==, "Alt+C");
+  g_assert_cmpstr(command_shortcut(line), ==, "Ctrl+/");
+  g_assert_false(g_file_test(path, G_FILE_TEST_EXISTS));
+  g_free(path);
+}
+
 static GtkWindow *window_titled(const char *title)
 {
   GtkWindow *found = NULL;
@@ -4796,17 +4856,6 @@ static GtkWindow *window_titled(const char *title)
     g_object_unref(window);
   }
   return found;
-}
-
-/* Whether a label under root says text. */
-static gboolean says(GtkWidget *root, const char *text)
-{
-  if (GTK_IS_LABEL(root) && g_strcmp0(gtk_label_get_text(GTK_LABEL(root)), text) == 0)
-    return TRUE;
-  for (GtkWidget *child = gtk_widget_get_first_child(root); child; child = gtk_widget_get_next_sibling(child))
-    if (says(child, text))
-      return TRUE;
-  return FALSE;
 }
 
 /* The target of the menu item labeled label in model or its submenus and sections, or NULL. */
@@ -5993,6 +6042,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/settings-edited", test_settings_edited);
   g_test_add_func("/window/open-user-files", test_open_user_files);
   g_test_add_func("/window/settings-pages", test_settings_pages);
+  g_test_add_func("/window/user-shortcuts", test_user_shortcuts);
   g_test_add_func("/window/plugins-window", test_plugins_window);
   g_test_add_func("/window/plugins-panel", test_plugins_panel);
   g_test_add_func("/window/plugins-run-question", test_plugins_run_question);

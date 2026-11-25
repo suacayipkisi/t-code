@@ -153,6 +153,70 @@ void editor_toggle_comment(Tab *tab)
   gtk_text_buffer_end_user_action(buffer);
 }
 
+/* The selected text in a block comment, or out of it when it is one already; the selection stays on
+ * the result. */
+static void toggle_selection_comment(GtkTextBuffer *buffer, const char *open, const char *close)
+{
+  GtkTextIter start, end;
+  char *text, *trimmed, *replacement;
+  size_t n, o = strlen(open), c = strlen(close);
+  int offset;
+
+  gtk_text_buffer_get_selection_bounds(buffer, &start, &end);
+  text = gtk_text_buffer_get_text(buffer, &start, &end, TRUE);
+  trimmed = g_strstrip(g_strdup(text));
+  n = strlen(trimmed);
+  if (n >= o + c && g_str_has_prefix(trimmed, open) && g_str_has_suffix(trimmed, close)) {
+    size_t from = o + (trimmed[o] == ' '), to = n - c - (n - c > from && trimmed[n - c - 1] == ' ');
+    replacement = g_strndup(trimmed + from, to > from ? to - from : 0);
+  } else {
+    replacement = g_strconcat(open, " ", text, " ", close, NULL);
+  }
+  offset = gtk_text_iter_get_offset(&start);
+  gtk_text_buffer_delete(buffer, &start, &end);
+  gtk_text_buffer_insert(buffer, &start, replacement, -1);
+  end = start; /* just after the insertion */
+  gtk_text_buffer_get_iter_at_offset(buffer, &start, offset);
+  gtk_text_buffer_select_range(buffer, &end, &start);
+  g_free(replacement);
+  g_free(trimmed);
+  g_free(text);
+}
+
+void editor_toggle_block_comment(Tab *tab)
+{
+  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
+  GtkSourceLanguage *language = gtk_source_buffer_get_language(tab->buffer);
+  const char *open = language ? gtk_source_language_get_metadata(language, "block-comment-start") : NULL;
+  const char *close = language ? gtk_source_language_get_metadata(language, "block-comment-end") : NULL;
+  GtkTextIter cursor;
+  int line;
+  char *text;
+
+  if (!editable(tab) || !open || !close)
+    return;
+  gtk_text_buffer_begin_user_action(buffer);
+  if (gtk_text_buffer_get_has_selection(buffer)) {
+    toggle_selection_comment(buffer, open, close);
+  } else {
+    gtk_text_buffer_get_iter_at_mark(buffer, &cursor, gtk_text_buffer_get_insert(buffer));
+    line = gtk_text_iter_get_line(&cursor);
+    text = line_text(buffer, line);
+    if (text[lead(text)] == '\0') {
+      /* A blank line: an empty comment at the cursor, the cursor inside it. */
+      char *empty = g_strconcat(open, "  ", close, NULL);
+      gtk_text_buffer_insert(buffer, &cursor, empty, -1);
+      gtk_text_iter_backward_chars(&cursor, (int)g_utf8_strlen(close, -1) + 1);
+      gtk_text_buffer_place_cursor(buffer, &cursor);
+      g_free(empty);
+    } else {
+      toggle_block_comment(buffer, line, line, open, close);
+    }
+    g_free(text);
+  }
+  gtk_text_buffer_end_user_action(buffer);
+}
+
 /* Lines -------------------------------------------------------------------------------------- */
 
 void editor_duplicate_lines(Tab *tab)
