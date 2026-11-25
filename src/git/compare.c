@@ -509,6 +509,9 @@ static void show_revisions(App *t, char **outs, gpointer data)
   char *working = g_build_filename(r->top, r->new.rel ? r->new.rel : r->old.rel, NULL);
   Tab *left = NULL, *right = NULL;
 
+  if (old_path && new_path && strcmp(old_path, new_path) == 0) /* one version (svn's r0^ is r0): one side, */
+    g_clear_pointer(&old_path, g_free); /* not a second tab on the same file, which would close the first */
+
   if (!old_path && !new_path) {
     show_message(t, "Nothing to compare", "The repository has no such version of this file.");
   } else {

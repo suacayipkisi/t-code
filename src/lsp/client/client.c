@@ -91,14 +91,20 @@ void lsp_finish(Pending *p, JsonNode *result)
 /* Every waiting request (of tab only, unless NULL) gets NULL. */
 void lsp_fail_pending(Lsp *l, Tab *tab)
 {
-  GList *all = g_hash_table_get_values(l->pending);
-
-  for (GList *each = all; each; each = each->next) {
-    Pending *p = each->data;
-    if (!tab || p->tab == tab)
-      lsp_finish(p, NULL);
+  /* One at a time, looked up again each time: a reply may finish others (even by calling this again), so
+   * a list taken before would hold freed ones. */
+  for (;;) {
+    GHashTableIter iter;
+    gpointer value;
+    Pending *found = NULL;
+    g_hash_table_iter_init(&iter, l->pending);
+    while (!found && g_hash_table_iter_next(&iter, NULL, &value))
+      if (!tab || ((Pending *)value)->tab == tab)
+        found = value;
+    if (!found)
+      break;
+    lsp_finish(found, NULL);
   }
-  g_list_free(all);
 }
 
 typedef struct {

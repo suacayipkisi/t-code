@@ -477,7 +477,7 @@ static gboolean focus_current(gpointer data)
 {
   App *t = data;
 
-  if (gtk_widget_get_mapped(t->shell.panel) && !t->closing)
+  if (!t->closing && gtk_widget_get_mapped(t->shell.panel))
     gtk_widget_grab_focus(GTK_WIDGET(current_shell(t)));
   return G_SOURCE_REMOVE;
 }
@@ -579,7 +579,7 @@ static gboolean run_when_idle(gpointer data)
   ShellRun *run = data;
   Shell *shell = shell_of(run->term);
   App *t = shell->app;
-  gboolean open = gtk_notebook_page_num(t->shell.tabs, GTK_WIDGET(run->term)) >= 0 && !t->closing;
+  gboolean open = !t->closing && gtk_notebook_page_num(t->shell.tabs, GTK_WIDGET(run->term)) >= 0;
   pid_t group = shell_foreground(run->term);
   gboolean busy = group && group != shell->pid;
 

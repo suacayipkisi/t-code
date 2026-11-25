@@ -152,10 +152,9 @@ static void read_memory(App *t, gboolean open)
 
 static void evaluate(App *t, const char *expression, gboolean open, gboolean address_of);
 
-/* An address in text ("0x7ffd1230", "(int *) 0x5555... <arr>"), or 0. */
-static guint64 address_in(const char *text)
+guint64 memory_value_address(const char *value)
 {
-  const char *at = text ? strstr(text, "0x") : NULL;
+  const char *at = value && !strchr(value, '{') ? strstr(value, "0x") : NULL;
 
   return at ? g_ascii_strtoull(at, NULL, 16) : 0;
 }
@@ -168,9 +167,9 @@ static void on_evaluated(gpointer data, JsonNode *body, const char *error)
 
   if (a->generation != mem.generation)
     return;
-  if (!address && !error && (!a->address_of || !result || strchr(result, '{') == NULL))
-    address = address_in(result);   /* a pointer's value; not a struct's members */
-  if (!address && !a->address_of) { /* a plain variable: where it is */
+  if (!address && !error)
+    address = memory_value_address(result); /* a pointer's value; not a struct's members */
+  if (!address && !a->address_of) {         /* a plain variable: where it is */
     evaluate(a->app, mem.expression, a->open, TRUE);
     return;
   }
@@ -195,6 +194,9 @@ static void evaluate(App *t, const char *expression, gboolean open, gboolean add
 {
   gint64 frame = debug_view_frame_id();
   Dap *dap = debug_dap(t);
+
+  if (!dap) /* the session ended while the first answer was on its way */
+    return;
   char *what = address_of ? g_strdup_printf("&(%s)", expression) : g_strdup(expression), *quoted = json_quote(what);
   Asked *a = g_new0(Asked, 1);
   char *args =

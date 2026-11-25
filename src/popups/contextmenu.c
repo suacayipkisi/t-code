@@ -32,11 +32,11 @@ static void menu_free(Menu *menu, gboolean run_chosen)
     active_menu = NULL;
   g_clear_handle_id(&menu->finish_id, g_source_remove);
   gtk_widget_insert_action_group(menu->widget, "ctx", NULL);
-  if (menu->popover) {
+  if (menu->popover) { /* our reference: alive even when its widget was destroyed under it */
     g_signal_handlers_disconnect_by_func(menu->popover, on_closed, menu);
     if (gtk_widget_get_parent(menu->popover))
       gtk_widget_unparent(menu->popover);
-    menu->popover = NULL;
+    g_clear_object(&menu->popover);
   }
   if (run_chosen && menu->chosen >= 0 && menu->items[menu->chosen].run)
     menu->items[menu->chosen].run(menu->data);
@@ -101,7 +101,7 @@ void context_menu(GtkWidget *widget, double x, double y, const MenuItem *items, 
   g_object_unref(section);
 
   gtk_widget_insert_action_group(widget, "ctx", G_ACTION_GROUP(group));
-  menu->popover = gtk_popover_menu_new_from_model(G_MENU_MODEL(model));
+  menu->popover = g_object_ref_sink(gtk_popover_menu_new_from_model(G_MENU_MODEL(model)));
   gtk_popover_set_has_arrow(GTK_POPOVER(menu->popover), FALSE);
   gtk_widget_set_halign(menu->popover, GTK_ALIGN_START);
   gtk_widget_set_parent(menu->popover, widget);

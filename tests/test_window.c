@@ -2402,6 +2402,13 @@ static void test_memory_dump(void)
   text = memory_dump_text("p", 0x1000, now, sizeof now, NULL);
   g_assert_null(strstr(text, "Changed"));
   g_free(text);
+
+  /* the address a value names: a pointer's, never a struct member's */
+  g_assert_cmpuint(memory_value_address("0x7ffd1230"), ==, 0x7ffd1230);
+  g_assert_cmpuint(memory_value_address("(int *) 0x5555a0 <arr>"), ==, 0x5555a0);
+  g_assert_cmpuint(memory_value_address("{p = 0x5555a0, n = 3}"), ==, 0);
+  g_assert_cmpuint(memory_value_address("3"), ==, 0);
+  g_assert_cmpuint(memory_value_address(NULL), ==, 0);
 }
 
 /* How F5 debugs the current file's project. */
@@ -2946,6 +2953,10 @@ static void test_preview_math(void)
   for (int i = 0; i < 300; i++)
     g_string_append_c(deep, '{');
   g_string_append(deep, "x$\n\n");
+  GString *sqrts = g_string_new("$"); /* nested through commands, no "{": cut, not a stack overflow */
+  for (int i = 0; i < 100000; i++)
+    g_string_append(sqrts, "\\sqrt");
+  g_string_append(sqrts, " x$\n\n");
   char *text =
       g_strconcat("Empty targets ![alt]() and [a link]().\n\n| h |\n|---|\n| ![c]() [d]() |\n\n"
                   "Inline $x^2$ and $\\frac{a}{b}$ here.\n\n"
@@ -2954,8 +2965,8 @@ static void test_preview_math(void)
                   "Broken $\\frac{\\left( {x \\foo$ and ",
                   deep->str,
                   "> [!WARNING]\n> careful [link](#x)\n\n"
-                  "Costs $5 and $10.\n",
-                  NULL);
+                  "Costs $5 and $10.\n\n",
+                  sqrts->str, "$\\hspace{1e999em}x$\n", NULL);
   g_assert_true(g_file_set_contents(path, text, -1, NULL));
   open_preview_rendered(path);
   Tab *tab = current_tab(&app);
@@ -2964,7 +2975,8 @@ static void test_preview_math(void)
   GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
 
   GPtrArray *formulas = preview_formulas(buffer, offsets);
-  g_assert_cmpuint(formulas->len, ==, 5); /* the one 300 groups deep shows nothing, without crashing */
+  g_assert_cmpuint(formulas->len, ==, 7); /* the one 300 groups deep shows nothing, without crashing */
+  g_assert_cmpint(gdk_paintable_get_intrinsic_width(g_ptr_array_index(formulas, 6)), <, 100000); /* 1e999em */
   GdkPaintable *square = g_ptr_array_index(formulas, 0), *fraction = g_ptr_array_index(formulas, 1);
   g_assert_cmpint(gdk_paintable_get_intrinsic_height(fraction), >, gdk_paintable_get_intrinsic_height(square));
   gtk_text_buffer_get_iter_at_offset(buffer, &iter, g_array_index(offsets, int, 1));
@@ -2994,6 +3006,7 @@ static void test_preview_math(void)
   g_free(path);
   g_free(text);
   g_string_free(deep, TRUE);
+  g_string_free(sqrts, TRUE);
 }
 
 /* The preview shows what GitHub shows: every HTML5 entity, :emoji:, raw HTML (formatting, <sub> and <sup>

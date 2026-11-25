@@ -1030,30 +1030,20 @@ static gboolean blame_shown(gconstpointer tab)
   return blame_text((Tab *)tab) != NULL;
 }
 
-/* A short subject is shown whole, a long one cut at SUMMARY_MAX - 1 characters with "…". */
+/* A long subject is cut at SUMMARY_MAX - 1 characters, with "…" (a short one: test_line_blame). */
 static void test_blame_summary(void)
 {
-  char *porcelain, *text, *long_subject = g_strnfill(70, 'x'), *cut = g_strnfill(SUMMARY_MAX - 1, 'x');
-  char *expected;
-  gint64 now = g_get_real_time() / G_USEC_PER_SEC;
+  char *subject = g_strnfill(70, 'x'), *cut = g_strnfill(SUMMARY_MAX - 1, 'x');
+  char *porcelain = g_strdup_printf("%040d 1 1 1\nauthor Ada\nauthor-time %" G_GINT64_FORMAT "\nsummary %s\n\tint a;",
+                                    1, g_get_real_time() / G_USEC_PER_SEC, subject);
+  char *text = blame_line_text(porcelain), *expected = g_strdup_printf(BLAME_GAP "Ada, just now · %s…", cut);
 
-  porcelain = g_strdup_printf("%s 1 1 1\nauthor Ada\nauthor-time %" G_GINT64_FORMAT "\nsummary Short\n\tint a;",
-                              "1111111111111111111111111111111111111111", now);
-  text = blame_line_text(porcelain);
-  g_assert_cmpstr(text, ==, BLAME_GAP "Ada, just now · Short");
-  g_free(text);
-  g_free(porcelain);
-
-  porcelain = g_strdup_printf("%s 1 1 1\nauthor Ada\nauthor-time %" G_GINT64_FORMAT "\nsummary %s\n\tint a;",
-                              "1111111111111111111111111111111111111111", now, long_subject);
-  text = blame_line_text(porcelain);
-  expected = g_strdup_printf(BLAME_GAP "Ada, just now · %s…", cut);
   g_assert_cmpstr(text, ==, expected);
   g_free(expected);
   g_free(text);
   g_free(porcelain);
   g_free(cut);
-  g_free(long_subject);
+  g_free(subject);
 }
 
 /* The cursor's line says who committed it; once edited, that it is not committed. */

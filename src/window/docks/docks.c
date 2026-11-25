@@ -536,9 +536,10 @@ static gboolean prune_later(gpointer data)
 {
   App *t = data;
 
+  if (t->closing) /* the window is going: nothing to prune, and its widgets may be gone */
+    return G_SOURCE_REMOVE;
   g_object_set_data(G_OBJECT(t->window), "t-code-prune", NULL);
-  if (!t->closing)
-    prune_docks(t);
+  prune_docks(t);
   return G_SOURCE_REMOVE;
 }
 

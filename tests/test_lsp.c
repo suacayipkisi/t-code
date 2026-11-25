@@ -677,6 +677,46 @@ static void test_request_no_reply(void)
   free_tab(tab);
 }
 
+typedef struct {
+  Lsp *lsp;
+  int calls;
+} Reentrant;
+
+/* The first failed request's reply fails the others itself, as closing an editor from a reply would. */
+static void on_fail_others(JsonNode *result G_GNUC_UNUSED, gpointer data)
+{
+  Reentrant *r = data;
+
+  if (r->calls++ == 0)
+    lsp_fail_pending(r->lsp, NULL);
+}
+
+/* Failing the waiting requests while a reply fails them too: each reply comes once. */
+static void test_fail_pending_reentrant(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/reentrant.c", "x\n");
+  Reentrant r = { 0 };
+  GtkTextIter iter;
+  char *position, *params;
+
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  r.lsp = doc_of(tab)->lsp;
+  iter = iter_at(tab, 0, 0);
+  position = lsp_position_params(tab, &iter);
+  params = g_strdup_printf("{%s}", position);
+  for (int i = 0; i < 4; i++)
+    lsp_request(tab, "textDocument/hover", params, NULL, on_fail_others, &r);
+  lsp_fail_pending(r.lsp, NULL);
+  g_assert_cmpint(r.calls, ==, 4);
+  g_assert_cmpuint(g_hash_table_size(r.lsp->pending), ==, 0);
+  run_for(200);
+  g_assert_cmpint(r.calls, ==, 4); /* the server's answers find nobody waiting */
+  g_free(params);
+  g_free(position);
+  free_tab(tab);
+}
+
 /* An editor that goes takes its waiting requests with it: they get NULL at once. */
 static void test_close_waiting(void)
 {
@@ -1719,6 +1759,7 @@ static void test_column_in(void)
   g_assert_cmpint(column_in("çağ x", 6, FALSE), ==, 5); /* "x": after 3 letters of 2 + 2 + 1 bytes and a space */
   g_assert_cmpint(column_in("çağ x", 4, TRUE), ==, 5);
   g_assert_cmpint(column_in("🙂y", 2, TRUE), ==, 2);
+  g_assert_cmpint(column_in("ab\xe2", 99, FALSE), ==, 4); /* a cut UTF-8 sequence at the end: one byte, then the end */
   g_assert_cmpint(column_in("🙂y", 4, FALSE), ==, 2);
   g_assert_cmpint(column_in("ab", 99, FALSE), ==, 3); /* past the end: the line's end */
 }
@@ -2338,6 +2379,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/hover", test_hover);
   g_test_add_func("/lsp/request-no-reply", test_request_no_reply);
   g_test_add_func("/lsp/edits-reverse", test_edits_reverse);
+  g_test_add_func("/lsp/fail-pending-reentrant", test_fail_pending_reentrant);
   g_test_add_func("/lsp/plugin-server", test_plugin_server);
   g_test_add_func("/lsp/uri-contents", test_uri_contents);
   g_test_add_func("/lsp/hover-fixes", test_hover_fixes);

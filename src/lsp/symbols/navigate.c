@@ -79,14 +79,19 @@ static char *line_of(App *t, const char *path, int line, GHashTable *files);
 static int column_in(const char *text, gint64 character, gboolean utf16)
 {
   const char *p = text;
+  int column = 1;
 
-  for (gint64 at = 0; *p;) {
-    at += utf16 ? (g_utf8_get_char(p) >= 0x10000 ? 2 : 1) : (gint64)(g_utf8_next_char(p) - p);
+  for (gint64 at = 0; *p; column++) {
+    gunichar c = g_utf8_get_char_validated(p, -1);
+    /* A byte that does not start a whole character (a file that is not UTF-8) counts as one: a cut
+     * sequence must not step over the NUL. */
+    gsize size = c < 0x80000000u ? (gsize)(g_utf8_next_char(p) - p) : 1;
+    at += utf16 ? (c >= 0x10000 && c < 0x80000000u ? 2 : 1) : (gint64)size;
     if (at > character)
       break;
-    p = g_utf8_next_char(p);
+    p += size;
   }
-  return (int)g_utf8_pointer_to_offset(text, p) + 1;
+  return column;
 }
 
 /* Opens path at an LSP position: from its tab's text when it is open and loaded, else from the

@@ -9,10 +9,13 @@
 
 #include "window/palette.h"
 
+#include <math.h>
 #include <pango/pangocairo.h>
 #include <string.h>
 
-#define MAX_DEPTH 48 /* groups inside groups: deeper ones are left out (no stack overflow on {{{{...) */
+#define MAX_DEPTH 48       /* groups inside groups: deeper ones are left out (no stack overflow on {{{{...) */
+#define MAX_CELLS 10000    /* a matrix's or an aligned block's cells */
+#define MAX_SPACE_MU 18000 /* \hspace and its kind: at most 1000em either way */
 #define SERIF "Latin Modern Roman, STIX Two Text, STIX Two Math, Noto Serif, Noto Sans Math, serif"
 
 /* The tree ----------------------------------------------------------------------------------- */
@@ -520,21 +523,31 @@ static Node *parse_char(Parser *ps, gboolean number)
 static Node *parse_argument(Parser *ps)
 {
   Stop stop;
+  Node *n;
 
+  /* Counted like groups: \sqrt\sqrt\sqrt... nests through commands without a "{". */
+  if (++ps->depth > MAX_DEPTH) {
+    ps->s += strlen(ps->s);
+    ps->depth--;
+    return node_new(NODE_LIST, ORD);
+  }
   skip_spaces(ps);
   if (*ps->s == '{') {
     ps->s++;
-    return parse_list(ps, UNTIL_BRACE, FALSE, &stop);
-  }
-  if (*ps->s == '\\' && ps->s[1] != '\\') {
+    n = parse_list(ps, UNTIL_BRACE, FALSE, &stop);
+  } else if (*ps->s == '\\' && ps->s[1] != '\\') {
     char name[32];
     read_name(ps, name, sizeof name);
-    Node *n = parse_command(ps, name);
-    return n ? n : node_new(NODE_LIST, ORD);
+    n = parse_command(ps, name);
+    if (!n)
+      n = node_new(NODE_LIST, ORD);
+  } else if (!*ps->s || strchr("}&^_\\", *ps->s)) {
+    n = node_new(NODE_LIST, ORD);
+  } else {
+    n = parse_char(ps, FALSE);
   }
-  if (!*ps->s || strchr("}&^_\\", *ps->s))
-    return node_new(NODE_LIST, ORD);
-  return parse_char(ps, FALSE);
+  ps->depth--;
+  return n;
 }
 
 /* x^a, x_b: the script goes on the atom before it (an empty one when there is none). */
@@ -832,7 +845,7 @@ static Node *parse_command(Parser *ps, const char *name)
     else if (g_str_has_prefix(unit, "pt") || g_str_has_prefix(unit, "px"))
       mu = value * 1.8;
     g_free(raw);
-    return space_new(mu);
+    return space_new(isfinite(mu) ? CLAMP(mu, -MAX_SPACE_MU, MAX_SPACE_MU) : 0); /* "1e999em", "nan" */
   }
   if (strcmp(name, "bmod") == 0)
     return symbol_new("mod", BIN, FONT_ROMAN);
@@ -1464,7 +1477,7 @@ static Box layout_matrix(double em, Node *n, Style style)
 
   for (guint r = 0; r < rows; r++)
     cols = MAX(cols, KID(n, r)->kids->len);
-  if (!rows || !cols)
+  if (!rows || !cols || (guint64)rows * cols > MAX_CELLS) /* a matrix too big to lay out: nothing */
     return box;
   Box *cells = g_new0(Box, rows * cols);
   double *ra = g_new0(double, rows), *rd = g_new0(double, rows), *cw = g_new0(double, cols);

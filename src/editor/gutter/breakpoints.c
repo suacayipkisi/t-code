@@ -673,9 +673,12 @@ static void on_leave(GtkEventControllerMotion *motion G_GNUC_UNUSED, Breakpoints
 
 /* The condition's popover --------------------------------------------------------------------- */
 
+static void on_ask_closed(GtkPopover *popover, Breakpoints *b);
+
 static void close_ask(Breakpoints *b)
 {
   if (b->ask) {
+    g_signal_handlers_disconnect_by_func(b->ask, on_ask_closed, b); /* unparenting closes it: no new idle */
     gtk_widget_unparent(b->ask);
     b->ask = b->ask_condition = b->ask_log = NULL;
   }
@@ -790,8 +793,8 @@ void breakpoints_free(Breakpoints *b)
   if (!b)
     return;
   g_signal_handlers_disconnect_by_data(b->tab->buffer, b);
-  g_idle_remove_by_data(b);
   close_ask(b);
+  g_idle_remove_by_data(b); /* after close_ask: nothing can queue one now */
   /* The page went first: the renderer lives on with our reference, and must not reach us. */
   TCODE_BREAKPOINT_RENDERER(b->renderer)->breakpoints = NULL;
   g_object_unref(b->renderer);

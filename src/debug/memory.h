@@ -24,3 +24,7 @@ void memory_ended(App *t);
  * had there, the same length, for the lines under it (free it). */
 char *memory_dump_text(const char *expression, guint64 address, const guchar *bytes, gsize count,
                        const guchar *changed);
+
+/* The address a debugger's value names ("0x7ffd1230", "(int *) 0x5555... <arr>"), or 0: also for a
+ * struct's or an array's members ("{p = 0x5555..., n = 3}"), whose own place is not in the text. */
+guint64 memory_value_address(const char *value);

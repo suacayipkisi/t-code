@@ -406,6 +406,15 @@ static const char *const hierarchy_css = ".tcode-hierarchy { background: var(--t
                                          ".tcode-hierarchy .directions { margin: 2px 10px 4px; }"
                                          ".tcode-hierarchy .directions button { min-height: 0; padding: 1px 8px; }";
 
+/* The panel went (its window closed): answers still on their way find no tree to change. */
+static void hier_on_destroy(GtkWidget *panel G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+{
+  g_clear_object(&hier.roots);
+  hier.generation++;
+  hier.asking++;
+  hier.following++;
+}
+
 GtkWidget *hierarchy_panel(App *t)
 {
   GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0), *scroll = gtk_scrolled_window_new();
@@ -466,5 +475,6 @@ GtkWidget *hierarchy_panel(App *t)
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), GTK_WIDGET(hier.list));
   gtk_widget_set_vexpand(scroll, TRUE);
   gtk_box_append(GTK_BOX(panel), scroll);
+  g_signal_connect(panel, "destroy", G_CALLBACK(hier_on_destroy), NULL);
   return panel;
 }
