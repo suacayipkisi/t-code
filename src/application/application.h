@@ -11,6 +11,10 @@
  * returns the exit status (main() returns it). */
 int application_run(int argc, char **argv);
 
+/* glibc's malloc_trim(0) TRIM_LATER_SECONDS after the last call (a window built, a tab added): glibc
+ * keeps what start-up and loading files freed, 17-28 MB of the window's 60-90 MB, until then. */
+void application_trim_later(void);
+
 /* cli.c: adds t-code [dir] [file...]'s options (--version, --new-window, --send) to app. --version
  * and --send are answered before GTK starts, so they work without a display. */
 void cli_add_options(GApplication *app);

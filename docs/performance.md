@@ -30,7 +30,9 @@ What keeps it small:
 - **No browser engine**: the Markdown preview is a text view, not WebKit (which started a web and
   a network process, 150-200 MB, per preview).
 - **Freed memory goes back**: t-code calls glibc's `malloc_trim(0)` when a tab closes, a search
-  ends and the project changes.
+  ends and the project changes, and five seconds after start-up or the last tab opened. glibc keeps
+  what start-up (the renderer's set-up) and loading files freed: on the desktop (Vulkan) the
+  window went from 76 to 39 MB without tabs, from 81-88 to 57-59 MB with 25.
 - **The Files panel reads only open folders** and frees a folder's rows when it closes. It does
   not watch build output (`build/`, `target/`, `node_modules/`, `.git/`, `.cache/`), and a burst of
   changes reads a folder once (250 ms). Saving a file reads nothing: only files coming, going or

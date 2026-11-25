@@ -22,6 +22,9 @@
 #include "window/window.h"
 
 #include <glib-unix.h>
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -75,6 +78,25 @@ static void on_welcome_chosen(const char *folder, gpointer data)
  * open over there, and two editors on one file overwrite each other. Otherwise the current folder,
  * or the last project (see above), comes back with its tabs; with neither (the first start), the
  * welcome window asks too. */
+#define TRIM_LATER_SECONDS 5 /* files load and color themselves in the background meanwhile */
+
+static guint trim_id;
+
+static gboolean trim_now(gpointer data G_GNUC_UNUSED)
+{
+  trim_id = 0;
+#ifdef __GLIBC__
+  malloc_trim(0);
+#endif
+  return G_SOURCE_REMOVE;
+}
+
+void application_trim_later(void)
+{
+  g_clear_handle_id(&trim_id, g_source_remove);
+  trim_id = g_timeout_add_seconds(TRIM_LATER_SECONDS, trim_now, NULL);
+}
+
 static void on_activate(GApplication *app, App *t)
 {
   gboolean second = already_running() && (cli_new_window() || strcmp(t->project.root, g_get_home_dir()) == 0);

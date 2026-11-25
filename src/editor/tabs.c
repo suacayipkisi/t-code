@@ -4,6 +4,7 @@
  */
 #include "editor/tabs.h"
 
+#include "application/application.h"
 #include "editor/gutter/diffgutter.h"
 #include "editor/editor.h"
 #include "editor/editorview.h"
@@ -354,6 +355,7 @@ Tab *add_tab(App *t, TabKind kind, GtkWidget *page, const char *path)
   tab->item = g_object_ref_sink(tab_label(tab)); /* the tab's: it moves between strips */
   update_tab_label(tab);
   insert_page(group, page, gtk_notebook_get_current_page(group) + 1);
+  application_trim_later(); /* what loading it frees */
   return tab;
 }
 

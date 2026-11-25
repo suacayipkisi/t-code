@@ -4,6 +4,7 @@
  */
 #include "window/window.h"
 
+#include "application/application.h"
 #include "application/identity.h"
 #include "editor/editorview.h"
 #include "editor/preview/preview.h"
@@ -374,5 +375,6 @@ void build_window(App *t, GtkApplication *app)
     plugins_start_project(t);
   gtk_window_present(t->window);
   files_focus(t);
-  updates_start(t); /* the release check (Settings' "Check for updates") starts from here */
+  updates_start(t);         /* the release check (Settings' "Check for updates") starts from here */
+  application_trim_later(); /* what start-up freed (the renderer's set-up, the first frames) */
 }
