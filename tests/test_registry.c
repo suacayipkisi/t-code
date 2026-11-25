@@ -266,6 +266,9 @@ static void test_install(void)
   g_mkdir_with_parents(repo, 0755);
   top = g_strdup_printf("%s/%s.tar.gz", repo, commit);
   char *from = g_build_filename(tmp_dir, "archive", NULL);
+  char *script = g_build_filename(from, "b-0123456789abcdef0123456789abcdef01234567", "plugins", "fix", "run.sh", NULL);
+  run((const char *const[]){ "touch", "-d", "@1000000000", script, NULL }); /* its commit's time: 2001 */
+  g_free(script);
   run((const char *const[]){ "tar", "-czf", top, "-C", from, "b-0123456789abcdef0123456789abcdef01234567", NULL });
   g_free(from);
   g_free(top);
@@ -277,6 +280,9 @@ static void test_install(void)
   g_assert_null(error);
   installed = g_build_filename(plugins, "fix", "run.sh", NULL);
   g_assert_true(g_file_test(installed, G_FILE_TEST_IS_EXECUTABLE));
+  GStatBuf st;
+  g_assert_cmpint(g_stat(installed, &st), ==, 0);
+  g_assert_cmpint(st.st_mtime, >, (gint64)time(NULL) - 600); /* dated now: a build going by times sees it new */
   g_free(installed);
   installed = g_build_filename(plugins, "fix", "old-file", NULL);
   g_assert_false(g_file_test(installed, G_FILE_TEST_EXISTS)); /* the older one is gone */

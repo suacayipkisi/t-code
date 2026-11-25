@@ -771,8 +771,9 @@ static void on_downloaded(GObject *source, GAsyncResult *result, gpointer data)
     finish(in, "Could not download the plugin: offline, or that commit is gone");
   } else {
     g_mkdir_with_parents(unpacked, 0700);
-    /* --no-same-owner / -permissions: the user's own files; GNU tar refuses ".." and leading "/" */
-    tar = g_subprocess_new(G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL, "tar", "-xzf", in->archive, "-C", unpacked,
+    /* --no-same-owner / -permissions: the user's own files; -m: the files dated now, not at their commit
+     * (a build that goes by times, like cargo's, sees an update as new); GNU tar refuses ".." and leading "/" */
+    tar = g_subprocess_new(G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL, "tar", "-xzmf", in->archive, "-C", unpacked,
                            "--no-same-owner", "--no-same-permissions", NULL);
     if (tar) {
       g_subprocess_wait_check_async(tar, NULL, on_unpacked, in);
