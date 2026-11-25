@@ -404,10 +404,13 @@ void plugins_confirm_run(App *t, Plugin *p, const char *command_id)
   gtk_alert_dialog_set_buttons(dialog, buttons);
   gtk_alert_dialog_set_cancel_button(dialog, 0);
   gtk_alert_dialog_set_default_button(dialog, 0);
-  /* over the window the command came from: the Plugins window only when it is the one in front
-   * (open behind the editor, it would hide the question, and every later run would wait on it) */
-  GtkWindow *parent =
-      manager && gtk_window_is_active(GTK_WINDOW(manager->window)) ? GTK_WINDOW(manager->window) : t->window;
+  /* Over the main window when it is the one in front: the Plugins window, open behind the editor,
+   * would hide the question. Else over the open Plugins window, which stays above the main window: also
+   * when neither is active because the question that turned the plugin on has just closed (over the
+   * main window then, it went under the Plugins window and the main window took no click or key). */
+  GtkWindow *parent = manager && gtk_widget_get_visible(manager->window) && !gtk_window_is_active(t->window)
+                          ? GTK_WINDOW(manager->window)
+                          : t->window;
   gtk_alert_dialog_choose(dialog, parent, NULL, on_run_answer, q);
   g_object_unref(dialog);
 }

@@ -5124,8 +5124,9 @@ static void test_dialog_edge(void)
 }
 
 /* The first run's question goes over the main window when the Plugins window, still open, is behind it
- * (over that one it went unseen and the command seemed dead); asked again meanwhile, the status bar
- * says the question is open instead of nothing. */
+ * (over that one it went unseen and the command seemed dead), and over the Plugins window when the main
+ * window is not in front (under it, the question blocked the main window unseen); asked again
+ * meanwhile, the status bar says the question is open instead of nothing. */
 static void test_plugins_run_question(void)
 {
   Plugin quiet = { .id = "quiet", .name = "Quiet", .provider = "" };
@@ -5160,7 +5161,24 @@ static void test_plugins_run_question(void)
   g_assert_nonnull(question);
   g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "");
   gtk_widget_activate(gtk_widget_get_ancestor(label_under(GTK_WIDGET(question), "Not Now"), GTK_TYPE_BUTTON));
+  for (int i = 0; i < 40 && question_of("Quiet"); i++)
+    run_for(50);
+
+  /* neither the main window nor the Plugins window active (the question that turned the plugin on has
+   * just closed): over the Plugins window, which stays above the main window */
+  GtkWidget *other = gtk_window_new();
+  gtk_window_present(GTK_WINDOW(other));
+  for (int i = 0; i < 40 && gtk_window_is_active(app.window); i++)
+    run_for(50);
+  g_assert_false(gtk_window_is_active(app.window));
+  plugins_confirm_run(&app, &quiet, "go");
   run_for(50);
+  question = question_of("Quiet");
+  g_assert_nonnull(question);
+  g_assert_true(gtk_window_get_transient_for(question) == plugins);
+  gtk_widget_activate(gtk_widget_get_ancestor(label_under(GTK_WIDGET(question), "Not Now"), GTK_TYPE_BUTTON));
+  run_for(50);
+  gtk_window_destroy(GTK_WINDOW(other));
   gtk_window_destroy(plugins);
   run_for(50);
 }
