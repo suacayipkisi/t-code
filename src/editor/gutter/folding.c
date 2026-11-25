@@ -27,6 +27,7 @@ struct Folding {
   GtkWidget *renderer;
   GtkWidget *numbers; /* the line numbers (TcodeLineNumbers) */
   int digits;         /* the numbers' width is made for */
+  int bright_line;    /* the line whose number is drawn bright */
   GArray *blocks;     /* Block, for the text with this change count: */
   guint blocks_changes;
   GArray *folds;  /* Fold */
@@ -565,6 +566,19 @@ static void on_lines_changed(GtkTextBuffer *buffer G_GNUC_UNUSED, Folding *f)
   fit_numbers(f);
 }
 
+/* The cursor's number is drawn bright: the gutter is not drawn again by itself when the cursor moves to
+ * another line, so the old line kept it until the pointer passed over the gutter. */
+static void on_cursor_position(GtkTextBuffer *buffer, GParamSpec *pspec G_GNUC_UNUSED, Folding *f)
+{
+  GtkTextIter cursor;
+
+  gtk_text_buffer_get_iter_at_mark(buffer, &cursor, gtk_text_buffer_get_insert(buffer));
+  if (gtk_text_iter_get_line(&cursor) == f->bright_line)
+    return;
+  f->bright_line = gtk_text_iter_get_line(&cursor);
+  gtk_widget_queue_draw(f->numbers);
+}
+
 /* The arrows of unfolded blocks show while the pointer is over the gutter. */
 static void on_gutter_enter(GtkEventControllerMotion *motion G_GNUC_UNUSED, double x G_GNUC_UNUSED,
                             double y G_GNUC_UNUSED, Folding *f)
@@ -594,6 +608,7 @@ void folding_attach(Tab *tab)
   TCODE_LINE_NUMBERS(f->numbers)->folding = f;
   gtk_source_gutter_insert(gutter, GTK_SOURCE_GUTTER_RENDERER(f->numbers), -30); /* where GtkSourceView's go */
   g_signal_connect(tab->buffer, "changed", G_CALLBACK(on_lines_changed), f);
+  g_signal_connect(tab->buffer, "notify::cursor-position", G_CALLBACK(on_cursor_position), f);
   fit_numbers(f);
   g_signal_connect(motion, "enter", G_CALLBACK(on_gutter_enter), f);
   g_signal_connect(motion, "leave", G_CALLBACK(on_gutter_leave), f);

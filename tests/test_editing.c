@@ -1454,6 +1454,23 @@ static void assert_hidden(Tab *tab, const char *want)
   g_free(now);
 }
 
+/* The cursor's line number is drawn bright: the line numbers follow the cursor to another line, by a
+ * click or by typing, without the pointer going over the gutter. */
+static void test_line_number_follows_cursor(void)
+{
+  Tab *tab = new_tab("a\nb\nc\nd\n");
+  Folding *f = tab->view->folding;
+  GtkTextIter end;
+
+  place_cursor(tab, 2);
+  g_assert_cmpint(f->bright_line, ==, 2);
+  gtk_text_buffer_get_iter_at_mark(GTK_TEXT_BUFFER(tab->buffer), &end,
+                                   gtk_text_buffer_get_insert(GTK_TEXT_BUFFER(tab->buffer)));
+  gtk_text_buffer_insert(GTK_TEXT_BUFFER(tab->buffer), &end, "\n", -1);
+  g_assert_cmpint(f->bright_line, ==, 3);
+  free_tab(tab);
+}
+
 /* A block folds to its head and closing line, the head of an Allman block being the line above its
  * brace; the cursor going into it unfolds it, and so does deleting its brace. */
 static void test_folding(void)
@@ -1852,6 +1869,7 @@ int main(int argc, char **argv)
   g_test_add_func("/diff-gutter/comparison-resize", test_comparison_resize);
   g_test_add_func("/diff-gutter/wrapped-heights", test_wrapped_heights);
   g_test_add_func("/folding/fold-unfold", test_folding);
+  g_test_add_func("/folding/line-number-follows-cursor", test_line_number_follows_cursor);
   g_test_add_func("/sticky/heads", test_sticky);
   g_test_add_func("/settings/ruler", test_ruler);
   g_test_add_func("/guides/brackets", test_guide_brackets);

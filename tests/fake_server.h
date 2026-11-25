@@ -8,6 +8,8 @@
  */
 #pragma once
 
+#include "glib.h"
+#include "lsp/json.h"
 #include <stdio.h>
 #include <string.h>
 
