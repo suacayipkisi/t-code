@@ -6,6 +6,28 @@
   "version": "0.2.0",
   "description": "jdtls (completion, errors, navigation, refactoring), Run, Debug (F5, through java-debug), Build, Test and Clean for Maven, Gradle and plain folders, with errors and exceptions as diagnostics; library classes open as read-only sources. Language server: run Java: Install Language Server once (downloads jdtls; needs a JDK 21+).",
   "executable": "java_plugin.py",
+  "requires": [
+    {
+      "program": "python3",
+      "for": "running the plugin",
+      "install": {
+        "fedora": "sudo dnf install python3",
+        "debian": "sudo apt install python3",
+        "arch": "sudo pacman -S python",
+        "opensuse": "sudo zypper install python3"
+      }
+    },
+    {
+      "program": "java",
+      "for": "jdtls and running Java (a JDK 21 or newer)",
+      "install": {
+        "fedora": "sudo dnf install java-21-openjdk-devel",
+        "debian": "sudo apt install openjdk-21-jdk",
+        "arch": "sudo pacman -S jdk21-openjdk",
+        "opensuse": "sudo zypper install java-21-openjdk-devel"
+      }
+    }
+  ],
   "start": "project",
   "permissions": ["terminal", "network", "start"],
   "commands": [

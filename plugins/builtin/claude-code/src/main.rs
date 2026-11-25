@@ -1,35 +1,35 @@
-//! Claude Code for t-code, in Rust (the standard library only). It needs the claude command.
+//! Claude Code for t-code, in Rust (the standard library only). It needs the claude command,
+//! installed and signed in: the plugin only puts it into t-code.
 //!
-//! - `session`: opens Claude Code in a terminal tab of the project (one per project; again: says
-//!   where it is). t-code types /exit into it when it closes.
-//! - `send`: asks for a prompt and sends it to the session with the selection as a reference,
-//!   "@src/main.c#L5-10 why is this slow?"; starts the session when there is none.
-//! - `ask`: asks a question about the active file and streams the answer into the "Claude" view on
-//!   the right. Closing the view stops claude.
+//! - `chat`: opens the "Claude" panel on the right: a conversation in Markdown, a box to write in and
+//!   the mode beside it (Ask: no tools; Read: reads files; Edit: changes them). What claude wants to
+//!   do that needs permission shows as a question with Allow and Deny.
+//! - `send`: puts a reference to the selection ("@src/main.c#L5-10") into the chat's box.
+//! - `ask`: puts a reference to the active file into the chat's box.
 //! - `review`: has claude review the active buffer: its findings go to Problems (diagnostics) and
 //!   to the "Claude Review" view at the bottom.
 //! - `rewrite`: rewrites the selection as asked, as one undo step (`edit`), and selects the new text.
 //! - `clear`: takes the review's diagnostics and its view away.
-//! - `start` (with the project): opens the place ("src/main.c:42") a line of the plugin's views
-//!   names when the line is activated.
+//! - `start` (with the project): runs the chat's conversations with claude, and opens the place
+//!   ("src/main.c:42") a line of the review's view names when the line is activated.
 
+mod chat;
 mod claude;
 mod json;
 mod tcode;
 
+use chat::{Action, ChatStream};
 use claude::Range;
+use json::Json;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use tcode::{quote, Tcode};
 
 const STATUS: &str = "claude";
 
-const PANEL_PROMPT: &str = "You answer inside a plain text panel of the t-code editor: no Markdown tables, \
-headings or bold text. Name places in the code as path:line (relative to the project folder), one per line \
-when there are several, so the user can open them.";
+const CHAT: &str = "chat"; // the panel's view id
 
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_default()
@@ -118,125 +118,10 @@ impl Plugin {
     }
 }
 
-// The session's terminal tab id, kept per project while the user's login lasts.
-
-fn tab_file(root: &str) -> PathBuf {
-    let dir = match std::env::var_os("XDG_RUNTIME_DIR") {
-        Some(dir) => PathBuf::from(dir),
-        None => std::env::temp_dir(),
-    };
-    dir.join("t-code-claude-code").join(format!("{}.tab", root.trim_matches('/').replace('/', "%")))
-}
-
-/// The session's tab when it is still open. terminal-close-text answers bad-argument for a tab
-/// that is gone, so it tells without typing anything into the tab.
-fn session_tab(p: &mut Plugin) -> Option<String> {
-    let tab = std::fs::read_to_string(tab_file(&p.root)).ok()?.trim().to_string();
-    (!tab.is_empty() && p.request("terminal-close-text", &format!("{tab} /exit")).is_ok()).then_some(tab)
-}
-
-/// Opens Claude Code in a terminal tab, with prompt as its first message when given.
-fn open_session(p: &mut Plugin, claude: &Path, prompt: Option<&str>) -> io::Result<String> {
-    let mut line = format!("Claude -- {}", claude::shell_quote(&claude.to_string_lossy()));
-    if let Some(prompt) = prompt {
-        line = format!("{line} {}", claude::shell_quote(prompt));
-    }
-    let tab = p.request("terminal-open", &line)?;
-    let _ = p.request("terminal-close-text", &format!("{tab} /exit"));
-    let file = tab_file(&p.root);
-    if let Some(dir) = file.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(file, &tab);
-    Ok(tab)
-}
-
-fn session() -> io::Result<()> {
-    let mut p = Plugin::new()?;
-    if session_tab(&mut p).is_some() {
-        p.say("the session is open in the \"Claude\" terminal tab");
-        return Ok(());
-    }
-    let Some(claude) = p.claude() else { return Ok(()) };
-    open_session(&mut p, &claude, None).map(|_| ())
-}
-
-fn send() -> io::Result<()> {
-    let mut p = Plugin::new()?;
-    let Some(file) = p.active_file() else { return Ok(()) };
-    let range = p.selection_range()?;
-    let mention = claude::mention(&p.root, &file, range);
-    let Some(prompt) = p.question(&format!("Ask Claude about {mention}"))? else { return Ok(()) };
-    let message = format!("{mention} {prompt}");
-    match session_tab(&mut p) {
-        Some(tab) => {
-            p.request("terminal-send", &format!("{tab} {message}"))?;
-        }
-        None => {
-            let Some(claude) = p.claude() else { return Ok(()) };
-            open_session(&mut p, &claude, Some(&message))?;
-        }
-    }
-    p.say(&format!("sent {mention}"));
-    Ok(())
-}
-
-/// A running claude -p that another thread may stop.
-#[derive(Clone)]
-struct Stopper {
-    child: Arc<Mutex<Option<Child>>>,
-    stopped: Arc<AtomicBool>,
-}
-
-impl Stopper {
-    fn new() -> Stopper {
-        Stopper { child: Arc::new(Mutex::new(None)), stopped: Arc::new(AtomicBool::new(false)) }
-    }
-
-    fn stop(&self) {
-        self.stopped.store(true, Ordering::SeqCst);
-        if let Some(child) = self.child.lock().unwrap().as_mut() {
-            let _ = child.kill();
-        }
-    }
-
-    fn stopped(&self) -> bool {
-        self.stopped.load(Ordering::SeqCst)
-    }
-
-    /// Stops claude when the user closes the plugin's view id (a connection of its own).
-    fn on_view_closed(&self, id: &'static str) {
-        let stopper = self.clone();
-        let Ok(mut events) = connect() else { return };
-        std::thread::spawn(move || {
-            if events.request("subscribe").is_err() {
-                return;
-            }
-            let me = env("TCODE_PLUGIN_ID");
-            while let Ok(Some(line)) = events.line() {
-                if tcode::member(&line, "event") == "view_closed"
-                    && tcode::member(&line, "plugin") == me
-                    && tcode::member(&line, "id") == id
-                {
-                    stopper.stop();
-                }
-            }
-        });
-    }
-}
-
-/// Runs claude -p in root with the prompt on stdin, hands each finished line of its answer to
-/// line and answers its outcome.
-fn run_claude(
-    claude: &Path,
-    root: &str,
-    prompt: &str,
-    stopper: &Stopper,
-    mut line: impl FnMut(&str),
-    args: &[&str],
-) -> Result<claude::Outcome, String> {
+/// Runs claude -p in root with the prompt on stdin and answers its outcome.
+fn run_claude(claude: &Path, root: &str, prompt: &str, args: &[&str]) -> Result<claude::Outcome, String> {
     let mut child = Command::new(claude)
-        .args(["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
+        .args(["-p", "--output-format", "stream-json", "--verbose"])
         .args(args)
         .current_dir(root)
         .stdin(Stdio::piped())
@@ -247,7 +132,6 @@ fn run_claude(
     let mut stdin = child.stdin.take().unwrap();
     let stdout = child.stdout.take().unwrap();
     let mut stderr = child.stderr.take().unwrap();
-    *stopper.child.lock().unwrap() = Some(child);
     let prompt = prompt.to_string();
     std::thread::spawn(move || {
         let _ = stdin.write_all(prompt.as_bytes());
@@ -260,15 +144,10 @@ fn run_claude(
     let mut stream = claude::Stream::default();
     for raw in BufReader::new(stdout).lines() {
         let Ok(raw) = raw else { break };
-        for text in stream.feed(&raw) {
-            line(&text);
-        }
+        stream.feed(&raw);
     }
-    let status = stopper.child.lock().unwrap().take().map(|mut child| child.wait());
+    let status = child.wait();
     let errors = errors.join().unwrap_or_default();
-    if stopper.stopped() {
-        return Err("stopped".into());
-    }
     match stream.outcome {
         Some(outcome) if outcome.is_error => Err(format!("claude: {}", first_line(&outcome.text))),
         Some(outcome) => Ok(outcome),
@@ -284,63 +163,6 @@ fn run_claude(
 
 fn first_line(text: &str) -> &str {
     text.trim().lines().next().unwrap_or("")
-}
-
-fn file_context(p: &mut Plugin, file: &str) -> io::Result<String> {
-    let mut out = format!("\n\nThe file open in the editor: {}", claude::relative(&p.root, file));
-    let [l1, c1, l2, c2] = p.selection_range()?;
-    if l1 == l2 && c1 == c2 {
-        out += &format!(", the cursor on line {l1}");
-    } else {
-        out += &format!(", lines {l1}-{l2} selected");
-        let selection = p.text("get-selection")?;
-        if selection.len() < 64 * 1024 {
-            out += &format!(":\n```\n{selection}\n```");
-        }
-    }
-    Ok(out)
-}
-
-fn ask() -> io::Result<()> {
-    let mut p = Plugin::new()?;
-    let Some(file) = p.active_file() else { return Ok(()) };
-    let Some(claude) = p.claude() else { return Ok(()) };
-    let name = Path::new(&file).file_name().unwrap_or_default().to_string_lossy().into_owned();
-    let Some(query) = p.question(&format!("Ask Claude about {name}"))? else { return Ok(()) };
-    let prompt = query.clone() + &file_context(&mut p, &file)?;
-    let view =
-        format!(r#"{{"id":"answer","title":"Claude","where":"right","text":{}}}"#, quote(&format!("› {query}\n")));
-    p.request("view-open", &view)?;
-    let stopper = Stopper::new();
-    stopper.on_view_closed("answer");
-    p.status("thinking…");
-    let root = p.root.clone();
-    let args = ["--tools", "Read,Grep,Glob", "--append-system-prompt", PANEL_PROMPT];
-    let result = run_claude(
-        &claude,
-        &root,
-        &prompt,
-        &stopper,
-        |line| {
-            if let Err(e) = p.request("view-append", &format!("answer {line}")) {
-                if is_code(&e, "no-view") {
-                    stopper.stop();
-                }
-            }
-        },
-        &args,
-    );
-    p.status_clear();
-    match result {
-        Err(_) if stopper.stopped() => p.say("stopped"),
-        Err(message) => {
-            let _ = p.request("view-append", &format!("answer \n{message}"));
-        }
-        Ok(outcome) => {
-            let _ = p.request("view-append", &format!("answer \n— done (${:.4})", outcome.cost));
-        }
-    }
-    Ok(())
 }
 
 fn review() -> io::Result<()> {
@@ -359,14 +181,7 @@ fn review() -> io::Result<()> {
         claude::numbered(&text)
     );
     let root = p.root.clone();
-    let result = run_claude(
-        &claude,
-        &root,
-        &prompt,
-        &Stopper::new(),
-        |_| {},
-        &["--tools", "", "--json-schema", claude::REVIEW_SCHEMA],
-    );
+    let result = run_claude(&claude, &root, &prompt, &["--tools", "", "--json-schema", claude::REVIEW_SCHEMA]);
     p.status_clear();
     let issues = match result.and_then(|outcome| claude::parse_review(&outcome.structured, &outcome.text)) {
         Ok(issues) => issues,
@@ -408,14 +223,7 @@ fn rewrite() -> io::Result<()> {
         prompt += &format!("\nThe whole file, for context:\n```\n{before}\n```\n");
     }
     let root = p.root.clone();
-    let result = run_claude(
-        &claude,
-        &root,
-        &prompt,
-        &Stopper::new(),
-        |_| {},
-        &["--tools", "", "--json-schema", claude::REWRITE_SCHEMA],
-    );
+    let result = run_claude(&claude, &root, &prompt, &["--tools", "", "--json-schema", claude::REWRITE_SCHEMA]);
     p.status_clear();
     let text = match result.and_then(|outcome| claude::parse_rewrite(&outcome.structured)) {
         Ok(text) => text,
@@ -452,31 +260,293 @@ fn clear() -> io::Result<()> {
     Ok(())
 }
 
-/// Listens for the lines of the plugin's views being activated, and opens their places. It ends
-/// when t-code closes the connection or stops it (SIGTERM ends the process).
+// The chat -------------------------------------------------------------------------------------
+
+/// Shows the chat's panel, opening it (with the welcome text) when it is not open.
+fn open_chat(p: &mut Plugin) -> io::Result<()> {
+    match p.request("view-show", CHAT) {
+        Ok(_) => Ok(()),
+        Err(e) if is_code(&e, "no-view") => {
+            let modes: Vec<String> = chat::MODES.iter().map(|m| quote(m)).collect();
+            let view = format!(
+                r#"{{"id":"{CHAT}","title":"Claude","where":"right","icon":"tcode-chat-symbolic","markdown":true,"input":"Ask Claude…","modes":[{}],"mode":{},"text":{}}}"#,
+                modes.join(","),
+                quote(chat::MODES[0]),
+                quote(chat::WELCOME)
+            );
+            p.request("view-open", &view).map(|_| ())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn chat_command() -> io::Result<()> {
+    let mut p = Plugin::new()?;
+    open_chat(&mut p)
+}
+
+/// The chat's box gets a reference to the active file: its selected lines (selection) or the file.
+fn mention_in_chat(selection: bool) -> io::Result<()> {
+    let mut p = Plugin::new()?;
+    let Some(file) = p.active_file() else { return Ok(()) };
+    let range = if selection { p.selection_range()? } else { [1, 1, 1, 1] };
+    let mention = claude::mention(&p.root, &file, range);
+    open_chat(&mut p)?;
+    p.request("view-input", &format!("{CHAT} {mention} ")).map(|_| ())
+}
+
+/// The chat's conversation with claude, shared by the event loop and the thread reading claude.
+#[derive(Default)]
+struct Session {
+    child: Option<Child>,
+    stdin: Option<ChildStdin>,
+    mode: String,              // the mode claude runs in
+    id: Option<String>,        // claude's session, resumed when claude starts again
+    busy: bool,                // a turn runs
+    asks: Vec<(String, Json)>, // claude's open permission questions: request id, tool input
+    generation: u64,           // the claude run the reading thread belongs to
+    signed_in: bool,           // claude auth status said so
+}
+
+type Shared = Arc<Mutex<Session>>;
+
+fn extend(t: &mut Tcode, text: &str) {
+    let _ = t.request(&format!("view-extend {CHAT} {text}"));
+}
+
+/// Whether claude is signed in (claude auth status); asked until it is. A claude without that
+/// command is taken as signed in: it says so itself when it is not.
+fn signed_in(shared: &Shared, claude: &Path) -> bool {
+    if shared.lock().unwrap().signed_in {
+        return true;
+    }
+    let yes = match Command::new(claude).args(["auth", "status"]).stdin(Stdio::null()).stderr(Stdio::null()).output() {
+        Ok(out) => json::parse(&String::from_utf8_lossy(&out.stdout))
+            .map(|status| status.get("loggedIn").is_true())
+            .unwrap_or(!out.status.success() || out.stdout.is_empty()),
+        Err(_) => true,
+    };
+    shared.lock().unwrap().signed_in = yes;
+    yes
+}
+
+/// Where the user is: the active file and its cursor or selection, after the message.
+fn chat_context(p: &mut Plugin) -> String {
+    let file = p.request("get-file", "").unwrap_or_default();
+    if file.is_empty() {
+        return String::new();
+    }
+    let rel = claude::relative(&p.root, &file);
+    match p.selection_range() {
+        Ok([l1, c1, l2, c2]) if l1 == l2 && c1 == c2 => {
+            format!("\n\n(Open in the editor: {rel}, the cursor on line {l1}.)")
+        }
+        Ok([l1, _, l2, _]) => format!("\n\n(Open in the editor: {rel}, lines {l1}-{l2} selected.)"),
+        Err(_) => format!("\n\n(Open in the editor: {rel}.)"),
+    }
+}
+
+/// The user sent text in mode: it goes to claude, started (again) in that mode when it does not run
+/// in it, resuming the conversation.
+fn chat_input(p: &mut Plugin, shared: &Shared, text: &str, mode: &str) -> io::Result<()> {
+    let mode = if chat::MODES.contains(&mode) { mode } else { chat::MODES[0] };
+    if shared.lock().unwrap().busy {
+        extend(&mut p.t, "\n\n*Claude is still answering: wait for it, or press Stop.*\n\n");
+        return Ok(());
+    }
+    extend(&mut p.t, &chat::user_block(text, mode));
+    let Some(claude) = claude::find_claude() else {
+        extend(&mut p.t, "**Claude Code is not installed.** Install it (the Plugins window shows how, under Needs), sign in, and ask again.");
+        return Ok(());
+    };
+    if !signed_in(shared, &claude) {
+        extend(&mut p.t, "**Claude Code is not signed in.** Run `claude auth login` in a terminal, then ask again.");
+        return Ok(());
+    }
+    let context = if mode == "Ask" { String::new() } else { chat_context(p) }; // Ask reads no files
+    let message = chat::user_message(&format!("{text}{context}"));
+    let mut s = shared.lock().unwrap();
+    let alive = s.child.as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_none());
+    if !alive || s.mode != mode {
+        if let Some(mut child) = s.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        s.stdin = None;
+        s.generation += 1;
+        let spawned = Command::new(&claude)
+            .args(chat::arguments(mode, s.id.as_deref()))
+            .current_dir(&p.root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn();
+        let mut child = match spawned {
+            Ok(child) => child,
+            Err(e) => {
+                drop(s);
+                extend(&mut p.t, &format!("**claude did not start:** {e}"));
+                return Ok(());
+            }
+        };
+        let (stdout, stderr) = (child.stdout.take().unwrap(), child.stderr.take().unwrap());
+        s.stdin = child.stdin.take();
+        s.child = Some(child);
+        s.mode = mode.to_string();
+        let (reader, generation, root) = (shared.clone(), s.generation, p.root.clone());
+        std::thread::spawn(move || read_claude(reader, generation, root, stdout, stderr));
+    }
+    let written = match s.stdin.as_mut() {
+        Some(w) => writeln!(w, "{message}").and_then(|_| w.flush()),
+        None => Err(io::Error::other("claude's input is closed")),
+    };
+    s.busy = written.is_ok();
+    drop(s);
+    match written {
+        Ok(()) => p.request("view-busy", &format!("{CHAT} Claude is working…")).map(|_| ()),
+        Err(e) => {
+            extend(&mut p.t, &format!("**claude did not take the message:** {e}"));
+            Ok(())
+        }
+    }
+}
+
+/// Reads one claude run's output into the panel until it ends (a connection of its own).
+fn read_claude(
+    shared: Shared,
+    generation: u64,
+    root: String,
+    stdout: std::process::ChildStdout,
+    mut stderr: std::process::ChildStderr,
+) {
+    let errors = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = io::Read::read_to_string(&mut stderr, &mut text);
+        text
+    });
+    let Ok(mut t) = connect() else { return };
+    let mut stream = ChatStream::new(&root);
+    for raw in BufReader::new(stdout).lines() {
+        let Ok(raw) = raw else { break };
+        for action in stream.feed(&raw) {
+            match action {
+                Action::Text(text) => extend(&mut t, &text),
+                Action::Session(id) => shared.lock().unwrap().id = Some(id),
+                Action::Ask { request, tool, input } => {
+                    let question = chat::question(&tool, &input);
+                    shared.lock().unwrap().asks.push((request.clone(), input));
+                    let _ = t.request(&format!(
+                        r#"view-prompt {{"id":"{CHAT}","prompt":{},"text":{},"choices":["Allow","Deny"]}}"#,
+                        quote(&request),
+                        quote(&question)
+                    ));
+                }
+                Action::Done(error) => {
+                    shared.lock().unwrap().busy = false;
+                    let _ = t.request(&format!("view-busy {CHAT}"));
+                    if let Some(error) = error {
+                        extend(&mut t, &format!("\n\n**Claude Code:** {error}\n\n"));
+                    }
+                }
+            }
+        }
+    }
+    let errors = errors.join().unwrap_or_default();
+    let mut s = shared.lock().unwrap();
+    if s.generation != generation {
+        return; // stopped, or started again in another mode
+    }
+    let was_busy = std::mem::take(&mut s.busy);
+    let asks = std::mem::take(&mut s.asks);
+    s.stdin = None;
+    if let Some(mut child) = s.child.take() {
+        let _ = child.wait();
+    }
+    drop(s);
+    for (request, _) in asks {
+        let _ = t.request(&format!(r#"view-prompt {{"id":"{CHAT}","prompt":{},"choices":[]}}"#, quote(&request)));
+    }
+    if was_busy {
+        let _ = t.request(&format!("view-busy {CHAT}"));
+        let why = errors.trim().lines().last().unwrap_or("it ended without an answer").to_string();
+        extend(&mut t, &format!("\n\n**Claude Code stopped:** {why}\n\n"));
+    }
+}
+
+/// One of claude's permission questions was answered.
+fn chat_choice(shared: &Shared, prompt: &str, choice: &str) {
+    let mut s = shared.lock().unwrap();
+    let Some(at) = s.asks.iter().position(|(request, _)| request == prompt) else { return };
+    let (request, input) = s.asks.remove(at);
+    let line = chat::permission(&request, choice == "Allow", &input);
+    if let Some(w) = s.stdin.as_mut() {
+        let _ = writeln!(w, "{line}").and_then(|_| w.flush());
+    }
+}
+
+/// Stop: claude ends; the next message starts it again, resuming the conversation.
+fn chat_stop(t: Option<&mut Tcode>, shared: &Shared) {
+    let mut s = shared.lock().unwrap();
+    s.generation += 1;
+    if let Some(mut child) = s.child.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    s.stdin = None;
+    let was_busy = std::mem::take(&mut s.busy);
+    let asks = std::mem::take(&mut s.asks);
+    drop(s);
+    let Some(t) = t else { return };
+    for (request, _) in asks {
+        let _ = t.request(&format!(r#"view-prompt {{"id":"{CHAT}","prompt":{},"choices":[]}}"#, quote(&request)));
+    }
+    let _ = t.request(&format!("view-busy {CHAT}"));
+    if was_busy {
+        extend(t, "\n\n*Stopped.*\n\n");
+    }
+}
+
+/// Runs the chat's conversations and opens the places the review's lines name when they are
+/// activated. It ends when t-code closes the connection or stops it (SIGTERM ends the process;
+/// claude then sees its input close).
 fn start() -> io::Result<()> {
     let mut p = Plugin::new()?;
     let mut events = connect()?;
     events.request("subscribe")?;
     let me = env("TCODE_PLUGIN_ID");
+    let shared: Shared = Arc::default();
     let exists = |path: &Path| path.is_file();
     while let Some(line) = events.line()? {
-        if tcode::member(&line, "event") != "view_activated" || tcode::member(&line, "plugin") != me {
+        if tcode::member(&line, "plugin") != me {
             continue;
         }
-        if let Some(place) = claude::locate(&p.root, &tcode::member(&line, "text"), exists) {
-            p.request("open", &place)?;
+        let chat = tcode::member(&line, "id") == CHAT;
+        match tcode::member(&line, "event").as_str() {
+            "view_activated" if !chat => {
+                if let Some(place) = claude::locate(&p.root, &tcode::member(&line, "text"), exists) {
+                    p.request("open", &place)?;
+                }
+            }
+            "view_input" if chat => {
+                chat_input(&mut p, &shared, &tcode::member(&line, "text"), &tcode::member(&line, "mode"))?
+            }
+            "view_choice" if chat => {
+                chat_choice(&shared, &tcode::member(&line, "prompt"), &tcode::member(&line, "choice"))
+            }
+            "view_stop" if chat => chat_stop(Some(&mut p.t), &shared),
+            _ => {}
         }
     }
+    chat_stop(None, &shared);
     Ok(())
 }
 
 fn main() {
     let command = std::env::args().nth(1).unwrap_or_default();
     let result = match command.as_str() {
-        "session" => session(),
-        "send" => send(),
-        "ask" => ask(),
+        "chat" => chat_command(),
+        "send" => mention_in_chat(true),
+        "ask" => mention_in_chat(false),
         "review" => review(),
         "rewrite" => rewrite(),
         "clear" => clear(),

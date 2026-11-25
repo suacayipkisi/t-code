@@ -6,6 +6,28 @@
   "version": "1.0.0",
   "description": "ShellCheck's warnings in the Problems panel and the editor whenever a shell script is opened or saved.",
   "executable": "shellcheck_plugin.py",
+  "requires": [
+    {
+      "program": "python3",
+      "for": "running the plugin",
+      "install": {
+        "fedora": "sudo dnf install python3",
+        "debian": "sudo apt install python3",
+        "arch": "sudo pacman -S python",
+        "opensuse": "sudo zypper install python3"
+      }
+    },
+    {
+      "program": "shellcheck",
+      "for": "the warnings",
+      "install": {
+        "fedora": "sudo dnf install ShellCheck",
+        "debian": "sudo apt install shellcheck",
+        "arch": "sudo pacman -S shellcheck",
+        "opensuse": "sudo zypper install ShellCheck"
+      }
+    }
+  ],
   "start": "project",
   "permissions": ["start"],
   "commands": [

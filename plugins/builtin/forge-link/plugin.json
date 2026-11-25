@@ -6,6 +6,28 @@
   "version": "0.1.0",
   "description": "Copies or opens the web link of the cursor's line or the selected lines, at the current commit, on GitHub, GitLab, Codeberg / Gitea or Bitbucket. Needs Perl 5 and git.",
   "executable": "forge_link.pl",
+  "requires": [
+    {
+      "program": "perl",
+      "for": "running the plugin",
+      "install": {
+        "fedora": "sudo dnf install perl",
+        "debian": "sudo apt install perl",
+        "arch": "sudo pacman -S perl",
+        "opensuse": "sudo zypper install perl"
+      }
+    },
+    {
+      "program": "git",
+      "for": "the commit and the remote",
+      "install": {
+        "fedora": "sudo dnf install git",
+        "debian": "sudo apt install git",
+        "arch": "sudo pacman -S git",
+        "opensuse": "sudo zypper install git"
+      }
+    }
+  ],
   "commands": [
     { "id": "copy", "name": "Open on GitHub: Copy Link to This Line" },
     { "id": "open", "name": "Open on GitHub: Open This Line in the Browser" }

@@ -6,6 +6,19 @@
   "version": "0.1.0",
   "description": "TODO, FIXME, XXX and HACK comments in the project: pick one to go to it, or list them in the Problems panel. Written in Rust, built once with cargo.",
   "executable": "run.sh",
+  "requires": [
+    {
+      "program": "cargo",
+      "for": "building the plugin once",
+      "install": {
+        "fedora": "sudo dnf install cargo",
+        "debian": "sudo apt install cargo",
+        "arch": "sudo pacman -S rust",
+        "opensuse": "sudo zypper install cargo",
+        "any": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+      }
+    }
+  ],
   "commands": [
     { "id": "list", "name": "TODO: Go to a TODO in the Project" },
     { "id": "problems", "name": "TODO: List TODOs in the Problems Panel" },

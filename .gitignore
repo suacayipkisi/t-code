@@ -21,3 +21,6 @@ t-code-plugins/
 # One-off preview comparison (screenshots against a WebKit rendering): kept locally, not tracked
 tests/preview/
 tools/preview-compare.sh
+
+# A Rust plugin built in its own folder (cargo test); run.sh builds into the cache
+plugins/builtin/*/target/

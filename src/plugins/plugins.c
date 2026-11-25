@@ -64,6 +64,8 @@ static void plugin_free(Plugin *plugin)
     g_ptr_array_free(plugin->commands, TRUE);
   if (plugin->servers)
     g_ptr_array_free(plugin->servers, TRUE);
+  if (plugin->needs)
+    g_ptr_array_unref(plugin->needs);
   g_clear_pointer(&plugin->run, g_hash_table_unref);
   g_clear_pointer(&plugin->debug, g_hash_table_unref);
   g_free(plugin->language_specs);
@@ -445,6 +447,7 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
     g_ptr_array_add(p->commands, cmd);
   }
   p->servers = plugin_servers(obj, name);
+  p->needs = plugin_needs_of(obj, name);
   p->run = plugin_run(obj, p, "run");
   p->debug = plugin_run(obj, p, "debug");
   p->language_specs = plugin_folder(obj, "language-specs", name, plugin_dir);

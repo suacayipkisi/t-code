@@ -6,6 +6,28 @@
   "version": "0.1.0",
   "description": "Guesses the Conventional Commits type and scope of the staged files (fix(lsp): ...), asks for the subject and fills Source Control's message box. Written in Go, built once with go.",
   "executable": "run.sh",
+  "requires": [
+    {
+      "program": "go",
+      "for": "building the plugin once",
+      "install": {
+        "fedora": "sudo dnf install golang",
+        "debian": "sudo apt install golang-go",
+        "arch": "sudo pacman -S go",
+        "opensuse": "sudo zypper install go"
+      }
+    },
+    {
+      "program": "git",
+      "for": "reading the staged files",
+      "install": {
+        "fedora": "sudo dnf install git",
+        "debian": "sudo apt install git",
+        "arch": "sudo pacman -S git",
+        "opensuse": "sudo zypper install git"
+      }
+    }
+  ],
   "commands": [
     { "id": "write", "name": "Commit: Write the Message for the Staged Files" }
   ]

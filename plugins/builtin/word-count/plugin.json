@@ -6,6 +6,22 @@
   "version": "2.0.0",
   "description": "The active tab's words and lines at the right of the status bar, unsaved edits included, updated as you type; Ctrl+Alt+W says the selection's count. Written in C++, built once with the system's C++ compiler.",
   "executable": "run.sh",
+  "requires": [
+    {
+      "program": [
+        "c++",
+        "g++",
+        "clang++"
+      ],
+      "for": "building the plugin once",
+      "install": {
+        "fedora": "sudo dnf install gcc-c++",
+        "debian": "sudo apt install g++",
+        "arch": "sudo pacman -S gcc",
+        "opensuse": "sudo zypper install gcc-c++"
+      }
+    }
+  ],
   "start": "project",
   "permissions": [
     "start"

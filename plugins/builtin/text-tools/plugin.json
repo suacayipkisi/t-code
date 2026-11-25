@@ -6,6 +6,18 @@
   "version": "1.0.0",
   "description": "Change case, sort and dedupe lines, base64, URL encoding, JSON formatting, a UUID or a date.",
   "executable": "text_tools.py",
+  "requires": [
+    {
+      "program": "python3",
+      "for": "running the plugin",
+      "install": {
+        "fedora": "sudo dnf install python3",
+        "debian": "sudo apt install python3",
+        "arch": "sudo pacman -S python",
+        "opensuse": "sudo zypper install python3"
+      }
+    }
+  ],
   "permissions": ["edit"],
   "commands": [
     { "id": "upper", "name": "Text: UPPER CASE" },

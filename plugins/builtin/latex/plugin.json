@@ -6,6 +6,34 @@
   "version": "0.1.0",
   "description": "Builds a LaTeX or Typst document when one of its files is saved, with its errors in Problems and its state in the status bar; opens the PDF. Needs latexmk, tectonic or pdflatex, or typst; written in Rust, built once with cargo.",
   "executable": "run.sh",
+  "requires": [
+    {
+      "program": "cargo",
+      "for": "building the plugin once",
+      "install": {
+        "fedora": "sudo dnf install cargo",
+        "debian": "sudo apt install cargo",
+        "arch": "sudo pacman -S rust",
+        "opensuse": "sudo zypper install cargo",
+        "any": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+      }
+    },
+    {
+      "program": [
+        "latexmk",
+        "tectonic",
+        "pdflatex",
+        "typst"
+      ],
+      "for": "building the documents",
+      "install": {
+        "fedora": "sudo dnf install latexmk texlive-scheme-basic",
+        "debian": "sudo apt install latexmk texlive-latex-recommended",
+        "arch": "sudo pacman -S texlive-binextra texlive-latex",
+        "opensuse": "sudo zypper install texlive-latexmk texlive-scheme-basic"
+      }
+    }
+  ],
   "start": "project",
   "permissions": ["start"],
   "commands": [

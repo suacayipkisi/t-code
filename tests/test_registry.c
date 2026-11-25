@@ -96,6 +96,68 @@ static void test_parse(void)
   g_clear_error(&error);
 }
 
+/* "requires": a program or several, what for, optional, install commands by system; broken entries
+ * left out with a warning. The command that fits a system: its ID, then its ID_LIKE, then "any". */
+static void test_needs(void)
+{
+  JsonNode *root = json_from_string(
+      "{\"requires\": ["
+      " {\"program\": \"cargo\", \"for\": \"building it\", \"install\": {\"fedora\": \"sudo dnf install cargo\","
+      "  \"debian\": \"sudo apt install cargo\", \"any\": \"curl https://sh.rustup.rs | sh\", \"arch\": 3}},"
+      " {\"program\": [\"latexmk\", \"tectonic\"], \"optional\": true},"
+      " {\"program\": \"bin/x\"},"
+      " {\"program\": [\"ok\", 2]},"
+      " {\"program\": \"git\", \"install\": \"dnf install git\"},"
+      " \"hunspell\""
+      "]}",
+      NULL);
+  GPtrArray *needs;
+  const PluginNeed *need;
+
+  g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*test: \"requires\" entry 3 left out: its \"program\"*");
+  g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*test: \"requires\" entry 4 left out: its \"program\"*");
+  g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*test: \"requires\" entry 5 left out: its \"install\"*");
+  g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*test: \"requires\" entry 6 left out: its \"program\"*");
+  needs = plugin_needs_of(json_node_get_object(root), "test");
+  g_test_assert_expected_messages();
+  g_assert_cmpuint(needs->len, ==, 2);
+  need = g_ptr_array_index(needs, 0);
+  g_assert_cmpstr(need->programs[0], ==, "cargo");
+  g_assert_null(need->programs[1]);
+  g_assert_cmpstr(need->why, ==, "building it");
+  g_assert_false(need->optional);
+  g_assert_cmpuint(g_strv_length(need->install), ==, 6); /* arch's number left out */
+
+  char **ubuntu = plugin_systems_from("NAME=\"Ubuntu\"\nID=ubuntu\nID_LIKE=debian\n");
+  char **mint = plugin_systems_from("ID=linuxmint\nID_LIKE=\"ubuntu debian\"\n");
+  char **fedora = plugin_systems_from("ID='fedora'\n");
+  char **alpine = plugin_systems_from("ID=alpine\n");
+  char **none = plugin_systems_from(NULL);
+  g_assert_cmpstr(ubuntu[0], ==, "ubuntu");
+  g_assert_cmpstr(ubuntu[1], ==, "debian");
+  g_assert_cmpstr(ubuntu[2], ==, "any");
+  g_assert_cmpstr(plugin_need_command(need, ubuntu), ==, "sudo apt install cargo");
+  g_assert_cmpstr(plugin_need_command(need, mint), ==, "sudo apt install cargo");
+  g_assert_cmpstr(plugin_need_command(need, fedora), ==, "sudo dnf install cargo");
+  g_assert_cmpstr(plugin_need_command(need, alpine), ==, "curl https://sh.rustup.rs | sh");
+  g_assert_cmpstr(none[0], ==, "any");
+
+  need = g_ptr_array_index(needs, 1);
+  g_assert_cmpstr(need->programs[1], ==, "tectonic");
+  g_assert_true(need->optional);
+  g_assert_cmpstr(need->why, ==, "");
+  g_assert_null(plugin_need_command(need, fedora));
+  g_assert_nonnull(plugin_systems()[0]);
+
+  g_strfreev(ubuntu);
+  g_strfreev(mint);
+  g_strfreev(fedora);
+  g_strfreev(alpine);
+  g_strfreev(none);
+  g_ptr_array_unref(needs);
+  json_node_unref(root);
+}
+
 /* The tree hash: the fixed value, another one when the executable bit or a byte changes, and no hash
  * for a folder with a symbolic link. */
 static void test_tree_hash(void)
@@ -406,6 +468,7 @@ int main(int argc, char **argv)
   g_free(cache);
   g_test_init(&argc, &argv, NULL);
   g_test_add_func("/registry/parse", test_parse);
+  g_test_add_func("/registry/needs", test_needs);
   g_test_add_func("/registry/tree-hash", test_tree_hash);
   g_test_add_func("/registry/records", test_records);
   g_test_add_func("/registry/install", test_install);

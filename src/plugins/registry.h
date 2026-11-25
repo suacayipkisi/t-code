@@ -10,6 +10,7 @@
 #pragma once
 
 #include <gio/gio.h>
+#include <json-glib/json-glib.h>
 
 /* Where the index is, unless $TCODE_REGISTRY names another (a URL or a file). Its signature is beside it,
  * at the same place plus ".sig". */
@@ -19,6 +20,31 @@
  * with its own key, the tests). The registry's PUBLIC_KEY file holds the same. */
 #define REGISTRY_PUBLIC_KEY "lfYa9p1HxNpytjfrep5NNb2a0Rsu6AWYWPQ+iLL5qHI="
 
+/* A program a plugin needs (its "requires"): to be built, or to run. The plugin, not t-code, says how
+ * to install it: t-code shows the command for the system it runs on, to be copied. */
+typedef struct {
+  char **programs;   /* "program": a name, or several of which one is enough ("latexmk", "tectonic") */
+  char *why;         /* "for": what it is needed for; "" */
+  gboolean optional; /* "optional": only some of its commands need it */
+  char **install;    /* "install": system, command, system, command, ... in the manifest's order
+                        ("fedora", "sudo dnf install cargo", "any", "curl … | sh"); may be empty */
+} PluginNeed;
+
+void plugin_need_free(PluginNeed *need);
+
+/* obj's "requires" (PluginNeed *; an empty array without one), the broken entries left out with a
+ * warning naming who (the plugin). */
+GPtrArray *plugin_needs_of(JsonObject *obj, const char *who);
+
+/* The system names an os-release text gives, the most fitting first: its ID, then the words of its
+ * ID_LIKE, then "any" ("ubuntu", "debian", "any"); and those of the system t-code runs on, read once
+ * (the host's /run/host/os-release in a Flatpak, else /etc/os-release). g_strfreev / not to be freed. */
+char **plugin_systems_from(const char *os_release);
+char *const *plugin_systems(void);
+
+/* The install command of need that fits systems best, or NULL when it gives none for them. */
+const char *plugin_need_command(const PluginNeed *need, char *const *systems);
+
 typedef struct {
   char *id, *name, *description, *version, *api;
   char *provider;   /* who publishes it; the repository's owner when the index does not say */
@@ -27,6 +53,7 @@ typedef struct {
   char *path;       /* the plugin's folder inside the repository; "" for its top */
   char *tree;       /* the tree hash, 64 hex digits */
   char **permissions, **categories;
+  GPtrArray *needs; /* PluginNeed *: "requires", as in its plugin.json */
   gboolean reviewed;
 } RegistryEntry;
 

@@ -6,6 +6,32 @@
   "version": "0.1.0",
   "description": "Underlines misspelled words in Markdown and text files and in source files' comments when they open or are saved; fixes the word at the cursor from hunspell's suggestions. Needs hunspell and a dictionary; written in C++, built once with the system's C++ compiler.",
   "executable": "run.sh",
+  "requires": [
+    {
+      "program": [
+        "c++",
+        "g++",
+        "clang++"
+      ],
+      "for": "building the plugin once",
+      "install": {
+        "fedora": "sudo dnf install gcc-c++",
+        "debian": "sudo apt install g++",
+        "arch": "sudo pacman -S gcc",
+        "opensuse": "sudo zypper install gcc-c++"
+      }
+    },
+    {
+      "program": "hunspell",
+      "for": "the spelling and its English dictionary",
+      "install": {
+        "fedora": "sudo dnf install hunspell hunspell-en-US",
+        "debian": "sudo apt install hunspell hunspell-en-us",
+        "arch": "sudo pacman -S hunspell hunspell-en_us",
+        "opensuse": "sudo zypper install hunspell myspell-en_US"
+      }
+    }
+  ],
   "start": "project",
   "permissions": ["start", "edit"],
   "commands": [

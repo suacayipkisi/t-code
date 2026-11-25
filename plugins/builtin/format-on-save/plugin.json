@@ -6,6 +6,18 @@
   "version": "0.1.0",
   "description": "Formats a file when it is saved, where the project configures a formatter (.clang-format, ruff or black in pyproject.toml, .prettierrc, Cargo.toml, .editorconfig for shfmt; gofmt always), as one undo step. Needs the formatter itself; written in Go, built once with go.",
   "executable": "run.sh",
+  "requires": [
+    {
+      "program": "go",
+      "for": "building the plugin once",
+      "install": {
+        "fedora": "sudo dnf install golang",
+        "debian": "sudo apt install golang-go",
+        "arch": "sudo pacman -S go",
+        "opensuse": "sudo zypper install go"
+      }
+    }
+  ],
   "start": "project",
   "permissions": ["start", "edit"],
   "commands": [

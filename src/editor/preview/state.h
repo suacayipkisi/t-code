@@ -84,7 +84,11 @@ typedef struct {
 } PreviewTable;
 
 struct Preview {
-  Tab *tab;
+  Tab *tab; /* a file's preview: its tab; NULL for a text's (preview_text_new) */
+  App *app;
+  char *path; /* the file shown, or NULL for a text */
+  char *text; /* the Markdown text shown instead of a file's (NULL: none yet) */
+  char *dir;  /* where its relative links and images are */
   GtkTextView *view;
   GtkTextBuffer *buffer;
   GArray *links;        /* Link, in the order of the text */
@@ -107,6 +111,7 @@ struct Preview {
   GFileMonitor *monitor;
   guint reload_id;
   gboolean render_pending; /* the first rendering waits for the view's width: its tables are laid out for it */
+  gboolean follow;         /* a text's: its end stays in view as it grows (it showed its end) */
 };
 
 /* markdown.c: parses the file and appends it to the (empty) buffer: its text, tags, links,

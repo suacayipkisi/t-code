@@ -3,15 +3,35 @@
   "id": "claude-code",
   "name": "Claude Code",
   "provider": "t-code",
-  "version": "0.1.0",
-  "description": "Claude Code in a terminal tab, the selection sent to it, answers streamed into a side view, a review in Problems and a selection rewritten in place. Needs the claude command; written in Rust, built once with cargo.",
+  "version": "0.2.0",
+  "description": "Claude Code in a panel on the right: a conversation in Markdown with Ask, Read and Edit modes, its permission questions as buttons; the selection or file referenced in it, a review in Problems and a selection rewritten in place. Needs Claude Code installed and signed in; written in Rust, built once with cargo.",
   "executable": "run.sh",
+  "requires": [
+    {
+      "program": "cargo",
+      "for": "building the plugin once",
+      "install": {
+        "fedora": "sudo dnf install cargo",
+        "debian": "sudo apt install cargo",
+        "arch": "sudo pacman -S rust",
+        "opensuse": "sudo zypper install cargo",
+        "any": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+      }
+    },
+    {
+      "program": "claude",
+      "for": "the chat, review and rewrite: Claude Code, installed and signed in (claude auth login)",
+      "install": {
+        "any": "curl -fsSL https://claude.ai/install.sh | bash"
+      }
+    }
+  ],
   "start": "project",
-  "permissions": ["terminal", "edit", "network", "start"],
+  "permissions": ["edit", "network", "start"],
   "commands": [
-    { "id": "session", "name": "Claude Code: Open the Session", "keys": "<Control><Alt>k" },
-    { "id": "send", "name": "Claude Code: Send the Selection to the Session", "keys": "<Control><Alt>j" },
-    { "id": "ask", "name": "Claude Code: Ask About This File" },
+    { "id": "chat", "name": "Claude Code: Open the Chat", "keys": "<Control><Alt>k" },
+    { "id": "send", "name": "Claude Code: Reference the Selection in the Chat", "keys": "<Control><Alt>j" },
+    { "id": "ask", "name": "Claude Code: Reference This File in the Chat" },
     { "id": "review", "name": "Claude Code: Review This File" },
     { "id": "rewrite", "name": "Claude Code: Rewrite the Selection" },
     { "id": "clear", "name": "Claude Code: Clear the Review" }

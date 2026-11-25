@@ -491,11 +491,11 @@ static void on_image_click(GtkGestureClick *gesture, int n_press G_GNUC_UNUSED, 
 void preview_render_image(Preview *p)
 {
   GtkTextBuffer *b = p->buffer;
-  GdkPaintable *paintable = paintable_from_file(p->tab->path);
+  GdkPaintable *paintable = paintable_from_file(p->path);
   GtkTextIter end, from;
   GStatBuf st;
-  char *type = g_content_type_guess(p->tab->path, NULL, 0, NULL), *kind = g_content_type_get_description(type);
-  char *bytes = g_stat(p->tab->path, &st) == 0 ? g_format_size(st.st_size) : g_strdup("");
+  char *type = g_content_type_guess(p->path, NULL, 0, NULL), *kind = g_content_type_get_description(type);
+  char *bytes = g_stat(p->path, &st) == 0 ? g_format_size(st.st_size) : g_strdup("");
 
   if (paintable) {
     GtkWidget *picture = preview_picture_new(p, paintable, 0, NULL, NULL);

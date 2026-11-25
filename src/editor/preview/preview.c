@@ -203,7 +203,7 @@ static const Link *link_at(Preview *p, double x, double y)
  * editor, and everything else in the default app (the browser, for web links). */
 void preview_follow(Preview *p, const char *url)
 {
-  char *dir = g_path_get_dirname(p->tab->path), *path = preview_local_path(dir, url);
+  char *path = preview_local_path(p->dir, url);
 
   if (url[0] == '#') {
     char *slug = g_uri_unescape_string(url + 1, NULL);
@@ -215,16 +215,15 @@ void preview_follow(Preview *p, const char *url)
     }
     g_free(slug);
   } else if (path && is_markdown(path) && g_file_test(path, G_FILE_TEST_IS_REGULAR)) {
-    open_preview(p->tab->app, path);
+    open_preview(p->app, path);
   } else if (path && g_file_test(path, G_FILE_TEST_IS_REGULAR)) {
-    open_file(p->tab->app, path);
+    open_file(p->app, path);
   } else if (!path) {
     GtkUriLauncher *launcher = gtk_uri_launcher_new(url);
-    gtk_uri_launcher_launch(launcher, p->tab->app->window, NULL, NULL, NULL);
+    gtk_uri_launcher_launch(launcher, p->app->window, NULL, NULL, NULL);
     g_object_unref(launcher);
   }
   g_free(path);
-  g_free(dir);
 }
 
 /* The offset of the text at a point of the view, or -1. */
@@ -328,6 +327,9 @@ void preview_free(Preview *p)
   g_hash_table_destroy(p->spacers);
   g_hash_table_destroy(p->remote);
   g_array_free(p->details, TRUE);
+  g_free(p->path);
+  g_free(p->text);
+  g_free(p->dir);
   g_free(p);
 }
 
@@ -347,24 +349,16 @@ void preview_set_zoom(Tab *tab, double scale)
   }
 }
 
-void open_preview(App *t, const char *path)
+/* A preview's view in a scrolled window (returned), not yet showing anything. */
+static GtkWidget *preview_new(App *t, Preview *p)
 {
-  Tab *open = find_tab(t, TAB_PREVIEW, path);
-
-  if (open) {
-    select_tab(open);
-    return;
-  }
-  palette_add_css(css);
-
-  Preview *p = g_new0(Preview, 1);
   GtkWidget *scrolled = gtk_scrolled_window_new();
   GtkGesture *click = gtk_gesture_click_new();
   GtkEventController *motion = gtk_event_controller_motion_new();
-  GFile *file = g_file_new_for_path(path);
 
+  palette_add_css(css);
+  p->app = t;
   p->scale = t->settings.preview_scale;
-  p->image = !is_markdown(path); /* an image, or an SVG drawn */
   p->links = g_array_new(FALSE, FALSE, sizeof(Link));
   p->code_spans = g_array_new(FALSE, FALSE, sizeof(CodeSpan));
   p->blocks = g_array_new(FALSE, FALSE, sizeof(Block));
@@ -412,10 +406,29 @@ void open_preview(App *t, const char *path)
   gtk_widget_add_controller(GTK_WIDGET(p->view), motion);
   gtk_widget_set_has_tooltip(GTK_WIDGET(p->view), TRUE);
   g_signal_connect(p->view, "query-tooltip", G_CALLBACK(on_query_tooltip), p);
-
   /* rendered once the view has its width (preview_sized): rendering for a guessed one, then again for the real one,
    * doubled the time a big file took to show */
   p->render_pending = !p->image;
+  return scrolled;
+}
+
+void open_preview(App *t, const char *path)
+{
+  Tab *open = find_tab(t, TAB_PREVIEW, path);
+
+  if (open) {
+    select_tab(open);
+    return;
+  }
+
+  Preview *p = g_new0(Preview, 1);
+  GFile *file = g_file_new_for_path(path);
+  GtkWidget *scrolled;
+
+  p->image = !is_markdown(path); /* an image, or an SVG drawn */
+  p->path = g_strdup(path);
+  p->dir = g_path_get_dirname(path);
+  scrolled = preview_new(t, p);
   p->tab = add_tab(t, TAB_PREVIEW, scrolled, path);
   p->tab->preview = p;
   p->monitor = g_file_monitor_file(file, G_FILE_MONITOR_WATCH_MOVES, NULL, NULL);
@@ -428,4 +441,98 @@ void open_preview(App *t, const char *path)
   else if (gtk_widget_get_width(GTK_WIDGET(p->view)) > 0) /* sized already, as the tab was added */
     preview_sized(p);
   focus_current_tab(t);
+}
+
+/* Texts -------------------------------------------------------------------------------------- */
+
+static GPtrArray *texts; /* Preview *: the texts' previews, while their widgets are there */
+
+static void on_text_destroy(GtkWidget *widget G_GNUC_UNUSED, Preview *p)
+{
+  g_ptr_array_remove(texts, p);
+  preview_free(p);
+}
+
+/* A text's view got longer (laid out after it was shown again): its end stays in view when it followed. */
+static void on_text_grown(GtkAdjustment *adjustment, Preview *p)
+{
+  if (p->follow)
+    gtk_adjustment_set_value(adjustment,
+                             gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment));
+}
+
+Preview *preview_text_new(App *t, const char *dir, GtkWidget **widget)
+{
+  Preview *p = g_new0(Preview, 1);
+
+  p->dir = g_strdup(dir);
+  p->text = g_strdup("");
+  *widget = preview_new(t, p);
+  gtk_text_view_set_top_margin(p->view, 12);
+  gtk_text_view_set_bottom_margin(p->view, 12);
+  g_signal_connect(*widget, "destroy", G_CALLBACK(on_text_destroy), p);
+  p->follow = TRUE;
+  g_signal_connect(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(*widget)), "changed",
+                   G_CALLBACK(on_text_grown), p);
+  if (!texts)
+    texts = g_ptr_array_new();
+  g_ptr_array_add(texts, p);
+  return p;
+}
+
+/* Whether the view shows its end (or cannot scroll): new text keeps it there. */
+static gboolean at_end(Preview *p)
+{
+  GtkAdjustment *adjustment = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(p->view));
+
+  return !adjustment || gtk_adjustment_get_value(adjustment) + gtk_adjustment_get_page_size(adjustment) >=
+                            gtk_adjustment_get_upper(adjustment) - 8;
+}
+
+/* Shows the text again, its end in view when it was before. */
+static gboolean show_text_now(gpointer data)
+{
+  Preview *p = data;
+
+  p->follow = at_end(p);
+  p->reload_id = 0;
+  g_ptr_array_set_size(p->tables, 0);
+  g_ptr_array_set_size(p->pictures, 0);
+  g_array_set_size(p->code_spans, 0);
+  g_array_set_size(p->blocks, 0);
+  g_array_set_size(p->details, 0);
+  clear_links(p);
+  p->hovered = -1;
+  g_hash_table_remove_all(p->anchors);
+  gtk_text_buffer_set_text(p->buffer, "", 0);
+  preview_render(p);
+  preview_update_layout(p, p->width); /* laid out later: on_text_grown keeps its end in view */
+  return G_SOURCE_REMOVE;
+}
+
+void preview_text_set(Preview *p, const char *markdown, gboolean append)
+{
+  char *text = append ? g_strconcat(p->text, markdown, NULL) : g_strdup(markdown ? markdown : "");
+
+  g_free(p->text);
+  p->text = text;
+  if (p->render_pending)
+    return;          /* rendered once it has its width (preview_sized) */
+  if (!p->reload_id) /* a burst of appends (streamed text): shown once per 80 ms */
+    p->reload_id = g_timeout_add(80, show_text_now, p);
+}
+
+const char *preview_text(Preview *p)
+{
+  return p->text;
+}
+
+void preview_restyle_texts(void)
+{
+  for (guint i = 0; texts && i < texts->len; i++) {
+    Preview *p = g_ptr_array_index(texts, i);
+    preview_color_tags(p->buffer);
+    if (!p->render_pending && !p->reload_id)
+      p->reload_id = g_idle_add(show_text_now, p);
+  }
 }

@@ -6,6 +6,36 @@
   "version": "0.1.0",
   "description": "CMake presets, Configure with its errors as diagnostics, Build in a terminal tab. Language server: install cmake-language-server yourself (pip install cmake-language-server); t-code's own neocmakelsp wins when it is installed.",
   "executable": "cmake_plugin.py",
+  "requires": [
+    {
+      "program": "python3",
+      "for": "running the plugin",
+      "install": {
+        "fedora": "sudo dnf install python3",
+        "debian": "sudo apt install python3",
+        "arch": "sudo pacman -S python",
+        "opensuse": "sudo zypper install python3"
+      }
+    },
+    {
+      "program": "cmake",
+      "for": "Configure and Build",
+      "install": {
+        "fedora": "sudo dnf install cmake",
+        "debian": "sudo apt install cmake",
+        "arch": "sudo pacman -S cmake",
+        "opensuse": "sudo zypper install cmake"
+      }
+    },
+    {
+      "program": "cmake-language-server",
+      "for": "its language server (t-code's own neocmakelsp wins when installed)",
+      "optional": true,
+      "install": {
+        "any": "pip install --user cmake-language-server"
+      }
+    }
+  ],
   "permissions": ["terminal"],
   "commands": [
     { "id": "configure", "name": "CMake: Configure" },

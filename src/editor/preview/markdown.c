@@ -435,7 +435,7 @@ static void append_code(Render *r, const char *text, const char *lang)
   }
   if (!r->colors) {
     r->colors = gtk_source_buffer_new(NULL);
-    gtk_source_buffer_set_style_scheme(r->colors, editor_style_scheme(r->p->tab->app));
+    gtk_source_buffer_set_style_scheme(r->colors, editor_style_scheme(r->p->app));
   }
   source = r->colors;
   gtk_source_buffer_set_language(source, language);
@@ -1075,14 +1075,15 @@ void preview_render(Preview *p)
     preview_render_image(p);
     return;
   }
-  r.dir = g_path_get_dirname(p->tab->path);
+  r.dir = g_strdup(p->dir);
   r.starts = g_array_new(FALSE, FALSE, sizeof(int));
   r.images = g_array_new(FALSE, FALSE, sizeof(gboolean));
   r.hrefs = g_ptr_array_new_with_free_func(g_free);
   r.titles = g_ptr_array_new_with_free_func(g_free);
   r.alerts = g_array_new(FALSE, FALSE, sizeof(int));
   r.html_open = g_array_new(FALSE, FALSE, sizeof(HtmlOpen));
-  if (g_file_get_contents(p->tab->path, &text, &len, &error)) {
+  if (p->text ? (text = g_strdup(p->text), len = strlen(text), TRUE)
+              : g_file_get_contents(p->path, &text, &len, &error)) {
     char *notes = preview_footnotes(text);
     if (notes) {
       g_free(text);

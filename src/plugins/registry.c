@@ -33,7 +33,188 @@ void registry_entry_free(RegistryEntry *entry)
   g_free(entry->tree);
   g_strfreev(entry->permissions);
   g_strfreev(entry->categories);
+  if (entry->needs)
+    g_ptr_array_unref(entry->needs);
   g_free(entry);
+}
+
+/* What a plugin needs ----------------------------------------------------------------------------- */
+
+void plugin_need_free(PluginNeed *need)
+{
+  if (!need)
+    return;
+  g_strfreev(need->programs);
+  g_free(need->why);
+  g_strfreev(need->install);
+  g_free(need);
+}
+
+/* A program's name: a word, without "/" or spaces. */
+static gboolean good_program(const char *name)
+{
+  return name && *name && !strpbrk(name, "/ \t\n");
+}
+
+/* The string a node holds, or NULL. */
+static const char *node_text(JsonNode *node)
+{
+  return node && JSON_NODE_HOLDS_VALUE(node) && json_node_get_value_type(node) == G_TYPE_STRING
+             ? json_node_get_string(node)
+             : NULL;
+}
+
+/* "program": one name or a list of them, as a NULL-terminated array; NULL when it is neither. */
+static char **need_programs(JsonNode *program)
+{
+  GPtrArray *programs = g_ptr_array_new_with_free_func(g_free);
+  gboolean good = TRUE;
+
+  if (program && JSON_NODE_HOLDS_ARRAY(program)) {
+    JsonArray *list = json_node_get_array(program);
+    for (guint i = 0; good && i < json_array_get_length(list); i++) {
+      const char *name = node_text(json_array_get_element(list, i));
+      good = good_program(name);
+      if (good)
+        g_ptr_array_add(programs, g_strdup(name));
+    }
+  } else if (good_program(node_text(program))) {
+    g_ptr_array_add(programs, g_strdup(node_text(program)));
+  }
+  if (!good || !programs->len) {
+    g_ptr_array_unref(programs);
+    return NULL;
+  }
+  g_ptr_array_add(programs, NULL);
+  g_ptr_array_set_free_func(programs, NULL);
+  return (char **)g_ptr_array_free(programs, FALSE);
+}
+
+/* One entry of "requires", or NULL with what is wrong in *problem. */
+static PluginNeed *need_from(JsonNode *node, const char **problem)
+{
+  JsonObject *obj = JSON_NODE_HOLDS_OBJECT(node) ? json_node_get_object(node) : NULL;
+  JsonNode *install = obj ? json_object_get_member(obj, "install") : NULL;
+  JsonNode *optional = obj ? json_object_get_member(obj, "optional") : NULL;
+  char **programs = obj ? need_programs(json_object_get_member(obj, "program")) : NULL;
+  GPtrArray *commands;
+  PluginNeed *need;
+
+  if (!programs) {
+    *problem = "its \"program\" is not a program's name or a list of them";
+    return NULL;
+  }
+  if (install && !JSON_NODE_HOLDS_OBJECT(install)) {
+    *problem = "its \"install\" is not an object of commands by system";
+    g_strfreev(programs);
+    return NULL;
+  }
+  commands = g_ptr_array_new();
+  if (install) {
+    GList *members = json_object_get_members(json_node_get_object(install));
+    for (GList *m = members; m; m = m->next) {
+      const char *command = node_text(json_object_get_member(json_node_get_object(install), m->data));
+      if (command && *command) {
+        g_ptr_array_add(commands, g_strdup(m->data));
+        g_ptr_array_add(commands, g_strdup(command));
+      }
+    }
+    g_list_free(members);
+  }
+  g_ptr_array_add(commands, NULL);
+  need = g_new0(PluginNeed, 1);
+  need->programs = programs;
+  need->install = (char **)g_ptr_array_free(commands, FALSE);
+  need->why = g_strdup(node_text(json_object_get_member(obj, "for")) ?: "");
+  need->optional = optional && JSON_NODE_HOLDS_VALUE(optional) &&
+                   json_node_get_value_type(optional) == G_TYPE_BOOLEAN && json_node_get_boolean(optional);
+  return need;
+}
+
+GPtrArray *plugin_needs_of(JsonObject *obj, const char *who)
+{
+  JsonNode *node = json_object_get_member(obj, "requires");
+  GPtrArray *needs = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_need_free);
+
+  if (!node)
+    return needs;
+  if (!JSON_NODE_HOLDS_ARRAY(node)) {
+    g_warning("Plugin %s: \"requires\" is not a list", who);
+    return needs;
+  }
+  for (guint i = 0; i < json_array_get_length(json_node_get_array(node)); i++) {
+    const char *problem = NULL;
+    PluginNeed *need = need_from(json_array_get_element(json_node_get_array(node), i), &problem);
+    if (need)
+      g_ptr_array_add(needs, need);
+    else
+      g_warning("Plugin %s: \"requires\" entry %u left out: %s", who, i + 1, problem);
+  }
+  return needs;
+}
+
+/* The value of KEY=value in an os-release text, unquoted; NULL without one. */
+static char *os_release_value(const char *text, const char *key)
+{
+  char **lines = g_strsplit(text ? text : "", "\n", -1);
+  char *value = NULL;
+  size_t length = strlen(key);
+
+  for (int i = 0; lines[i] && !value; i++)
+    if (strncmp(lines[i], key, length) == 0 && lines[i][length] == '=') {
+      char *raw = g_strstrip(g_strdup(lines[i] + length + 1));
+      size_t n = strlen(raw);
+      if (n >= 2 && (raw[0] == '"' || raw[0] == '\'') && raw[n - 1] == raw[0]) {
+        value = g_strndup(raw + 1, n - 2);
+        g_free(raw);
+      } else {
+        value = raw;
+      }
+    }
+  g_strfreev(lines);
+  return value;
+}
+
+char **plugin_systems_from(const char *os_release)
+{
+  GPtrArray *systems = g_ptr_array_new();
+  char *id = os_release_value(os_release, "ID"), *like = os_release_value(os_release, "ID_LIKE");
+  char **words = g_strsplit(like ? like : "", " ", -1);
+
+  if (id && *id)
+    g_ptr_array_add(systems, g_ascii_strdown(id, -1));
+  for (int i = 0; words[i]; i++)
+    if (*words[i])
+      g_ptr_array_add(systems, g_ascii_strdown(words[i], -1));
+  g_ptr_array_add(systems, g_strdup("any"));
+  g_ptr_array_add(systems, NULL);
+  g_strfreev(words);
+  g_free(like);
+  g_free(id);
+  return (char **)g_ptr_array_free(systems, FALSE);
+}
+
+char *const *plugin_systems(void)
+{
+  static char **systems;
+
+  if (!systems) {
+    char *text = NULL;
+    if (!g_file_get_contents("/run/host/os-release", &text, NULL, NULL))
+      g_file_get_contents("/etc/os-release", &text, NULL, NULL);
+    systems = plugin_systems_from(text);
+    g_free(text);
+  }
+  return systems;
+}
+
+const char *plugin_need_command(const PluginNeed *need, char *const *systems)
+{
+  for (int s = 0; systems && systems[s]; s++)
+    for (int i = 0; need->install[i] && need->install[i + 1]; i += 2)
+      if (strcmp(need->install[i], systems[s]) == 0)
+        return need->install[i + 1];
+  return NULL;
 }
 
 /* The index -------------------------------------------------------------------------------------- */
@@ -130,6 +311,7 @@ static RegistryEntry *entry_from(JsonObject *obj)
   e->tree = g_strdup(text_of(obj, "tree-sha256"));
   e->permissions = texts_of(obj, "permissions");
   e->categories = texts_of(obj, "categories");
+  e->needs = plugin_needs_of(obj, e->id ? e->id : "an entry");
   e->reviewed = reviewed && JSON_NODE_HOLDS_VALUE(reviewed) && json_node_get_value_type(reviewed) == G_TYPE_BOOLEAN &&
                 json_node_get_boolean(reviewed);
   if (!good_id(e->id))

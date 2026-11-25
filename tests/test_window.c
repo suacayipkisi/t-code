@@ -3788,6 +3788,113 @@ static void test_socket_tapi_views(void)
   close_everything();
 }
 
+/* Whether the first text view under data (a view's page) shows the text the test waits for. */
+static const char *chat_want;
+static gboolean chat_shows(gconstpointer data)
+{
+  char *text = view_text((GtkWidget *)data);
+  gboolean found = text && strstr(text, chat_want);
+
+  g_free(text);
+  return found;
+}
+
+/* Presses Enter in a text view: its key controllers hear it. */
+static gboolean press_enter(GtkWidget *text)
+{
+  GListModel *controllers = gtk_widget_observe_controllers(text);
+  gboolean handled = FALSE;
+
+  for (guint i = 0; i < g_list_model_get_n_items(controllers); i++) {
+    GObject *controller = g_list_model_get_item(controllers, i);
+    if (GTK_IS_EVENT_CONTROLLER_KEY(controller) && !handled)
+      g_signal_emit_by_name(controller, "key-pressed", GDK_KEY_Return, 0, 0, &handled);
+    g_object_unref(controller);
+  }
+  g_object_unref(controllers);
+  return handled;
+}
+
+/* A chat view: Markdown text that grows as it is streamed (view-extend), an input whose Enter sends
+ * view_input with the mode picked, a prompt whose choice sends view_choice, and the busy line's Stop. */
+static void test_socket_tapi_view_chat(void)
+{
+  TapiConn c = tapi_connect("hello tapi_1"), events = tapi_connect("hello tapi_1");
+  const char *name = "view:socket/chat";
+  GtkWidget *page, *input, *button;
+  char *message;
+
+  tapi_expect(&events, "subscribe", "ok");
+  tapi_expect(&c,
+              "view-open {\"id\":\"chat\",\"title\":\"Chat\",\"where\":\"right\",\"markdown\":true,"
+              "\"input\":\"Ask…\",\"modes\":[\"Edit\",\"Ask\",\"Read\"],\"mode\":\"Ask\"}",
+              "ok");
+  run_for(50);
+  g_assert_cmpint(panel_side(&app, name), ==, 2);
+  page = gtk_stack_get_child_by_name(panel_stack(&app, name), name);
+  input = find_widget(find_widget(page, G_TYPE_NONE, NULL, "tcode-view-input"), GTK_TYPE_TEXT_VIEW, NULL, NULL);
+  g_assert_nonnull(input);
+  g_assert_true(gtk_widget_has_focus(input));
+
+  /* streamed Markdown: **bold** shows without its stars */
+  tapi_expect(&c, "view-set chat # Hello", "ok");
+  tapi_expect(&c, "view-append chat Some **bo", "ok");
+  tapi_expect(&c, "view-extend chat ld** text", "ok");
+  chat_want = "Some bold text";
+  run_until(chat_shows, page);
+
+  /* Enter sends the input with the mode */
+  gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(input)), "why?", -1);
+  g_assert_true(press_enter(input));
+  message = next_event(events.input, "view_input");
+  g_assert_cmpstr(
+      message, ==,
+      "{\"event\":\"view_input\",\"plugin\":\"socket\",\"id\":\"chat\",\"text\":\"why?\",\"mode\":\"Ask\"}");
+  g_free(message);
+  g_assert_cmpint(gtk_text_buffer_get_char_count(gtk_text_view_get_buffer(GTK_TEXT_VIEW(input))), ==, 0);
+  tapi_expect(&c, "view-input chat @src/main.c ", "ok");
+  g_assert_cmpint(gtk_text_buffer_get_char_count(gtk_text_view_get_buffer(GTK_TEXT_VIEW(input))), ==,
+                  12); /* a space after it */
+
+  /* a prompt: its first choice sends view_choice and the prompt goes */
+  tapi_expect(&c,
+              "view-prompt {\"id\":\"chat\",\"prompt\":\"p1\",\"text\":\"Run ls?\",\"choices\":[\"Allow\",\"Deny\"]}",
+              "ok");
+  button = find_widget(page, GTK_TYPE_BUTTON, NULL, "suggested-action");
+  g_assert_nonnull(button);
+  g_assert_cmpstr(gtk_button_get_label(GTK_BUTTON(button)), ==, "Allow");
+  g_signal_emit_by_name(button, "clicked");
+  message = next_event(events.input, "view_choice");
+  g_assert_cmpstr(
+      message, ==,
+      "{\"event\":\"view_choice\",\"plugin\":\"socket\",\"id\":\"chat\",\"prompt\":\"p1\",\"choice\":\"Allow\"}");
+  g_free(message);
+  g_assert_null(find_widget(page, GTK_TYPE_BUTTON, NULL, "suggested-action"));
+  tapi_expect(&c, "view-prompt {\"id\":\"chat\",\"prompt\":\"p2\",\"text\":\"Edit?\",\"choices\":[\"Yes\"]}", "ok");
+  tapi_expect(&c, "view-prompt {\"id\":\"chat\",\"prompt\":\"p2\",\"choices\":[]}", "ok"); /* taken back */
+  g_assert_null(find_widget(page, GTK_TYPE_BUTTON, NULL, "suggested-action"));
+
+  /* busy: Stop sends view_stop */
+  tapi_expect(&c, "view-busy chat Working…", "ok");
+  button = find_widget(page, GTK_TYPE_BUTTON, "Stop", NULL);
+  g_assert_true(gtk_widget_get_visible(gtk_widget_get_parent(button)));
+  g_signal_emit_by_name(button, "clicked");
+  message = next_event(events.input, "view_stop");
+  g_assert_cmpstr(message, ==, "{\"event\":\"view_stop\",\"plugin\":\"socket\",\"id\":\"chat\"}");
+  g_free(message);
+  tapi_expect(&c, "view-busy chat", "ok");
+  g_assert_false(gtk_widget_get_visible(gtk_widget_get_parent(button)));
+
+  /* a view without an input takes none of these */
+  tapi_expect(&c, "view-open {\"id\":\"plain\",\"where\":\"right\"}", "ok");
+  tapi_expect(&c, "view-busy plain x", "error no-view no view \"plain\" of this plugin's with an input is open");
+  tapi_expect(&c, "view-close plain", "ok");
+  tapi_expect(&c, "view-close chat", "ok");
+  tapi_close(&c);
+  tapi_close(&events);
+  close_everything();
+}
+
 /* How many docks a side has. */
 static int dock_count(int side)
 {
@@ -6073,6 +6180,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/socket-tapi-diagnostics", test_socket_tapi_diagnostics);
   g_test_add_func("/window/socket-tapi-terminals", test_socket_tapi_terminals);
   g_test_add_func("/window/socket-tapi-views", test_socket_tapi_views);
+  g_test_add_func("/window/socket-tapi-view-chat", test_socket_tapi_view_chat);
   g_test_add_func("/window/end-programs", test_end_programs);
   g_test_add_func("/window/socket-events", test_socket_events);
   g_test_add_func("/window/socket-stalled-subscriber", test_socket_stalled_subscriber);

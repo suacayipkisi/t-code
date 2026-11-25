@@ -402,27 +402,74 @@ static gboolean good_view_id(const char *id)
   return id && *id && !strpbrk(id, " \t\n/");
 }
 
-/* view-open {"id":"…","title":"…","where":"left|bottom|right|editor|side","icon":"…","text":"…"}. */
+/* The strings of a JSON list, or NULL when it is not one of strings. */
+static char **string_list(JsonNode *node)
+{
+  JsonArray *array = node && JSON_NODE_HOLDS_ARRAY(node) ? json_node_get_array(node) : NULL;
+  GStrvBuilder *list;
+
+  if (!array)
+    return NULL;
+  list = g_strv_builder_new();
+  for (guint i = 0; i < json_array_get_length(array); i++) {
+    JsonNode *item = json_array_get_element(array, i);
+    if (!JSON_NODE_HOLDS_VALUE(item) || json_node_get_value_type(item) != G_TYPE_STRING) {
+      g_strv_builder_unref(list);
+      return NULL;
+    }
+    g_strv_builder_add(list, json_node_get_string(item));
+  }
+  char **strings = g_strv_builder_end(list);
+  g_strv_builder_unref(list);
+  return strings;
+}
+
+/* A JSON object's member that is a list of strings (g_strfreev); NULL when it is not there. *bad is set
+ * when it is there and not such a list. */
+static char **member_list(JsonObject *object, const char *name, gboolean *bad)
+{
+  JsonNode *node = json_object_get_member(object, name);
+  char **list = node ? string_list(node) : NULL;
+
+  if (node && !list)
+    *bad = TRUE;
+  return list;
+}
+
+/* view-open {"id":"…","title":"…","where":"left|bottom|right|editor|side","icon":"…","text":"…",
+ * "markdown":true,"input":"placeholder","modes":["…"],"mode":"…"}. */
 static gboolean do_view_open(Client *c, const char *arg)
 {
   JsonNode *root = parse_json(c, arg);
   JsonObject *object = root && JSON_NODE_HOLDS_OBJECT(root) ? json_node_get_object(root) : NULL;
   const char *id = object ? json_object_get_string_member_with_default(object, "id", NULL) : NULL;
   const char *where = object ? json_object_get_string_member_with_default(object, "where", "bottom") : NULL;
+  gboolean bad = FALSE;
+  char **modes = object ? member_list(object, "modes", &bad) : NULL;
+  ViewOptions options = { 0 };
   ViewPlace place;
 
   if (!root)
     return TRUE; /* parse_json answered */
+  if (object) {
+    options.markdown = json_object_get_boolean_member_with_default(object, "markdown", FALSE);
+    options.input = json_object_get_string_member_with_default(object, "input", NULL);
+    options.modes = modes;
+    options.mode = json_object_get_string_member_with_default(object, "mode", NULL);
+  }
   if (!object || !good_view_id(id))
     answer_error(c, "bad-argument", "a view needs an \"id\": one word without slashes");
   else if (!view_place(where, &place))
     answer_error(c, "bad-argument", "\"where\" is left, bottom, right, editor or side");
+  else if (bad)
+    answer_error(c, "bad-argument", "\"modes\" is a list of strings");
   else {
     view_open(c->app, owner_of(c), id, json_object_get_string_member_with_default(object, "title", NULL), place,
               json_object_get_string_member_with_default(object, "icon", NULL),
-              json_object_get_string_member_with_default(object, "text", NULL));
+              json_object_get_string_member_with_default(object, "text", NULL), &options);
     answer_ok(c, NULL);
   }
+  g_strfreev(modes);
   json_node_unref(root);
   return TRUE;
 }
@@ -446,13 +493,23 @@ static gboolean no_view(Client *c, const char *id)
   return TRUE;
 }
 
-/* view-set / view-append <id> <text>. */
-static gboolean set_view_text(Client *c, const char *arg, gboolean append)
+/* For a request on a view's input when it has none, or no such view. */
+static gboolean no_input_view(Client *c, const char *id)
+{
+  char *message = g_strdup_printf("no view \"%s\" of this plugin's with an input is open", id);
+
+  answer_error(c, "no-view", message);
+  g_free(message);
+  return TRUE;
+}
+
+/* view-set / view-append / view-extend <id> <text>. */
+static gboolean set_view_text(Client *c, const char *arg, ViewTextChange change)
 {
   const char *text;
   char *id = view_arg(arg, &text);
 
-  if (view_set_text(c->app, owner_of(c), id, text, append))
+  if (view_set_text(c->app, owner_of(c), id, text, change))
     answer_ok(c, NULL);
   else
     no_view(c, id);
@@ -462,12 +519,69 @@ static gboolean set_view_text(Client *c, const char *arg, gboolean append)
 
 static gboolean do_view_set(Client *c, const char *arg)
 {
-  return set_view_text(c, arg, FALSE);
+  return set_view_text(c, arg, VIEW_TEXT_SET);
 }
 
 static gboolean do_view_append(Client *c, const char *arg)
 {
-  return set_view_text(c, arg, TRUE);
+  return set_view_text(c, arg, VIEW_TEXT_APPEND);
+}
+
+static gboolean do_view_extend(Client *c, const char *arg)
+{
+  return set_view_text(c, arg, VIEW_TEXT_EXTEND);
+}
+
+/* view-prompt {"id":"…","prompt":"…","text":"…","choices":["Allow","Deny"]}; no choices: the prompt goes. */
+static gboolean do_view_prompt(Client *c, const char *arg)
+{
+  JsonNode *root = parse_json(c, arg);
+  JsonObject *object = root && JSON_NODE_HOLDS_OBJECT(root) ? json_node_get_object(root) : NULL;
+  const char *id = object ? json_object_get_string_member_with_default(object, "id", NULL) : NULL;
+  const char *prompt = object ? json_object_get_string_member_with_default(object, "prompt", NULL) : NULL;
+  gboolean bad = FALSE;
+  char **choices = object ? member_list(object, "choices", &bad) : NULL;
+
+  if (!root)
+    return TRUE; /* parse_json answered */
+  if (!object || !good_view_id(id) || !prompt || !*prompt || bad)
+    answer_error(c, "bad-argument", "a prompt needs the view's \"id\", its own \"prompt\" and \"choices\" (strings)");
+  else if (view_prompt(c->app, owner_of(c), id, prompt, json_object_get_string_member_with_default(object, "text", ""),
+                       choices))
+    answer_ok(c, NULL);
+  else
+    no_input_view(c, id);
+  g_strfreev(choices);
+  json_node_unref(root);
+  return TRUE;
+}
+
+/* view-busy <id> [text]: the busy line with its Stop, or none without text. */
+static gboolean do_view_busy(Client *c, const char *arg)
+{
+  const char *text;
+  char *id = view_arg(arg, &text);
+
+  if (view_busy(c->app, owner_of(c), id, *text ? text : NULL))
+    answer_ok(c, NULL);
+  else
+    no_input_view(c, id);
+  g_free(id);
+  return TRUE;
+}
+
+/* view-input <id> <text>: the text in the view's input box, which gets the keyboard. */
+static gboolean do_view_input(Client *c, const char *arg)
+{
+  const char *text;
+  char *id = view_arg(arg, &text);
+
+  if (view_input(c->app, owner_of(c), id, text))
+    answer_ok(c, NULL);
+  else
+    no_input_view(c, id);
+  g_free(id);
+  return TRUE;
 }
 
 static gboolean do_view_show(Client *c, const char *arg)
@@ -537,28 +651,6 @@ static gboolean do_lsp_command(Client *c, const char *arg)
   }
   json_node_unref(root);
   return TRUE;
-}
-
-/* The strings of a JSON list, or NULL when it is not one of strings. */
-static char **string_list(JsonNode *node)
-{
-  JsonArray *array = node && JSON_NODE_HOLDS_ARRAY(node) ? json_node_get_array(node) : NULL;
-  GStrvBuilder *list;
-
-  if (!array)
-    return NULL;
-  list = g_strv_builder_new();
-  for (guint i = 0; i < json_array_get_length(array); i++) {
-    JsonNode *item = json_array_get_element(array, i);
-    if (!JSON_NODE_HOLDS_VALUE(item) || json_node_get_value_type(item) != G_TYPE_STRING) {
-      g_strv_builder_unref(list);
-      return NULL;
-    }
-    g_strv_builder_add(list, json_node_get_string(item));
-  }
-  char **strings = g_strv_builder_end(list);
-  g_strv_builder_unref(list);
-  return strings;
 }
 
 /* debug-start {"name":..,"connect":"host:port" | "argv":[..],"request":..,"arguments":{..},...}: a
@@ -962,6 +1054,10 @@ static const Request requests[] = {
   { "view-open",          NEEDS_NOTHING, 0,               FALSE, do_view_open },
   { "view-set",           NEEDS_NOTHING, 0,               FALSE, do_view_set },
   { "view-append",        NEEDS_NOTHING, 0,               FALSE, do_view_append },
+  { "view-extend",        NEEDS_NOTHING, 0,               FALSE, do_view_extend },
+  { "view-prompt",        NEEDS_NOTHING, 0,               FALSE, do_view_prompt },
+  { "view-busy",          NEEDS_NOTHING, 0,               FALSE, do_view_busy },
+  { "view-input",         NEEDS_NOTHING, 0,               FALSE, do_view_input },
   { "view-show",          NEEDS_NOTHING, 0,               FALSE, do_view_show },
   { "view-close",         NEEDS_NOTHING, 0,               FALSE, do_view_close },
   { "lsp-refresh",        NEEDS_NOTHING, 0,               FALSE, do_lsp_refresh },

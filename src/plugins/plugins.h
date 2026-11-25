@@ -93,6 +93,7 @@ typedef struct Plugin {
   char *language_specs; /* "language-specs": a folder of .lang files (absolute), or NULL */
   char *snippets;       /* "snippets": a folder of .snippets files (absolute), or NULL */
   char *styles;         /* "styles": a folder of GtkSourceView style schemes, each a color theme, or NULL */
+  GPtrArray *needs;     /* PluginNeed *: "requires", the programs it needs to be built or to run */
 } Plugin;
 
 /* Whether name (a file's name) is one of patterns: ".ext" matches the end, anything else the whole

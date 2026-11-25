@@ -216,8 +216,10 @@ void socket_project_changed(App *t)
   broadcast_event(t, "project_changed", t->project.root, FALSE);
 }
 
-/* {"event":<event>,"plugin":<owner>,"id":<id>, ...} to every subscriber; line < 1: no line and text. */
-static void broadcast_view(App *t, const char *event, const char *owner, const char *id, int line, const char *text)
+/* {"event":<event>,"plugin":<owner>,"id":<id>, ...} to every subscriber; line < 1: no line and text.
+ * extra: more string members, name, value, ..., NULL (NULL: none; a NULL value leaves its member out). */
+static void broadcast_view(App *t, const char *event, const char *owner, const char *id, int line, const char *text,
+                           const char *const *extra)
 {
   if (!t->socket_events || t->socket_events->len == 0)
     return;
@@ -235,6 +237,11 @@ static void broadcast_view(App *t, const char *event, const char *owner, const c
     json_builder_set_member_name(b, "text");
     json_builder_add_string_value(b, text ? text : "");
   }
+  for (int i = 0; extra && extra[i]; i += 2)
+    if (extra[i + 1]) {
+      json_builder_set_member_name(b, extra[i]);
+      json_builder_add_string_value(b, extra[i + 1]);
+    }
   json_builder_end_object(b);
   JsonNode *root = json_builder_get_root(b);
   char *json = json_to_string(root, FALSE), *message = g_strconcat(json, "\n", NULL);
@@ -252,12 +259,31 @@ static void broadcast_view(App *t, const char *event, const char *owner, const c
 
 void socket_view_activated(App *t, const char *owner, const char *id, int line, const char *text)
 {
-  broadcast_view(t, "view_activated", owner, id, line, text);
+  broadcast_view(t, "view_activated", owner, id, line, text, NULL);
 }
 
 void socket_view_closed(App *t, const char *owner, const char *id)
 {
-  broadcast_view(t, "view_closed", owner, id, 0, NULL);
+  broadcast_view(t, "view_closed", owner, id, 0, NULL, NULL);
+}
+
+void socket_view_input(App *t, const char *owner, const char *id, const char *text, const char *mode)
+{
+  const char *const extra[] = { "text", text, "mode", mode, NULL };
+
+  broadcast_view(t, "view_input", owner, id, 0, NULL, extra);
+}
+
+void socket_view_choice(App *t, const char *owner, const char *id, const char *prompt, const char *choice)
+{
+  const char *const extra[] = { "prompt", prompt, "choice", choice, NULL };
+
+  broadcast_view(t, "view_choice", owner, id, 0, NULL, extra);
+}
+
+void socket_view_stop(App *t, const char *owner, const char *id)
+{
+  broadcast_view(t, "view_stop", owner, id, 0, NULL, NULL);
 }
 
 void client_subscribe(Client *c)

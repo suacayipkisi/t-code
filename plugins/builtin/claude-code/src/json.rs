@@ -1,4 +1,7 @@
-//! Just enough JSON to read claude's stream-json output: a value tree, parsed from one line.
+//! Just enough JSON to read claude's stream-json output: a value tree, parsed from one line, and
+//! written again.
+
+use crate::tcode::quote;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum Json {
@@ -45,6 +48,22 @@ impl Json {
 
     pub fn is_true(&self) -> bool {
         matches!(self, Json::Bool(true))
+    }
+
+    /// The value as JSON text again (claude's tool input, handed back as it was).
+    pub fn write(&self) -> String {
+        match self {
+            Json::Null => "null".to_string(),
+            Json::Bool(b) => b.to_string(),
+            Json::Number(n) if n.fract() == 0.0 && n.abs() < 1e15 => format!("{}", *n as i64),
+            Json::Number(n) => n.to_string(),
+            Json::Str(s) => quote(s),
+            Json::Array(items) => format!("[{}]", items.iter().map(Json::write).collect::<Vec<_>>().join(",")),
+            Json::Object(members) => format!(
+                "{{{}}}",
+                members.iter().map(|(k, v)| format!("{}:{}", quote(k), v.write())).collect::<Vec<_>>().join(",")
+            ),
+        }
     }
 }
 
@@ -201,6 +220,12 @@ mod tests {
         assert_eq!(v.get("b").get("c").str(), Some("d"));
         assert_eq!(v.get("missing").get("deeper"), &Json::Null);
         assert_eq!(parse("[]"), Some(Json::Array(vec![])));
+    }
+
+    #[test]
+    fn written() {
+        let text = r#"{"a":[1,-2.5,true,null,"x\"\nç"],"b":{}}"#;
+        assert_eq!(parse(text).unwrap().write(), text);
     }
 
     #[test]

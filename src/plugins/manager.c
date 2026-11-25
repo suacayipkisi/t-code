@@ -51,6 +51,11 @@ static const char *const css =
     ".tcode-plugins .browse-name { font-weight: bold; color: var(--tc-fg-bright); }"
     ".tcode-plugins .unreviewed { color: var(--tc-warning); font-size: smaller; }"
     ".tcode-plugins .reviewed { color: var(--tc-git-added); font-size: smaller; }"
+    ".tcode-plugins .found { color: var(--tc-git-added); font-size: smaller; }"
+    ".tcode-plugins .missing { color: var(--tc-warning); font-size: smaller; }"
+    ".tcode-plugins .program { font-family: monospace; font-weight: bold; }"
+    ".tcode-plugins .command { font-family: monospace; font-size: smaller; padding: 4px 8px; border-radius: 6px;"
+    "  background: color-mix(in srgb, var(--tc-fg) 8%, transparent); }"
     ".tcode-plugin-dot { font-size: 0.8em; min-width: 12px; color: var(--tc-fg-dim); }"
     ".tcode-plugin-dot.running { color: var(--tc-git-added); }"
     ".tcode-plugin-dot.failed { color: var(--tc-error); }"
@@ -523,6 +528,79 @@ static void add_brings(GtkWidget *details, Plugin *p)
     gtk_box_append(GTK_BOX(box), label("Nothing but its commands", "note"));
 }
 
+/* Whether one of need's programs is there (dir: the plugin's folder, for a relative one). */
+static gboolean need_found(const PluginNeed *need, const char *dir)
+{
+  for (int i = 0; need->programs[i]; i++)
+    if (server_program_found(need->programs[i], dir))
+      return TRUE;
+  return FALSE;
+}
+
+static void on_copy(GtkButton *button, gpointer data G_GNUC_UNUSED)
+{
+  gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(button)),
+                         g_object_get_data(G_OBJECT(button), "t-code-command"));
+  gtk_button_set_label(button, "Copied");
+}
+
+/* An install command the user copies (t-code runs nothing), with what system it is for when given. */
+static void add_install_line(GtkWidget *box, const char *system, const char *command)
+{
+  GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8), *text, *copy;
+  char *shown = system ? g_strdup_printf("%s: %s", system, command) : g_strdup(command);
+
+  text = label(shown, "command");
+  gtk_label_set_selectable(GTK_LABEL(text), TRUE);
+  gtk_label_set_wrap_mode(GTK_LABEL(text), PANGO_WRAP_CHAR);
+  gtk_widget_set_hexpand(text, TRUE);
+  gtk_box_append(GTK_BOX(row), text);
+  copy = gtk_button_new_with_label("Copy");
+  gtk_widget_set_tooltip_text(copy, "Copy the command, to run it in a terminal");
+  gtk_widget_set_valign(copy, GTK_ALIGN_CENTER);
+  g_object_set_data_full(G_OBJECT(copy), "t-code-command", g_strdup(command), g_free);
+  g_signal_connect(copy, "clicked", G_CALLBACK(on_copy), NULL);
+  gtk_box_append(GTK_BOX(row), copy);
+  gtk_box_append(GTK_BOX(box), row);
+  g_free(shown);
+}
+
+/* What the plugin needs ("requires"): each program, whether it is there, and for one that is not
+ * the plugin's install command for this system (or all of them when none is for it). */
+static void add_needs(GtkWidget *details, Plugin *p)
+{
+  GtkWidget *box;
+
+  if (!p->needs || !p->needs->len)
+    return;
+  box = add_card(details, "Needs");
+  gtk_box_set_spacing(GTK_BOX(box), 8);
+  for (guint i = 0; i < p->needs->len; i++) {
+    const PluginNeed *need = g_ptr_array_index(p->needs, i);
+    gboolean found = need_found(need, p->dir);
+    GtkWidget *item = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4), *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    char *names = g_strjoinv(" or ", need->programs), *why;
+    const char *command = found ? NULL : plugin_need_command(need, plugin_systems());
+
+    gtk_box_append(GTK_BOX(head), label(names, "program"));
+    why = *need->why ? g_strdup_printf("%s%s", need->why, need->optional ? " (optional)" : "")
+                     : g_strdup(need->optional ? "optional" : "");
+    GtkWidget *what = label(why, "note");
+    gtk_widget_set_hexpand(what, TRUE);
+    gtk_box_append(GTK_BOX(head), what);
+    gtk_box_append(GTK_BOX(head), label(found ? "installed" : "not installed", found ? "found" : "missing"));
+    gtk_box_append(GTK_BOX(item), head);
+    if (command)
+      add_install_line(item, NULL, command);
+    else if (!found)
+      for (int j = 0; need->install[j] && need->install[j + 1]; j += 2)
+        add_install_line(item, need->install[j], need->install[j + 1]);
+    gtk_box_append(GTK_BOX(box), item);
+    g_free(why);
+    g_free(names);
+  }
+}
+
 /* Each command with its keys at the right. */
 static void add_commands(GtkWidget *details, Plugin *p)
 {
@@ -653,6 +731,7 @@ static void show_details(void)
     gtk_box_append(GTK_BOX(box), description);
   }
 
+  add_needs(box, p);
   add_commands(box, p);
   add_permissions(box, p);
   add_brings(box, p);
@@ -988,6 +1067,18 @@ static GtkWidget *entry_row(RegistryEntry *e)
   line = g_strdup_printf("Asks for: %s", *asks ? asks : "nothing");
   gtk_box_append(GTK_BOX(texts), label(line, "note"));
   g_free(line);
+  if (e->needs && e->needs->len) {
+    GString *needs = g_string_new("Needs: ");
+    for (guint i = 0; i < e->needs->len; i++) {
+      const PluginNeed *need = g_ptr_array_index(e->needs, i);
+      char *names = g_strjoinv(" or ", need->programs);
+      g_string_append_printf(needs, "%s%s%s%s", i ? ", " : "", names, need->optional ? " (optional)" : "",
+                             need_found(need, "/") ? "" : " (not installed)");
+      g_free(names);
+    }
+    gtk_box_append(GTK_BOX(texts), label(needs->str, "note"));
+    g_string_free(needs, TRUE);
+  }
   gtk_widget_set_hexpand(texts, TRUE);
   gtk_box_append(GTK_BOX(row), texts);
 

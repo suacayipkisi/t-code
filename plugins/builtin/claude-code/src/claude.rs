@@ -49,11 +49,6 @@ pub fn mention(root: &str, file: &str, r: Range) -> String {
     }
 }
 
-/// s quoted for terminal-open's program line, which is split like a shell would.
-pub fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
-
 /// The first "file:line[:column]" in text whose file exists (exists decides), relative paths taken
 /// from root: "path:line[:column]" for t-code's open.
 pub fn locate(root: &str, text: &str, exists: impl Fn(&Path) -> bool) -> Option<String> {
@@ -110,7 +105,6 @@ pub struct Outcome {
     pub is_error: bool,
     pub text: String,
     pub structured: Json,
-    pub cost: f64,
 }
 
 /// Turns claude's --output-format stream-json lines into whole lines of text for a view: the
@@ -169,7 +163,6 @@ impl Stream {
                     is_error: line.get("is_error").is_true(),
                     text: line.get("result").str().or(line.get("subtype").str()).unwrap_or("").to_string(),
                     structured: line.get("structured_output").clone(),
-                    cost: line.get("total_cost_usd").number().unwrap_or(0.0),
                 });
                 self.flush()
             }
@@ -195,17 +188,26 @@ impl Stream {
     }
 }
 
-/// One line saying what claude looks at, "  › Read src/main.c".
-pub fn tool_line(name: &str, input: &Json) -> String {
+/// What a tool's input is about, on one line: its file, pattern, command, address or query ("…"
+/// after the first line of a longer one); None when it has none of those.
+pub fn tool_detail(input: &Json) -> Option<String> {
     for key in ["file_path", "pattern", "path", "command", "url", "query", "description"] {
         if let Some(value) = input.get(key).str().filter(|v| !v.is_empty()) {
-            return match value.split_once('\n') {
-                Some((first, _)) => format!("  › {name} {first} …"),
-                None => format!("  › {name} {value}"),
-            };
+            return Some(match value.split_once('\n') {
+                Some((first, _)) => format!("{first} …"),
+                None => value.to_string(),
+            });
         }
     }
-    format!("  › {name}")
+    None
+}
+
+/// One line saying what claude looks at, "  › Read src/main.c".
+pub fn tool_line(name: &str, input: &Json) -> String {
+    match tool_detail(input) {
+        Some(detail) => format!("  › {name} {detail}"),
+        None => format!("  › {name}"),
+    }
 }
 
 /// One finding of a review.
@@ -297,11 +299,6 @@ mod tests {
     }
 
     #[test]
-    fn quoting() {
-        assert_eq!(shell_quote("it's"), r"'it'\''s'");
-    }
-
-    #[test]
     fn places() {
         let exists = |p: &Path| p == Path::new("/p/src/main.c") || p == Path::new("/abs/x.go");
         let cases = [
@@ -349,7 +346,6 @@ mod tests {
         let out: Vec<String> = lines.iter().flat_map(|line| s.feed(line)).collect();
         assert_eq!(out, ["Hello", "", "src/a.c:3 is it", "  › Read /p/a.c", "Not streamed"]);
         let outcome = s.outcome.unwrap();
-        assert_eq!(outcome.cost, 0.5);
         assert!(!outcome.is_error);
         assert_eq!(outcome.structured.get("n").number(), Some(1.0));
     }

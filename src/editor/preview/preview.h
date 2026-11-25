@@ -27,5 +27,15 @@ void preview_set_zoom(Tab *tab, double scale);
 /* The color theme changed: the preview is shown again in its colors. */
 void preview_restyle(Tab *tab);
 
+/* A Markdown text shown like a preview (a plugin's view): its widget (a scrolled window) in *widget,
+ * the Preview freed with it. dir: where its relative links and images are. Empty at first ... */
+Preview *preview_text_new(App *t, const char *dir, GtkWidget **widget);
+/* ... its text replaced (append: added to the end, as streamed text is), shown again shortly, its
+ * end kept in view when it was; the text it shows. */
+void preview_text_set(Preview *p, const char *markdown, gboolean append);
+const char *preview_text(Preview *p);
+/* The color theme changed: the texts' previews take its colors. */
+void preview_restyle_texts(void);
+
 /* Frees a preview; its tab is going. */
 void preview_free(Preview *preview);

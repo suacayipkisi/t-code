@@ -26,6 +26,11 @@ void socket_project_changed(App *t);
  * closed by the user (plugins/views.h). */
 void socket_view_activated(App *t, const char *owner, const char *id, int line, const char *text);
 void socket_view_closed(App *t, const char *owner, const char *id);
+/* ... the text typed into a view's input (Enter), with the mode picked beside it (NULL: no modes); one
+ * of a view prompt's choices was picked; the view's Stop was pressed. */
+void socket_view_input(App *t, const char *owner, const char *id, const char *text, const char *mode);
+void socket_view_choice(App *t, const char *owner, const char *id, const char *prompt, const char *choice);
+void socket_view_stop(App *t, const char *owner, const char *id);
 
 /* Stops listening and removes the socket file. */
 void stop_socket(App *t);

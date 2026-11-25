@@ -263,6 +263,7 @@ void color_theme_apply(App *t, const char *id)
       preview_restyle(tab);
     }
   }
+  preview_restyle_texts();
 }
 
 /* The picker: "Preferences: Color Theme…" -------------------------------------------------- */

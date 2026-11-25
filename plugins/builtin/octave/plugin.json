@@ -6,6 +6,28 @@
   "version": "0.1.0",
   "description": "Run .m files in a GNU Octave session in a terminal tab (F5 too); run errors show as diagnostics.",
   "executable": "octave_plugin.py",
+  "requires": [
+    {
+      "program": "python3",
+      "for": "running the plugin",
+      "install": {
+        "fedora": "sudo dnf install python3",
+        "debian": "sudo apt install python3",
+        "arch": "sudo pacman -S python",
+        "opensuse": "sudo zypper install python3"
+      }
+    },
+    {
+      "program": "octave",
+      "for": "the Octave session",
+      "install": {
+        "fedora": "sudo dnf install octave",
+        "debian": "sudo apt install octave",
+        "arch": "sudo pacman -S octave",
+        "opensuse": "sudo zypper install octave"
+      }
+    }
+  ],
   "permissions": ["terminal"],
   "commands": [
     { "id": "run", "name": "Octave: Run File" },

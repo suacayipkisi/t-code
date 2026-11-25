@@ -92,6 +92,8 @@ exec "$target/release/<program>" "$@"
 - With no dependencies (or vendored ones) the build needs no network; otherwise declare `network`.
 - Ship the lock file (`Cargo.lock`, `go.sum`) so the build never writes next to the source.
 - When the compiler is missing, say so on stderr and exit 1: the Plugins window shows the line.
+- Name the compiler (and every program the plugin runs) in [`requires`](#what-a-plugin-needs-requires),
+  with the commands that install it: the Plugins window shows them before the first run fails.
 
 `plugins/builtin/todos/` is such a plugin: Rust's standard library only, a `UnixStream` that says
 `hello`, sends NUL-ended requests and reads one answer line each. `plugins/builtin/word-count/` is
@@ -153,6 +155,7 @@ found wins:
 | `commands` | list | no | The commands the plugin adds (below). A plugin without commands needs no program. |
 | `start` | string | no | `"project"`: start the plugin when a project opens and stop it when the project closes, for plugins that listen to events. Needs the `start` permission. Without it, the plugin runs only when one of its commands is run. |
 | `permissions` | list | no | What the plugin does: `"edit"`, `"terminal"`, `"network"`, `"start"`. See [Permissions](#permissions). |
+| `requires` | list | no | The programs it needs to be built or to run, and how to install them. See [What a plugin needs](#what-a-plugin-needs-requires). |
 | `run` | object | no | Files that Run (`Ctrl+F5` / Run button) hands to one of the plugin's commands: `{ ".m": "matlab.run" }`. See [Declarations](#declarations-without-a-program). |
 | `debug` | object | no | Files that Debug (`F5`) hands to one of the plugin's commands, which starts its debugger with `debug-start`: `{ ".java": "debug" }`. The same patterns as `run`. |
 | `lsp` | list | no | Language servers the plugin adds. See [Declarations](#declarations-without-a-program). |
@@ -178,6 +181,42 @@ A plugin that is broken is skipped, with a warning on t-code's stderr. Broken me
 `commands` that is not a list, an `api` this t-code does not speak, or commands but no executable
 program. A broken `lsp` entry, `run` entry or folder is left out with a warning; the rest of the
 plugin still loads.
+
+### What a plugin needs (`requires`)
+
+A plugin brings its own interpreter or compiler (no embedded runtimes), so the user has to install
+some programs before it works. `requires` lists them, with the commands that install them. The
+Plugins window shows each one under **Needs**: whether it is installed, and for one that is not, the
+plugin's command for the user's system with a **Copy** button. Browse lists them too ("Needs: cargo
+(not installed)"). t-code runs none of these commands; it only shows them, to be copied into a
+terminal.
+
+```json
+"requires": [
+  {
+    "program": "cargo",
+    "for": "building the plugin once",
+    "install": {
+      "fedora": "sudo dnf install cargo",
+      "debian": "sudo apt install cargo",
+      "arch": "sudo pacman -S rust",
+      "any": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+    }
+  },
+  { "program": ["latexmk", "tectonic"], "for": "building the documents" },
+  { "program": "notify-send", "for": "the desktop notification", "optional": true }
+]
+```
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `program` | string or list | yes | A program's name, looked for on `PATH` (and in `~/.local/bin`, `~/.cargo/bin`, `~/go/bin`), or several of which one is enough. A name, not a path. |
+| `for` | string | no | What it is needed for, shown beside it. |
+| `optional` | boolean | no | Only some commands need it; the plugin works without it. |
+| `install` | object | no | Commands by system: the keys are os-release `ID` and `ID_LIKE` words (`fedora`, `debian`, `ubuntu`, `arch`, `opensuse`, …) and `any`. t-code shows the one for its system's `ID`, else the first `ID_LIKE` word that has one (Ubuntu and Mint get `debian`'s), else `any`; with none of those, all of them. In a Flatpak, the host's system. |
+
+A broken entry is left out with a warning in the log. The registry's entry carries the same
+`requires` as the plugin's `plugin.json`.
 
 ### Declarations without a program
 
@@ -539,9 +578,13 @@ start (`[line, col]`).
 
 | Command | Argument | Answer | What it does |
 |---|---|---|---|
-| `view-open` | `{"id":"…","title":"…","where":"bottom","icon":"…","text":"…"}` | `ok` | Opens the plugin's view `id` (one word without `/`): a read-only text panel in a dock (`where`: `left`, `bottom` (the default) or `right`) or a tab in an editor group (`editor`: the active one, `side`: the one beside it). `title` names its tab (the id without one), `icon` an icon name for a dock's tab. A view already open gets the title and text and shows. |
+| `view-open` | `{"id":"…","title":"…","where":"bottom","icon":"…","text":"…"}` | `ok` | Opens the plugin's view `id` (one word without `/`): a read-only text panel in a dock (`where`: `left`, `bottom` (the default) or `right`) or a tab in an editor group (`editor`: the active one, `side`: the one beside it). `title` names its tab (the id without one), `icon` an icon name for a dock's tab. A view already open gets the title and text and shows. More fields make a chat of it (below): `"markdown":true`, `"input":"placeholder"`, `"modes":["…"]`, `"mode":"…"`. |
 | `view-set` | `<id> <text>` | `ok` | Replaces the view's text. |
 | `view-append` | `<id> <text>` | `ok` | Adds a line to the view's text and scrolls to it. |
+| `view-extend` | `<id> <text>` | `ok` | Adds the text at the end of the view's text, on the same line: streamed text, a piece at a time. |
+| `view-prompt` | `{"id":"…","prompt":"…","text":"…","choices":["Allow","Deny"]}` | `ok` | A question above the view's input: the text, and a button for each choice (the first one stands out). Picking one sends `view_choice` and takes the question away. `prompt` names it among the view's questions; no `choices` (or `[]`) takes it away. Several stack. |
+| `view-busy` | `<id> [text]` | `ok` | The busy line above the view's input: the text with a Stop button (`view_stop`); without text, it goes. |
+| `view-input` | `<id> <text>` | `ok` | Puts the text into the view's input box, with a space after it, shows the view and gives the box the keyboard: a reference the user goes on from. |
 | `view-show` | `<id>` | `ok` | Shows the view: its dock or tab, switched to. |
 | `view-close` | `<id>` | `ok` | Closes the view. |
 
@@ -554,6 +597,16 @@ start (`[line, col]`).
 - **Lifetime:** a view stays until the plugin closes it or the user closes its tab (`view_closed`);
   it is not brought back with the project. Text with line breaks: send the request ended by a NUL
   byte, or put the text in `view-open`'s JSON.
+- **Chats:** `view-open`'s `markdown`, `input` and `modes` are taken when the view is made (a view
+  already open keeps what it was made with):
+  - `"markdown": true`: the text is Markdown, shown like a preview (the same rendering: code blocks,
+    tables, links), shown again as it grows (`view-append`, `view-extend`) and kept at its end while
+    the user has not scrolled up. Its lines send no `view_activated`.
+  - `"input": "Ask…"`: a box under the text, the placeholder shown while it is empty. Enter sends
+    `view_input` with the text and empties the box; Shift+Enter starts a new line. `view-prompt`,
+    `view-busy` and `view-input` need it (`error no-view` without one).
+  - `"modes": ["Ask", "Edit"]`, `"mode": "Ask"`: a menu beside the box; the mode picked goes with each
+    `view_input`.
 
 ### Events
 
@@ -569,6 +622,9 @@ Send `subscribe` and keep the connection open. t-code answers `ok` (a legacy con
 {"event":"project_changed","path":"/absolute/path/to/project"}
 {"event":"view_activated","plugin":"my-plugin","id":"results","line":3,"text":"src/main.c:12: warning"}
 {"event":"view_closed","plugin":"my-plugin","id":"results"}
+{"event":"view_input","plugin":"my-plugin","id":"chat","text":"why is this slow?","mode":"Ask"}
+{"event":"view_choice","plugin":"my-plugin","id":"chat","prompt":"r1","choice":"Allow"}
+{"event":"view_stop","plugin":"my-plugin","id":"chat"}
 ```
 
 | Event | When |
@@ -581,6 +637,9 @@ Send `subscribe` and keep the connection open. t-code answers `ok` (a legacy con
 | `project_changed` | Another project folder opened. |
 | `view_activated` | A line of a plugin's view was double-clicked or got Enter: the plugin (`socket` for a connection without a plugin), the view's id, the line (from 1) and its text. |
 | `view_closed` | The user closed a plugin's view tab. |
+| `view_input` | The user sent the text of a view's input box (Enter): the text, and the mode picked beside it when the view has modes. |
+| `view_choice` | The user picked one of a view question's choices (`view-prompt`): the question's name and the choice. |
+| `view_stop` | The user pressed Stop on a view's busy line (`view-busy`). |
 
 `did_change` and `did_save` carry `"by":"plugin"` when a socket request caused them: an `insert`,
 `edit` or `replace-all` (when every change since the last `did_change` came from the socket), or a
@@ -673,7 +732,8 @@ Folder and Process Monitor….
 
 - **What it shows:** on top its name, its state (on, off; for a `start` plugin: running, stopped,
   failed, not started), Start / Stop and the switch; under them its version, provider and
-  description. Then its commands with their keys, its permissions and what it brings (language
+  description. Then what it needs (`requires`: each program, installed or not, with the plugin's
+  install command for this system and Copy), its commands with their keys, its permissions and what it brings (language
   servers, Run, language specs, snippets). Folded under **Details**: id, provider, version, API
   (`tapi_1`, or none for a plugin from before versions), where it was found (your plugins folder, the
   system, t-code itself), its folder and its registry record. Folded under **Output** (open by itself
@@ -694,8 +754,8 @@ Folder and Process Monitor….
   programs with their CPU and memory, next to t-code's other processes, and End for each.
 - **Browse:** the registry's plugins (below), fetched when the page shows (again after a minute, and
   on Reload), with a search over
-  names, descriptions and categories. Each shows its version, its review badge and the permissions it
-  asks for. **Install** downloads the pinned commit, checks its tree hash and its `plugin.json`'s id,
+  names, descriptions and categories. Each shows its version, its review badge, the permissions it
+  asks for and the programs it needs (those not installed marked). **Install** downloads the pinned commit, checks its tree hash and its `plugin.json`'s id,
   and puts it in `~/.config/t-code/plugins/<id>/`; **Update** does the same when the registry pins a
   newer commit. A plugin that needs a newer t-code (`api`) cannot be installed. A reviewed plugin
   installs switched on; an unreviewed one installs switched off.
@@ -1153,27 +1213,43 @@ Declarations only: `snippets/` and `styles/*.xml` folders, no program (see [Colo
 
 #### Claude Code (`claude-code`, in this repository: `plugins/builtin/claude-code`, in Rust)
 - **Does:**
-  - **Claude Code: Open the Session** (`Ctrl+Alt+K`): the `claude` command in a "Claude" terminal tab of
-    the project, one per project; t-code types `/exit` into it when it closes.
-  - **Send the Selection to the Session** (`Ctrl+Alt+J`): asks for a prompt (`ask`) and types it into
-    the session with the selection as a reference (`@src/main.c#L5-10 why is this slow?`, from
-    `get-selection-range`); starts the session when there is none.
-  - **Ask About This File**: `claude -p` (read-only tools) streams its answer into a "Claude" view on
-    the right, a line at a time (`view-append`); closing the view (`view_closed`) stops it.
+  - **Claude Code: Open the Chat** (`Ctrl+Alt+K`): a "Claude" panel on the right (a view with
+    `markdown`, `input` and `modes`): the conversation in Markdown, a box to write in and the mode
+    beside it. Each message goes to the same conversation, with the active file and its cursor or
+    selection named after it (not in Ask).
+    - **Ask**: no tools; it answers from the conversation and suggests Read when it needs a file.
+    - **Read**: reads, greps and globs: the active file first, other files when the question needs
+      them.
+    - **Edit**: Claude Code's tools, its file changes accepted (`acceptEdits`).
+    - What needs permission (a command, a file outside the project, and anything else Claude Code's
+      settings do not allow already, `sudo` included) shows as a question with Allow and Deny
+      (`view-prompt`). Stop (`view-busy`) ends the turn; the next message goes on with the same
+      conversation.
+  - **Reference the Selection in the Chat** (`Ctrl+Alt+J`), **Reference This File in the Chat**:
+    puts `@src/main.c#L5-10` (or `@src/main.c`) into the chat's box (`view-input`), to go on from.
   - **Review This File**: the buffer (`get-text`, unsaved edits too) goes to `claude -p` with a JSON
     schema; the findings become diagnostics (source `claude`) and lines of a "Claude Review" view at
     the bottom. **Clear the Review** removes both.
   - **Rewrite the Selection**: asks how, and replaces the selection with claude's text as one undo
     step (`edit`), then selects the new text (`set-selection`); nothing changes when the tab or the
     text changed meanwhile.
-  - With the project (`start`): a double click or Enter on a view's line naming `path:line`
-    (`view_activated`) opens that place.
-- **Permissions:** `terminal`, `edit`, `network` (claude talks to its service), `start`.
-- **Plugin:** Rust, standard library only (a small JSON reader for claude's `stream-json`); `run.sh`
-  builds it with `cargo` into `~/.cache/t-code-claude-code/`. Needs Claude Code's `claude` command,
-  logged in.
+  - With the project (`start`): runs the chat's conversations (`view_input`, `view_choice`,
+    `view_stop`), and a double click or Enter on a review line naming `path:line` (`view_activated`)
+    opens that place.
+- **How:** one `claude -p --input-format stream-json --output-format stream-json
+  --include-partial-messages --permission-prompt-tool stdio` per conversation and mode, in the
+  project folder: its answer streams into the panel (`view-extend`), its permission questions
+  (`control_request` `can_use_tool`) are answered with the user's choice. Another mode starts it again
+  with `--resume`, the same conversation.
+- **Needs** (`requires`): `cargo` to build it once, and Claude Code installed and signed in. The plugin
+  only puts a working Claude Code into t-code: it checks `claude auth status` before the first message
+  and says how to sign in when it is not. Claude Code's own settings (allowed tools, hooks) still apply.
+- **Permissions:** `edit` (Rewrite), `network` (claude talks to its service), `start`.
+- **Plugin:** Rust, standard library only (a small JSON reader and writer for claude's `stream-json`);
+  `run.sh` builds it with `cargo` into `~/.cache/t-code-claude-code/`.
 - **Limits:** Claude Code's own editor integration (its diff view, its live selection) is not there:
-  the session gets the selection only when it is sent.
+  the conversation gets the active file's name and cursor with each message, and file changes show in
+  the editors when they reload.
 
 #### Assistant (`llm`, with ollama or a hosted API)
 - **Does:**
