@@ -162,6 +162,9 @@ static const Setting settings[] = {
               " it off"),
   INT_SETTING("autosave-ms", autosave_ms, 1000, 0, 300000,
               " 0ms to 300'000ms, default 1000ms. saveing files after delay in ms after change"),
+  INT_SETTING("server-idle-seconds", server_idle, 30, -1, 86400,
+              " -1 to 86400, seconds a language server keeps running after its last file closes (30 by default);"
+              " -1: it never stops by itself"),
   INT_SETTING("tab-size", tab_size, 2, 1, 16,
               " 1 to 16, for projects without their own: the status bar's choice, .editorconfig or .clang-format come"
               " first"),

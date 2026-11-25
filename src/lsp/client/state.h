@@ -10,9 +10,6 @@
 #include "lsp/channel.h"
 #include "lsp/servers.h"
 
-#ifndef IDLE_SECONDS /* tests set a shorter one */
-#define IDLE_SECONDS 30
-#endif
 #ifndef FLUSH_MS
 #define FLUSH_MS 50 /* changes typed within this go in one didChange */
 #endif
@@ -25,6 +22,20 @@
 #define MAX_CRASHES 3
 #ifndef INIT_TIMEOUT_MS
 #define INIT_TIMEOUT_MS 120000 /* no answer to initialize: it did not start (jdtls takes a while on a big project) */
+#endif
+
+/* A server that grew while files were closed is started again once it is quiet (memory a server
+ * frees stays resident, fragmented): checked every TRIM_CHECK_SECONDS, after TRIM_QUIET_SECONDS
+ * without traffic, when resident is TRIM_GROWTH_KB (or a quarter, if more) above where it
+ * settled after its start. */
+#ifndef TRIM_CHECK_SECONDS
+#define TRIM_CHECK_SECONDS 60
+#endif
+#ifndef TRIM_QUIET_SECONDS
+#define TRIM_QUIET_SECONDS 30
+#endif
+#ifndef TRIM_GROWTH_KB
+#define TRIM_GROWTH_KB (200 * 1024)
 #endif
 
 /* A compile database written (make, cmake) is told to the server this long after its last change. */
@@ -71,6 +82,10 @@ struct Lsp {
   GHashTable *docs; /* Tab -> Doc */
   guint64 use;      /* next LRU stamp for docs */
   guint idle_id, restart_id;
+  guint trim_id;    /* the periodic memory check (servers that start again cheaply) */
+  gint64 active;    /* monotonic time of the last message either way */
+  guint64 rss_base; /* KB resident once it settled after its start; 0 until measured */
+  gboolean closed;  /* a file was closed on this run since rss_base */
   int crashes;
   gboolean missing;        /* the server is not installed: not tried again */
   char *failure;           /* why it did not start, or stopped for good: not tried again until a restart */

@@ -8,7 +8,9 @@
 #include <stdlib.h>
 #include <glib/gstdio.h>
 
-#define IDLE_SECONDS 1
+#define TRIM_CHECK_SECONDS 1
+#define TRIM_QUIET_SECONDS 0
+#define TRIM_GROWTH_KB (32 * 1024)
 #define FLUSH_MS 2
 #define PULL_MS 2
 #define SERVER_ARGV "/proc/self/exe", "--fake-server",
@@ -689,7 +691,7 @@ static void test_close_waiting(void)
   g_free(position);
 }
 
-/* Without editors the server stops (after IDLE_SECONDS, 1 here); the next one starts it again. */
+/* Without editors the server stops (after settings.server_idle, 1 s here); the next one starts it again. */
 static void test_idle_stop(void)
 {
   Tab *tab = new_tab("/tmp/t-code-test/idle.c", "x\n");
@@ -698,7 +700,6 @@ static void test_idle_stop(void)
   g_assert_true(server_agrees(tab));
   free_tab(tab);
   g_assert_nonnull(app.lsp->ch);
-  /* A timeout in seconds fires up to a second late (GLib rounds them to whole seconds). */
   for (gint64 until = g_get_monotonic_time() + 3 * G_USEC_PER_SEC; app.lsp->ch && g_get_monotonic_time() < until;)
     g_main_context_iteration(NULL, FALSE);
   g_assert_null(app.lsp->ch);
@@ -707,6 +708,73 @@ static void test_idle_stop(void)
   lsp_open(tab);
   g_assert_true(server_agrees(tab));
   free_tab(tab);
+}
+
+static const char *server_pid(void)
+{
+  return app.lsp->process ? g_subprocess_get_identifier(app.lsp->process) : NULL;
+}
+
+/* Runs the loop for up to ms, or until the server's process is no longer pid. */
+static void wait_for_other_pid(const char *pid, int ms)
+{
+  for (gint64 until = g_get_monotonic_time() + ms * 1000;
+       g_strcmp0(server_pid(), pid) == 0 && g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, FALSE);
+}
+
+/* A quiet server far above where it settled is started again once a file was closed (not before),
+ * and gets the open files again. */
+static void test_memory_restart(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/stay.c", "x\n");
+  Tab *grow;
+  char *pid;
+
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  for (gint64 until = g_get_monotonic_time() + 3 * G_USEC_PER_SEC;
+       !app.lsp->rss_base && g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, FALSE);
+  g_assert_cmpuint(app.lsp->rss_base, >, 0);
+  pid = g_strdup(server_pid());
+
+  /* Grown, with nothing closed since the base was taken: kept. */
+  app.lsp->closed = FALSE;
+  grow = new_tab("/tmp/t-code-test/grow.c", "GROW\n");
+  lsp_open(grow);
+  g_assert_true(server_agrees(grow));
+  wait_for_other_pid(pid, 2500);
+  g_assert_cmpstr(server_pid(), ==, pid);
+
+  /* The file closed: started again, the open one sent to the new server. */
+  free_tab(grow);
+  wait_for_other_pid(pid, 3000);
+  g_assert_nonnull(server_pid());
+  g_assert_cmpstr(server_pid(), !=, pid);
+  g_assert_true(server_agrees(tab));
+  free_tab(tab);
+  g_free(pid);
+}
+
+/* server_idle -1: the server keeps running without files; set to 0 meanwhile, it stops. */
+static void test_idle_never(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/never.c", "x\n");
+
+  app.settings.server_idle = -1;
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  free_tab(tab);
+  run_for(1500);
+  g_assert_nonnull(app.lsp->ch);
+
+  app.settings.server_idle = 0;
+  lsp_idle_changed(&app);
+  for (gint64 until = g_get_monotonic_time() + 2 * G_USEC_PER_SEC; app.lsp->ch && g_get_monotonic_time() < until;)
+    g_main_context_iteration(NULL, FALSE);
+  g_assert_null(app.lsp->ch);
+  app.settings.server_idle = 1;
 }
 
 /* CMake files go to their server (neocmakelsp), which sends no diagnostics by itself: it is asked
@@ -2093,6 +2161,7 @@ int main(int argc, char **argv)
   gtk_source_init();
   app.project.root = g_strdup("/tmp");
   app.settings.tab_size = 4;
+  app.settings.server_idle = 1;
   app.settings.font_scale = 1.0;
   app.paths.styles = g_canonicalize_filename("styles", NULL);
   g_test_add_func("/lsp/sync-utf8", test_sync_utf8);
@@ -2110,6 +2179,8 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/cancel", test_cancel);
   g_test_add_func("/lsp/close-waiting", test_close_waiting);
   g_test_add_func("/lsp/idle-stop", test_idle_stop);
+  g_test_add_func("/lsp/idle-never", test_idle_never);
+  g_test_add_func("/lsp/memory-restart", test_memory_restart);
   g_test_add_func("/lsp/progress", test_progress);
   g_test_add_func("/lsp/pull-diagnostics", test_pull_diagnostics);
   g_test_add_func("/lsp/show-document", test_show_document);

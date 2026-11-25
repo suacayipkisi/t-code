@@ -21,6 +21,11 @@ typedef enum {
   SERVER_PLUGIN = 100, /* and up: a plugin's server, the same number for it until t-code quits */
 } ServerKind;
 
+/* Whether a server comes back quickly when started again (its index on disk, or none), so it may be
+ * restarted to give back memory: not gopls, rust-analyzer or a plugin's server (jdtls), which load
+ * the whole workspace again. */
+gboolean server_restarts_cheaply(ServerKind kind);
+
 /* The server an editor's file gets (by its language or name), or SERVER_NONE. A built-in server
  * turned off in Settings gives way to a plugin's for the same files; a built-in one that is on wins,
  * unless it is not installed. */

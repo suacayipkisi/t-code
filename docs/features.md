@@ -165,7 +165,13 @@ variables it already had stay.
 
 **A server's life.**
 
-- Each server starts on first use and stops 30 seconds after the last file it serves closes.
+- Each server starts on first use and stops 30 seconds after the last file it serves closes
+  ("Stop when unused" in Settings: Language Servers, `server-idle-seconds` in settings.ini; -1 keeps
+  it running).
+- A server that grew while files were closed is restarted once it has been quiet for 30 seconds
+  (resident memory 200 MB, or a quarter if that is more, above where it settled after starting); the open files
+  go to the new one. Not gopls, rust-analyzer or plugin servers, which would load the whole
+  workspace again.
 - Files are sent only once their tab is shown, so restored sessions cost the servers little.
 - "Restart Language Servers" in the command palette restarts active servers (including one that
   gave up after crashes).
@@ -590,8 +596,9 @@ The Terminal panel holds the shells as tabs.
   [A cleaner window](#panels)).
 - **C / C++:** format on save (`Ctrl+S` formats C and C++ first; off by default), clang-tidy checks
   (the project's `.clang-tidy`; off by default), debugging with lldb-dap.
-- **Language Servers:** each built-in one on or off (off: its files go to a plugin's server for
-  them, or to none).
+- **Language Servers:** how long a server keeps running after its last file closes (30 seconds by
+  default, -1: until t-code quits); each built-in one on or off (off: its files go to a plugin's
+  server for them, or to none).
 - **Keyboard Shortcuts:** every command with its keys, and a filter. Click a command's keys and
   press new ones (`Escape` keeps the old ones, `Backspace` removes them); a command that had the
   same keys loses them, and the arrow beside gives the default back. They are kept in

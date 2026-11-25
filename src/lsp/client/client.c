@@ -1,6 +1,6 @@
 /*
  * Per-language LSP clients (see client.h; the servers themselves are in lsp/servers.c). Each starts
- * on first use, keeps a small LRU of open documents and stops IDLE_SECONDS after its last editor
+ * on first use, keeps a small LRU of open documents and stops settings.server_idle seconds after its last editor
  * closes; a crash restarts that server up to MAX_CRASHES times. This file sends the requests and has
  * what the editors call; positions.c, documents.c and server.c the rest (state.h).
  */
@@ -68,6 +68,7 @@ void lsp_notify(Lsp *l, const char *method, const char *params)
 {
   char *body = g_strdup_printf("{\"jsonrpc\":\"2.0\",\"method\":\"%s\",\"params\":%s}", method, params);
 
+  l->active = g_get_monotonic_time();
   if (l->ch)
     channel_send(l->ch, body);
   g_free(body);
@@ -145,6 +146,7 @@ void lsp_send(Lsp *l, Tab *tab, const char *method, const char *params, GCancell
   Pending *p = g_new0(Pending, 1);
   char *body;
 
+  l->active = g_get_monotonic_time();
   p->lsp = l;
   p->id = l->next_id++;
   p->tab = tab;
@@ -237,6 +239,26 @@ void lsp_saved(Tab *tab)
   g_free(document);
 }
 
+/* A running server without files stops settings.server_idle seconds from now (-1: never). */
+static void idle_later(Lsp *l)
+{
+  int seconds = l->app->settings.server_idle;
+
+  if (l->ch && !l->idle_id && seconds >= 0)
+    l->idle_id = g_timeout_add((guint)seconds * 1000, lsp_idle_stop, l);
+}
+
+void lsp_idle_changed(App *t)
+{
+  for (guint i = 0; t->lsps && i < t->lsps->len; i++) {
+    Lsp *l = g_ptr_array_index(t->lsps, i);
+    if (g_hash_table_size(l->docs) > 0)
+      continue;
+    g_clear_handle_id(&l->idle_id, g_source_remove);
+    idle_later(l);
+  }
+}
+
 void lsp_close(Tab *tab)
 {
   Doc *doc = doc_of(tab);
@@ -253,8 +275,9 @@ void lsp_close(Tab *tab)
     g_free(document);
   }
   g_hash_table_remove(l->docs, tab);
-  if (g_hash_table_size(l->docs) == 0 && l->ch && !l->idle_id)
-    l->idle_id = g_timeout_add_seconds(IDLE_SECONDS, lsp_idle_stop, l);
+  l->closed = TRUE; /* the memory check may start it again (server.c) */
+  if (g_hash_table_size(l->docs) == 0)
+    idle_later(l);
 }
 
 gboolean lsp_has(Tab *tab)

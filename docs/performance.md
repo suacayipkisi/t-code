@@ -12,7 +12,9 @@ What keeps it small:
 
 - **clangd gets a file once its tab is shown**, and stops 30 seconds after the last C or C++ file
   closes. It keeps at most five files open: the least recently used hidden tab is closed on the
-  server (its AST freed) and opened again when you go back to it.
+  server (its AST freed) and opened again when you go back to it. What a server frees stays
+  resident (fragmented) until it exits, so one that grew 200 MB (or a quarter, if more) above where
+  it settled is restarted once files were closed and it has been quiet for 30 seconds.
 - **clangd's own flags**: precompiled headers on disk (`--pch-storage=disk`), two indexing
   threads, at most 50 results, and `--malloc-trim` on glibc.
 - **clangd runs with two malloc arenas** (`GLIBC_TUNABLES=glibc.malloc.arena_max=2`). With 25

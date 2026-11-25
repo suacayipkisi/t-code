@@ -157,6 +157,7 @@ void doc_close_on_server(Doc *doc)
   g_free(params);
   g_free(document);
   doc->opened = FALSE;
+  doc->lsp->closed = TRUE;
 }
 
 /* Keeps at most MAX_OPEN_DOCS files open per server: least-recently-used hidden tabs get didClose

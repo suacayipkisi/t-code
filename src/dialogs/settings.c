@@ -278,6 +278,7 @@ void settings_changed(App *t, gboolean restart_lsp)
   if (restart_lsp)
     lsp_restart_clangd(t);
   lsp_reattach(t); /* a built-in server turned on or off */
+  lsp_idle_changed(t);
   apply_interface(t);
 }
 
@@ -457,6 +458,9 @@ void show_settings(App *t)
           setting_switch(&t->settings.lldb, NULL));
 
   grid = add_page(GTK_STACK(stack), "servers", "Language Servers", &row);
+  add_row(GTK_GRID(grid), &row, "Stop when unused (s)",
+          "Seconds a server keeps running after its last file closes (30 by default). Type -1 to keep it running",
+          setting_spin(&t->settings.server_idle, -1, 86400, lsp_idle_changed));
   for (int kind = 0; kind < SERVER_NONE; kind++) {
     GtkWidget *toggle = gtk_switch_new();
     gtk_switch_set_active(GTK_SWITCH(toggle), server_enabled(t, kind));

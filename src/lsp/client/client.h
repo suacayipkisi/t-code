@@ -40,6 +40,9 @@ void lsp_restart(App *t);
 void lsp_restart_language(App *t, const char *language);
 /* Restarts only clangd, for clang-specific settings and compile-flag hints. */
 void lsp_restart_clangd(App *t);
+/* settings.server_idle changed: servers without files stop after the new time from now, or keep
+ * running (-1). */
+void lsp_idle_changed(App *t);
 
 /* Why clangd cannot find an open file's #include, for the status bar: the C library's headers are
  * not installed (problem "No C headers"), or no compilation database applies to the file ("No

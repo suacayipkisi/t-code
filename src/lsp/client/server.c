@@ -144,6 +144,7 @@ void lsp_server_stop(Lsp *l)
   g_clear_object(&l->process);
   g_clear_pointer(&l->err, err_tail_free); /* stopped on purpose: nothing to report */
   g_clear_handle_id(&l->init_timeout_id, g_source_remove);
+  g_clear_handle_id(&l->trim_id, g_source_remove);
   l->ready = FALSE;
   g_hash_table_remove_all(l->progress); /* its work ends with it */
   g_clear_pointer(&l->progress_last, g_free);
@@ -382,6 +383,7 @@ static void on_message(gpointer owner, const char *body)
   JsonNode *message, *id;
   const char *method;
 
+  l->active = g_get_monotonic_time();
   if (!json_parser_load_from_data(parser, body, -1, NULL) || !(message = json_parser_get_root(parser))) {
     g_object_unref(parser);
     return;
@@ -474,6 +476,50 @@ static char *with_tsserver(Lsp *l, char *options)
 }
 
 /* Starts the server in the project folder and sends initialize; the files follow its answer. */
+/* The server's resident memory in KB (VmRSS), 0 when it cannot be read. */
+static guint64 resident_kb(Lsp *l)
+{
+  const char *id = l->process ? g_subprocess_get_identifier(l->process) : NULL;
+  char *path, *text = NULL, *line;
+  guint64 kb = 0;
+
+  if (!id)
+    return 0;
+  path = g_strdup_printf("/proc/%s/status", id);
+  if (g_file_get_contents(path, &text, NULL, NULL) && (line = strstr(text, "\nVmRSS:")))
+    kb = g_ascii_strtoull(line + strlen("\nVmRSS:"), NULL, 10);
+  g_free(text);
+  g_free(path);
+  return kb;
+}
+
+/* Every TRIM_CHECK_SECONDS: once the server is quiet, where it settled after its start is noted;
+ * later, if files were closed and it is far above that, it starts again with the open files (what
+ * it freed stays resident, fragmented, until it exits). */
+static gboolean trim_check(gpointer data)
+{
+  Lsp *l = data;
+  guint64 rss;
+
+  /* A request still waiting after the quiet time is not counted: a server may never answer some. */
+  if (!l->ready || g_hash_table_size(l->progress) > 0 || g_hash_table_size(l->docs) == 0 ||
+      g_get_monotonic_time() - l->active < TRIM_QUIET_SECONDS * G_USEC_PER_SEC || !(rss = resident_kb(l)))
+    return G_SOURCE_CONTINUE; /* busy, or without files: the idle stop comes */
+  if (!l->rss_base || rss < l->rss_base) {
+    l->rss_base = rss;
+    return G_SOURCE_CONTINUE;
+  }
+  if (!l->closed || rss < l->rss_base + MAX(TRIM_GROWTH_KB, l->rss_base / 4))
+    return G_SOURCE_CONTINUE;
+  g_message("t-code: restarting %s to give back memory: %" G_GUINT64_FORMAT " MB resident, %" G_GUINT64_FORMAT
+            " MB after its start",
+            server_name(l->kind), rss / 1024, l->rss_base / 1024);
+  l->trim_id = 0; /* this source ends here */
+  lsp_server_stop(l);
+  lsp_server_start(l); /* the open files go again once it has answered initialize */
+  return G_SOURCE_REMOVE;
+}
+
 void lsp_server_start(Lsp *l)
 {
   char **argv = server_argv(l->app, l->kind);
@@ -508,6 +554,11 @@ void lsp_server_start(Lsp *l)
   status_progress_changed(l->app); /* "starting" */
   l->ch->on_closed = on_server_closed;
   channel_read(l->ch);
+  l->rss_base = 0;
+  l->closed = FALSE;
+  l->active = g_get_monotonic_time();
+  if (server_restarts_cheaply(l->kind))
+    l->trim_id = g_timeout_add_seconds(TRIM_CHECK_SECONDS, trim_check, l);
 
   options = server_options(l->kind, l->app);
   if (l->kind == SERVER_TYPESCRIPT)
@@ -554,7 +605,7 @@ void lsp_server_start(Lsp *l)
   g_free(uri);
 }
 
-/* IDLE_SECONDS without editors: the server stops. */
+/* settings.server_idle seconds without editors: the server stops. */
 gboolean lsp_idle_stop(gpointer data)
 {
   Lsp *l = data;

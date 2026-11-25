@@ -223,6 +223,11 @@ static int fake_server(void)
       GString *text = g_string_new(json_string_at(message, "params.textDocument.text"));
       g_hash_table_insert(fake_docs, g_strdup(uri), text);
       fake_publish(uri, text);
+      if (strstr(text->str, "GROW")) { /* memory it keeps after the file closes (the restart test) */
+        char *kept = g_malloc(128 << 20);
+        memset(kept, 1, 128 << 20);
+        (void)kept;
+      }
       if (g_str_has_suffix(uri, ".yaml")) { /* asks for settings; the answer comes back as the problem */
         g_free(fake_config_uri);
         fake_config_uri = g_strdup(uri);

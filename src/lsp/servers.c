@@ -172,6 +172,11 @@ static const char *const *server_command(ServerKind kind)
 #endif
 }
 
+gboolean server_restarts_cheaply(ServerKind kind)
+{
+  return kind < SERVER_NONE && kind != SERVER_GO && kind != SERVER_RUST;
+}
+
 const char *server_contents_request(ServerKind kind, const char *scheme)
 {
   Declared *d = declared_of(kind);
