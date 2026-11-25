@@ -10,7 +10,6 @@
 
 #define TRIM_CHECK_SECONDS 1
 #define TRIM_QUIET_SECONDS 0
-#define TRIM_GROWTH_KB (32 * 1024)
 #define FLUSH_MS 2
 #define PULL_MS 2
 #define SERVER_ARGV "/proc/self/exe", "--fake-server",
@@ -1173,6 +1172,128 @@ static void test_progress(void)
   free_tab(tab);
 }
 
+/* settings.server_open_files limits the open files as MAX_OPEN_DOCS does when it is not set. */
+static void test_open_files_setting(void)
+{
+  Tab *tabs[3];
+
+  app.settings.server_open_files = 2;
+  for (int i = 0; i < 3; i++) {
+    char *path = g_strdup_printf("/tmp/t-code-test/limit%d.c", i);
+    tabs[i] = new_tab(path, "int y;\n");
+    lsp_open(tabs[i]);
+    g_assert_true(server_agrees(tabs[i]));
+    g_free(path);
+  }
+  g_assert_false(lsp_has(tabs[0]));
+  g_assert_true(lsp_has(tabs[1]));
+  g_assert_true(lsp_has(tabs[2]));
+  for (int i = 0; i < 3; i++)
+    free_tab(tabs[i]);
+  app.settings.server_open_files = 0;
+}
+
+/* clangd's flags follow settings.clangd: t-code's defaults, clangd's own (nothing passed but what
+ * cannot be left out), and the extra flags last; flags that do not parse are left out. */
+static void test_clangd_flags(void)
+{
+  App t = { 0 };
+  char **flags, *joined;
+
+  t.settings.clangd.background_index = TRUE;
+  t.settings.clangd.threads = 2;
+  t.settings.clangd.pch_on_disk = TRUE;
+  t.settings.clangd.limit_results = 50;
+  t.settings.clangd.malloc_trim = TRUE;
+  t.settings.clangd.extra = g_strdup("--header-insertion=never --log='verbose'");
+  flags = server_clangd_flags(&t);
+  joined = g_strjoinv(" ", flags);
+  g_assert_cmpstr(joined, ==,
+                  "--background-index --pch-storage=disk -j=2 --limit-results=50 --malloc-trim --clang-tidy=false"
+                  " --header-insertion=never --log=verbose");
+  g_free(joined);
+  g_strfreev(flags);
+
+  App plain = { 0 };
+  plain.settings.clangd.background_index = TRUE;
+  plain.settings.clangd.malloc_trim = TRUE;
+  plain.settings.clang_tidy = TRUE;
+  flags = server_clangd_flags(&plain);
+  joined = g_strjoinv(" ", flags);
+  g_assert_cmpstr(joined, ==, "--background-index --malloc-trim --clang-tidy");
+  g_free(joined);
+  g_strfreev(flags);
+
+  g_free(t.settings.clangd.extra);
+  t.settings.clangd.extra = g_strdup("--log='unclosed");
+  t.settings.clangd.background_index = FALSE;
+  t.settings.clangd.malloc_trim = FALSE;
+  g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "t-code: clangd's extra flags are left out*");
+  flags = server_clangd_flags(&t);
+  g_test_assert_expected_messages();
+  joined = g_strjoinv(" ", flags);
+  g_assert_cmpstr(joined, ==,
+                  "--background-index=false --pch-storage=disk -j=2 --limit-results=50 --malloc-trim=false"
+                  " --clang-tidy=false");
+  g_free(joined);
+  g_strfreev(flags);
+  g_free(t.settings.clangd.extra);
+}
+
+/* GLIBC_TUNABLES for clangd: the settings' arenas and mmap threshold, after what is inherited, which
+ * wins; nothing when neither is asked for. */
+static void test_clangd_tunables(void)
+{
+  App t = { 0 };
+  char *tunables;
+
+  g_assert_null(server_clangd_tunables(&t, NULL));
+  g_assert_null(server_clangd_tunables(&t, "glibc.malloc.tcache_count=0"));
+  t.settings.clangd.arenas = 1;
+  t.settings.clangd.mmap_threshold_kb = 64;
+  tunables = server_clangd_tunables(&t, NULL);
+  g_assert_cmpstr(tunables, ==, "glibc.malloc.arena_max=1:glibc.malloc.mmap_threshold=65536");
+  g_free(tunables);
+  tunables = server_clangd_tunables(&t, "glibc.malloc.arena_max=4");
+  g_assert_cmpstr(tunables, ==, "glibc.malloc.arena_max=4:glibc.malloc.mmap_threshold=65536");
+  g_free(tunables);
+  g_assert_null(server_clangd_tunables(&t, "glibc.malloc.arena_max=4:glibc.malloc.mmap_threshold=1"));
+}
+
+/* The preamble folder is t-code's own (by pid); folders of processes that are gone go with their
+ * files, other folders stay. */
+static void test_preamble_dir(void)
+{
+  char *cache = g_dir_make_tmp("t-code-cache-XXXXXX", NULL);
+  char *top = g_build_filename(cache, "t-code", "preambles", NULL);
+  char *gone = g_build_filename(top, "999999999", NULL), *kept = g_build_filename(top, "keep", NULL);
+  char *file = g_build_filename(gone, "preamble-1.pch", NULL), *dir;
+  char *own = g_strdup_printf("%s/%d", top, (int)getpid());
+
+  g_mkdir_with_parents(gone, 0700);
+  g_mkdir_with_parents(kept, 0700);
+  g_file_set_contents(file, "pch", -1, NULL);
+  dir = server_preamble_dir(cache);
+  g_assert_cmpstr(dir, ==, own);
+  g_assert_true(g_file_test(own, G_FILE_TEST_IS_DIR));
+  g_assert_false(g_file_test(gone, G_FILE_TEST_EXISTS));
+  g_assert_true(g_file_test(kept, G_FILE_TEST_IS_DIR));
+  g_rmdir(own);
+  g_rmdir(kept);
+  g_rmdir(top);
+  char *tcode = g_path_get_dirname(top);
+  g_rmdir(tcode);
+  g_rmdir(cache);
+  g_free(tcode);
+  g_free(dir);
+  g_free(own);
+  g_free(file);
+  g_free(kept);
+  g_free(gone);
+  g_free(top);
+  g_free(cache);
+}
+
 /* At most MAX_OPEN_DOCS files stay open in clangd at once; touching an evicted tab re-opens it. */
 static void test_lru_pool(void)
 {
@@ -2162,6 +2283,7 @@ int main(int argc, char **argv)
   app.project.root = g_strdup("/tmp");
   app.settings.tab_size = 4;
   app.settings.server_idle = 1;
+  app.settings.server_restart_mb = 32;
   app.settings.font_scale = 1.0;
   app.paths.styles = g_canonicalize_filename("styles", NULL);
   g_test_add_func("/lsp/sync-utf8", test_sync_utf8);
@@ -2188,6 +2310,10 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/symbols", test_symbols);
   g_test_add_func("/lsp/hierarchy", test_hierarchy);
   g_test_add_func("/lsp/lru-pool", test_lru_pool);
+  g_test_add_func("/lsp/open-files-setting", test_open_files_setting);
+  g_test_add_func("/lsp/clangd-flags", test_clangd_flags);
+  g_test_add_func("/lsp/clangd-tunables", test_clangd_tunables);
+  g_test_add_func("/lsp/preamble-dir", test_preamble_dir);
   g_test_add_func("/lsp/crash", test_crash);
   g_test_add_func("/lsp/churn", test_churn);
   g_test_add_func("/lsp/compile-db", test_compile_db);

@@ -6,11 +6,12 @@ waits until clangd is idle (background index done), optionally edits every file 
 then prints its resident memory next to what clangd says it uses itself ($/memoryUsage). A big
 gap between the two is allocator overhead, not clangd's data (see set_malloc_arenas in src/lsp/client/server.c).
 
-  tools/clangd-mem.py                               # 25 files, t-code's flags (clangd_argv in src/lsp/servers.c)
+  tools/clangd-mem.py                               # 25 files, t-code's default flags and allocator
+  tools/clangd-mem.py --project ~/src/app --open 5  # another project, at most 5 open as in t-code
   tools/clangd-mem.py --files 5 --churn 3
   tools/clangd-mem.py --keep 3                      # then close all but the last 3 (didClose), as hidden tabs
-  tools/clangd-mem.py --env GLIBC_TUNABLES=glibc.malloc.arena_max=2
-  tools/clangd-mem.py -- --background-index=false   # other clangd flags
+  tools/clangd-mem.py --env GLIBC_TUNABLES=          # glibc's own allocator
+  tools/clangd-mem.py -- --background-index=false   # other clangd flags (t-code's allocator stays)
 """
 import argparse
 import glob
@@ -25,16 +26,21 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def default_flags():
-    """The flags t-code starts clangd with: clangd_argv in src/lsp/servers.c (MALLOC_TRIM is
-    --malloc-trim on glibc, and clang-tidy is off by default)."""
-    with open(os.path.join(ROOT, "src", "lsp", "servers.c")) as f:
-        argv = re.search(r"clangd_argv\[\] = \{(.*?)\};", f.read(), re.S).group(1)
-    return re.findall(r'"([^"]*)"', argv)[1:] + ["--malloc-trim", "--clang-tidy=false"]
+    """The flags t-code starts clangd with by default: server_clangd_flags in src/lsp/servers.c with
+    the clangd-* defaults of src/project/session.c."""
+    return ["--background-index", "--pch-storage=disk", "-j=2", "--limit-results=50", "--malloc-trim",
+            "--clang-tidy=false"]
+
+
+def default_env():
+    """Its allocator by default: server_clangd_tunables (clangd-malloc-arenas 1,
+    clangd-mmap-threshold-kb 64)."""
+    return {"GLIBC_TUNABLES": "glibc.malloc.arena_max=1:glibc.malloc.mmap_threshold=65536"}
 
 
 class Clangd:
-    def __init__(self, flags, env):
-        self.proc = subprocess.Popen(["clangd"] + flags, cwd=ROOT, env=env, stdin=subprocess.PIPE,
+    def __init__(self, flags, env, root):
+        self.proc = subprocess.Popen(["clangd"] + flags, cwd=root, env=env, stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         self.lock = threading.Lock()
         self.diagnostics = set()
@@ -119,7 +125,9 @@ def largest(node, depth, prefix=""):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--project", default=ROOT, help="the project (default: t-code); clangd finds its compile_commands.json")
     parser.add_argument("--files", type=int, default=25, help="files to open (default 25)")
+    parser.add_argument("--open", type=int, default=0, help="at most this many open, one by one (t-code: 5); 0: all at once")
     parser.add_argument("--churn", type=int, default=0, help="rounds of editing every open file")
     parser.add_argument("--keep", type=int, default=None, help="at the end, close all but this many files")
     parser.add_argument("--env", action="append", default=[], help="NAME=value for clangd")
@@ -127,23 +135,35 @@ def main():
     args = parser.parse_args()
 
     env = dict(os.environ)
+    env.update(default_env())
     for pair in args.env:
         name, value = pair.split("=", 1)
         env[name] = value
-    files = sorted(glob.glob(f"{ROOT}/src/*.c") + glob.glob(f"{ROOT}/src/*/*.c") + glob.glob(f"{ROOT}/src/*.h") + glob.glob(f"{ROOT}/src/*/*.h"))
+    root = os.path.abspath(os.path.expanduser(args.project))
+    files = sorted(f for ext in ("c", "cc", "cpp", "cxx") for f in glob.glob(f"{root}/src/**/*.{ext}", recursive=True))
     files = files[:args.files]
 
-    clangd = Clangd(args.flags or default_flags(), env)
-    clangd.request(1, "initialize", {"processId": os.getpid(), "rootUri": "file://" + ROOT,
+    clangd = Clangd(args.flags or default_flags(), env, root)
+    clangd.request(1, "initialize", {"processId": os.getpid(), "rootUri": "file://" + root,
                                      "capabilities": {"window": {"workDoneProgress": True}}})
     clangd.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
     start = time.time()
-    for path in files:
+    opened_now = []
+    for i, path in enumerate(files):
         with open(path) as f:
             text = f.read()
         clangd.send({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {
-            "uri": "file://" + path, "languageId": "c", "version": 1, "text": text}}})
+            "uri": "file://" + path, "languageId": "c" if path.endswith(".c") else "cpp", "version": 1,
+            "text": text}}})
+        opened_now.append(path)
+        if args.open:  # as t-code does: one tab after the other, the least recently used closed on clangd
+            clangd.wait_diagnostics(i + 1)
+            if len(opened_now) > args.open:
+                clangd.send({"jsonrpc": "2.0", "method": "textDocument/didClose",
+                             "params": {"textDocument": {"uri": "file://" + opened_now.pop(0)}}})
     clangd.wait_diagnostics(len(files))
+    if args.open:
+        files = opened_now  # edits go to the open ones
     opened = time.time() - start
     clangd.wait_idle()
     after_open = clangd.memory()[0]
@@ -161,7 +181,7 @@ def main():
 
     usage = clangd.request(2, "$/memoryUsage", {})
     rss, peak = clangd.memory()
-    print(f"files {len(files)}, diagnostics for all after {opened:.1f}s")
+    print(f"files {args.files}, diagnostics for all after {opened:.1f}s")
     print(f"resident {rss} MB (peak {peak} MB) | clangd's own data {usage['_total'] >> 20} MB")
     if args.churn:
         print(f"after opening {after_open} MB, after {args.churn} rounds of edits {rss} MB")

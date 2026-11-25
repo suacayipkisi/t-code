@@ -54,8 +54,8 @@ tcode=$(pgrep -u "$USER" -x "${TCODE_PROCESS_NAME:-t-code}" | head -1)
 check "t-code is running" test -n "$tcode"
 check "clangd started" pgrep -u "$USER" -f '^(/[^ ]*/)?clangd '
 check "one clangd for all five editors" test "$(pgrep -u "$USER" -fc '^(/[^ ]*/)?clangd ')" -eq 1
-check "clangd runs with 2 malloc arenas" \
-  sh -c "tr '\\0' '\\n' < /proc/\$(pgrep -u $USER -f '^(/[^ ]*/)?clangd ' | head -1)/environ | grep -q arena_max=2"
+check "clangd runs with 1 malloc arena" \
+  sh -c "tr '\\0' '\\n' < /proc/\$(pgrep -u $USER -f '^(/[^ ]*/)?clangd ' | head -1)/environ | grep -q arena_max=1"
 check "control socket created" sh -c "ls $XDG_RUNTIME_DIR/t-code-*.sock"
 # The Markdown preview: rendered natively in-process (no WebKit process).
 printf '# Notes\n\nhello\n' > "$project/README.md"

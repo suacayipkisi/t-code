@@ -26,7 +26,7 @@ big one, it is about clangd on that system (step 3).
 ## 2. Cheap questions first (no code)
 
 * `t-code --version`: which version the report was made with, to know whether 0.3's memory fixes
-  are in (`malloc_trim` when a tab closes, clangd's `--pch-storage=disk`, its two malloc arenas)
+  are in (`malloc_trim` when a tab closes, clangd's `--pch-storage=disk`, its tuned malloc)
 * **PSS or RSS?** RSS counts shared pages in full in every process (GTK, fonts, libraries), so
   tools that show RSS count them two or three times. Compare only PSS numbers
   (`tools/proc-report.sh`).
@@ -39,11 +39,11 @@ big one, it is about clangd on that system (step 3).
 ## 3. System specifics worth asking for
 
 * **glibc or musl?** (`ldd "$(command -v t-code)"`). Two of t-code's memory measures only work
-  on glibc: `GLIBC_TUNABLES=glibc.malloc.arena_max=2` for clangd and `malloc_trim(0)` after a tab
+  on glibc: `GLIBC_TUNABLES=glibc.malloc.arena_max=1:glibc.malloc.mmap_threshold=65536` for clangd and `malloc_trim(0)` after a tab
   closes. On musl they do nothing, and clangd built on musl also has no `--malloc-trim`; a musl
   system's numbers then show the allocator's behavior, not a t-code leak.
 * **clangd's version and flags:** `ps -o args= -C clangd` should show `--background-index
-  --pch-storage=disk -j=2 --limit-results=50`; an old clangd (a distribution that ships clangd 14,
+  --pch-storage=disk -j=2 --limit-results=50` (unless Settings: C / C++ changed them); an old clangd (a distribution that ships clangd 14,
   say) uses noticeably more memory for the same files.
 * **The terminals:** compare the window's PSS with the shell panel shown (`Ctrl+J`) and hidden;
   each `VteTerminal` keeps its scrollback and its own glyph cache, and the difference is the

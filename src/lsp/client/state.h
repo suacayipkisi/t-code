@@ -16,9 +16,7 @@
 #ifndef PULL_MS
 #define PULL_MS 300 /* a server that is asked for its diagnostics: this long after the last change */
 #endif
-#ifndef MAX_OPEN_DOCS
-#define MAX_OPEN_DOCS 5 /* per-server LRU of open documents */
-#endif
+#define MAX_OPEN_DOCS 5 /* per-server LRU of open documents, when settings.server_open_files is not set */
 #define MAX_CRASHES 3
 #ifndef INIT_TIMEOUT_MS
 #define INIT_TIMEOUT_MS 120000 /* no answer to initialize: it did not start (jdtls takes a while on a big project) */
@@ -26,16 +24,13 @@
 
 /* A server that grew while files were closed is started again once it is quiet (memory a server
  * frees stays resident, fragmented): checked every TRIM_CHECK_SECONDS, after TRIM_QUIET_SECONDS
- * without traffic, when resident is TRIM_GROWTH_KB (or a quarter, if more) above where it
+ * without traffic, when resident is settings.server_restart_mb (or a quarter, if more) above where it
  * settled after its start. */
 #ifndef TRIM_CHECK_SECONDS
 #define TRIM_CHECK_SECONDS 60
 #endif
 #ifndef TRIM_QUIET_SECONDS
 #define TRIM_QUIET_SECONDS 30
-#endif
-#ifndef TRIM_GROWTH_KB
-#define TRIM_GROWTH_KB (200 * 1024)
 #endif
 
 /* A compile database written (make, cmake) is told to the server this long after its last change. */
@@ -129,6 +124,12 @@ char *lsp_range_json(Lsp *l, const GtkTextIter *start, const GtkTextIter *end);
 
 /* server.c */
 gboolean lsp_idle_stop(gpointer data);
+
+/* How many files may be open on l at once: settings.server_open_files, or MAX_OPEN_DOCS. */
+static inline int lsp_open_limit(Lsp *l)
+{
+  return l->app->settings.server_open_files > 0 ? l->app->settings.server_open_files : MAX_OPEN_DOCS;
+}
 Lsp *lsp_of(Tab *tab);
 void lsp_server_start(Lsp *l);
 void lsp_server_stop(Lsp *l);

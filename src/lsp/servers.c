@@ -13,19 +13,13 @@
 
 #include <glib/gstdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #define MAX_JSON_BYTES (512 * 1024) /* a bigger JSON file is data, not something edited by hand */
 
-#ifdef __GLIBC__
-#define MALLOC_TRIM "--malloc-trim", /* gives freed memory back to the system */
-#else
-#define MALLOC_TRIM /* glibc's malloc_trim(): clangd built on musl has no such flag and exits on it */
-#endif
-
 #ifndef SERVER_ARGV /* tests run a fake server */
 /* clang-format off */
-static const char *const clangd_argv[] = { "clangd", "--background-index", "--pch-storage=disk", "-j=2",
-                                           "--limit-results=50", MALLOC_TRIM NULL };
+static const char *const clangd_argv[] = { "clangd", NULL }; /* its flags: server_clangd_flags */
 static const char *const python_argv[] = { "pylsp", NULL };
 static const char *const go_argv[] = { "gopls", NULL };
 static const char *const rust_argv[] = { "rust-analyzer", NULL };
@@ -385,6 +379,111 @@ gboolean server_program_found(const char *argv0, const char *dir)
   return found;
 }
 
+/* clangd ------------------------------------------------------------------------------------------ */
+
+char **server_clangd_flags(const App *t)
+{
+  GPtrArray *flags = g_ptr_array_new();
+  char **extra = NULL;
+  GError *error = NULL;
+
+  g_ptr_array_add(flags,
+                  g_strdup(t->settings.clangd.background_index ? "--background-index" : "--background-index=false"));
+  if (t->settings.clangd.pch_on_disk)
+    g_ptr_array_add(flags, g_strdup("--pch-storage=disk"));
+  if (t->settings.clangd.threads > 0)
+    g_ptr_array_add(flags, g_strdup_printf("-j=%d", t->settings.clangd.threads));
+  if (t->settings.clangd.limit_results > 0)
+    g_ptr_array_add(flags, g_strdup_printf("--limit-results=%d", t->settings.clangd.limit_results));
+#ifdef __GLIBC__ /* clangd built on musl has no --malloc-trim (glibc's malloc_trim) and exits on it */
+  g_ptr_array_add(flags, g_strdup(t->settings.clangd.malloc_trim ? "--malloc-trim" : "--malloc-trim=false"));
+#endif
+  g_ptr_array_add(flags, g_strdup(t->settings.clang_tidy ? "--clang-tidy" : "--clang-tidy=false"));
+  if (t->settings.clangd.extra && *t->settings.clangd.extra) {
+    if (g_shell_parse_argv(t->settings.clangd.extra, NULL, &extra, &error)) {
+      for (int i = 0; extra[i]; i++)
+        g_ptr_array_add(flags, extra[i]);
+      g_free(extra);
+    } else {
+      g_warning("t-code: clangd's extra flags are left out: %s", error->message);
+      g_error_free(error);
+    }
+  }
+  g_ptr_array_add(flags, NULL);
+  return (char **)g_ptr_array_free(flags, FALSE);
+}
+
+/* Adds name=value to the tunables unless they set name already (the user's own wins). */
+static void add_tunable(GString *tunables, const char *name, int value)
+{
+  if (value <= 0 || strstr(tunables->str, name))
+    return;
+  g_string_append_printf(tunables, "%s%s=%d", tunables->len ? ":" : "", name, value);
+}
+
+char *server_clangd_tunables(const App *t, const char *inherited)
+{
+  GString *tunables = g_string_new(inherited ? inherited : "");
+  gsize before = tunables->len;
+
+  add_tunable(tunables, "glibc.malloc.arena_max", t->settings.clangd.arenas);
+  add_tunable(tunables, "glibc.malloc.mmap_threshold", t->settings.clangd.mmap_threshold_kb * 1024);
+  if (tunables->len == before)
+    return g_string_free(tunables, TRUE), NULL;
+  return g_string_free(tunables, FALSE);
+}
+
+/* Whether a folder named by a process id belongs to a process that is gone. */
+static gboolean process_gone(const char *name)
+{
+  char *end;
+  long pid = strtol(name, &end, 10);
+
+  if (*end || pid <= 0)
+    return FALSE; /* not one of ours */
+  char *proc = g_strdup_printf("/proc/%ld", pid);
+  gboolean gone = !g_file_test(proc, G_FILE_TEST_IS_DIR);
+  g_free(proc);
+  return gone;
+}
+
+/* Deletes the files in dir (preambles: no folders inside), then dir. */
+static void remove_flat_dir(const char *dir)
+{
+  GDir *d = g_dir_open(dir, 0, NULL);
+  const char *name;
+
+  while (d && (name = g_dir_read_name(d))) {
+    char *path = g_build_filename(dir, name, NULL);
+    g_remove(path);
+    g_free(path);
+  }
+  if (d)
+    g_dir_close(d);
+  g_rmdir(dir);
+}
+
+char *server_preamble_dir(const char *cache)
+{
+  char *top = g_build_filename(cache ? cache : g_get_user_cache_dir(), "t-code", "preambles", NULL);
+  char *own = g_strdup_printf("%s/%d", top, (int)getpid());
+  GDir *d = g_dir_open(top, 0, NULL);
+  const char *name;
+
+  while (d && (name = g_dir_read_name(d)))
+    if (process_gone(name)) { /* a t-code that ended without its clangd cleaning up (killed, crashed) */
+      char *path = g_build_filename(top, name, NULL);
+      remove_flat_dir(path);
+      g_free(path);
+    }
+  if (d)
+    g_dir_close(d);
+  g_free(top);
+  if (g_mkdir_with_parents(own, 0700) != 0)
+    return g_free(own), NULL;
+  return own;
+}
+
 char **server_argv(App *t, ServerKind kind)
 {
   Declared *d = declared_of(kind);
@@ -396,8 +495,12 @@ char **server_argv(App *t, ServerKind kind)
   for (int i = 1; command[i]; i++)
     g_ptr_array_add(argv, g_strdup(command[i]));
 #ifndef SERVER_ARGV
-  if (kind == SERVER_CLANGD)
-    g_ptr_array_add(argv, g_strdup(t->settings.clang_tidy ? "--clang-tidy" : "--clang-tidy=false"));
+  if (kind == SERVER_CLANGD) {
+    char **flags = server_clangd_flags(t);
+    for (int i = 0; flags[i]; i++)
+      g_ptr_array_add(argv, flags[i]);
+    g_free(flags);
+  }
 #endif
   g_ptr_array_add(argv, NULL);
   return (char **)g_ptr_array_free(argv, FALSE);

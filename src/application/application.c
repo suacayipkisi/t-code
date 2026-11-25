@@ -279,6 +279,7 @@ static void app_free(App *t)
   g_free(t->project.root);
   g_free(t->settings.font);
   g_free(t->settings.files_font);
+  g_free(t->settings.clangd.extra);
   g_free(t->settings.color_theme);
 }
 

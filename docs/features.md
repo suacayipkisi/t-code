@@ -169,7 +169,8 @@ variables it already had stay.
   ("Stop when unused" in Settings: Language Servers, `server-idle-seconds` in settings.ini; -1 keeps
   it running).
 - A server that grew while files were closed is restarted once it has been quiet for 30 seconds
-  (resident memory 200 MB, or a quarter if that is more, above where it settled after starting); the open files
+  (resident memory 150 MB, or a quarter if that is more, above where it settled after starting; "Restart when
+  grown by" in Settings: Language Servers, 0 turns it off); the open files
   go to the new one. Not gopls, rust-analyzer or plugin servers, which would load the whole
   workspace again.
 - Files are sent only once their tab is shown, so restored sessions cost the servers little.

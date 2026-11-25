@@ -165,6 +165,38 @@ static const Setting settings[] = {
   INT_SETTING("server-idle-seconds", server_idle, 30, -1, 86400,
               " -1 to 86400, seconds a language server keeps running after its last file closes (30 by default);"
               " -1: it never stops by itself"),
+  INT_SETTING("server-open-files", server_open_files, 5, 1, 100,
+              " 1 to 100, files open on a language server at once (5 by default); the other tabs are closed on it"
+              " until shown, which keeps the server small"),
+  INT_SETTING("server-restart-mb", server_restart_mb, 150, 0, 100000,
+              " 0 to 100000, a quiet server (not gopls, rust-analyzer) this many MB (or a quarter, if more) above"
+              " where it settled\n starts again, once files were closed: memory it freed stays taken until it"
+              " exits (150 by default); 0: never"),
+  BOOL_SETTING("clangd-background-index", clangd.background_index, TRUE,
+               " clangd indexes the whole project: references, symbols and call hierarchy across files it has not"
+               " opened\n (true by default, as in clangd; off: about 40 % less memory, those features see open"
+               " files only)"),
+  INT_SETTING("clangd-threads", clangd.threads, 2, 0, 256,
+              " 0 to 256, clangd's worker threads (-j; 2 by default); 0: clangd's own (every core). Each thread"
+              " grows memory\n of its own; 1 takes about 10 % less and opens files twice as slowly"),
+  BOOL_SETTING("clangd-pch-on-disk", clangd.pch_on_disk, TRUE,
+               " clangd keeps each open file's headers compiled in a file (--pch-storage=disk; true by default),"
+               " not in its\n memory (clangd's own)"),
+  BOOL_SETTING("clangd-preamble-folder", clangd.preamble_dir, TRUE,
+               " Those files in t-code's cache folder (~/.cache/t-code/preambles), not /tmp, which is RAM on many"
+               " systems\n (tmpfs); the ones a stopped clangd left are deleted (true by default)"),
+  INT_SETTING("clangd-limit-results", clangd.limit_results, 50, 0, 10000,
+              " 0 to 10000, at most this many completions and references from clangd (50 by default); 0: clangd's"
+              " own (100)"),
+  BOOL_SETTING("clangd-malloc-trim", clangd.malloc_trim, TRUE,
+               " clangd gives freed memory back to the system now and then (true by default, as in clangd)"),
+  INT_SETTING("clangd-malloc-arenas", clangd.arenas, 1, 0, 64,
+              " 0 to 64, glibc malloc arenas for clangd (1 by default): each holds memory freed in it; 0: glibc's"
+              " own (8 per core)"),
+  INT_SETTING("clangd-mmap-threshold-kb", clangd.mmap_threshold_kb, 64, 0, 32768,
+              " 0 to 32768, clangd's blocks from this size (KB) get memory of their own, given back when freed"
+              " (64 by default);\n 0: glibc's own, which moves up to 32 MB and keeps clangd at about twice the"
+              " size"),
   INT_SETTING("tab-size", tab_size, 2, 1, 16,
               " 1 to 16, for projects without their own: the status bar's choice, .editorconfig or .clang-format come"
               " first"),
@@ -200,6 +232,13 @@ static const Setting settings[] = {
 static int *setting_field(App *t, const Setting *setting)
 {
   return (int *)((char *)t + setting->field);
+}
+
+void session_reset_settings(App *t, const char *prefix)
+{
+  for (size_t i = 0; i < G_N_ELEMENTS(settings); i++)
+    if (g_str_has_prefix(settings[i].key, prefix))
+      *setting_field(t, &settings[i]) = settings[i].fallback;
 }
 
 void session_load_settings(App *t)
@@ -250,6 +289,10 @@ void session_load_settings(App *t)
     g_set_str(&t->settings.font, DEFAULT_FONT);
   if (!t->settings.files_font || !*t->settings.files_font)
     g_set_str(&t->settings.files_font, DEFAULT_FONT);
+  g_free(t->settings.clangd.extra);
+  t->settings.clangd.extra = g_key_file_get_string(kf, "settings", "clangd-extra-flags", NULL);
+  if (t->settings.clangd.extra && !*g_strstrip(t->settings.clangd.extra))
+    g_clear_pointer(&t->settings.clangd.extra, g_free);
   g_free(theme);
   g_key_file_free(kf);
   if (moved) {
@@ -326,6 +369,10 @@ void session_save_settings(App *t)
   explain(kf, "font", " Editors and the terminal: a font name and size, like Cascadia Code 11");
   g_key_file_set_string(kf, "settings", "file-manager-font", t->settings.files_font);
   explain(kf, "file-manager-font", " The Files panel");
+  g_key_file_set_string(kf, "settings", "clangd-extra-flags", t->settings.clangd.extra ? t->settings.clangd.extra : "");
+  explain(kf, "clangd-extra-flags",
+          " More clangd flags, as in a shell (--header-insertion=never --log=verbose ...), after t-code's: they"
+          " win");
   store_to(kf, path);
   g_key_file_set_double(session, "window", "font-scale", t->settings.font_scale);
   g_key_file_set_double(session, "window", "preview-scale", t->settings.preview_scale);

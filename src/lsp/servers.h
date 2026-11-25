@@ -54,8 +54,20 @@ const char *server_language(ServerKind kind);
 const char *server_language_id(ServerKind kind, Tab *tab);
 
 /* The server's command line (NULL-terminated, g_strfreev): its program where it is found (see
- * server_program), its flags, and clangd's --clang-tidy as the settings say. */
+ * server_program), its flags, and clangd's from server_clangd_flags. */
 char **server_argv(App *t, ServerKind kind);
+
+/* clangd's flags as settings.clangd and settings.clang_tidy say, the extra ones last (g_strfreev). */
+char **server_clangd_flags(const App *t);
+
+/* GLIBC_TUNABLES for clangd: inherited (may be NULL) plus the malloc arenas and mmap threshold the
+ * settings ask for, each unless inherited sets it already; NULL when nothing is added (g_free). */
+char *server_clangd_tunables(const App *t, const char *inherited);
+
+/* clangd's TMPDIR for its preamble files: <cache>/t-code/preambles/<t-code's pid>, made (NULL if it
+ * cannot be); the folders of t-code processes that are gone are deleted with what their clangd left
+ * behind. cache: NULL for the user's cache folder (tests pass their own). */
+char *server_preamble_dir(const char *cache);
 
 /* Whether the server can run: clangd is taken as there, the others must be found (a plugin's server
  * whose program is missing serves nothing, quietly; the Plugins window says it is not found). */

@@ -261,7 +261,7 @@ static void on_initialized(JsonNode *result, gpointer data)
     while (g_hash_table_iter_next(&other_iter, NULL, &other))
       if (((Doc *)other)->use > ((Doc *)doc)->use)
         newer++;
-    if (newer < MAX_OPEN_DOCS)
+    if (newer < lsp_open_limit(l))
       doc_send(doc);
   }
 }
@@ -418,20 +418,26 @@ static void on_message(gpointer owner, const char *body)
   g_object_unref(parser);
 }
 
-/* "GLIBC_TUNABLES=glibc.malloc.arena_max=2" for the server: clangd's threads each grow a malloc
- * arena, and with 25 files it held 1.5 GB for 130 MB of its own data; two arenas kept it at about
- * 700 MB, as fast. */
-static void set_malloc_arenas(GSubprocessLauncher *launcher)
+/* clangd's environment as settings.clangd says (lsp/servers.c). glibc's allocator is what makes
+ * clangd big, not its own data: each thread grows an arena of its own (with 25 files it held 1.5 GB
+ * for 130 MB of data), and freeing a big block moves the mmap threshold up to 32 MB, after which big
+ * blocks come from the heap and stay taken once freed. One arena and a 64 KB threshold took clangd
+ * from 1000-1190 MB to 550 MB on a C++ project (Eigen), as fast; its index stays the same. Its
+ * preamble files go to t-code's cache folder: /tmp is often RAM (tmpfs), and a killed clangd leaves
+ * them there. */
+static void set_clangd_env(GSubprocessLauncher *launcher, App *t)
 {
-  const char *tunables = g_getenv("GLIBC_TUNABLES");
-  char *value;
+  char *tunables = server_clangd_tunables(t, g_getenv("GLIBC_TUNABLES"));
 
-  if (tunables && strstr(tunables, "glibc.malloc.arena_max"))
-    return;
-  value = tunables && *tunables ? g_strconcat(tunables, ":glibc.malloc.arena_max=2", NULL)
-                                : g_strdup("glibc.malloc.arena_max=2");
-  g_subprocess_launcher_setenv(launcher, "GLIBC_TUNABLES", value, TRUE);
-  g_free(value);
+  if (tunables)
+    g_subprocess_launcher_setenv(launcher, "GLIBC_TUNABLES", tunables, TRUE);
+  g_free(tunables);
+  if (t->settings.clangd.pch_on_disk && t->settings.clangd.preamble_dir) {
+    char *dir = server_preamble_dir(NULL);
+    if (dir)
+      g_subprocess_launcher_setenv(launcher, "TMPDIR", dir, TRUE);
+    g_free(dir);
+  }
 }
 
 static guint init_timeout_ms = INIT_TIMEOUT_MS; /* tests wait less */
@@ -499,7 +505,7 @@ static guint64 resident_kb(Lsp *l)
 static gboolean trim_check(gpointer data)
 {
   Lsp *l = data;
-  guint64 rss;
+  guint64 rss, growth_kb;
 
   /* A request still waiting after the quiet time is not counted: a server may never answer some. */
   if (!l->ready || g_hash_table_size(l->progress) > 0 || g_hash_table_size(l->docs) == 0 ||
@@ -509,7 +515,8 @@ static gboolean trim_check(gpointer data)
     l->rss_base = rss;
     return G_SOURCE_CONTINUE;
   }
-  if (!l->closed || rss < l->rss_base + MAX(TRIM_GROWTH_KB, l->rss_base / 4))
+  growth_kb = (guint64)l->app->settings.server_restart_mb * 1024;
+  if (!l->closed || !growth_kb || rss < l->rss_base + MAX(growth_kb, l->rss_base / 4))
     return G_SOURCE_CONTINUE;
   g_message("t-code: restarting %s to give back memory: %" G_GUINT64_FORMAT " MB resident, %" G_GUINT64_FORMAT
             " MB after its start",
@@ -530,7 +537,7 @@ void lsp_server_start(Lsp *l)
 
   g_subprocess_launcher_set_cwd(launcher, l->workspace);
   if (l->kind == SERVER_CLANGD)
-    set_malloc_arenas(launcher);
+    set_clangd_env(launcher, l->app);
   l->process = g_subprocess_launcher_spawnv(launcher, (const char *const *)argv, &error);
   g_object_unref(launcher);
   if (l->process)

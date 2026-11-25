@@ -650,6 +650,11 @@ static void test_lsp_test_plugins(void)
   App app = { 0 };
   gboolean served[SERVER_NONE] = { 0 };
 
+  /* clangd's flags as t-code's defaults make them (project/session.c), which lsp-clangd declares */
+  app.settings.clangd.background_index = app.settings.clangd.pch_on_disk = app.settings.clangd.malloc_trim = TRUE;
+  app.settings.clangd.threads = 2;
+  app.settings.clangd.limit_results = 50;
+
   app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
   plugins_scan_dir(&app, "tests/plugins");
   g_assert_cmpuint(app.plugins->len, ==, SERVER_NONE);

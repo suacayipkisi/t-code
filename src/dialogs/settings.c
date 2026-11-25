@@ -267,8 +267,12 @@ static GtkWidget *spin_for(double low, double high, double step, double value, G
 
 void settings_changed(App *t, gboolean restart_lsp)
 {
-  if (window) /* its switches show the old values */
-    gtk_window_destroy(GTK_WINDOW(window));
+  if (window) { /* its switches show the old values; forgotten now, so it can open again at once */
+    GtkWidget *old = window;
+    g_object_remove_weak_pointer(G_OBJECT(old), (gpointer *)&window);
+    window = NULL;
+    gtk_window_destroy(GTK_WINDOW(old));
+  }
   each_editor(t);
   apply_fonts(t);
   editor_view_set_selection(t);
@@ -298,6 +302,81 @@ static void on_server_switch(GtkSwitch *toggle, GParamSpec *spec G_GNUC_UNUSED, 
       gtk_switch_get_active(toggle) ? t->settings.servers_off & ~bit : t->settings.servers_off | bit;
   lsp_reattach(t);
   session_save_settings(t);
+}
+
+/* clangd starts again with a setting a second after its last change (a number field changes at each
+ * step). */
+static guint clangd_restart_id;
+
+static gboolean restart_clangd_now(gpointer data)
+{
+  clangd_restart_id = 0;
+  lsp_restart_clangd(data);
+  return G_SOURCE_REMOVE;
+}
+
+static void restart_clangd_later(App *t)
+{
+  g_clear_handle_id(&clangd_restart_id, g_source_remove);
+  clangd_restart_id = g_timeout_add_seconds(1, restart_clangd_now, t);
+}
+
+static void on_clangd_extra(GtkEditable *entry, gpointer data G_GNUC_UNUSED)
+{
+  App *t = app_of(GTK_WIDGET(entry));
+  const char *text = gtk_editable_get_text(entry);
+
+  g_free(t->settings.clangd.extra);
+  t->settings.clangd.extra = *text ? g_strdup(text) : NULL;
+  session_save_settings(t);
+  restart_clangd_later(t);
+}
+
+static char *page_again; /* the page the window showed before a preset closed it */
+
+static gboolean show_again(gpointer data)
+{
+  g_free(last_page);
+  last_page = g_steal_pointer(&page_again); /* closing it may have shown another page */
+  show_settings(data);
+  return G_SOURCE_REMOVE;
+}
+
+/* "t-code defaults" (data 0): the measured ones in settings.ini's table (project/session.c); "Plain
+ * clangd" (1): clangd and glibc as they come. Saved, clangd started again, the window shows them. */
+static void on_clangd_preset(GtkButton *button, gpointer data)
+{
+  App *t = app_of(GTK_WIDGET(button));
+
+  session_reset_settings(t, "clangd-");
+  if (GPOINTER_TO_INT(data)) {
+    t->settings.clangd.background_index = TRUE;
+    t->settings.clangd.threads = 0;
+    t->settings.clangd.pch_on_disk = FALSE;
+    t->settings.clangd.preamble_dir = FALSE;
+    t->settings.clangd.limit_results = 0;
+    t->settings.clangd.malloc_trim = TRUE;
+    t->settings.clangd.arenas = 0;
+    t->settings.clangd.mmap_threshold_kb = 0;
+  }
+  g_clear_handle_id(&clangd_restart_id, g_source_remove);
+  session_save_settings(t);
+  g_set_str(&page_again, last_page);
+  settings_changed(t, TRUE); /* closes the window */
+  g_idle_add(show_again, t);
+}
+
+static GtkWidget *preset_buttons(void)
+{
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  const char *const labels[] = { "t-code defaults", "Plain clangd" };
+
+  for (int i = 0; i < 2; i++) {
+    GtkWidget *button = gtk_button_new_with_label(labels[i]);
+    g_signal_connect(button, "clicked", G_CALLBACK(on_clangd_preset), GINT_TO_POINTER(i));
+    gtk_box_append(GTK_BOX(box), button);
+  }
+  return box;
 }
 
 /* A page of the window: its grid of rows (its heading in it), scrolling when the window is smaller. */
@@ -456,11 +535,61 @@ void show_settings(App *t)
   add_row(GTK_GRID(grid), &row, "Debug with lldb-dap",
           "F5 debugs C, C++ and Rust with lldb-dap instead of gdb (gdb when lldb-dap is not installed)",
           setting_switch(&t->settings.lldb, NULL));
+  add_heading(GTK_GRID(grid), &row, "clangd: memory and speed");
+  add_row(GTK_GRID(grid), &row, "Presets",
+          "t-code's defaults are the smallest measured without losing speed: on a C++ project with Eigen, 25 files"
+          " took clangd from 1000-1190 MB to 550 MB, its index the same. Plain clangd: clangd and glibc as they"
+          " come. Each change starts clangd again",
+          preset_buttons());
+  add_row(GTK_GRID(grid), &row, "Background index",
+          "The whole project indexed: references, symbols and call hierarchy across files not opened. Off: about"
+          " 40 % less memory, those see open files only. t-code: on · clangd: on",
+          setting_switch(&t->settings.clangd.background_index, restart_clangd_later));
+  add_row(GTK_GRID(grid), &row, "Worker threads",
+          "-j: each thread grows memory of its own; 1 takes about 10 % less and opens files twice as slowly. 0:"
+          " every core. t-code: 2 · clangd: every core",
+          setting_spin(&t->settings.clangd.threads, 0, 256, restart_clangd_later));
+  add_row(GTK_GRID(grid), &row, "Compiled headers on disk",
+          "--pch-storage=disk: each open file's headers, compiled (10-40 MB in C++), in a file instead of clangd's"
+          " memory. t-code: on · clangd: off",
+          setting_switch(&t->settings.clangd.pch_on_disk, restart_clangd_later));
+  add_row(GTK_GRID(grid), &row, "Those files in t-code's cache",
+          "~/.cache/t-code/preambles, not /tmp, which is RAM on many systems (tmpfs); what a stopped clangd left is"
+          " deleted. t-code: on · clangd: /tmp",
+          setting_switch(&t->settings.clangd.preamble_dir, restart_clangd_later));
+  add_row(GTK_GRID(grid), &row, "Result limit",
+          "At most this many completions and references. 0: clangd's own. t-code: 50 · clangd: 100",
+          setting_spin(&t->settings.clangd.limit_results, 0, 10000, restart_clangd_later));
+  add_row(GTK_GRID(grid), &row, "Give back freed memory", "--malloc-trim, now and then. t-code: on · clangd: on",
+          setting_switch(&t->settings.clangd.malloc_trim, restart_clangd_later));
+  add_row(GTK_GRID(grid), &row, "Malloc arenas",
+          "glibc's: each holds the memory freed in it, so more of them keep more. 0: glibc's own. t-code: 1 ·"
+          " glibc: 8 per core",
+          setting_spin(&t->settings.clangd.arenas, 0, 64, restart_clangd_later));
+  add_row(GTK_GRID(grid), &row, "mmap threshold (KB)",
+          "Blocks from this size get memory of their own, given back when freed. 0: glibc's own, which moves up"
+          " to 32 MB and leaves clangd about twice the size. t-code: 64 · glibc: 128, moving",
+          setting_spin(&t->settings.clangd.mmap_threshold_kb, 0, 32768, restart_clangd_later));
+  GtkWidget *extra = gtk_entry_new();
+  gtk_editable_set_text(GTK_EDITABLE(extra), t->settings.clangd.extra ? t->settings.clangd.extra : "");
+  gtk_entry_set_placeholder_text(GTK_ENTRY(extra), "--header-insertion=never");
+  gtk_widget_set_size_request(extra, 240, -1);
+  g_signal_connect(extra, "changed", G_CALLBACK(on_clangd_extra), NULL);
+  add_row(GTK_GRID(grid), &row, "Extra flags", "More clangd flags, as in a shell; after t-code's, so they win", extra);
 
   grid = add_page(GTK_STACK(stack), "servers", "Language Servers", &row);
   add_row(GTK_GRID(grid), &row, "Stop when unused (s)",
-          "Seconds a server keeps running after its last file closes (30 by default). Type -1 to keep it running",
+          "Seconds a server keeps running after the last tab of its files closes (an open tab keeps it running);"
+          " 30 by default. Type -1 to keep it running",
           setting_spin(&t->settings.server_idle, -1, 86400, lsp_idle_changed));
+  add_row(GTK_GRID(grid), &row, "Files open on a server",
+          "The other tabs are closed on their server until shown: each open file costs memory (a C++ file's"
+          " headers 10-40 MB in clangd). t-code: 5",
+          setting_spin(&t->settings.server_open_files, 1, 100, NULL));
+  add_row(GTK_GRID(grid), &row, "Restart when grown by (MB)",
+          "A quiet server this far above where it settled (or a quarter, if more) starts again once files were"
+          " closed: memory it freed stays taken until it exits. Not gopls or rust-analyzer. 0: never. t-code: 150",
+          setting_spin(&t->settings.server_restart_mb, 0, 100000, NULL));
   for (int kind = 0; kind < SERVER_NONE; kind++) {
     GtkWidget *toggle = gtk_switch_new();
     gtk_switch_set_active(GTK_SWITCH(toggle), server_enabled(t, kind));

@@ -160,7 +160,7 @@ void doc_close_on_server(Doc *doc)
   doc->lsp->closed = TRUE;
 }
 
-/* Keeps at most MAX_OPEN_DOCS files open per server: least-recently-used hidden tabs get didClose
+/* Keeps at most settings.server_open_files files open per server: least-recently-used hidden tabs get didClose
  * and didOpen again when shown. */
 static void evict_docs(Lsp *l)
 {
@@ -182,7 +182,7 @@ static void evict_docs(Lsp *l)
           (!oldest_hidden || doc->use < oldest_hidden->use))
         oldest_hidden = doc;
     }
-    if (opened <= MAX_OPEN_DOCS)
+    if (opened <= lsp_open_limit(l))
       break;
     doc_close_on_server(oldest_hidden ? oldest_hidden : oldest);
   }

@@ -13,6 +13,7 @@
 #include "window/theme.h"
 
 #include <glib/gstdio.h>
+#include <stddef.h>
 #include <string.h>
 
 #define RELOAD_MS 200
@@ -59,13 +60,16 @@ static char *path_of(UserFile which)
 static void reload_settings(App *t)
 {
   typeof(t->settings) old = t->settings;
-  gboolean same;
+  gboolean same, clangd_same;
 
   old.font = g_strdup(t->settings.font);
   old.files_font = g_strdup(t->settings.files_font);
   old.color_theme = g_strdup(t->settings.color_theme);
   old.status_off = g_strdupv(t->settings.status_off);
+  old.clangd.extra = g_strdup(t->settings.clangd.extra);
   session_load_settings(t);
+  clangd_same = memcmp(&old.clangd, &t->settings.clangd, offsetof(typeof(old.clangd), extra)) == 0 &&
+                g_strcmp0(old.clangd.extra, t->settings.clangd.extra) == 0;
   same = old.plain == t->settings.plain && old.minimap == t->settings.minimap &&
          old.sticky_scroll == t->settings.sticky_scroll && old.reopen_last == t->settings.reopen_last &&
          old.autosave == t->settings.autosave && old.tabs_to_spaces == t->settings.tabs_to_spaces &&
@@ -80,16 +84,18 @@ static void reload_settings(App *t)
          old.menu_bar == t->settings.menu_bar && old.status_bar == t->settings.status_bar &&
          old.build_buttons == t->settings.build_buttons && old.side_buttons == t->settings.side_buttons &&
          old.search_bar == t->settings.search_bar && old.server_idle == t->settings.server_idle &&
-         (old.status_off && t->settings.status_off
-              ? g_strv_equal((const char *const *)old.status_off, (const char *const *)t->settings.status_off)
-              : !old.status_off == !t->settings.status_off) &&
-         g_strcmp0(old.font, t->settings.font) == 0 && g_strcmp0(old.files_font, t->settings.files_font) == 0 &&
+         g_strv_equal((const char *const *)(old.status_off ? old.status_off : (char *[]){ NULL }),
+                      (const char *const *)(t->settings.status_off ? t->settings.status_off
+                                                                   : (char *[]){ NULL })) && /* none = empty */
+         g_strcmp0(old.font, t->settings.font) == 0 &&
+         g_strcmp0(old.files_font, t->settings.files_font) == 0 &&
          g_strcmp0(old.color_theme, t->settings.color_theme) == 0;
-  if (!same)
-    settings_changed(t, old.clang_tidy != t->settings.clang_tidy);
+  if (!same || !clangd_same)
+    settings_changed(t, old.clang_tidy != t->settings.clang_tidy || !clangd_same);
   g_free(old.font);
   g_free(old.files_font);
   g_free(old.color_theme);
+  g_free(old.clangd.extra);
   g_strfreev(old.status_off);
 }
 

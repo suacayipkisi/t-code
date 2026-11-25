@@ -21,6 +21,9 @@ void session_load_settings(App *t);
 /* Writes t->settings to settings.ini, each with a comment saying what it does (keeping what was
  * added by hand), and the text size to session.ini. */
 void session_save_settings(App *t);
+/* The plain settings whose settings.ini key starts with prefix ("clangd-") go back to their defaults
+ * (not saved). */
+void session_reset_settings(App *t, const char *prefix);
 
 /* Gives the window its saved size, pane sizes, visible panes and text size. */
 void session_apply_window(App *t);

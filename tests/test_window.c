@@ -4881,7 +4881,7 @@ static void test_settings_pages(void)
     g_assert_true(GTK_IS_SCROLLED_WINDOW(page));
     switches += count_of(page, GTK_TYPE_SWITCH);
   }
-  g_assert_cmpint(switches, ==, 16 + SERVER_NONE); /* none lost on the way; one per built-in server */
+  g_assert_cmpint(switches, ==, 20 + SERVER_NONE); /* none lost on the way; one per built-in server */
   g_assert_cmpstr(gtk_stack_get_visible_child_name(stack), ==, "general");
 
   gtk_stack_set_visible_child_name(stack, "appearance");
@@ -4895,6 +4895,52 @@ static void test_settings_pages(void)
   g_assert_true(gtk_selection_model_is_selected(rows, 3));
   g_assert_false(gtk_selection_model_is_selected(rows, 0));
   g_object_unref(rows);
+  gtk_stack_set_visible_child_name(settings_stack(settings), "general"); /* as it was, for the other tests */
+  gtk_window_destroy(settings);
+  run_for(50);
+}
+
+/* The button under root whose label is text, or NULL. */
+static GtkWidget *button_labeled(GtkWidget *root, const char *text)
+{
+  if (GTK_IS_BUTTON(root) && g_strcmp0(gtk_button_get_label(GTK_BUTTON(root)), text) == 0)
+    return root;
+  for (GtkWidget *child = gtk_widget_get_first_child(root); child; child = gtk_widget_get_next_sibling(child)) {
+    GtkWidget *found = button_labeled(child, text);
+    if (found)
+      return found;
+  }
+  return NULL;
+}
+
+/* The clangd presets on the C / C++ page: "Plain clangd" sets clangd's and glibc's own values,
+ * "t-code defaults" the measured ones; each time the window opens again on the same page. */
+static void test_settings_clangd_presets(void)
+{
+  GtkWindow *settings;
+
+  show_settings(&app);
+  run_for(50);
+  settings = settings_window();
+  gtk_stack_set_visible_child_name(settings_stack(settings), "c");
+  g_signal_emit_by_name(button_labeled(GTK_WIDGET(settings), "Plain clangd"), "clicked");
+  run_for(100);
+  g_assert_cmpint(app.settings.clangd.threads, ==, 0);
+  g_assert_cmpint(app.settings.clangd.arenas, ==, 0);
+  g_assert_cmpint(app.settings.clangd.mmap_threshold_kb, ==, 0);
+  g_assert_false(app.settings.clangd.pch_on_disk);
+  settings = settings_window();
+  g_assert_nonnull(settings);
+  g_assert_cmpstr(gtk_stack_get_visible_child_name(settings_stack(settings)), ==, "c");
+
+  g_signal_emit_by_name(button_labeled(GTK_WIDGET(settings), "t-code defaults"), "clicked");
+  run_for(100);
+  g_assert_cmpint(app.settings.clangd.threads, ==, 2);
+  g_assert_cmpint(app.settings.clangd.arenas, ==, 1);
+  g_assert_cmpint(app.settings.clangd.mmap_threshold_kb, ==, 64);
+  g_assert_true(app.settings.clangd.pch_on_disk && app.settings.clangd.preamble_dir);
+  settings = settings_window();
+  g_assert_nonnull(settings);
   gtk_stack_set_visible_child_name(settings_stack(settings), "general"); /* as it was, for the other tests */
   gtk_window_destroy(settings);
   run_for(50);
@@ -6176,6 +6222,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/settings-edited", test_settings_edited);
   g_test_add_func("/window/open-user-files", test_open_user_files);
   g_test_add_func("/window/settings-pages", test_settings_pages);
+  g_test_add_func("/window/settings-clangd-presets", test_settings_clangd_presets);
   g_test_add_func("/window/user-shortcuts", test_user_shortcuts);
   g_test_add_func("/window/plugins-window", test_plugins_window);
   g_test_add_func("/window/plugins-panel", test_plugins_panel);

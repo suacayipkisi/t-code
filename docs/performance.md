@@ -13,13 +13,19 @@ What keeps it small:
 - **clangd gets a file once its tab is shown**, and stops 30 seconds after the last C or C++ file
   closes. It keeps at most five files open: the least recently used hidden tab is closed on the
   server (its AST freed) and opened again when you go back to it. What a server frees stays
-  resident (fragmented) until it exits, so one that grew 200 MB (or a quarter, if more) above where
+  resident (fragmented) until it exits, so one that grew 150 MB (or a quarter, if more) above where
   it settled is restarted once files were closed and it has been quiet for 30 seconds.
-- **clangd's own flags**: precompiled headers on disk (`--pch-storage=disk`), two indexing
-  threads, at most 50 results, and `--malloc-trim` on glibc.
-- **clangd runs with two malloc arenas** (`GLIBC_TUNABLES=glibc.malloc.arena_max=2`). With 25
-  files clangd itself accounted for 130 MB, yet held 1.5 GB: glibc's per-thread arenas kept
-  memory it had freed. With two arenas it stays at a third of that, at the same speed.
+- **clangd's own flags**: precompiled headers on disk (`--pch-storage=disk`), kept in
+  `~/.cache/t-code/preambles` rather than `/tmp` (RAM on many systems, and a killed clangd leaves
+  them there), two indexing threads, at most 50 results, and `--malloc-trim` on glibc.
+- **clangd runs on a tuned allocator**
+  (`GLIBC_TUNABLES=glibc.malloc.arena_max=1:glibc.malloc.mmap_threshold=65536`). clangd's own data
+  is a fraction of what it holds: glibc keeps freed memory in an arena per thread, and after a big
+  block is freed it moves its mmap threshold up to 32 MB, so later big blocks come from the heap
+  and stay taken. On a C++ project with Eigen and 25 files, clangd accounted for 314 MB and held
+  1000-1190 MB; one arena and a fixed 64 KB threshold keep it at about 550 MB, at the same speed.
+- **Every one of these is a setting** (Settings: C / C++, clangd), with a "Plain clangd" button for
+  clangd and glibc as they come.
 - **Only what changed goes to clangd** (incremental sync), batched while typing.
 - **No browser engine**: the Markdown preview is a text view, not WebKit (which started a web and
   a network process, 150-200 MB, per preview).

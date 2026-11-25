@@ -191,16 +191,29 @@ struct App {
     gboolean autosave;      /* a changed editor saves a second after its last change */
     gboolean tabs_to_spaces;
     int tab_size;
-    gboolean detect_indent;  /* a file's own indentation overrides the two above */
-    gboolean guides;         /* indent and bracket pair guides in editors */
-    gboolean word_wrap;      /* long lines continue on the next row instead of running off */
-    gboolean inlay_hints;    /* parameter names and deduced types inside the lines (lsp/inline/inlay.c) */
-    gboolean breadcrumbs;    /* the file's path and the symbols around the cursor over editors */
-    gboolean line_blame;     /* who last changed the cursor's line, after its end (editor/decor/blame.c) */
-    int ruler;               /* a vertical line after this column in editors, 0 for none */
-    int autosave_ms;         /* stores the value of the autosave after edit as ms(milisecons) */
-    gboolean clang_tidy;     /* clangd also runs the project's .clang-tidy checks */
-    int server_idle;         /* seconds a language server runs on after its last file closes; -1: it never stops */
+    gboolean detect_indent; /* a file's own indentation overrides the two above */
+    gboolean guides;        /* indent and bracket pair guides in editors */
+    gboolean word_wrap;     /* long lines continue on the next row instead of running off */
+    gboolean inlay_hints;   /* parameter names and deduced types inside the lines (lsp/inline/inlay.c) */
+    gboolean breadcrumbs;   /* the file's path and the symbols around the cursor over editors */
+    gboolean line_blame;    /* who last changed the cursor's line, after its end (editor/decor/blame.c) */
+    int ruler;              /* a vertical line after this column in editors, 0 for none */
+    int autosave_ms;        /* stores the value of the autosave after edit as ms(milisecons) */
+    gboolean clang_tidy;    /* clangd also runs the project's .clang-tidy checks */
+    int server_idle;        /* seconds a language server runs on after its last file closes; -1: it never stops */
+    int server_open_files;  /* files open on a server at once; the other tabs are closed on it until shown */
+    int server_restart_mb;  /* a quiet server this far above where it settled starts again; 0: never */
+    struct {                /* clangd's command line and allocator (lsp/servers.c); t-code's defaults are measured */
+      gboolean background_index; /* --background-index: the whole project indexed (references, symbols) */
+      int threads;               /* -j; 0: clangd's own (every core) */
+      gboolean pch_on_disk;      /* --pch-storage=disk, not memory */
+      gboolean preamble_dir;     /* those files in t-code's cache folder, not /tmp (often RAM: tmpfs) */
+      int limit_results;         /* --limit-results; 0: clangd's own (100) */
+      gboolean malloc_trim;      /* off: --malloc-trim=false */
+      int arenas;                /* GLIBC_TUNABLES glibc.malloc.arena_max; 0: glibc's own (8 per core) */
+      int mmap_threshold_kb;     /* glibc.malloc.mmap_threshold; 0: glibc's own (moves up to 32 MB) */
+      char *extra;               /* more flags in shell syntax, after t-code's (they win) */
+    } clangd;
     guint servers_off;       /* built-in language servers turned off: bit 1 << ServerKind (lsp/servers.h) */
     gboolean format_on_save; /* Ctrl+S formats the file with clangd first */
     gboolean lldb;           /* C, C++ and Rust debug with lldb-dap instead of gdb (debug/adapters.h) */
