@@ -587,7 +587,8 @@ void show_settings(App *t)
           " theme's panels and frame are one color",
           setting_switch(&t->settings.panel_outline, apply_theme));
   add_row(GTK_GRID(grid), &row, "Vertical tab bar width (px)",
-          "The left panels' icon column (Interface: Vertical left tab bar); 0: as wide as its icons",
+          "The left panels' icon column (Interface: Vertical left tab bar); its icons grow with it. 0: as wide as"
+          " its icons",
           setting_spin(&t->settings.vertical_bar_width, 0, 120, apply_theme));
   add_row(
       GTK_GRID(grid), &row, "Divider color",

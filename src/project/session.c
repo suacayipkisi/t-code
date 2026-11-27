@@ -230,7 +230,8 @@ static const Setting settings[] = {
                " The left panels' icons in a column along the window's edge, not in a row over them (also their"
                " right-click menu)"),
   INT_SETTING("vertical-tab-bar-width", vertical_bar_width, 0, 0, 120,
-              " 0 to 120, the vertical left tab bar's width in pixels; 0: as wide as its icons"),
+              " 0 to 120, the vertical left tab bar's width in pixels, its icons grow with it; 0: as wide as its"
+              " icons"),
   BOOL_SETTING("relative-line-numbers", relative_numbers, FALSE,
                " Line numbers count up and down from the cursor's line, which shows its own (also Ctrl+Alt+L)"),
   INT_SETTING("selection-opacity", selection_opacity, 40, 0, 100,

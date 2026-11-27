@@ -40,7 +40,7 @@ These already have a setting, so you do not need CSS for them:
 | Editor font / Files panel font | `font`, `files-font` | Pango font descriptions: `JetBrains Mono 11` |
 | Menu titles (Interface) | `menu-titles` | The menu bar as `0` names, `1` icons, `2` icons and names |
 | Vertical left tab bar (Interface) | `left-vertical-tabs` | The left panels' icons in a column along the window's edge |
-| Vertical tab bar width (px) | `vertical-tab-bar-width` | That column's width; `0`: as wide as its icons |
+| Vertical tab bar width (px) | `vertical-tab-bar-width` | That column's width, its icons grow with it; `0`: as wide as its icons |
 
 ## Colors: the `--tc-*` variables
 

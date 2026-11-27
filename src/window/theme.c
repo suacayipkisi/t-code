@@ -345,9 +345,16 @@ static char *layout_css(App *t)
   }
   if (!t->settings.square && style != DIVIDER_LINE && size != 6) /* the frame's margins as wide as its gaps */
     g_string_append_printf(out, ".tcode-workspace { margin: 0 %dpx; }", size);
-  if (t->settings.vertical_bar_width > 0) /* the icons fill it (docks/widgets.c lets them) */
-    g_string_append_printf(out, ".tcode-sidebar.vertical > .tcode-dock-header { min-width: %dpx; }",
-                           t->settings.vertical_bar_width);
+  if (t->settings.vertical_bar_width > 0) {
+    /* The icons fill it (docks/widgets.c lets them) and grow with it: 16 px in the ~28 px column the icons
+     * make by themselves, the same share of a wider one; their buttons as tall as wide-ish. */
+    int width = t->settings.vertical_bar_width, icon = CLAMP((width * 4 + 3) / 7, 16, 48);
+    g_string_append_printf(out,
+                           ".tcode-sidebar.vertical > .tcode-dock-header { min-width: %dpx; }"
+                           ".tcode-sidebar.vertical stackswitcher button { -gtk-icon-size: %dpx;"
+                           "  min-height: %dpx; }",
+                           width, icon, icon + 6);
+  }
   if (t->settings.panel_outline && !t->settings.square) /* the square theme has its lines */
   {
     g_string_append_printf(out, ".tcode-card { border: 1px solid %s; }", own ? own : "var(--tc-outline)");
