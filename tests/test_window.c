@@ -5299,9 +5299,9 @@ static void test_outline(void)
 
   g_assert_true(g_file_set_contents(path, "struct Shape {\n  int w;\n  int h;\n};\nint main(void) {}\n", -1, NULL));
   open_file(&app, path);
-  run_for(50);
   tab = current_tab(&app);
   g_assert_nonnull(tab);
+  run_until(loaded, tab); /* under ASan the text can come in after 50 ms */
   g_ptr_array_add(shape->children, outline_sym("w", 8, 1, 1));
   g_ptr_array_add(shape->children, outline_sym("h", 8, 2, 2));
   g_ptr_array_add(roots, shape);
