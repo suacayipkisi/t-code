@@ -132,6 +132,13 @@ void plugins_choose_disabled(const char *id, gboolean disabled);
  * first enable and on first run. */
 gboolean plugin_unreviewed(Plugin *p);
 
+/* Whether p's programs may run (commands, start program, language servers): an unreviewed plugin's
+ * only once its first run was asked about and allowed (plugins_confirm_run). */
+static inline gboolean plugin_may_run(const Plugin *p)
+{
+  return !p->record || p->record->reviewed || (p->record->warned & REGISTRY_WARNED_RUN);
+}
+
 /* A warning was shown and taken: kept in plugins.json, not shown again for this commit. */
 void plugin_warned(Plugin *p, RegistryWarned warning);
 

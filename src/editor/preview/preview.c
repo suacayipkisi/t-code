@@ -10,6 +10,7 @@
 #include "editor/editor.h"
 #include "editor/tabs.h"
 #include "window/palette.h"
+#include "window/statusbar.h"
 #include "window/terminal.h"
 
 #include <string.h>
@@ -199,8 +200,17 @@ static const Link *link_at(Preview *p, double x, double y)
   return NULL;
 }
 
+/* Whether url may go to the default app: web pages and mail only (a README's link to another scheme
+ * could start any program registered for it). */
+static gboolean launchable(const char *url)
+{
+  const char *scheme = g_uri_peek_scheme(url); /* lowercase, GLib's own */
+
+  return scheme && (strcmp(scheme, "http") == 0 || strcmp(scheme, "https") == 0 || strcmp(scheme, "mailto") == 0);
+}
+
 /* Anchors scroll to their heading, Markdown files open as previews, other local files in an
- * editor, and everything else in the default app (the browser, for web links). */
+ * editor, web pages and mail addresses in the default app; other links are not followed. */
 void preview_follow(Preview *p, const char *url)
 {
   char *path = preview_local_path(p->dir, url);
@@ -218,6 +228,8 @@ void preview_follow(Preview *p, const char *url)
     open_preview(p->app, path);
   } else if (path && g_file_test(path, G_FILE_TEST_IS_REGULAR)) {
     open_file(p->app, path);
+  } else if (!path && !launchable(url)) {
+    status_say(p->app, "Only web and mail links open from a preview");
   } else if (!path) {
     GtkUriLauncher *launcher = gtk_uri_launcher_new(url);
     gtk_uri_launcher_launch(launcher, p->app->window, NULL, NULL, NULL);
@@ -326,6 +338,7 @@ void preview_free(Preview *p)
   g_hash_table_destroy(p->rises);
   g_hash_table_destroy(p->spacers);
   g_hash_table_destroy(p->remote);
+  g_queue_clear_full(&p->web_waiting, g_free);
   g_array_free(p->details, TRUE);
   g_free(p->path);
   g_free(p->text);

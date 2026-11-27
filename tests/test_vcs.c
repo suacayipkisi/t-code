@@ -694,6 +694,24 @@ static void test_svn_real(void)
   g_assert_true(g_str_has_prefix(line, "0000000000000000000000000000000000000000 "));
   g_free(line);
   g_free(out);
+
+  /* a name svn would take for an option or a peg revision is still the file's name */
+  g_free(write_at(top, "-x@1.txt", "odd\n", -1, 0));
+  must(top, "svn", (const char *[]){ "add", "-q", "--", "-x@1.txt@", NULL });
+  must(top, "svn", (const char *[]){ "commit", "-q", "--username", "ada", "-m", "Odd name", NULL });
+  out = ask(top, VCS_SVN, vcs_blame_args(VCS_SVN, "-x@1.txt"));
+  line = vcs_git_blame(VCS_SVN, out, 0);
+  g_assert_true(g_str_has_prefix(line, "3 1 1 1\nauthor ada\n"));
+  g_free(line);
+  g_free(out);
+  out = ask(top, VCS_SVN, vcs_file_log_args(VCS_SVN, 10, "-x@1.txt"));
+  log = vcs_git_file_log(VCS_SVN, out);
+  g_assert_nonnull(strstr(log, "Odd name"));
+  g_free(log);
+  g_free(out);
+  id = ask(top, VCS_SVN, vcs_id_args(VCS_SVN, "BASE", TRUE, "-x@1.txt"));
+  g_assert_cmpstr(g_strstrip(id), ==, "3");
+  g_free(id);
   g_free(wc);
   g_free(info);
   g_free(trunk);

@@ -562,6 +562,27 @@ static GtkWidget *init_box(void)
 
 /* Building the panel ------------------------------------------------------------------------- */
 
+static void on_keep_pressed(GtkGestureClick *gesture, int n_press, double x G_GNUC_UNUSED, double y, gpointer data)
+{
+  void (*kept)(GtkListBox *, GtkListBoxRow *) = data;
+  GtkListBox *list = GTK_LIST_BOX(gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture)));
+  guint button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
+  GtkListBoxRow *row = gtk_list_box_get_row_at_y(list, (int)y);
+
+  if (row && ((button == GDK_BUTTON_PRIMARY && n_press == 2) || (button == GDK_BUTTON_MIDDLE && n_press == 1)))
+    kept(list, row);
+}
+
+void scm_attach_keep(GtkListBox *list, void (*kept)(GtkListBox *list, GtkListBoxRow *row))
+{
+  GtkGesture *gesture = gtk_gesture_click_new();
+
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(gesture), 0);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(gesture), GTK_PHASE_CAPTURE); /* before the list's */
+  g_signal_connect(gesture, "pressed", G_CALLBACK(on_keep_pressed), kept);
+  gtk_widget_add_controller(GTK_WIDGET(list), GTK_EVENT_CONTROLLER(gesture));
+}
+
 /* A section opens or folds; Commits lists what it missed while folded. */
 static void set_section_open(GtkWidget *box, gboolean open)
 {
@@ -726,6 +747,8 @@ GtkWidget *scm_panel(App *t)
   gtk_list_box_set_activate_on_single_click(scm.changes_list, TRUE);
   g_signal_connect(scm.staged_list, "row-activated", G_CALLBACK(scm_on_change_activated), NULL);
   g_signal_connect(scm.changes_list, "row-activated", G_CALLBACK(scm_on_change_activated), NULL);
+  scm_attach_keep(scm.staged_list, scm_on_change_kept);
+  scm_attach_keep(scm.changes_list, scm_on_change_kept);
   commits_attach();
   context_menu_attach(GTK_WIDGET(scm.staged_list), scm_on_changes_menu, NULL);
   context_menu_attach(GTK_WIDGET(scm.changes_list), scm_on_changes_menu, NULL);

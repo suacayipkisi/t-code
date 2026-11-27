@@ -12,8 +12,10 @@
 #include "editor/tabs.h"
 #include "ipc/client.h"
 #include <gio/gunixsocketaddress.h>
+#include <glib/gstdio.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /* did_change waits until typing pauses this long. */
@@ -414,11 +416,16 @@ void start_socket(App *t)
   unlink(t->paths.socket);
   address = g_unix_socket_address_new(t->paths.socket);
   t->service = g_socket_service_new();
+  /* the user's alone, also where GLib falls back to ~/.cache without $XDG_RUNTIME_DIR: made so (no
+   * moment open to others), and set again in case the umask was not applied */
+  mode_t mask = umask(0077);
   if (!g_socket_listener_add_address(G_SOCKET_LISTENER(t->service), address, G_SOCKET_TYPE_STREAM,
                                      G_SOCKET_PROTOCOL_DEFAULT, NULL, NULL, &error)) {
     g_warning("t-code: cannot listen on %s: %s", t->paths.socket, error->message);
     g_clear_error(&error);
   }
+  umask(mask);
+  g_chmod(t->paths.socket, 0600);
   g_object_unref(address);
   g_signal_connect(t->service, "incoming", G_CALLBACK(on_incoming), t);
   g_socket_service_start(t->service);

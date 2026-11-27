@@ -33,3 +33,9 @@ char *langenv_rust_options(const char *features, const char *target, gboolean tr
 /* cargo's flags for them, each with a space before it (" --features a,b --target x"), shell-quoted;
  * "" for the defaults. */
 char *langenv_cargo_flags(const char *features, const char *target);
+
+/* The nearest folder, from start up to top, that holds one of names as a file (NULL: none). top
+ * comes from langenv_climb_top: root (the project folder) when start is in it, else the home folder
+ * when start is in it, else start itself, so a file in /tmp/x never takes /tmp's Makefile. */
+char *langenv_find_up(const char *start, const char *const *names, const char *top);
+const char *langenv_climb_top(const char *start, const char *root);

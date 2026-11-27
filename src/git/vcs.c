@@ -851,9 +851,11 @@ char **vcs_id_args(VcsKind kind, const char *rev, gboolean shortened, const char
 
   if (kind == VCS_HG)
     args = vcs_args_of("log", "-r", r, "-T", shortened ? "{node|short}" : "{node}", NULL);
-  else if (kind == VCS_SVN && strcmp(r, "BASE") == 0)
-    args = vcs_args_of("info", "--non-interactive", "--show-item", "revision", path ? path : ".", NULL);
-  else if (kind == VCS_SVN)
+  else if (kind == VCS_SVN && strcmp(r, "BASE") == 0) {
+    char *at = g_strdup_printf("%s@", path ? path : "."); /* "@" ends a path holding one */
+    args = vcs_args_of("info", "--non-interactive", "--show-item", "revision", "--", at, NULL);
+    g_free(at);
+  } else if (kind == VCS_SVN)
     args = vcs_args_of("log", "--non-interactive", "-q", "-l", "1", "-r", r, "--xml", NULL); /* checks it exists */
   else if (shortened)
     args = vcs_args_of("rev-parse", "--short", "--verify", "--quiet", r, NULL);
@@ -936,8 +938,11 @@ char **vcs_file_log_args(VcsKind kind, int max, const char *name)
     args = vcs_args_of("log", "-f", "-l", n, "-T",
                        "{node}\\x1f{node|short}\\x1f" HG_DATE "\\x1f{author|person}\\x1f{desc|firstline}\\n", "--",
                        name, NULL);
-  else
-    args = vcs_args_of("log", "--non-interactive", "--xml", "-l", n, name, NULL);
+  else {
+    char *at = g_strdup_printf("%s@", name); /* "@" ends a path holding one; "--": a name starting with "-" */
+    args = vcs_args_of("log", "--non-interactive", "--xml", "-l", n, "--", at, NULL);
+    g_free(at);
+  }
   g_free(n);
   return args;
 }
@@ -1086,7 +1091,11 @@ char **vcs_blame_args(VcsKind kind, const char *name)
   if (kind == VCS_HG)
     return vcs_args_of("annotate", "-r", "wdir()", "-T",
                        "{lines % \"{node}\\x1f{user}\\x1f{date|hgdate}\\x1f{desc|firstline}\\n\"}", "--", name, NULL);
-  return vcs_args_of("blame", "--non-interactive", "--xml", name, NULL);
+  char *at = g_strdup_printf("%s@", name); /* "@" ends a path holding one; "--": a name starting with "-" */
+  char **args = vcs_args_of("blame", "--non-interactive", "--xml", "--", at, NULL);
+
+  g_free(at);
+  return args;
 }
 
 static char *vcs_porcelain(const char *commit, const char *author, gint64 when, const char *summary)

@@ -199,10 +199,27 @@ function quote(word) {
   return /^[A-Za-z0-9_.,:/=+-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
+// The run's folder: in the user's runtime folder, else in the temp folder under a name of the user's own
+// (another user could have made a shared one first, and the script there runs).
 function runDir(root) {
-  const base = process.env.XDG_RUNTIME_DIR || os.tmpdir();
+  const runtime = process.env.XDG_RUNTIME_DIR;
+  const base = runtime ? path.join(runtime, 't-code-targets') : path.join(os.tmpdir(), `t-code-targets-${process.getuid()}`);
   const hash = crypto.createHash('sha256').update(root).digest('hex').slice(0, 12);
-  return path.join(base, 't-code-targets', hash);
+  return path.join(base, hash);
+}
+
+// Makes dir and the folder above it the user's alone; throws when one is a link or another user's.
+function makeOwnDir(dir) {
+  for (const folder of [path.dirname(dir), dir]) {
+    try {
+      fs.mkdirSync(folder, { mode: 0o700 });
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+    }
+    const info = fs.lstatSync(folder);
+    if (!info.isDirectory() || info.uid !== process.getuid()) throw new Error(`${folder} is not your own folder`);
+    fs.chmodSync(folder, 0o700);
+  }
 }
 
 // The script the terminal tab runs: the target, its output kept in log, its status in status (also
@@ -255,7 +272,7 @@ function sleep(ms) {
 async function runTarget(t, root, target) {
   const command = `${target.tool} ${quote(target.name)}`;
   const dir = runDir(root);
-  fs.mkdirSync(dir, { recursive: true });
+  makeOwnDir(dir);
   fs.writeFileSync(path.join(dir, 'last.json'), JSON.stringify(target));
   for (const name of ['status', 'status.part', 'log']) fs.rmSync(path.join(dir, name), { force: true });
   const script = path.join(dir, 'run.sh');
@@ -324,7 +341,7 @@ async function again() {
   await runTarget(t, root, last);
 }
 
-module.exports = { Tcode, makeTargets, justTargets, taskTargets, npmTargets, findTargets, parseProblems, scriptText, quote };
+module.exports = { Tcode, makeTargets, justTargets, taskTargets, npmTargets, findTargets, parseProblems, scriptText, quote, runDir, makeOwnDir };
 
 if (require.main === module) {
   const command = process.argv[2] || '';

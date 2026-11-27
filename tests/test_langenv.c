@@ -192,6 +192,37 @@ static void test_cargo_flags(void)
   g_free(flags);
 }
 
+/* A Makefile is looked for up to the project folder, or the home folder, or only where the file is
+ * when it is in neither: /tmp/x/a.c never takes /tmp's Makefile. */
+static void test_find_up(void)
+{
+  static const char *const make[] = { "Makefile", NULL };
+  char *project, *deep, *loose, *found;
+
+  setup();
+  project = in_root("project");
+  deep = in_root("project/src/lib");
+  loose = in_root("loose/x");
+  put("Makefile", "", FALSE); /* above the project */
+  put("project/src/lib/a.c", "", FALSE);
+  put("loose/x/a.c", "", FALSE);
+  g_assert_cmpstr(langenv_climb_top(deep, project), ==, project);
+  g_assert_cmpstr(langenv_climb_top(loose, project), ==, loose); /* the temp folder is not in home */
+  g_assert_null(langenv_find_up(deep, make, langenv_climb_top(deep, project)));
+  g_assert_null(langenv_find_up(loose, make, langenv_climb_top(loose, project)));
+  put("project/Makefile", "", FALSE);
+  found = langenv_find_up(deep, make, langenv_climb_top(deep, project));
+  g_assert_cmpstr(found, ==, project);
+  g_free(found);
+  found = langenv_find_up(deep, make, root); /* allowed higher: the nearest */
+  g_assert_cmpstr(found, ==, project);
+  g_free(found);
+  g_free(loose);
+  g_free(deep);
+  g_free(project);
+  teardown();
+}
+
 int main(int argc, char **argv)
 {
   g_test_init(&argc, &argv, NULL);
@@ -201,5 +232,6 @@ int main(int argc, char **argv)
   g_test_add_func("/langenv/cargo-features", test_cargo_features);
   g_test_add_func("/langenv/rust-options", test_rust_options);
   g_test_add_func("/langenv/cargo-flags", test_cargo_flags);
+  g_test_add_func("/langenv/find-up", test_find_up);
   return g_test_run();
 }

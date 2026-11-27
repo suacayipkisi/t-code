@@ -44,30 +44,6 @@ static void project_clear(Project *p)
   g_free(p->task_name);
 }
 
-/* The nearest directory, from start upwards, that holds one of names. */
-char *find_up(const char *start, const char *const *names)
-{
-  char *dir = g_strdup(start);
-
-  for (;;) {
-    for (int i = 0; names[i]; i++) {
-      char *path = g_build_filename(dir, names[i], NULL);
-      gboolean found = g_file_test(path, G_FILE_TEST_IS_REGULAR);
-      g_free(path);
-      if (found)
-        return dir;
-    }
-    char *parent = g_path_get_dirname(dir);
-    gboolean top = strcmp(parent, dir) == 0;
-    g_free(dir);
-    dir = parent;
-    if (top) {
-      g_free(dir);
-      return NULL;
-    }
-  }
-}
-
 /* Whether file is C or C++ source (*cxx: C++). */
 static gboolean is_source(const char *file, gboolean *cxx)
 {
@@ -99,13 +75,14 @@ static Project find_project(App *t)
   Tab *tab = current_tab(t);
   const char *file = tab && tab->kind == TAB_EDITOR ? tab->path : NULL;
   char *start = file ? g_path_get_dirname(file) : g_strdup(t->project.root);
+  const char *top = start ? langenv_climb_top(start, t->project.root) : NULL;
   Project p = { .kind = PROJECT_NONE, .file = file };
   gboolean cxx;
 
-  if ((p.root = find_up(start, tasks))) {
+  if ((p.root = langenv_find_up(start, tasks, top))) {
     p.kind = PROJECT_TASKS;
     p.task_name = tasks_name(p.root);
-  } else if (find_language_project(&p, start)) {
+  } else if (find_language_project(&p, start, top)) {
     if (p.kind == PROJECT_CARGO) {
       char *features = toolchain_rust_features(t), *target = toolchain_rust_target(t);
       p.cargo_flags = langenv_cargo_flags(features, target);
@@ -116,14 +93,14 @@ static Project find_project(App *t)
     p.kind = PROJECT_SCRIPT;
     p.root = g_strdup(file);
     if (has_ext(file, python)) {
-      p.python = python_root(start);
+      p.python = python_root(start, top);
       p.interpreter = toolchain_python(t, p.python);
     }
-  } else if ((p.root = find_up(start, cmake)))
+  } else if ((p.root = langenv_find_up(start, cmake, top)))
     p.kind = PROJECT_CMAKE;
-  else if ((p.root = find_up(start, meson)))
+  else if ((p.root = langenv_find_up(start, meson, top)))
     p.kind = PROJECT_MESON;
-  else if ((p.root = find_up(start, make)))
+  else if ((p.root = langenv_find_up(start, make, top)))
     p.kind = PROJECT_MAKE;
   else if (is_source(file, &cxx)) {
     p.kind = PROJECT_FILE;
@@ -521,7 +498,8 @@ static PluginCommand *plugin_runs(App *t)
   gboolean objc = language && strcmp(gtk_source_language_get_id(language), "objc") == 0;
   const char *file = tab && tab->kind == TAB_EDITOR && !objc ? tab->path : NULL;
   PluginCommand *command = file ? plugins_run_command_for(t, file) : NULL;
-  char *dir = command ? g_path_get_dirname(file) : NULL, *task = dir ? find_up(dir, tasks) : NULL;
+  char *dir = command ? g_path_get_dirname(file) : NULL,
+       *task = dir ? langenv_find_up(dir, tasks, langenv_climb_top(dir, t->project.root)) : NULL;
 
   if (task)
     command = NULL;

@@ -147,23 +147,13 @@ static GStrv features; /* Cargo.toml's, for the picker that is open */
 /* The Cargo.toml of the current file's crate, else the project's. */
 static char *cargo_toml(App *t)
 {
+  static const char *const names[] = { "Cargo.toml", NULL };
   Tab *tab = current_tab(t);
   char *dir = tab && tab->kind == TAB_EDITOR && tab->path ? g_path_get_dirname(tab->path) : g_strdup(t->project.root);
+  char *found = dir ? langenv_find_up(dir, names, langenv_climb_top(dir, t->project.root)) : NULL;
+  char *path = found ? g_build_filename(found, "Cargo.toml", NULL) : NULL;
 
-  char *path = NULL;
-
-  while (!path) {
-    char *candidate = g_build_filename(dir, "Cargo.toml", NULL), *up = g_path_get_dirname(dir);
-    gboolean top = strcmp(up, dir) == 0;
-    if (g_file_test(candidate, G_FILE_TEST_IS_REGULAR))
-      path = candidate;
-    else
-      g_free(candidate);
-    g_free(dir);
-    dir = up;
-    if (top)
-      break;
-  }
+  g_free(found);
   g_free(dir);
   if (path)
     return path;

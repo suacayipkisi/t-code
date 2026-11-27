@@ -16,6 +16,8 @@
 #define FAILED GINT_TO_POINTER(2)
 #define MAX_BYTES "20000000" /* curl's limit for one image */
 #define SVG_SCALE 2          /* an SVG is drawn at twice its size */
+#define SVG_PIXELS 16000000  /* at most so many pixels drawn (64 MB): a huge SVG is not shown */
+#define WEB_FETCHES 4        /* web images fetched at a time */
 
 void preview_remote_free(gpointer data)
 {
@@ -102,7 +104,7 @@ static GdkPaintable *rasterize(GdkPaintable *svg)
   cairo_surface_t *surface;
   GdkTexture *texture = NULL;
 
-  if (w <= 0 || h <= 0 || w > 4096 || h > 4096)
+  if (w <= 0 || h <= 0 || (double)w * h * SVG_SCALE * SVG_SCALE > SVG_PIXELS)
     return NULL;
   snapshot = gtk_snapshot_new();
   gtk_snapshot_scale(snapshot, SVG_SCALE, SVG_SCALE);
@@ -127,8 +129,10 @@ static GdkPaintable *rasterize(GdkPaintable *svg)
 #else
 static void at_svg_scale(GdkPixbufLoader *loader, int width, int height, gpointer data G_GNUC_UNUSED)
 {
-  if (width > 0 && height > 0 && width <= 4096 && height <= 4096)
+  if (width > 0 && height > 0 && (double)width * height * SVG_SCALE * SVG_SCALE <= SVG_PIXELS)
     gdk_pixbuf_loader_set_size(loader, width * SVG_SCALE, height * SVG_SCALE);
+  else /* too big to draw (or no size): a pixel, which svg_from_pixbuf turns down */
+    gdk_pixbuf_loader_set_size(loader, 1, 1);
 }
 
 /* Before GTK 4.22 (no GtkSvg; gdk_texture_new_from_bytes reads no SVG): gdk-pixbuf's SVG loader
@@ -213,9 +217,12 @@ static GdkPaintable *paintable_from_file(const char *path)
 
 typedef struct {
   Preview *p;
-  char *key;  /* p->remote's key */
-  char *path; /* the file the job writes (a diagram), or NULL: its output is the image */
+  char *key;    /* p->remote's key */
+  char *path;   /* the file the job writes (a diagram), or NULL: its output is the image */
+  gboolean web; /* a web image's fetch: the next waiting one starts when it ends */
 } Job;
+
+static void start_web(Preview *p, const char *url);
 
 static void job_done(GObject *source, GAsyncResult *result, gpointer data)
 {
@@ -231,6 +238,14 @@ static void job_done(GObject *source, GAsyncResult *result, gpointer data)
     g_hash_table_replace(job->p->remote, g_strdup(job->key), paintable ? (gpointer)paintable : FAILED);
     if (paintable)
       preview_reload_later(job->p);
+    if (job->web) {
+      char *next;
+      job->p->web_running--;
+      if ((next = g_queue_pop_head(&job->p->web_waiting))) {
+        start_web(job->p, next);
+        g_free(next);
+      }
+    }
   }
   g_clear_error(&error);
   if (out)
@@ -240,8 +255,9 @@ static void job_done(GObject *source, GAsyncResult *result, gpointer data)
   g_free(job);
 }
 
-/* Runs argv in the background for p->remote's key (path: the file it writes, or NULL: its output). */
-static void start_job(Preview *p, const char *key, const char *path, const char *const *argv)
+/* Runs argv in the background for p->remote's key (path: the file it writes, or NULL: its output);
+ * FALSE when it did not start. */
+static gboolean start_job(Preview *p, const char *key, const char *path, const char *const *argv, gboolean web)
 {
   GSubprocess *process =
       g_subprocess_newv(argv, G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL);
@@ -249,15 +265,17 @@ static void start_job(Preview *p, const char *key, const char *path, const char 
 
   if (!process) {
     g_hash_table_replace(p->remote, g_strdup(key), FAILED);
-    return;
+    return FALSE;
   }
   job = g_new0(Job, 1);
   job->p = p;
   job->key = g_strdup(key);
   job->path = g_strdup(path);
+  job->web = web;
   g_hash_table_replace(p->remote, g_strdup(key), PENDING);
   g_subprocess_communicate_async(process, NULL, p->cancel, job_done, job);
   g_object_unref(process);
+  return TRUE;
 }
 
 /* What p->remote holds for key: a new reference to its paintable, or NULL (pending, failed, unknown:
@@ -270,26 +288,40 @@ static GdkPaintable *remote_lookup(Preview *p, const char *key, gboolean *known)
   return *known && value != PENDING && value != FAILED ? g_object_ref(value) : NULL;
 }
 
-static GdkPaintable *web_image(Preview *p, const char *url)
+/* Fetches url with curl now (a slot is free). */
+static void start_web(Preview *p, const char *url)
 {
-  static char *curl;
-  gboolean known;
-  GdkPaintable *paintable = remote_lookup(p, url, &known);
+  char *curl = g_find_program_in_path("curl");
 
-  if (known)
-    return paintable;
-  if (!curl)
-    curl = g_find_program_in_path("curl");
   if (!curl) {
     g_hash_table_replace(p->remote, g_strdup(url), FAILED);
-    return NULL;
+    return;
   }
   const char *const argv[] = {
     curl,          "-sSfL",         "--max-time",  "20", "--max-filesize", MAX_BYTES, "--proto",
     "=http,https", "--proto-redir", "=http,https", "-A", TCODE_NAME,       "--url",   url,
     NULL
   };
-  start_job(p, url, NULL, argv);
+  if (start_job(p, url, NULL, argv, TRUE))
+    p->web_running++;
+  g_free(curl);
+}
+
+/* A web image: fetched in the background, WEB_FETCHES at a time (a README with fifty badges does not
+ * start fifty curls), unless settings.web_images is off. */
+static GdkPaintable *web_image(Preview *p, const char *url)
+{
+  gboolean known;
+  GdkPaintable *paintable = remote_lookup(p, url, &known);
+
+  if (known || !p->app->settings.web_images)
+    return paintable;
+  if (p->web_running >= WEB_FETCHES) {
+    g_hash_table_replace(p->remote, g_strdup(url), PENDING);
+    g_queue_push_tail(&p->web_waiting, g_strdup(url));
+    return NULL;
+  }
+  start_web(p, url);
   return NULL;
 }
 
@@ -429,7 +461,7 @@ GdkPaintable *preview_mermaid(Preview *p, const char *source)
       const char *const argv[] = {
         mmdc, "-q", "-i", input, "-o", png, "-t", theme, "-b", "transparent", "-s", "2", NULL
       };
-      start_job(p, key, png, argv);
+      start_job(p, key, png, argv, FALSE);
     } else {
       g_hash_table_replace(p->remote, g_strdup(key), FAILED);
     }

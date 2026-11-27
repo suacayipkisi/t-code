@@ -13,6 +13,7 @@
 #include "files/files.h"
 #include "window/window.h"
 #include "window/palette.h"
+#include "window/statusbar.h"
 
 #include <signal.h>
 #include <string.h>
@@ -601,9 +602,21 @@ static gboolean run_when_idle(gpointer data)
  * to its input. */
 static void run_in(App *t, VteTerminal *term, const char *command)
 {
-  Shell *shell = shell_of(term);
-  pid_t group = shell_foreground(term);
-  gboolean busy = group && group != shell->pid;
+  Shell *shell;
+  pid_t group;
+  gboolean busy;
+
+  /* g_shell_quote keeps them: a file name holding Ctrl+C, Ctrl+U or a carriage return would act on the
+   * line instead of being part of it */
+  for (const unsigned char *c = (const unsigned char *)command; *c; c++) {
+    if (*c < 0x20 || *c == 0x7f) {
+      status_say(t, "A name with a control character in it is not typed into the terminal");
+      return;
+    }
+  }
+  shell = shell_of(term);
+  group = shell_foreground(term);
+  busy = group && group != shell->pid;
 
   gtk_notebook_set_current_page(t->shell.tabs, gtk_notebook_page_num(t->shell.tabs, GTK_WIDGET(term)));
   set_pane_visible(t, t->shell.panel, TRUE);

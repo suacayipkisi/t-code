@@ -232,6 +232,8 @@ static const Setting settings[] = {
   BOOL_SETTING("trust-all-folders", trust_all, FALSE,
                " Every project's own programs run without asking (its venv, node_modules TypeScript, Rust build"
                " scripts, test listing); off: only in the folders in ~/.config/t-code/trusted"),
+  BOOL_SETTING("preview-web-images", web_images, TRUE,
+               " Markdown previews fetch their web images (badges, screenshots); off: nothing is fetched"),
   BOOL_SETTING("check-updates", check_updates, TRUE,
                " Once at start-up, the latest release on GitHub goes against this version; a newer one asks"),
   BOOL_SETTING("menu-bar", menu_bar, TRUE,

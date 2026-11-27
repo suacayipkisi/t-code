@@ -157,17 +157,10 @@ static void on_commit_activated(GtkListBox *list G_GNUC_UNUSED, GtkListBoxRow *r
   g_strfreev(other);
 }
 
-/* A double click on a file row (its first click opened it in the temporary tab) or a middle click
- * opens it kept. */
-static void on_commits_pressed(GtkGestureClick *gesture, int n_press, double x G_GNUC_UNUSED, double y,
-                               gpointer data G_GNUC_UNUSED)
+/* A double or middle click on a file row: kept. */
+static void on_file_kept(GtkListBox *list G_GNUC_UNUSED, GtkListBoxRow *row)
 {
-  guint button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
-  GtkListBoxRow *row = gtk_list_box_get_row_at_y(scm.commits_list, (int)y);
-
-  if (!row || !g_object_get_data(G_OBJECT(row), "file-commit"))
-    return;
-  if ((button == GDK_BUTTON_PRIMARY && n_press == 2) || (button == GDK_BUTTON_MIDDLE && n_press == 1))
+  if (g_object_get_data(G_OBJECT(row), "file-commit"))
     compare_file_row(row, TRUE);
 }
 
@@ -536,10 +529,6 @@ void commits_attach(void)
   palette_add_css(css);
   gtk_list_box_set_activate_on_single_click(scm.commits_list, TRUE);
   g_signal_connect(scm.commits_list, "row-activated", G_CALLBACK(on_commit_activated), NULL);
-  GtkGesture *keep = gtk_gesture_click_new();
-  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(keep), 0);
-  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(keep), GTK_PHASE_CAPTURE); /* before the list's */
-  g_signal_connect(keep, "pressed", G_CALLBACK(on_commits_pressed), NULL);
-  gtk_widget_add_controller(GTK_WIDGET(scm.commits_list), GTK_EVENT_CONTROLLER(keep));
+  scm_attach_keep(scm.commits_list, on_file_kept);
   context_menu_attach(GTK_WIDGET(scm.commits_list), on_commits_menu, NULL);
 }

@@ -99,6 +99,23 @@ static void test_files(void)
   CHECK(back.phase == SHORT_BREAK && back.done == 2 && back.ticker == 7);
   CHECK(!ticker_alive(7) || 1); /* pid 7 is never ours: only that it does not crash */
   CHECK(!ticker_alive(0));
+
+  /* the state's folder is the user's own: made 0700, a link to elsewhere refused */
+  char made[300], link[300];
+  snprintf(made, sizeof made, "%s/made", dir);
+  snprintf(link, sizeof link, "%s/link", dir);
+  CHECK(own_dir(made));
+  struct stat info;
+  CHECK(stat(made, &info) == 0 && (info.st_mode & 0777) == 0700);
+  CHECK(symlink(made, link) == 0);
+  CHECK(!own_dir(link));
+  unsetenv("XDG_RUNTIME_DIR");
+  char shared[300];
+  state_dir(shared, sizeof shared);
+  char expected[100];
+  snprintf(expected, sizeof expected, "/tmp/t-code-pomodoro-%ld", (long)getuid());
+  CHECK(strcmp(shared, expected) == 0);
+
   char cleanup[200];
   snprintf(cleanup, sizeof cleanup, "rm -rf %s", dir);
   CHECK(system(cleanup) == 0);

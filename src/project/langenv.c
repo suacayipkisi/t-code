@@ -216,3 +216,45 @@ char *langenv_cargo_flags(const char *features, const char *target)
   }
   return g_string_free(flags, FALSE);
 }
+
+/* Climbing up ------------------------------------------------------------------------------- */
+
+/* Whether dir is top or a folder inside it. */
+static gboolean in_folder(const char *dir, const char *top)
+{
+  size_t n = strlen(top);
+
+  while (n > 1 && top[n - 1] == '/')
+    n--;
+  return strncmp(dir, top, n) == 0 && (dir[n] == '\0' || dir[n] == '/' || (n == 1 && *top == '/'));
+}
+
+const char *langenv_climb_top(const char *start, const char *root)
+{
+  if (root && in_folder(start, root))
+    return root;
+  return in_folder(start, g_get_home_dir()) ? g_get_home_dir() : start;
+}
+
+char *langenv_find_up(const char *start, const char *const *names, const char *top)
+{
+  char *dir = g_strdup(start);
+
+  for (;;) {
+    for (int i = 0; names[i]; i++) {
+      char *path = g_build_filename(dir, names[i], NULL);
+      gboolean found = g_file_test(path, G_FILE_TEST_IS_REGULAR);
+      g_free(path);
+      if (found)
+        return dir;
+    }
+    char *parent = g_path_get_dirname(dir);
+    gboolean last = strcmp(parent, dir) == 0 || !in_folder(dir, top) || strlen(dir) <= strlen(top);
+    g_free(dir);
+    dir = parent;
+    if (last) {
+      g_free(dir);
+      return NULL;
+    }
+  }
+}

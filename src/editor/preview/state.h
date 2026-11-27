@@ -102,6 +102,8 @@ struct Preview {
   GHashTable *spacers;  /* pixels a list marker's space widens by -> its tag (letter-spacing) */
   GHashTable *remote;   /* a web image's address, a diagram's key -> its paintable (or pending, failed) */
   GCancellable *cancel; /* the background fetches, cancelled when the preview goes */
+  GQueue web_waiting;   /* web image addresses waiting for a fetch to end (a few run at a time) */
+  guint web_running;    /* web image fetches running */
   GArray *details;      /* Details, in the order of the text */
   int width;            /* the view's width the images were sized for */
   double scale;         /* the previews' text size (t->settings.preview_scale) */

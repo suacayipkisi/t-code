@@ -227,6 +227,7 @@ struct App {
     gboolean plain;          /* syntax coloring off (F7) */
     double font_scale;       /* editors, terminals and the Files panel (Ctrl+= / Ctrl+-); session.ini keeps it */
     double preview_scale;    /* Markdown previews' text size; session.ini keeps it */
+    gboolean web_images;     /* previews fetch their web images (curl, at most a few at a time) */
     guint panels_off;        /* t-code's own panels turned off: bit 1 << their index in panel_names */
     gboolean menu_bar;       /* the menu bar in the title bar; off: its menus open from t-code's icon */
     gboolean status_bar;     /* the status bar under everything */

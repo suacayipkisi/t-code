@@ -6,6 +6,7 @@
  * hand, debugging with gdb. Needs a display; skipped without one.
  */
 #include "editor/editor.h"
+#include "editor/preview/state.h" /* preview_follow */
 #include "project/trust.h"
 #include "debug/debugger.h"
 #include "debug/view/debugview.h"
@@ -334,6 +335,13 @@ static void test_comparison_one_tab(void)
   g_free(path);
 }
 
+/* The comparison of path with its working copy (compare_with_head) is open. */
+static gboolean working_compared(gconstpointer path)
+{
+  Tab *tab = comparison_of(path);
+  return tab && tab->compare.title && strstr(tab->compare.title, "Working");
+}
+
 static gboolean compared_kept(gconstpointer path)
 {
   Tab *tab = comparison_of(path);
@@ -389,6 +397,25 @@ static void test_comparison_temporary(void)
   assert_tabs("a.txt b.txt*");
   g_assert_true(comparison_of(b)->temporary);
   g_assert_false(comparison_of(a)->temporary);
+
+  /* a click on a kept one's row again (or a double click's second activation) shows the kept tab */
+  compare_revisions_temporary(&app, "HEAD^", "a.txt", "HEAD", "a.txt");
+  run_for(300);
+  assert_tabs("a.txt b.txt*");
+  g_assert_false(comparison_of(a)->temporary);
+  compare_revisions(&app, "HEAD^", "a.txt", "HEAD", "a.txt"); /* kept asked, then temporary: the kept one */
+  compare_revisions_temporary(&app, "HEAD^", "a.txt", "HEAD", "a.txt");
+  run_for(300);
+  assert_tabs("b.txt* a.txt");
+  g_assert_false(comparison_of(a)->temporary);
+
+  /* a changed file (Changes: compare with HEAD) takes the temporary tab's place too */
+  g_free(write_at(top, "b.txt", "three\n", -1, 0));
+  compare_next_temporary();
+  compare_with_head(&app, b);
+  run_until(working_compared, b);
+  assert_tabs("b.txt* a.txt");
+  g_assert_true(comparison_of(b)->temporary);
 
   close_everything();
   app.project.scm_kind = old_kind;
@@ -1298,7 +1325,11 @@ static void test_socket_tapi_terminals(void)
   TapiConn plugin = tapi_connect(hello);
   other = &plugin;
   request = g_strdup_printf("terminal-close %s", id);
-  tapi_expect(other, request, "error bad-argument no terminal tab with that id is yours");
+  /* without "terminal" no terminal request goes through, not even for another's tab */
+  tapi_expect(other, request,
+              "error not-permitted plugin.json does not ask for \"terminal\" (add it to \"permissions\")");
+  tapi_expect(other, "terminal /tmp",
+              "error not-permitted plugin.json does not ask for \"terminal\" (add it to \"permissions\")");
   answer = tapi(other, "terminal-open Mine -- cat");
   g_assert_cmpstr(answer, ==,
                   "error not-permitted plugin.json does not ask for \"terminal\" (add it to \"permissions\")");
@@ -2899,6 +2930,64 @@ static void open_preview_rendered(const char *path)
   GtkTextView *view = GTK_TEXT_VIEW(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(page)));
   run_until(preview_rendered, gtk_text_view_get_buffer(view));
   run_for(100);
+}
+
+static gboolean lines_are(gconstpointer data)
+{
+  const char *path = ((const char *const *)data)[0];
+  int want = GPOINTER_TO_INT(((const void *const *)data)[1]), n = 0;
+  char *text = NULL;
+
+  if (g_file_get_contents(path, &text, NULL, NULL))
+    for (char *c = text; *c; c++)
+      n += *c == '\n';
+  g_free(text);
+  return n == want;
+}
+
+/* A README with many web images fetches four at a time (the rest wait for one to end), and none with
+ * "Web images in previews" off. curl is a script that notes each start and fails after a moment. */
+static void test_preview_web_images(void)
+{
+  char *bin = g_build_filename(app.project.root, "web-bin", NULL), *log = g_build_filename(bin, "started", NULL);
+  char *saved_path = g_strdup(g_getenv("PATH")), *path_env = g_strdup_printf("%s:%s", bin, saved_path);
+  char *script = g_strdup_printf("#!/bin/sh\necho x >> '%s'\nsleep 0.4\nexit 22\n", log);
+  GString *readme = g_string_new("# Badges\n\n");
+  char *path;
+  const void *wait[2] = { log, NULL };
+
+  for (int i = 0; i < 10; i++)
+    g_string_append_printf(readme, "![b%d](https://example.invalid/b%d.svg)\n", i, i);
+  g_free(put(bin, "curl", script, 0755));
+  path = put(app.project.root, "BADGES.md", readme->str, 0644);
+  g_setenv("PATH", path_env, TRUE);
+  app.settings.web_images = TRUE; /* the default */
+
+  open_preview_rendered(path);
+  wait[1] = GINT_TO_POINTER(4);
+  run_until(lines_are, wait);
+  run_for(150); /* still four: the others wait */
+  g_assert_true(lines_are(wait));
+  wait[1] = GINT_TO_POINTER(10);
+  run_until(lines_are, wait); /* then the rest, as each ends */
+  close_everything();
+
+  g_unlink(log);
+  app.settings.web_images = FALSE;
+  open_preview_rendered(path);
+  run_for(300);
+  g_assert_false(g_file_test(log, G_FILE_TEST_EXISTS));
+  app.settings.web_images = TRUE;
+  close_everything();
+
+  g_setenv("PATH", saved_path, TRUE);
+  g_string_free(readme, TRUE);
+  g_free(path);
+  g_free(script);
+  g_free(path_env);
+  g_free(saved_path);
+  g_free(log);
+  g_free(bin);
 }
 
 /* The text in the preview's buffer from where needle starts. */
@@ -5113,6 +5202,47 @@ static void test_status_say(void)
   g_assert_cmpuint(app.status.say_id, ==, 0);
 }
 
+/* A folder whose name holds a control character (Ctrl+C, a carriage return) is not typed into the
+ * shell: it would act on the line, not be part of it. */
+static void test_shell_control_chars(void)
+{
+  status_say(&app, "");
+  cd_in_shell(&app, "/tmp/a\003b");
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==,
+                  "A name with a control character in it is not typed into the terminal");
+  status_say(&app, "");
+  cd_in_shell(&app, "/tmp/a\rrm -rf x");
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==,
+                  "A name with a control character in it is not typed into the terminal");
+  status_say(&app, "");
+  cd_in_shell(&app, "/tmp/naïve dir"); /* only control characters: the rest goes, quoted */
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "");
+}
+
+/* The control socket is the user's alone; a preview follows web and mail links only (a README's link to
+ * another scheme could start any program registered for it). */
+static void test_socket_and_links_private(void)
+{
+  GStatBuf st;
+  char *path = put(app.project.root, "LINKS.md", "[a](ssh://evil.invalid/x)\n", 0644);
+  Preview *p;
+
+  g_assert_cmpint(g_stat(app.paths.socket, &st), ==, 0);
+  g_assert_cmpint(st.st_mode & 0777, ==, 0600);
+
+  open_preview_rendered(path);
+  p = current_tab(&app)->preview;
+  g_assert_nonnull(p);
+  status_say(&app, "");
+  preview_follow(p, "ssh://evil.invalid/x");
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "Only web and mail links open from a preview");
+  status_say(&app, "");
+  preview_follow(p, "#nowhere"); /* an anchor: no message */
+  g_assert_cmpstr(gtk_label_get_text(app.status.build), ==, "");
+  close_everything();
+  g_free(path);
+}
+
 /* "Check for Updates Now" answers on screen: the latest release, a newer one's window, or no answer
  * (it used to print to stderr only). curl is a script that answers like GitHub's API. */
 static void test_update_check_now(void)
@@ -5219,7 +5349,7 @@ static void test_settings_pages(void)
     g_assert_true(GTK_IS_SCROLLED_WINDOW(page));
     switches += count_of(page, GTK_TYPE_SWITCH);
   }
-  g_assert_cmpint(switches, ==, 21 + SERVER_NONE); /* none lost on the way; one per built-in server */
+  g_assert_cmpint(switches, ==, 22 + SERVER_NONE); /* none lost on the way; one per built-in server */
   /* the editor's font: fixed width ones only; the Files panel's: any */
   GPtrArray *fonts = g_ptr_array_new();
   font_buttons(gtk_stack_get_child_by_name(stack, "appearance"), fonts);
@@ -6537,6 +6667,7 @@ int main(int argc, char **argv)
   char *cache = g_build_filename(home, "cache", NULL);
 
   g_setenv("XDG_CONFIG_HOME", config, TRUE); /* not the real session.ini */
+  g_setenv("TCODE_TESTING", "1", TRUE);      /* the registry takes file:// repositories */
   g_setenv("XDG_CACHE_HOME", cache, TRUE);   /* nor the real recovery journals */
   g_free(cache);
   start_broadway();
@@ -6593,6 +6724,9 @@ int main(int argc, char **argv)
   g_test_add_func("/window/comparison-one-tab", test_comparison_one_tab);
   g_test_add_func("/window/comparison-temporary", test_comparison_temporary);
   g_test_add_func("/window/trust-bar", test_trust_bar);
+  g_test_add_func("/window/shell-control-chars", test_shell_control_chars);
+  g_test_add_func("/window/preview-web-images", test_preview_web_images);
+  g_test_add_func("/window/socket-and-links-private", test_socket_and_links_private);
   g_test_add_func("/window/hg-comparison", test_hg_comparison);
   g_test_add_func("/window/comparison-first-change", test_comparison_first_change);
   g_test_add_func("/window/comparisons-in-a-row", test_comparisons_in_a_row);

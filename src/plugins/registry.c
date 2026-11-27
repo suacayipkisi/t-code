@@ -15,8 +15,17 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#define FETCH_SECONDS "20"    /* the index */
-#define DOWNLOAD_SECONDS "90" /* a plugin's archive */
+#define FETCH_SECONDS "20"        /* the index */
+#define DOWNLOAD_SECONDS "90"     /* a plugin's archive */
+#define INDEX_BYTES "10000000"    /* curl's limits: the index */
+#define ARCHIVE_BYTES "100000000" /* a plugin's archive */
+
+/* The protocols curl may use (and follow redirects to): https; file:// too for the tests' local
+ * repositories ($TCODE_TESTING). */
+static const char *curl_protocols(void)
+{
+  return g_getenv("TCODE_TESTING") ? "=https,file" : "=https";
+}
 
 void registry_entry_free(RegistryEntry *entry)
 {
@@ -317,8 +326,8 @@ static RegistryEntry *entry_from(JsonObject *obj)
                 json_node_get_boolean(reviewed);
   if (!good_id(e->id))
     problem = "its id is not lowercase letters, digits and -";
-  else if (!repository ||
-           !(g_str_has_prefix(repository, "https://github.com/") || g_str_has_prefix(repository, "file:///")))
+  else if (!repository || !(g_str_has_prefix(repository, "https://github.com/") ||
+                            (g_str_has_prefix(repository, "file:///") && g_getenv("TCODE_TESTING"))))
     problem = "its repository is not https://github.com/<owner>/<repo>";
   else if (!is_hex(e->commit, 40))
     problem = "its commit is not 40 lowercase hex digits";
@@ -610,8 +619,10 @@ void registry_fetch(RegistryFetched done, gpointer data)
   index_path = g_build_filename(f->fetch, "index.json", NULL);
   signature_path = g_strconcat(index_path, ".sig", NULL);
   signature_url = g_strconcat(f->where, ".sig", NULL);
-  process = g_subprocess_new(G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL, "curl", "-fsSL", "--max-time", FETCH_SECONDS,
-                             f->where, "-o", index_path, signature_url, "-o", signature_path, NULL);
+  process =
+      g_subprocess_new(G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL, "curl", "-fsSL", "--max-time", FETCH_SECONDS, "--proto",
+                       curl_protocols(), "--proto-redir", curl_protocols(), "--max-filesize", INDEX_BYTES, "--url",
+                       f->where, "-o", index_path, "--url", signature_url, "-o", signature_path, NULL);
   g_free(signature_url);
   g_free(signature_path);
   g_free(index_path);
@@ -680,11 +691,84 @@ static char *archive_top(const char *unpacked)
 
   if (dir && g_dir_read_name(dir)) /* more than one */
     g_clear_pointer(&top, g_free);
-  if (top && !g_file_test(top, G_FILE_TEST_IS_DIR))
+  GStatBuf info;
+  if (top && (g_lstat(top, &info) != 0 || !S_ISDIR(info.st_mode))) /* a link to a folder elsewhere is no top */
     g_clear_pointer(&top, g_free);
   if (dir)
     g_dir_close(dir);
   return top;
+}
+
+/* Whether each folder of path below top that is there is a real folder, no link (a link would take the plugin, and its
+ * tree hash, from outside the archive). */
+static gboolean real_folders(const char *top, const char *path)
+{
+  char **parts = g_strsplit(path, "/", -1);
+  char *dir = g_strdup(top);
+  gboolean real = TRUE;
+
+  for (int i = 0; parts[i] && real; i++) {
+    if (!*parts[i])
+      continue;
+    char *next = g_build_filename(dir, parts[i], NULL);
+    GStatBuf info;
+    gboolean there = g_lstat(next, &info) == 0;
+    real = !there || S_ISDIR(info.st_mode); /* not there: "No plugin.json" says so */
+    g_free(dir);
+    dir = next;
+    if (!there)
+      break;
+  }
+  g_free(dir);
+  g_strfreev(parts);
+  return real;
+}
+
+/* Copies the plain files and folders of from to to (a rename across file systems). */
+static gboolean copy_tree(const char *from, const char *to)
+{
+  GStatBuf info;
+  gboolean ok;
+
+  if (g_lstat(from, &info) != 0)
+    return FALSE;
+  if (S_ISDIR(info.st_mode)) {
+    GDir *dir = g_dir_open(from, 0, NULL);
+    const char *name;
+    ok = dir && g_mkdir(to, 0755) == 0;
+    while (ok && (name = g_dir_read_name(dir))) {
+      char *a = g_build_filename(from, name, NULL), *b = g_build_filename(to, name, NULL);
+      ok = copy_tree(a, b);
+      g_free(b);
+      g_free(a);
+    }
+    if (dir)
+      g_dir_close(dir);
+    return ok;
+  }
+  if (!S_ISREG(info.st_mode))
+    return FALSE;
+  char *data = NULL;
+  gsize length = 0;
+  ok = g_file_get_contents(from, &data, &length, NULL) &&
+       g_file_set_contents_full(to, data, (gssize)length, G_FILE_SET_CONTENTS_NONE, info.st_mode & 0755, NULL);
+  g_free(data);
+  return ok;
+}
+
+/* Moves from to to, copying when they are on two file systems. */
+static gboolean move_tree(const char *from, const char *to)
+{
+  if (g_rename(from, to) == 0)
+    return TRUE;
+  if (errno != EXDEV)
+    return FALSE;
+  if (!copy_tree(from, to)) {
+    remove_tree(to);
+    return FALSE;
+  }
+  remove_tree(from);
+  return TRUE;
 }
 
 /* plugin.json's "id" (or the folder's name) in dir is id. */
@@ -718,7 +802,7 @@ static void put_in_place(Install *in, const char *plugin)
   g_mkdir_with_parents(in->plugins_dir, 0755);
   if (had && g_rename(target, old) != 0)
     error = g_strdup_printf("Could not move the installed %s out of the way", in->entry.id);
-  else if (g_rename(plugin, target) != 0) {
+  else if (!move_tree(plugin, target)) { /* the cache may be on another file system */
     error = g_strdup_printf("Could not put %s into %s", in->entry.id, in->plugins_dir);
     if (had)
       g_rename(old, target); /* the old one comes back */
@@ -744,7 +828,9 @@ static void on_unpacked(GObject *source, GAsyncResult *result, gpointer data)
   else {
     plugin = *in->entry.path ? g_build_filename(top, in->entry.path, NULL) : g_strdup(top);
     manifest = g_build_filename(plugin, "plugin.json", NULL);
-    if (!g_file_test(manifest, G_FILE_TEST_IS_REGULAR))
+    if (!real_folders(top, in->entry.path))
+      error = g_strdup_printf("\"%s\" in that commit is a link, not a folder: not installed", in->entry.path);
+    else if (!g_file_test(manifest, G_FILE_TEST_IS_REGULAR))
       error = g_strdup_printf("No plugin.json at \"%s\" in that commit", in->entry.path);
     else if (!(hash = registry_tree_hash(plugin, &problem)))
       error = g_strdup_printf("The plugin's files cannot be checked: %s", problem->message);
@@ -814,7 +900,8 @@ void registry_install(const RegistryEntry *entry, const char *plugins_dir, Regis
   in->archive = g_build_filename(in->work, "plugin.tar.gz", NULL);
   url = registry_archive_url(entry);
   curl = g_subprocess_new(G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL, "curl", "-fsSL", "--max-time", DOWNLOAD_SECONDS,
-                          "-o", in->archive, url, NULL);
+                          "--proto", curl_protocols(), "--proto-redir", curl_protocols(), "--max-filesize",
+                          ARCHIVE_BYTES, "-o", in->archive, "--url", url, NULL);
   g_free(url);
   if (!curl) {
     finish(in, "Could not download the plugin: curl is not installed");

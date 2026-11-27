@@ -1,5 +1,6 @@
 /* Tests for the plugins (src/plugins/plugins.c, included for its static functions; and
  * src/lsp/servers.c, which runs the language servers plugins declare). */
+#define _DEFAULT_SOURCE /* plugins.c's realpath(), symlink(): before servers.c's first header */
 #include "lsp/servers.c"
 #include "plugins/plugins.c"
 #include "util.h"
@@ -207,9 +208,18 @@ static void test_invalid_plugins(void)
              "{\"name\": \"P6\", \"commands\": [{\"id\":\"a\",\"name\":\"A\"}], \"executable\":\"run.sh\"}", 0644);
   write_file("invalid/p6/run.sh", "#!/bin/sh\nexit 0\n", 0644); /* Not executable */
 
+  /* An executable outside the plugin's folder: by "..", or by a link (the tree hash covers only the folder) */
+  write_file("invalid/p7/plugin.json",
+             "{\"name\": \"P7\", \"commands\": [{\"id\":\"a\",\"name\":\"A\"}], \"executable\":\"../p1/run.sh\"}",
+             0644);
+  write_file("invalid/p8/plugin.json", "{\"name\": \"P8\", \"commands\": [{\"id\":\"a\",\"name\":\"A\"}]}", 0644);
+  char *p8_link = g_build_filename(tmp_dir, "invalid", "p8", "run.sh", NULL);
+  g_assert_cmpint(symlink("../p1/run.sh", p8_link), ==, 0);
+  g_free(p8_link);
+
   char *scan_path = g_build_filename(tmp_dir, "invalid", NULL);
   app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
-  for (int i = 0; i < 6; i++)
+  for (int i = 0; i < 9; i++) /* p7 twice: it leaves the folder, then no executable */
     g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "*");
   plugins_scan_dir(&app, scan_path);
   g_test_assert_expected_messages();
@@ -553,6 +563,7 @@ static void test_contributions(void)
       "  {\"name\": \"bad-options\", \"argv\": [\"z\"], \"extensions\": [\".m\"], \"options\": 3},\n"
       "  {\"name\": \"bad-id\", \"argv\": [\"z\"], \"extensions\": [\".m\"], \"language-id\": 3},\n"
       "  {\"name\": \"bad-contents\", \"argv\": [\"z\"], \"extensions\": [\".m\"], \"uri-contents\": {\"jdt\": 1}},\n"
+      "  {\"name\": \"outside\", \"argv\": [\"../other/bin/ls\"], \"extensions\": [\".m\"]},\n"
       "  7\n"
       " ]}",
       0644);
@@ -566,6 +577,7 @@ static void test_contributions(void)
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*\"options\" and \"settings\" are JSON objects*");
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*\"language-id\" is a string*");
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*\"uri-contents\" is an object of strings*");
+  g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*names a program outside the plugin's folder*");
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*a language server is not an object*");
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*\"run\" for '.mlx' does not name one of its commands*");
   g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*\"snippets\" is not a folder inside the plugin's*");
@@ -696,6 +708,14 @@ static void test_lsp_test_plugins(void)
     g_free(mine);
     g_free(theirs);
     g_assert_cmpint(server_kind_for_tab(&tab), ==, kind); /* the same number every time */
+
+    /* installed from the registry at a commit nobody reviewed: not before its first run was allowed */
+    Plugin *p = plugin_find(&app, plugin_id);
+    p->record = g_new0(RegistryRecord, 1);
+    g_assert_cmpint(server_kind_for_tab(&tab), ==, SERVER_NONE);
+    p->record->warned = REGISTRY_WARNED_RUN;
+    g_assert_cmpint(server_kind_for_tab(&tab), ==, kind);
+    g_clear_pointer(&p->record, registry_record_free);
 
     app.settings.servers_off = 0; /* on: the built-in one, when it is there */
     g_assert_cmpint(server_kind_for_tab(&tab), ==, server_installed(&app, builtin) ? builtin : kind);

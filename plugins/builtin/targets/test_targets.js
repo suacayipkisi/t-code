@@ -75,6 +75,25 @@ test('the run script keeps the output and the exit status', () => {
   fs.rmSync(dir, { recursive: true });
 });
 
+test('the run folder is the user\'s own: 0700, never a link or a shared name', () => {
+  const saved = process.env.XDG_RUNTIME_DIR;
+  delete process.env.XDG_RUNTIME_DIR;
+  assert.ok(targets.runDir('/p').startsWith(path.join(os.tmpdir(), `t-code-targets-${process.getuid()}`)));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 't-code-targets-'));
+  process.env.XDG_RUNTIME_DIR = dir;
+  const run = targets.runDir('/p');
+  targets.makeOwnDir(run);
+  assert.equal(fs.statSync(run).mode & 0o777, 0o700);
+  assert.equal(fs.statSync(path.dirname(run)).mode & 0o777, 0o700);
+  fs.rmSync(path.dirname(run), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'elsewhere'));
+  fs.symlinkSync(path.join(dir, 'elsewhere'), path.dirname(run)); /* planted: a link */
+  assert.throws(() => targets.makeOwnDir(run), /not your own folder/);
+  fs.rmSync(dir, { recursive: true });
+  if (saved === undefined) delete process.env.XDG_RUNTIME_DIR;
+  else process.env.XDG_RUNTIME_DIR = saved;
+});
+
 test('quote leaves plain words alone', () => {
   assert.equal(targets.quote('build'), 'build');
   assert.equal(targets.quote("it's"), `'it'\\''s'`);

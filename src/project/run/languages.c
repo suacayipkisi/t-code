@@ -5,6 +5,8 @@
  */
 #include "project/run/runner.h"
 
+#include "project/langenv.h"
+
 #include "lsp/json.h"
 
 #include <stdio.h>
@@ -57,17 +59,17 @@ char *script_program(const Script *script)
 }
 
 /* A Python file's project root: the nearest folder upwards with a project file or a venv. */
-char *python_root(const char *start)
+char *python_root(const char *start, const char *top)
 {
   static const char *const marks[] = { "pyproject.toml", "setup.py",         "setup.cfg",       "requirements.txt",
                                        "Pipfile",        ".venv/bin/python", "venv/bin/python", NULL };
 
-  return find_up(start, marks);
+  return langenv_find_up(start, marks, top);
 }
 
 /* A file of another language than C / C++ in its project (Cargo, Go, Node, Maven, Gradle); FALSE when
  * it has none. */
-gboolean find_language_project(Project *p, const char *start)
+gboolean find_language_project(Project *p, const char *start, const char *top)
 {
   static const char *const rust[] = { ".rs", NULL }, *const go[] = { ".go", NULL };
   static const char *const node[] = { ".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".jsx", ".tsx", NULL };
@@ -77,15 +79,15 @@ gboolean find_language_project(Project *p, const char *start)
   static const char *const gradle[] = { "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts",
                                         NULL };
 
-  if (has_ext(p->file, rust) && (p->root = find_up(start, cargo)))
+  if (has_ext(p->file, rust) && (p->root = langenv_find_up(start, cargo, top)))
     p->kind = PROJECT_CARGO;
-  else if (has_ext(p->file, go) && (p->root = find_up(start, gomod)))
+  else if (has_ext(p->file, go) && (p->root = langenv_find_up(start, gomod, top)))
     p->kind = PROJECT_GO;
-  else if (has_ext(p->file, node) && (p->root = find_up(start, package)))
+  else if (has_ext(p->file, node) && (p->root = langenv_find_up(start, package, top)))
     p->kind = PROJECT_NODE;
-  else if (has_ext(p->file, jvm) && (p->root = find_up(start, pom)))
+  else if (has_ext(p->file, jvm) && (p->root = langenv_find_up(start, pom, top)))
     p->kind = PROJECT_MAVEN;
-  else if (has_ext(p->file, jvm) && (p->root = find_up(start, gradle)))
+  else if (has_ext(p->file, jvm) && (p->root = langenv_find_up(start, gradle, top)))
     p->kind = PROJECT_GRADLE;
   else if (has_ext(p->file, rust)) {
     p->kind = PROJECT_RUSTC;

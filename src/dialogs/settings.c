@@ -501,6 +501,10 @@ void show_settings(App *t)
           spin_for(50, 300, 10, t->settings.font_scale * 100, G_CALLBACK(on_text_size)));
   add_row(GTK_GRID(grid), &row, "Preview size (%)", "Markdown previews; also Ctrl+= and Ctrl+- in a preview tab",
           spin_for(50, 300, 10, t->settings.preview_scale * 100, G_CALLBACK(on_preview_size)));
+  add_row(GTK_GRID(grid), &row, "Web images in previews",
+          "Markdown previews fetch the images their text links on the web (badges, screenshots); off: "
+          "nothing is fetched, the image's text shows",
+          setting_switch(&t->settings.web_images, NULL));
 
   grid = add_page(GTK_STACK(stack), "interface", "Interface", &row);
   add_row(GTK_GRID(grid), &row, "Menu bar", "Off: the menus open from t-code's icon in the title bar",

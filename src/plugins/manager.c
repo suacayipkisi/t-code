@@ -9,6 +9,7 @@
 
 #include "application/identity.h"
 #include "dialogs/processes.h"
+#include "lsp/client/client.h"
 #include "lsp/servers.h"
 #include "plugins/plugins.h"
 #include "plugins/registry.h"
@@ -358,6 +359,7 @@ static void run_first(App *t, const char *id, const char *command)
   if (!p)
     return;
   plugin_warned(p, REGISTRY_WARNED_RUN);
+  lsp_reattach(t); /* its language servers may start now */
   if (command)
     plugin_run_command(t, id, command);
   else

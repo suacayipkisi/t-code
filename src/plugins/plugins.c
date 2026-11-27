@@ -2,7 +2,9 @@
  * Plugins (see plugins.h; the manifest and the protocol are docs/plugins.md's): finding them, their
  * commands in the palette and on keys, starting and stopping their programs.
  */
-#define _DEFAULT_SOURCE /* kill(), setpgid() */
+#ifndef _DEFAULT_SOURCE /* a test including this file may have it already */
+#define _DEFAULT_SOURCE /* kill(), setpgid(), realpath() */
+#endif
 #include "plugins/plugins.h"
 
 #include "application/identity.h"
@@ -18,6 +20,7 @@
 #include <gio/gio.h>
 #include <json-glib/json-glib.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #include "window/commands.h"
@@ -107,13 +110,37 @@ static const char *string_member(JsonObject *obj, const char *name)
              : NULL;
 }
 
-/* The program a plugin runs: plugin.json's "executable" (relative to its folder), else run.sh, plugin or a file
- * named like its folder; NULL when it is not there or cannot run. */
+/* Whether relative (a path in plugin.json) stays in the plugin's folder once its ".." and links are
+ * followed: a registry plugin's tree hash covers only that folder. TRUE when it is not there (yet). */
+static gboolean inside_plugin(const char *plugin_dir, const char *relative)
+{
+  char *path = g_build_filename(plugin_dir, relative, NULL);
+  char *real = realpath(path, NULL), *top = realpath(plugin_dir, NULL);
+  size_t n = top ? strlen(top) : 0;
+  gboolean inside = !real || (top && strncmp(real, top, n) == 0 && (real[n] == '/' || real[n] == '\0'));
+
+  if (!real) { /* not there: still no ".." out of it */
+    char *tidy = g_canonicalize_filename(relative, "/plugin");
+    inside = g_str_has_prefix(tidy, "/plugin/");
+    g_free(tidy);
+  }
+  free(top);
+  free(real);
+  g_free(path);
+  return inside;
+}
+
+/* The program a plugin runs: plugin.json's "executable" (relative to its folder and inside it, or
+ * absolute), else run.sh, plugin or a file named like its folder; NULL when it is not there or cannot run. */
 static char *plugin_executable(const char *plugin_dir, const char *dir_name, const char *configured)
 {
   const char *defaults[] = { "run.sh", "plugin", dir_name, NULL };
 
   if (configured && *configured) {
+    if (!g_path_is_absolute(configured) && !inside_plugin(plugin_dir, configured)) {
+      g_warning("Plugin in %s: \"executable\" %s leaves the plugin's folder", plugin_dir, configured);
+      return NULL;
+    }
     char *path = g_path_is_absolute(configured) ? g_strdup(configured) : g_build_filename(plugin_dir, configured, NULL);
     if (g_file_test(path, G_FILE_TEST_IS_EXECUTABLE))
       return path;
@@ -122,7 +149,7 @@ static char *plugin_executable(const char *plugin_dir, const char *dir_name, con
   }
   for (int i = 0; defaults[i]; i++) {
     char *path = g_build_filename(plugin_dir, defaults[i], NULL);
-    if (g_file_test(path, G_FILE_TEST_IS_EXECUTABLE))
+    if (inside_plugin(plugin_dir, defaults[i]) && g_file_test(path, G_FILE_TEST_IS_EXECUTABLE))
       return path;
     g_free(path);
   }
@@ -253,7 +280,7 @@ static char **string_pairs(JsonObject *map)
 }
 
 /* One entry of "lsp", or NULL with a warning saying what is wrong with it. */
-static PluginServer *plugin_server(JsonObject *obj, const char *plugin)
+static PluginServer *plugin_server(JsonObject *obj, const char *plugin, const char *plugin_dir)
 {
   PluginServer *s = g_new0(PluginServer, 1);
   JsonNode *language_id = json_object_get_member(obj, "language-id");
@@ -276,6 +303,8 @@ static PluginServer *plugin_server(JsonObject *obj, const char *plugin)
                                                    : NULL;
   if (!s->argv || !s->argv[0])
     problem = "needs \"argv\", a list of strings starting with the program";
+  else if (strchr(s->argv[0], '/') && !g_path_is_absolute(s->argv[0]) && !inside_plugin(plugin_dir, s->argv[0]))
+    problem = "names a program outside the plugin's folder (\"argv\"[0] goes up out of it)";
   else if (!s->extensions || !s->languages)
     problem = "\"extensions\" and \"languages\" are lists of strings";
   else if (!s->extensions[0] && !s->languages[0])
@@ -299,7 +328,7 @@ static PluginServer *plugin_server(JsonObject *obj, const char *plugin)
 }
 
 /* "lsp": the language servers the plugin declares, the broken ones left out with a warning. */
-static GPtrArray *plugin_servers(JsonObject *obj, const char *plugin)
+static GPtrArray *plugin_servers(JsonObject *obj, const char *plugin, const char *plugin_dir)
 {
   JsonNode *node = json_object_get_member(obj, "lsp");
   JsonArray *list = node && JSON_NODE_HOLDS_ARRAY(node) ? json_node_get_array(node) : NULL;
@@ -309,7 +338,8 @@ static GPtrArray *plugin_servers(JsonObject *obj, const char *plugin)
     g_warning("Plugin %s: \"lsp\" is not a list; left out", plugin);
   for (guint i = 0; list && i < json_array_get_length(list); i++) {
     JsonNode *item = json_array_get_element(list, i);
-    PluginServer *s = JSON_NODE_HOLDS_OBJECT(item) ? plugin_server(json_node_get_object(item), plugin) : NULL;
+    PluginServer *s =
+        JSON_NODE_HOLDS_OBJECT(item) ? plugin_server(json_node_get_object(item), plugin, plugin_dir) : NULL;
     gboolean twice = FALSE;
     if (!JSON_NODE_HOLDS_OBJECT(item))
       g_warning("Plugin %s: a language server is not an object; left out", plugin);
@@ -446,7 +476,7 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
     cmd->plugin = p;
     g_ptr_array_add(p->commands, cmd);
   }
-  p->servers = plugin_servers(obj, name);
+  p->servers = plugin_servers(obj, name, plugin_dir);
   p->needs = plugin_needs_of(obj, name);
   p->run = plugin_run(obj, p, "run");
   p->debug = plugin_run(obj, p, "debug");
@@ -630,7 +660,7 @@ void plugin_warned(Plugin *p, RegistryWarned warning)
 /* Whether p's program still needs the third warning before it runs. */
 static gboolean ask_first(Plugin *p)
 {
-  return plugin_unreviewed(p) && !(p->record->warned & REGISTRY_WARNED_RUN);
+  return !plugin_may_run(p);
 }
 
 void plugin_set_enabled(App *t, Plugin *p, gboolean enabled)

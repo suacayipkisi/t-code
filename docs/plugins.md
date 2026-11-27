@@ -151,7 +151,7 @@ found wins:
 | `id` | string | no | A unique id. Defaults to the folder's name. Use lowercase, digits and `-`. |
 | `version` | string | no | The plugin's own version, such as `"1.2.0"`. |
 | `description` | string | no | One sentence. |
-| `executable` | string | no | The program to run, relative to the plugin's folder or absolute. Without it, t-code looks for an executable `run.sh`, `plugin` or a file named like the folder. Only needed when the plugin has commands. |
+| `executable` | string | no | The program to run, relative to the plugin's folder (and inside it, links followed) or absolute. Without it, t-code looks for an executable `run.sh`, `plugin` or a file named like the folder. Only needed when the plugin has commands. |
 | `commands` | list | no | The commands the plugin adds (below). A plugin without commands needs no program. |
 | `start` | string | no | `"project"`: start the plugin when a project opens and stop it when the project closes, for plugins that listen to events. Needs the `start` permission. Without it, the plugin runs only when one of its commands is run. |
 | `permissions` | list | no | What the plugin does: `"edit"`, `"terminal"`, `"network"`, `"start"`. See [Permissions](#permissions). |
@@ -242,7 +242,7 @@ Each `lsp` entry:
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
-| `argv` | list of strings | yes | The server's command line. `argv[0]` is a program found on `PATH` (and in `~/.local/bin`, `~/.cargo/bin`, `~/go/bin`), or a path relative to the plugin's folder (`bin/server`). The server speaks LSP over stdin / stdout and runs in the project's folder. |
+| `argv` | list of strings | yes | The server's command line. `argv[0]` is a program found on `PATH` (and in `~/.local/bin`, `~/.cargo/bin`, `~/go/bin`), or a path relative to the plugin's folder and inside it (`bin/server`). The server speaks LSP over stdin / stdout and runs in the project's folder. |
 | `extensions` | list of strings | one of the two | The files it serves: `".m"` matches names ending in it, anything else a whole name (`"CMakeLists.txt"`). |
 | `languages` | list of strings | one of the two | Or by GtkSourceView language id (`"c"`, `"cpphdr"`, `"python"`): also files GtkSourceView recognizes by their content. |
 | `name` | string | no | Unique within the plugin, shown in the status bar ("matlab-ls: starting"). Defaults to `argv[0]`'s file name. |
@@ -485,7 +485,7 @@ tab is not an editor.
 | `compare` | path | `ok` | Compares the file with its last commit, side by side. |
 | `history` | path | `ok` | Lets the user pick a commit from the file's history to compare with. |
 | `project` | dir | `ok` | Switches to another project folder. |
-| `terminal` | dir | `ok` | `cd` to the folder in the terminal tab showing now. |
+| `terminal` | dir | `ok` | `cd` to the folder in the terminal tab showing now. Needs `terminal`. |
 
 **Telling and asking the user:**
 
@@ -557,7 +557,7 @@ start (`[line, col]`).
 | Command | Argument | Answer | What it does |
 |---|---|---|---|
 | `terminal-open` | `<title> [-- program args…]` | `ok <id>` | Opens a terminal tab in the project folder, running the program, or the user's shell without one. The program line is split like a shell would (quotes work). Needs `terminal`. |
-| `terminal-send` | `<id> <text>` | `ok` | Types the text into the plugin's tab and presses Enter. |
+| `terminal-send` | `<id> <text>` | `ok` | Types the text into the plugin's tab and presses Enter. Like the three below, needs `terminal`. |
 | `terminal-interrupt` | `<id>` | `ok` | Sends Ctrl+C to the plugin's tab. |
 | `terminal-close` | `<id>` | `ok` | Closes the plugin's tab; its program gets SIGHUP. |
 | `terminal-close-text` | `<id> [text]` | `ok` | The text typed (with Enter) into the plugin's tab when t-code closes, like `exit`; no text: nothing. |
@@ -705,7 +705,7 @@ A plugin declares what it does:
 | Permission | Meaning | Enforced |
 |---|---|---|
 | `edit` | Changes buffers (`insert`, `append`, `replace-all`, `edit`). | Yes: without it, those requests answer `error not-permitted`. |
-| `terminal` | Opens terminal tabs and starts programs in them. | Yes, for `terminal-open`. |
+| `terminal` | Opens terminal tabs and starts programs in them, types into them. | Yes, for `terminal` and every `terminal-*` request. |
 | `network` | Uses the network. | No: a declaration, checked by review. |
 | `start` | Starts with the project (`"start"`). | Yes: without it, `"start"` is left out with a warning. |
 

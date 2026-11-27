@@ -134,9 +134,23 @@ static gboolean has_staged(const char *path)
   return FALSE;
 }
 
-/* A staged change: the staged version (the index) next to the last commit's. */
-static void show_staged(App *t, const Change *c)
+/* Each comparison below goes into the temporary tab unless keep (a double or middle click). */
+static void next(gboolean keep)
 {
+  if (!keep)
+    compare_next_temporary();
+}
+
+/* A file with nothing to compare with opens as it is: temporary, like the Files panel's, unless keep. */
+static void open_plain(App *t, const char *path, gboolean keep)
+{
+  (keep ? open_file : open_file_temporary)(t, path);
+}
+
+/* A staged change: the staged version (the index) next to the last commit's. */
+static void show_staged(App *t, const Change *c, gboolean keep)
+{
+  next(keep);
   if (c->code == 'A')
     compare_revisions(t, NULL, NULL, INDEX_REV, c->path); /* new: only the staged version */
   else if (c->code == 'D')
@@ -147,48 +161,65 @@ static void show_staged(App *t, const Change *c)
 
 /* An unstaged change: the working file next to its staged version when it has staged changes too,
  * else next to the last commit (the same then, and the gutter follows new commits). */
-static void show_unstaged(App *t, const Change *c)
+static void show_unstaged(App *t, const Change *c, gboolean keep)
 {
   char *full = g_build_filename(t->project.scm_top, c->path, NULL);
 
-  if (c->code == 'D')
+  if (c->code == 'D') {
+    next(keep);
     compare_revisions(t, INDEX_REV, c->path, NULL, NULL); /* only the staged version is left */
-  else if (c->code != 'M')
-    open_file(t, full); /* untracked, conflicted: nothing to compare with */
-  else if (has_staged(c->path) || scm.initial)
+  } else if (c->code != 'M') {
+    open_plain(t, full, keep); /* untracked, conflicted: nothing to compare with */
+  } else if (has_staged(c->path) || scm.initial) {
+    next(keep);
     compare_with_index(t, full);
-  else
+  } else {
+    next(keep);
     compare_with_head(t, full);
+  }
   g_free(full);
 }
 
 /* hg / svn (no index: a staged file is the working file): next to the last commit's version. */
-static void show_working(App *t, const Change *c)
+static void show_working(App *t, const Change *c, gboolean keep)
 {
   char *full = g_build_filename(t->project.scm_top, c->path, NULL);
 
-  if (c->code == 'D')
+  if (c->code == 'D') {
+    next(keep);
     compare_revisions(t, "HEAD", c->path, NULL, NULL); /* only the old version is left */
-  else if (c->code == 'M')
+  } else if (c->code == 'M') {
+    next(keep);
     compare_with_head(t, full);
-  else
-    open_file(t, full); /* new, renamed, unknown, conflicted */
+  } else {
+    open_plain(t, full, keep); /* new, renamed, unknown, conflicted */
+  }
   g_free(full);
 }
 
-/* A file in Staged Changes or Changes was clicked: show its changes side by side. */
-void scm_on_change_activated(GtkListBox *list, GtkListBoxRow *row, gpointer data G_GNUC_UNUSED)
+/* A file in Staged Changes or Changes: its changes side by side, in the temporary tab unless keep. */
+static void show_change(GtkListBox *list, GtkListBoxRow *row, gboolean keep)
 {
   Change *c = g_object_get_data(G_OBJECT(row), "change");
 
   if (!c || !scm.app->project.scm_top)
     return;
   if (scm_kind() != VCS_GIT)
-    show_working(scm.app, c);
+    show_working(scm.app, c, keep);
   else if (list == scm.staged_list)
-    show_staged(scm.app, c);
+    show_staged(scm.app, c, keep);
   else
-    show_unstaged(scm.app, c);
+    show_unstaged(scm.app, c, keep);
+}
+
+void scm_on_change_activated(GtkListBox *list, GtkListBoxRow *row, gpointer data G_GNUC_UNUSED)
+{
+  show_change(list, row, FALSE);
+}
+
+void scm_on_change_kept(GtkListBox *list, GtkListBoxRow *row)
+{
+  show_change(list, row, TRUE);
 }
 
 /* A changed file's right-click menu: a copy of its change (the lists are made again at every git
@@ -218,9 +249,9 @@ static void menu_open_changes(gpointer data)
   if (!scm.app->project.scm_top)
     return;
   if (m->staged)
-    show_staged(scm.app, &m->change);
+    show_staged(scm.app, &m->change, TRUE); /* asked from the menu: kept */
   else
-    show_unstaged(scm.app, &m->change);
+    show_unstaged(scm.app, &m->change, TRUE);
 }
 
 static void menu_open_file(gpointer data)

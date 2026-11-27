@@ -21,6 +21,7 @@
 #endif
 
 #define RELEASES_URL "https://api.github.com/repos/suacayipkisi/t-code/releases/latest"
+#define RELEASES_PAGE "https://github.com/suacayipkisi/t-code/releases" /* a release's page starts so */
 #define API_HEADER "Accept: application/vnd.github+json"
 #define GIVE_UP_SECONDS "8"   /* a curl/wget stuck that long ends the check */
 #define START_DELAY_SECONDS 4 /* nothing asks before the window has come up */
@@ -227,8 +228,11 @@ static void read_release(JsonParser *parser, Check *check)
       const char *tag = json_object_get_string_member(release, "tag_name");
       g_set_str(&check->latest, tag && *tag == 'v' ? tag + 1 : tag); /* "v0.4" is t-code 0.4 */
     }
-    if (json_object_has_member(release, "html_url"))
-      g_set_str(&check->url, json_object_get_string_member(release, "html_url"));
+    if (json_object_has_member(release, "html_url")) {
+      /* launched on a click: only t-code's own release pages, whatever the answer says */
+      const char *url = json_object_get_string_member(release, "html_url");
+      g_set_str(&check->url, url && g_str_has_prefix(url, RELEASES_PAGE "/") ? url : RELEASES_PAGE);
+    }
   }
 }
 
@@ -254,7 +258,9 @@ static void on_fetched(GObject *source, GAsyncResult *result, gpointer data)
 /* Asks GitHub for the latest release, through curl (usually there) or wget. */
 static void fetch_latest(Check *check)
 {
-  const char *curl[] = { "curl", "-fsSL", "--max-time", GIVE_UP_SECONDS, "-H", API_HEADER, RELEASES_URL, NULL };
+  const char *curl[] = { "curl",   "-fsSL",         "--max-time", GIVE_UP_SECONDS,  "--proto",
+                         "=https", "--proto-redir", "=https",     "--max-filesize", "1000000",
+                         "-H",     API_HEADER,      "--url",      RELEASES_URL,     NULL };
   const char *wget[] = { "wget", "-q", "-T", GIVE_UP_SECONDS, "--header=" API_HEADER, "-O-", RELEASES_URL, NULL };
   char *found = g_find_program_in_path("curl");
   const char *const *command = found ? curl : wget;

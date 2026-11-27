@@ -259,13 +259,113 @@ static void show_side_by_side(Tab *left, Tab *right)
   select_tab(left);
 }
 
+/* Where a comparison goes ---------------------------------------------------------------------- */
+
+/* Taken by the next comparison asked for (compare_next_temporary). */
+static gboolean next_temporary;
+
+/* Where an asked comparison goes once the repository answers. key names the comparison: a tab showing
+ * it carries the key, and so do the other requests for it on their way. */
+typedef struct {
+  char *key;
+  gboolean replace;   /* takes the place of the group's temporary tab */
+  gboolean temporary; /* and is temporary itself (FALSE once asked for kept on its way) */
+  gboolean skip;      /* asked temporary while a kept one was on its way: that one shows it */
+} Placing;
+
+static GPtrArray *placings; /* those on their way */
+
+void compare_next_temporary(void)
+{
+  next_temporary = TRUE;
+}
+
+/* A comparison asked for now, temporary when compare_next_temporary() said so. Asked kept while the
+ * same one is on its way to a temporary tab (a double click's first click), that one opens kept too;
+ * asked temporary while a kept one is on its way, it leaves it to that one. */
+static Placing *placing_new(char *key)
+{
+  Placing *pl = g_new0(Placing, 1);
+
+  pl->key = key;
+  pl->replace = pl->temporary = next_temporary;
+  next_temporary = FALSE;
+  if (!placings)
+    placings = g_ptr_array_new();
+  for (guint i = 0; i < placings->len; i++) {
+    Placing *other = placings->pdata[i];
+    if (strcmp(other->key, key) != 0 || other->skip)
+      continue;
+    if (!pl->temporary)
+      other->temporary = FALSE;
+    else if (!other->temporary)
+      pl->skip = TRUE;
+  }
+  g_ptr_array_add(placings, pl);
+  return pl;
+}
+
+static void placing_free(Placing *pl)
+{
+  if (!pl)
+    return;
+  g_ptr_array_remove_fast(placings, pl);
+  g_free(pl->key);
+  g_free(pl);
+}
+
+static const char *tab_key(Tab *tab)
+{
+  return tab->source ? g_object_get_data(G_OBJECT(tab->source), "t-code-compare-key") : NULL;
+}
+
+/* Before the tabs open: FALSE when nothing is to open (a kept tab shows it already: it is shown);
+ * else the group's temporary tab goes when this one takes its place, its position in *position. */
+static gboolean placing_begin(App *t, Placing *pl, int *position)
+{
+  *position = -1;
+  if (!pl)
+    return TRUE;
+  if (pl->skip)
+    return FALSE;
+  for (int i = 0; pl->temporary && i < tab_count(t); i++) {
+    Tab *tab = tab_nth(t, i);
+    if (!tab->temporary && g_strcmp0(tab_key(tab), pl->key) == 0) {
+      select_tab(tab);
+      return FALSE;
+    }
+  }
+  GtkNotebook *group = t->editors.active;
+  Tab *old = pl->replace ? temporary_tab(t, group) : NULL;
+  if (old) { /* replaced, in its place */
+    *position = tab_position(old);
+    remove_tab(old); /* with its other side */
+    t->editors.active = group;
+  }
+  return TRUE;
+}
+
+/* shown (the tab holding both sides) opened: temporary or kept, in the old one's place. */
+static void placing_end(Placing *pl, Tab *shown, int position)
+{
+  if (!pl || !shown)
+    return;
+  shown->temporary = pl->temporary;
+  if (shown->source)
+    g_object_set_data_full(G_OBJECT(shown->source), "t-code-compare-key", g_strdup(pl->key), g_free);
+  update_tab_label(shown);
+  if (position >= 0)
+    set_tab_position(shown, position);
+}
+
 /* The working file as it is now (its tab's text, unsaved edits included, else the file on disk) next
  * to old_path, both read-only in a tab of their own ("name @ Working ↔ label"): the file's own tab
  * stays as it is. */
-static void compare_working(App *t, const char *path, const char *old_path, const char *label)
+static void compare_working(App *t, const char *path, const char *old_path, const char *label, Placing *pl)
 {
   Tab *work = find_tab(t, TAB_EDITOR, path), *left, *right;
   char *content = NULL, *working_path;
+  int position;
 
   if (work && !work->view->loading) {
     GtkTextIter start, end;
@@ -275,27 +375,44 @@ static void compare_working(App *t, const char *path, const char *old_path, cons
     show_message(t, "Nothing to compare", "The file is no longer on disk.");
     return;
   }
+  if (!placing_begin(t, pl, &position)) {
+    g_free(content);
+    return;
+  }
   working_path = write_old_version(t, path, content, "working");
   left = open_version(t, working_path, "Working", path);
   right = open_version(t, old_path, label, path);
   diff_gutter_compare_file(left, old_path);
   diff_gutter_compare_file(right, working_path);
   show_side_by_side(left, right);
+  placing_end(pl, left, position);
   g_free(working_path);
   g_free(content);
 }
 
 /* What compare_with() asked about: the file, its repository's kind and the version. */
 typedef struct {
-  char *path, *rev;
+  char *path, *rev; /* rev NULL: the index */
   VcsKind kind;
+  Placing *placing;
 } Asked;
 
 static void asked_free(Asked *a)
 {
+  placing_free(a->placing);
   g_free(a->path);
   g_free(a->rev);
   g_free(a);
+}
+
+static Asked *asked_new(const char *path, const char *rev)
+{
+  Asked *a = g_new0(Asked, 1);
+
+  a->path = g_strdup(path);
+  a->rev = g_strdup(rev);
+  a->placing = placing_new(g_strdup_printf("w\x1f%s\x1f%s", path, rev ? rev : ":index"));
+  return a;
 }
 
 /* The repository answered compare_with(): outs = { the commit (svn: the revision, or that it exists),
@@ -321,7 +438,7 @@ static void compared_with(App *t, char **outs, gpointer data)
       g_free(detail);
     } else {
       char *old_path = write_old_version(t, path, outs[1], short_commit);
-      compare_working(t, path, old_path, short_commit);
+      compare_working(t, path, old_path, short_commit, asked->placing);
       g_free(old_path);
     }
     g_free(short_commit);
@@ -336,10 +453,8 @@ static void compare_with(App *t, const char *path, const char *rev)
 {
   char *dir = g_path_get_dirname(path);
   char *name = g_path_get_basename(path);
-  Asked *asked = g_new0(Asked, 1);
+  Asked *asked = asked_new(path, rev);
 
-  asked->path = g_strdup(path);
-  asked->rev = g_strdup(rev);
   asked->kind = vcs_kind_of(dir, NULL);
   if (asked->kind == VCS_NONE)
     asked->kind = VCS_GIT; /* git says there is no repository */
@@ -359,11 +474,12 @@ void compare_with_head(App *t, const char *path)
 /* git answered compare_with_index(): outs = { the staged file }. */
 static void compared_with_index(App *t, char **outs, gpointer data)
 {
-  const char *path = data;
+  const Asked *asked = data;
+  const char *path = asked->path;
 
   if (outs[0]) {
     char *old_path = write_old_version(t, path, outs[0], "index");
-    compare_working(t, path, old_path, "Index");
+    compare_working(t, path, old_path, "Index", asked->placing);
     g_free(old_path);
   } else {
     show_message(t, "Nothing to compare with", "This file is not staged.");
@@ -377,8 +493,8 @@ void compare_with_index(App *t, const char *path)
   char *name = g_path_get_basename(path);
   char *spec = g_strconcat(":./", name, NULL);
 
-  git_run(t, VCS_GIT, dir, compared_with_index, g_strdup(path), g_free, (const char *const[]){ "show", spec, NULL },
-          NULL);
+  git_run(t, VCS_GIT, dir, compared_with_index, asked_new(path, NULL), (GDestroyNotify)asked_free,
+          (const char *const[]){ "show", spec, NULL }, NULL);
   g_free(spec);
   g_free(name);
   g_free(dir);
@@ -393,7 +509,8 @@ void compare_with_disk(App *t, const char *path)
     return;
   }
   char *old_path = write_old_version(t, path, content, "disk");
-  compare_working(t, path, old_path, "Disk");
+  next_temporary = FALSE; /* shown at once: always kept */
+  compare_working(t, path, old_path, "Disk", NULL);
   g_free(old_path);
   g_free(content);
 }
@@ -409,19 +526,14 @@ typedef struct {
   char *top; /* the work tree it was asked in */
   VcsKind kind;
   Side old, new;
-  gboolean replace;   /* takes the place of the group's temporary tab */
-  gboolean temporary; /* and is temporary itself (FALSE once asked for kept on its way) */
+  Placing *placing;
 } Revisions;
-
-static GPtrArray *asked_temporary; /* Revisions asked for in a temporary tab, not answered yet */
 
 static void revisions_free(gpointer data)
 {
   Revisions *r = data;
 
-  if (asked_temporary)
-    g_ptr_array_remove_fast(asked_temporary, r);
-
+  placing_free(r->placing);
   g_free(r->top);
   g_free(r->old.rev);
   g_free(r->old.rel);
@@ -476,13 +588,7 @@ static void show_revisions(App *t, char **outs, gpointer data);
  * right, each gutter marking what differs from the other. Paths are relative to the work tree top
  * (they differ after a rename); a NULL rev or path is a missing side (the file was added or
  * deleted): the other one shows alone. */
-static gboolean same_side(const Side *side, const char *rev, const char *rel)
-{
-  return g_strcmp0(side->rev, rev && rel ? rev : NULL) == 0 && g_strcmp0(side->rel, rev && rel ? rel : NULL) == 0;
-}
-
-static void ask_revisions(App *t, const char *old_rev, const char *old_rel, const char *new_rev, const char *new_rel,
-                          gboolean temporary)
+void compare_revisions(App *t, const char *old_rev, const char *old_rel, const char *new_rev, const char *new_rel)
 {
   static const char *const none[] = { NULL };
   Revisions *r;
@@ -490,29 +596,20 @@ static void ask_revisions(App *t, const char *old_rev, const char *old_rel, cons
   GitRepo *repo = git_shown_repo(t);
 
   if (!t->project.scm_top) {
+    next_temporary = FALSE;
     show_message(t, "Nothing to compare", "This folder is not in a repository.");
     return;
-  }
-  /* kept while the same one is still on its way to a temporary tab (a double click's first click):
-   * that one opens kept too, else it would take the place of this one when it comes last */
-  for (guint i = 0; !temporary && asked_temporary && i < asked_temporary->len; i++) {
-    Revisions *other = asked_temporary->pdata[i];
-    if (same_side(&other->old, old_rev, old_rel) && same_side(&other->new, new_rev, new_rel))
-      other->temporary = FALSE;
   }
   r = g_new0(Revisions, 1);
   r->top = g_strdup(t->project.scm_top);
   r->kind = t->project.scm_kind;
-  r->replace = r->temporary = temporary;
   if (old_rev && old_rel)
     r->old = (Side){ g_strdup(old_rev), g_strdup(old_rel) };
   if (new_rev && new_rel)
     r->new = (Side){ g_strdup(new_rev), g_strdup(new_rel) };
-  if (temporary) {
-    if (!asked_temporary)
-      asked_temporary = g_ptr_array_new();
-    g_ptr_array_add(asked_temporary, r);
-  }
+  r->placing = placing_new(g_strdup_printf("r\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s", r->top, r->old.rev ? r->old.rev : "",
+                                           r->old.rel ? r->old.rel : "", r->new.rev ? r->new.rev : "",
+                                           r->new.rel ? r->new.rel : ""));
   side_commands(r->kind, repo ? repo->svn_url : NULL, &r->old, &old_short, &old_show);
   side_commands(r->kind, repo ? repo->svn_url : NULL, &r->new, &new_short, &new_show);
 #define OR_NONE(args) ((args) ? (const char *const *)(args) : none)
@@ -525,15 +622,11 @@ static void ask_revisions(App *t, const char *old_rev, const char *old_rel, cons
   g_strfreev(new_show);
 }
 
-void compare_revisions(App *t, const char *old_rev, const char *old_rel, const char *new_rev, const char *new_rel)
-{
-  ask_revisions(t, old_rev, old_rel, new_rev, new_rel, FALSE);
-}
-
 void compare_revisions_temporary(App *t, const char *old_rev, const char *old_rel, const char *new_rev,
                                  const char *new_rel)
 {
-  ask_revisions(t, old_rev, old_rel, new_rev, new_rel, TRUE);
+  compare_next_temporary();
+  compare_revisions(t, old_rev, old_rel, new_rev, new_rel);
 }
 
 /* git answered compare_revisions(): outs = { old short commit, old file, new short commit, new file }. */
@@ -545,21 +638,14 @@ static void show_revisions(App *t, char **outs, gpointer data)
   char *new_path = write_revision(t, r->kind, &r->new, outs + 2, &new_label);
   char *working = g_build_filename(r->top, r->new.rel ? r->new.rel : r->old.rel, NULL);
   Tab *left = NULL, *right = NULL;
+  int position;
 
   if (old_path && new_path && strcmp(old_path, new_path) == 0) /* one version (svn's r0^ is r0): one side, */
     g_clear_pointer(&old_path, g_free); /* not a second tab on the same file, which would close the first */
 
   if (!old_path && !new_path) {
     show_message(t, "Nothing to compare", "The repository has no such version of this file.");
-  } else {
-    GtkNotebook *group = t->editors.active;
-    Tab *old = r->replace ? temporary_tab(t, group) : NULL;
-    int position = -1;
-    if (old) { /* replaced, in its place */
-      position = tab_position(old);
-      remove_tab(old); /* with its other side */
-      t->editors.active = group;
-    }
+  } else if (placing_begin(t, r->placing, &position)) {
     if (new_path)
       left = open_version(t, new_path, new_label, working);
     if (old_path)
@@ -572,11 +658,7 @@ static void show_revisions(App *t, char **outs, gpointer data)
       show_side_by_side(left, right);
     else
       select_tab(left ? left : right);
-    Tab *shown = left ? left : right; /* the tab holding both sides */
-    shown->temporary = r->temporary;
-    update_tab_label(shown);
-    if (position >= 0)
-      set_tab_position(shown, position);
+    placing_end(r->placing, left ? left : right, position); /* the tab holding both sides */
   }
   g_free(working);
   g_free(new_path);

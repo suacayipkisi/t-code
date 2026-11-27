@@ -638,11 +638,13 @@ The **Markdown preview** opens as a tab and follows the file as you type. It is 
   their `<summary>` opens; comments are left out.
 
 **Images** are local files (a path starting with `/` is from the git repository's root) or web
-addresses (fetched with `curl`), SVG included; an image inside a link follows it when clicked, and
-link titles show over links.
+addresses (fetched with `curl`, four at a time, https or http only; **Web images in previews** in
+Settings, `preview-web-images` in settings.ini, turns fetching off), SVG included (one bigger than
+16 million pixels drawn is not shown); an image inside a link follows it when clicked, and link titles
+show over links.
 
 **Links** to other markdown files open their preview, other local files open in an editor, and web
-links open in the browser.
+and mail links open in the browser or mail app; links of other kinds are not followed.
 
 **TeX math:** `$...$` inline, `$$...$$` and ```` ```math ```` blocks centered (fractions, roots,
 scripts, sums and integrals with limits, stretched delimiters, matrices, `cases`, `aligned`), set by

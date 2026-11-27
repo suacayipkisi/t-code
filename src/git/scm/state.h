@@ -105,6 +105,12 @@ GtkWidget *scm_icon_button(const char *icon, const char *tooltip);
  * side by side) and right-click menu. */
 void scm_fill_changes(GtkListBox *list, GPtrArray *changes, gboolean staged);
 void scm_on_change_activated(GtkListBox *list, GtkListBoxRow *row, gpointer data);
+/* A click on a changed file shows it in the temporary tab; a double or middle click keeps it. */
+void scm_on_change_kept(GtkListBox *list, GtkListBoxRow *row);
+
+/* scm.c: calls kept(list, row) for a double click (its first click activated the row) or a middle click
+ * on a row of list. */
+void scm_attach_keep(GtkListBox *list, void (*kept)(GtkListBox *list, GtkListBoxRow *row));
 void scm_on_changes_menu(GtkWidget *list, double x, double y, gpointer data);
 
 /* commits.c: makes scm.commits_list the Commits list (its clicks, tooltips and right-click menu),

@@ -3,7 +3,7 @@
   "id": "targets",
   "name": "Targets",
   "provider": "t-code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Make, just, Task and npm targets in the picker; the chosen one runs in a terminal tab, its compiler errors land in Problems. Needs Node.js 18 or newer (and make, just or task for their files).",
   "executable": "targets.js",
   "requires": [

@@ -3,7 +3,7 @@
   "id": "pomodoro",
   "name": "Pomodoro",
   "provider": "t-code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A focus timer at the right of the status bar: 25 minutes of focus, then a break (a long one after every fourth), with a desktop notification when each ends. Written in C, built once with the system's C compiler.",
   "executable": "run.sh",
   "requires": [

@@ -146,10 +146,24 @@ static char *read_file(const char *path)
   return text;
 }
 
+/* In the user's runtime folder, else in /tmp under a name of the user's own (another user could have made a
+ * shared one first). */
 static void state_dir(char *out, size_t size)
 {
   const char *runtime = getenv("XDG_RUNTIME_DIR");
-  snprintf(out, size, "%s/t-code-pomodoro", runtime && *runtime ? runtime : "/tmp");
+  if (runtime && *runtime)
+    snprintf(out, size, "%s/t-code-pomodoro", runtime);
+  else
+    snprintf(out, size, "/tmp/t-code-pomodoro-%ld", (long)getuid());
+}
+
+/* Whether dir is a folder of the user's own, no link (made 0700 when it is not there). */
+static int own_dir(const char *dir)
+{
+  struct stat info;
+  if (mkdir(dir, 0700) != 0 && errno != EEXIST)
+    return 0;
+  return lstat(dir, &info) == 0 && S_ISDIR(info.st_mode) && info.st_uid == getuid() && chmod(dir, 0700) == 0;
 }
 
 static void load_state(struct state *s)
@@ -167,7 +181,8 @@ static int save_state(const struct state *s)
 {
   char dir[4000], path[4096], temporary[4096], text[512];
   state_dir(dir, sizeof dir);
-  mkdir(dir, 0700);
+  if (!own_dir(dir))
+    return -1;
   snprintf(path, sizeof path, "%s/state", dir);
   snprintf(temporary, sizeof temporary, "%s/state.%ld", dir, (long)getpid());
   format_state(s, text, sizeof text);

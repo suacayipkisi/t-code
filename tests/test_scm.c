@@ -22,6 +22,8 @@ gboolean any_unsaved(App *t G_GNUC_UNUSED) { return FALSE; }
 void save_all(App *t, SavedFunc then, gpointer data) { then(t, data); }
 Tab *find_tab(App *t G_GNUC_UNUSED, TabKind kind G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) { return NULL; }
 void open_file(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
+void open_file_temporary(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
+void compare_next_temporary(void) {}
 void editor_reload(Tab *tab G_GNUC_UNUSED) {}
 void diff_gutter_head_moved(App *t G_GNUC_UNUSED) { head_moves++; }
 void files_git_changed(App *t G_GNUC_UNUSED) {}

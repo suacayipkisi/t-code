@@ -47,9 +47,7 @@ typedef struct {
   char *task_name;      /* PROJECT_TASKS: profile or task name */
 } Project;
 
-/* run.c: the nearest directory, from start upwards, that holds one of names (NULL: none); whether
- * file's extension is one of exts. */
-char *find_up(const char *start, const char *const *names);
+/* run.c: whether file's extension is one of exts. */
 gboolean has_ext(const char *file, const char *const *exts);
 
 /* run.c: the shell command that sends "<verb> <what>" (what already a shell word) to this t-code
@@ -63,9 +61,9 @@ char *if_installed(const char *program, char *what);
  * than C / C++ in its project or alone (FALSE: none). */
 const Script *script_of(const char *file);
 char *script_program(const Script *script);
-char *python_root(const char *start);
+char *python_root(const char *start, const char *top);
 char *python_module(const char *root, const char *file);
-gboolean find_language_project(Project *p, const char *start);
+gboolean find_language_project(Project *p, const char *start, const char *top);
 
 /* languages.c: the commands for a script, a Rust file alone and another language's project (Cargo,
  * Go, Node, Maven, Gradle); the Node package manager the project uses. */

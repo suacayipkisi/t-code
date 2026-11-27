@@ -313,6 +313,38 @@ static void test_install(void)
   g_assert_nonnull(strstr(error, "Could not download"));
   g_free(error);
 
+  /* the plugin's folder a link out of the archive (to a copy that hashes the same): refused */
+  const char *linked = "2222222222222222222222222222222222222222";
+  char *link_root = g_build_filename(tmp_dir, "linked", "b-2222222222222222222222222222222222222222", "plugins", NULL);
+  char *target =
+      g_build_filename(tmp_dir, "archive", "b-0123456789abcdef0123456789abcdef01234567", "plugins", "fix", NULL);
+  char *link = g_build_filename(link_root, "fix", NULL), *linked_from = g_build_filename(tmp_dir, "linked", NULL);
+  g_mkdir_with_parents(link_root, 0755);
+  GFile *link_file = g_file_new_for_path(link);
+  g_assert_true(g_file_make_symbolic_link(link_file, target, NULL, NULL));
+  g_object_unref(link_file);
+  top = g_strdup_printf("%s/%s.tar.gz", repo, linked);
+  run((const char *const[]){ "tar", "-czf", top, "-C", linked_from, "b-2222222222222222222222222222222222222222",
+                             NULL });
+  e.commit = (char *)linked;
+  e.path = "plugins/fix";
+  error = install(&e, plugins);
+  g_assert_nonnull(strstr(error, "is a link"));
+  g_free(error);
+
+  /* outside the tests only https: a file:// repository is not downloaded */
+  g_unsetenv("TCODE_TESTING");
+  e.commit = (char *)commit;
+  error = install(&e, plugins);
+  g_assert_nonnull(strstr(error, "Could not download"));
+  g_free(error);
+  g_setenv("TCODE_TESTING", "1", TRUE);
+  g_free(top);
+  g_free(linked_from);
+  g_free(link);
+  g_free(target);
+  g_free(link_root);
+
   left = g_dir_open(cache, 0, NULL);
   g_assert_null(left ? g_dir_read_name(left) : NULL);
   if (left)
@@ -470,6 +502,7 @@ int main(int argc, char **argv)
   char *config = g_build_filename(tmp_dir, "config", NULL), *cache = g_build_filename(tmp_dir, "cache", NULL);
   g_setenv("XDG_CONFIG_HOME", config, TRUE);
   g_setenv("XDG_CACHE_HOME", cache, TRUE);
+  g_setenv("TCODE_TESTING", "1", TRUE); /* file:// repositories */
   g_free(config);
   g_free(cache);
   g_test_init(&argc, &argv, NULL);
