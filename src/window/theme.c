@@ -13,10 +13,13 @@
 #include "editor/tabs.h"
 #include "files/files.h"
 #include "lsp/inline/semantic.h"
+#include "popups/menus.h"
 #include "popups/picker.h"
 #include "project/session.h"
 #include "project/userfiles.h"
 #include "window/terminal.h"
+
+#include <string.h>
 
 #define CARD_RADIUS "10px"
 
@@ -93,6 +96,14 @@ static const char *const css =
     /* Menus (the menu bar's, t-code's icon's, the right-click ones): roomy rows, t-code's hover and
      * chevrons, dim shortcuts and section titles. */
     "popover.menu > contents { padding: 5px; }"
+    /* The drop-downs' lists (Settings): GTK's 8 px margin around the list goes, and its own background,
+     * which showed at the rounded rows' corners. */
+    "dropdown > popover > contents { padding: 3px; }"
+    "dropdown > popover listview { margin: 0; padding: 0; background: none; }"
+    "dropdown > popover listview > row image { margin-left: 8px; }" /* the check after the current choice */
+    "dropdown > popover listview > row { padding: 3px 8px; border-radius: 6px; color: var(--tc-fg); }"
+    "dropdown > popover listview > row:hover, dropdown > popover listview > row:selected {"
+    "  background: color-mix(in srgb, var(--tc-fg) 10%, transparent); color: var(--tc-fg-strong); }"
     "popover.menu modelbutton { min-height: 26px; padding: 0 10px; color: var(--tc-fg); }"
     "popover.menu modelbutton:hover, popover.menu modelbutton:selected {"
     "  background: color-mix(in srgb, var(--tc-fg) 10%, transparent); color: var(--tc-fg-strong); }"
@@ -101,6 +112,10 @@ static const char *const css =
     "popover.menu modelbutton > arrow { -gtk-icon-source: -gtk-icontheme('tcode-chevron-right-symbolic');"
     "  -gtk-icon-size: 12px; min-width: 12px; min-height: 12px; margin-left: 16px; color: var(--tc-fg-dim); }"
     "popover.menu modelbutton > check { margin-right: 8px; }"
+    /* popups/menus.c's icons beside the often used items; the others' labels line up with theirs */
+    "popover.menu modelbutton > image { margin-right: 8px; min-width: 16px; -gtk-icon-size: 16px; color: var(--tc-fg-dim); }"
+    "popover.menu modelbutton:hover > image { color: var(--tc-fg-strong); }"
+    "popover.menu modelbutton.tcode-no-icon > label { margin-left: 24px; }"
     "popover.menu modelbutton > check:checked { color: var(--tc-accent); }"
     "popover.menu label.title { color: var(--tc-fg-dim); font-size: smaller; font-weight: bold; padding: 6px 10px 2px; }"
     "popover.menu separator { background: var(--tc-border); margin: 4px 6px; min-height: 1px; }";
@@ -132,7 +147,7 @@ static const char *const square_css =
     "button, entry, spinbutton, textview, .tcode-scm .message { border-radius: 2px; }"
     "tooltip, tooltip.background { border-radius: 2px; }"
     "popover > contents { border-radius: 4px; }"
-    "popover modelbutton { border-radius: 2px; }"
+    "popover modelbutton, dropdown > popover listview > row { border-radius: 2px; }"
     ".tcode-dock-header { background: var(--tc-frame); }"
     ".tcode-sidebar stackswitcher button, .tcode-dock-close { border-radius: 4px; }"
     ".tcode-scm row, .tcode-search row { margin: 0; border-radius: 0; }"
@@ -146,8 +161,45 @@ static const char *const square_css =
     ".tcode-picker-pop > contents { border-radius: 0 0 2px 2px; }"
     ".tcode-editor scrollbar slider { border-radius: 0; }";
 
+/* Compact: thinner tabs, dock headers, terminal tabs and menus, over the theme's and the panels' sizes. The
+ * editor tabs keep the docks' header height beside them (26 px icons + its line, the square theme's
+ * tabs draw that line themselves). */
+static const char *const compact_css =
+    ".tcode-tabs { padding: 3px 3px 0 0; }"
+    ".tcode-tab { min-height: 24px; padding: 0 2px 0 9px; }"
+    ".tcode-tab button, .tcode-terminal-tab button, .tcode-terminals-strip button {"
+    "  min-width: 16px; min-height: 16px; }"
+    ".tcode-sidebar stackswitcher { padding: 2px; border-spacing: 2px; }"
+    ".tcode-sidebar stackswitcher button, .tcode-dock-close { min-height: 20px; min-width: 20px; padding: 1px 3px; }"
+    ".tcode-terminal-tab { min-height: 20px; padding: 0 2px 0 6px; }"
+    ".tcode-terminal-tab.first { padding-right: 6px; }"
+    "dropdown > popover listview > row { min-height: 20px; padding: 2px 6px; }"
+    "headerbar { min-height: 28px; }"
+    "headerbar button, headerbar menubar > item, windowcontrols > button { min-height: 20px; }"
+    /* Menus: shorter rows, a smaller font. */
+    "popover.menu > contents { padding: 3px; }"
+    "popover.menu modelbutton { min-height: 22px; padding: 0 8px; }"
+    "popover.menu label.title { padding: 4px 8px 1px; }"
+    "popover.menu separator { margin: 3px 4px; }"
+    "popover.menu, popover.tcode-menu { font-size: 0.93em; }"
+    "popover.tcode-menu > contents { padding: 3px; }"
+    "popover.tcode-menu button { min-height: 22px; padding: 0 8px; }";
+
+static const char *const compact_square_css = ".tcode-tab { min-height: 27px; }";
+
 static GtkCssProvider *square;    /* square_css while the square theme is on, else corners_css() */
+static GtkCssProvider *layout;    /* compact_css and the dividers between the panels (layout_css()) */
 static GtkCssProvider *user_look; /* theme.css */
+
+/* A divider color GTK does not read (settings.ini's divider-color typed by hand): said in the log. */
+static void on_layout_error(GtkCssProvider *provider G_GNUC_UNUSED, GtkCssSection *section, const GError *error,
+                            gpointer data G_GNUC_UNUSED)
+{
+  char *where = gtk_css_section_to_string(section);
+
+  g_warning("the layout's CSS (divider-color?): %s at %s", error->message, where);
+  g_free(where);
+}
 
 /* Before any window: GTK picks up the theme name when it styles the first one. Light or dark as the
  * color theme says, whatever the desktop prefers (window/palette.c): GTK's light variant under a dark
@@ -159,6 +211,7 @@ void load_theme(App *t)
   if (square) /* loaded already: the welcome window came before the main window */
     return;
   provider = gtk_css_provider_new();
+  menus_init();
   g_object_set(gtk_settings_get_default(), "gtk-theme-name", "Adwaita", NULL);
   gtk_icon_theme_add_resource_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), TCODE_ICONS_RESOURCE);
   move_old_colors();                        /* before the editors look for it */
@@ -171,6 +224,10 @@ void load_theme(App *t)
   square = gtk_css_provider_new();
   gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(square),
                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+  layout = gtk_css_provider_new();
+  g_signal_connect(layout, "parsing-error", G_CALLBACK(on_layout_error), NULL);
+  gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(layout),
+                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 2);
   user_look = gtk_css_provider_new();
   gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(user_look),
                                              GTK_STYLE_PROVIDER_PRIORITY_USER);
@@ -188,7 +245,7 @@ static char *corners_css(int radius)
     { "button, entry, spinbutton, textview, .tcode-scm .message, tooltip, tooltip.background", 8 },
     { "headerbar button, headerbar menubar > item, windowcontrols > button,"
       " .tcode-sidebar stackswitcher button, .tcode-dock-close", 7 },
-    { ".tcode-tab button, .tcode-terminal-tab button, popover modelbutton", 6 },
+    { ".tcode-tab button, .tcode-terminal-tab button, popover modelbutton, dropdown > popover listview > row", 6 },
   };
   /* clang-format on */
   GString *out = g_string_new(NULL);
@@ -208,19 +265,124 @@ static char *corners_css(int radius)
   return g_string_free(out, FALSE);
 }
 
+/* GtkPaned's separator is this much wider than its CSS size, the extra under the panel after it (where a
+ * drag can start): measured with GTK 4.20, 1 px gives 9, 6 gives 14. */
+#define SEPARATOR_EXTRA 8
+
+const char *divider_color_for(App *t, const char *theme)
+{
+  size_t n = theme ? strlen(theme) : 0;
+
+  for (int i = 0; n && t->settings.divider_colors && t->settings.divider_colors[i]; i++) {
+    const char *entry = t->settings.divider_colors[i];
+    if (strncmp(entry, theme, n) == 0 && entry[n] == '=' && entry[n + 1])
+      return entry + n + 1;
+  }
+  return NULL;
+}
+
+void set_divider_color(App *t, const char *theme, const char *color)
+{
+  GStrvBuilder *kept = g_strv_builder_new();
+  size_t n = strlen(theme);
+
+  for (int i = 0; t->settings.divider_colors && t->settings.divider_colors[i]; i++) {
+    const char *entry = t->settings.divider_colors[i];
+    if (!(strncmp(entry, theme, n) == 0 && entry[n] == '='))
+      g_strv_builder_add(kept, entry);
+  }
+  if (color && *color)
+    g_strv_builder_take(kept, g_strdup_printf("%s=%s", theme, color));
+  g_strfreev(t->settings.divider_colors);
+  t->settings.divider_colors = g_strv_builder_end(kept);
+  g_strv_builder_unref(kept);
+}
+
+/* The dividers between the panels (the gaps between the cards, the lines inside them) as the settings say,
+ * and the compact sizes. */
+static char *layout_css(App *t)
+{
+  GString *out = g_string_new(NULL);
+  int style = t->settings.divider ? t->settings.divider : t->settings.square ? DIVIDER_LINE : DIVIDER_DOTS;
+  int size = t->settings.divider_size ? t->settings.divider_size : style == DIVIDER_LINE ? 1 : 6;
+  const char *own = divider_color_for(t, palette_id());
+  /* each color theme's own (window/palette.c); the square theme's lines stay its plain border */
+  const char *color = own                                           ? own
+                      : t->settings.square && style == DIVIDER_LINE ? "var(--tc-border)"
+                                                                    : "var(--tc-divider)";
+
+  if (t->settings.compact) {
+    g_string_append(out, compact_css);
+    if (t->settings.square)
+      g_string_append(out, compact_square_css);
+  }
+  g_string_append_printf(out, "paned > separator { min-width: %dpx; min-height: %dpx; color: %s;", size, size, color);
+  if (style == DIVIDER_LINE)
+    g_string_append_printf(out, " background: %s; }", color);
+  else
+    g_string_append(out, " background: none; }");
+  if (style == DIVIDER_DOTS && size >= 2) {
+    /* ⋮ in a gap side by side, ⋯ in one above another: three 2 px squares. GTK draws no icon theme image
+     * on a separator, nor a picture narrower than it: the squares are bars across it, and a layer over
+     * them in the frame's color leaves 2 px in the middle of the gap. The separator is SEPARATOR_EXTRA
+     * wider than the gap, under the next panel: the middle is the gap's, not the separator's. */
+    static const char *const stops = "%s 0%%, %s 14.3%%, transparent 14.3%%, transparent 42.9%%, %s 42.9%%,"
+                                     " %s 57.1%%, transparent 57.1%%, transparent 85.7%%, %s 85.7%%, %s 100%%";
+    char *bars = g_strdup_printf(stops, color, color, color, color, color, color);
+    double box = size + SEPARATOR_EXTRA, from = 100.0 * (size / 2 - 1) / box, to = 100.0 * (size / 2 + 1) / box;
+    char *mask = g_strdup_printf("var(--tc-frame) 0%%, var(--tc-frame) %.4f%%, transparent %.4f%%, transparent %.4f%%,"
+                                 " var(--tc-frame) %.4f%%, var(--tc-frame) 100%%",
+                                 from, from, to, to);
+    g_string_append_printf(out,
+                           "paned > separator { background-repeat: no-repeat; background-position: center; }"
+                           "paned.horizontal > separator { background-image: linear-gradient(to right, %s),"
+                           "  linear-gradient(to bottom, %s); background-size: 100%% 14px; }"
+                           "paned.vertical > separator { background-image: linear-gradient(to bottom, %s),"
+                           "  linear-gradient(to right, %s); background-size: 14px 100%%; }",
+                           mask, bars, mask, bars);
+    g_free(bars);
+    g_free(mask);
+  }
+  if (!t->settings.square && style != DIVIDER_LINE && size != 6) /* the frame's margins as wide as its gaps */
+    g_string_append_printf(out, ".tcode-workspace { margin: 0 %dpx; }", size);
+  if (t->settings.vertical_bar_width > 0) /* the icons fill it (docks/widgets.c lets them) */
+    g_string_append_printf(out, ".tcode-sidebar.vertical > .tcode-dock-header { min-width: %dpx; }",
+                           t->settings.vertical_bar_width);
+  if (t->settings.panel_outline && !t->settings.square) /* the square theme has its lines */
+  {
+    g_string_append_printf(out, ".tcode-card { border: 1px solid %s; }", own ? own : "var(--tc-outline)");
+    /* the editor tabs against that edge: the strip's top room goes into the tabs, the first one's corner
+     * follows the card's */
+    g_string_append_printf(out,
+                           ".tcode-tabs { padding-top: 0; padding-left: 0; }"
+                           ".tcode-tab { min-height: %dpx; }"
+                           ".tcode-tab:first-child { border-top-left-radius: %dpx; }",
+                           t->settings.compact ? 27 : 34, MAX(t->settings.corner_radius - 1, 0));
+  }
+  /* Inside a card (a panel's own splits): always a thin line, in the divider's color when one is set. */
+  g_string_append_printf(out,
+                         ".tcode-card paned > separator { min-width: 1px; min-height: 1px; background: %s;"
+                         "  background-image: none; }",
+                         own ? own : "var(--tc-border)");
+  return g_string_free(out, FALSE);
+}
+
 void apply_theme(App *t)
 {
-  char *corners;
+  char *css_text;
 
   if (!square)
     return;
+  css_text = layout_css(t);
+  gtk_css_provider_load_from_string(layout, css_text);
+  g_free(css_text);
   if (t->settings.square) {
     gtk_css_provider_load_from_string(square, square_css);
     return;
   }
-  corners = corners_css(t->settings.corner_radius);
-  gtk_css_provider_load_from_string(square, corners);
-  g_free(corners);
+  css_text = corners_css(t->settings.corner_radius);
+  gtk_css_provider_load_from_string(square, css_text);
+  g_free(css_text);
 }
 
 char *user_theme_file(void)
@@ -252,6 +414,7 @@ void make_card(GtkWidget *widget)
 void color_theme_apply(App *t, const char *id)
 {
   palette_init(t, id);
+  apply_theme(t); /* the dividers: this theme's color */
   terminal_apply_colors(t);
   files_restyle(t);
   for (int i = 0; i < tab_count(t); i++) {

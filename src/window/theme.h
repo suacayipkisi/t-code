@@ -15,7 +15,17 @@
  * settings ask for it, and the user's theme.css. Only the first call does anything. */
 void load_theme(App *t);
 
-/* Turns the square theme on or off, as t->settings.square says. */
+/* t->settings.divider: what goes between the panels (0: the theme's). */
+enum { DIVIDER_THEME, DIVIDER_DOTS, DIVIDER_GAP, DIVIDER_LINE };
+
+/* The divider color the user picked for a color theme (its id: "dark-classic"), or NULL: the theme's border. */
+const char *divider_color_for(App *t, const char *theme);
+
+/* Keeps color (CSS; NULL or "": none) as theme's divider color in t->settings.divider_colors. */
+void set_divider_color(App *t, const char *theme, const char *color);
+
+/* Turns the square theme on or off, as t->settings.square says; the compact sizes and the dividers between
+ * the panels (their style, size and color) as the settings say. */
 void apply_theme(App *t);
 
 /* ~/.config/t-code/theme.css (free it): the user's own CSS, over t-code's. */
