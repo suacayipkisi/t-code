@@ -75,7 +75,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Dependencies
         run: |
-          dnf -y install make gcc git mercurial subversion libasan libubsan python3 procps-ng \
+          # as build-test's: the window tests start clangd for C files, and the Word Count plugin builds
+          # itself with g++ (a missing one is a warning, and a warning stops the tests)
+          dnf -y install make gcc gcc-c++ clangd git mercurial subversion libasan libubsan python3 procps-ng \
             gtk4-devel gtksourceview5-devel json-glib-devel vte291-gtk4-devel md4c-devel \
             xorg-x11-server-Xvfb dbus-x11 glibc-langpack-en
       - name: Tests under ASan
