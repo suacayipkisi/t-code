@@ -135,16 +135,25 @@ static char *find_delve(void)
   return found;
 }
 
-/* Whether python can import debugpy. */
+/* Whether python can import debugpy. Starting Python takes a tenth of a second on the UI thread, so
+ * a yes is kept for that python (a no is asked again: debugpy may be installed meanwhile). */
 static gboolean has_debugpy(const char *python)
 {
+  static GHashTable *found; /* the pythons with debugpy */
   const char *argv[] = { python, "-c", "import debugpy.adapter", NULL };
   int status = 1;
 
-  return g_spawn_sync(NULL, (char **)argv, NULL,
-                      G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL, NULL,
-                      NULL, &status, NULL) &&
-         g_spawn_check_wait_status(status, NULL);
+  if (found && g_hash_table_contains(found, python))
+    return TRUE;
+  if (!g_spawn_sync(NULL, (char **)argv, NULL,
+                    G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL, NULL,
+                    NULL, &status, NULL) ||
+      !g_spawn_check_wait_status(status, NULL))
+    return FALSE;
+  if (!found)
+    found = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+  g_hash_table_add(found, g_strdup(python));
+  return TRUE;
 }
 
 AdapterKind adapter_native(const char *preferred)

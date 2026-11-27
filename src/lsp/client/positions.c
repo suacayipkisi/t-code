@@ -46,6 +46,16 @@ static void iter_at_position(Tab *tab, gint64 line, gint64 character, GtkTextIte
     return;
   }
   gtk_text_buffer_get_iter_at_line(buffer, iter, (int)MAX(line, 0));
+  /* An ASCII line (as good as every line of code): a character is a byte and a UTF-16 unit, so the
+   * position is the offset, up to the line's end. Symbols and tokens ask this tens of thousands of
+   * times for a big file. */
+  if (gtk_text_iter_get_bytes_in_line(iter) == gtk_text_iter_get_chars_in_line(iter)) {
+    GtkTextIter end = *iter;
+    if (!gtk_text_iter_ends_line(&end))
+      gtk_text_iter_forward_to_line_end(&end);
+    gtk_text_iter_set_line_offset(iter, (int)CLAMP(character, 0, gtk_text_iter_get_line_offset(&end)));
+    return;
+  }
   /* Character by character, so a position inside a character (or past the line) cannot be. */
   for (gint64 at = 0; !gtk_text_iter_ends_line(iter);) {
     at += utf16 ? (gtk_text_iter_get_char(iter) >= 0x10000 ? 2 : 1)

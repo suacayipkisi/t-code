@@ -49,24 +49,53 @@ static Sym *sym_new(void)
   return sym;
 }
 
-/* A position of the answer as the editor's line and character offset. */
-static void symbols_position(Tab *tab, JsonNode *position, gboolean utf16, int *line, int *column)
+/* Where an answer's positions go: its editor, and the line asked for last (an answer has tens of
+ * thousands of positions in a big file, nearly all on ASCII lines, a few on each). */
+typedef struct {
+  Tab *tab;
+  gboolean utf16;
+  gint64 line; /* the line below is about; -1 for none yet */
+  gboolean ascii;
+  int length; /* its characters, without the line end */
+} Where;
+
+/* A position of the answer as the editor's line and character offset. On an ASCII line a character is
+ * a byte and a UTF-16 unit: the offset is the position's, up to the line's end. */
+static void symbols_position(Where *w, JsonNode *position, int *line, int *column)
 {
+  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(w->tab->buffer);
+  gint64 at_line = json_int_at(position, "line", 0), character = json_int_at(position, "character", 0);
   GtkTextIter iter;
 
-  lsp_iter_at_encoding(tab, position, &iter, utf16);
+  if (at_line != w->line) {
+    w->line = at_line;
+    w->ascii = at_line >= 0 && at_line < gtk_text_buffer_get_line_count(buffer);
+    if (w->ascii) {
+      gtk_text_buffer_get_iter_at_line(buffer, &iter, (int)at_line);
+      w->ascii = gtk_text_iter_get_bytes_in_line(&iter) == gtk_text_iter_get_chars_in_line(&iter);
+      if (!gtk_text_iter_ends_line(&iter))
+        gtk_text_iter_forward_to_line_end(&iter);
+      w->length = gtk_text_iter_get_line_offset(&iter);
+    }
+  }
+  if (w->ascii) {
+    *line = (int)at_line;
+    *column = (int)CLAMP(character, 0, w->length);
+    return;
+  }
+  lsp_iter_at_encoding(w->tab, position, &iter, w->utf16);
   *line = gtk_text_iter_get_line(&iter);
   *column = gtk_text_iter_get_line_offset(&iter);
 }
 
-static void symbols_range(Tab *tab, Sym *sym, JsonNode *range, gboolean utf16)
+static void symbols_range(Where *w, Sym *sym, JsonNode *range)
 {
-  symbols_position(tab, json_at(range, "start"), utf16, &sym->line, &sym->column);
-  symbols_position(tab, json_at(range, "end"), utf16, &sym->end_line, &sym->end_column);
+  symbols_position(w, json_at(range, "start"), &sym->line, &sym->column);
+  symbols_position(w, json_at(range, "end"), &sym->end_line, &sym->end_column);
 }
 
 /* A DocumentSymbol and its children. */
-static Sym *symbols_from_document(Tab *tab, JsonNode *node, gboolean utf16)
+static Sym *symbols_from_document(Where *w, JsonNode *node)
 {
   Sym *sym = sym_new();
   JsonNode *children = json_at(node, "children"), *selection = json_at(node, "selectionRange.start");
@@ -74,17 +103,16 @@ static Sym *symbols_from_document(Tab *tab, JsonNode *node, gboolean utf16)
   sym->name = g_strdup(json_string_at(node, "name") ?: "");
   sym->detail = g_strdup(json_string_at(node, "detail"));
   sym->kind = (int)json_int_at(node, "kind", 0);
-  symbols_range(tab, sym, json_at(node, "range"), utf16);
+  symbols_range(w, sym, json_at(node, "range"));
   if (selection)
-    symbols_position(tab, selection, utf16, &sym->name_line, &sym->name_column);
+    symbols_position(w, selection, &sym->name_line, &sym->name_column);
   else {
     sym->name_line = sym->line;
     sym->name_column = sym->column;
   }
   for (guint i = 0;
        children && JSON_NODE_HOLDS_ARRAY(children) && i < json_array_get_length(json_node_get_array(children)); i++)
-    g_ptr_array_add(sym->children,
-                    symbols_from_document(tab, json_array_get_element(json_node_get_array(children), i), utf16));
+    g_ptr_array_add(sym->children, symbols_from_document(w, json_array_get_element(json_node_get_array(children), i)));
   return sym;
 }
 
@@ -108,7 +136,7 @@ static gboolean symbols_holds(const Sym *outer, const Sym *inner)
 }
 
 /* SymbolInformation[]: flat, nested here by their ranges. */
-static GPtrArray *symbols_from_information(Tab *tab, JsonArray *array, gboolean utf16)
+static GPtrArray *symbols_from_information(Where *w, JsonArray *array)
 {
   GPtrArray *all = g_ptr_array_new(), *roots = g_ptr_array_new_with_free_func((GDestroyNotify)sym_free);
   GPtrArray *open = g_ptr_array_new(); /* the symbols holding the next one, outermost first */
@@ -119,7 +147,7 @@ static GPtrArray *symbols_from_information(Tab *tab, JsonArray *array, gboolean 
     sym->name = g_strdup(json_string_at(node, "name") ?: "");
     sym->detail = g_strdup(json_string_at(node, "containerName"));
     sym->kind = (int)json_int_at(node, "kind", 0);
-    symbols_range(tab, sym, json_at(node, "location.range"), utf16);
+    symbols_range(w, sym, json_at(node, "location.range"));
     sym->name_line = sym->line;
     sym->name_column = sym->column;
     g_ptr_array_add(all, sym);
@@ -151,12 +179,13 @@ static void symbols_on_answer(JsonNode *result, gpointer data)
   g_clear_object(&s->asking);
   if (s->roots)
     g_ptr_array_unref(s->roots);
+  Where w = { s->tab, a->utf16, -1, FALSE, 0 };
   if (json_array_get_length(array) > 0 && json_at(json_array_get_element(array, 0), "location")) {
-    s->roots = symbols_from_information(s->tab, array, a->utf16);
+    s->roots = symbols_from_information(&w, array);
   } else {
     s->roots = g_ptr_array_new_with_free_func((GDestroyNotify)sym_free);
     for (guint i = 0; i < json_array_get_length(array); i++)
-      g_ptr_array_add(s->roots, symbols_from_document(s->tab, json_array_get_element(array, i), a->utf16));
+      g_ptr_array_add(s->roots, symbols_from_document(&w, json_array_get_element(array, i)));
   }
   breadcrumbs_update(s->tab);
   outline_symbols_changed(s->tab);

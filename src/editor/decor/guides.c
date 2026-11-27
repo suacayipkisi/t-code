@@ -2,7 +2,8 @@
  * Indent guides (see guides.h): TcodeView, a GtkSourceView whose layer below the text (in buffer
  * coordinates, so it scrolls with it) gets the guides of the lines on the screen. The block around
  * the cursor comes from the file's brackets outside strings and comments, listed again only when
- * the text changed; a cursor move only looks the block up in that list.
+ * the text changed (in a big file once typing rests, the old block drawn meanwhile); a cursor move
+ * only looks the block up in that list.
  */
 #include "editor/decor/guides.h"
 
@@ -20,11 +21,16 @@
 
 #include <string.h>
 
+#define BRACKETS_MS 150 /* after the last change */
+
+static int brackets_big = 200000; /* characters: a file this big lists its brackets once typing rests */
+
 struct _TcodeView {
   GtkSourceView parent;
   Tab *tab;
   GArray *brackets; /* Bracket: the file's, for the text with this change count: */
   guint brackets_changes;
+  guint brackets_id; /* a big file's brackets are listed again shortly */
   struct {
     guint changes;
     int cursor;      /* offset */
@@ -149,7 +155,43 @@ static int guide_count(GtkTextBuffer *buffer, int line, int tab_size)
   return 1 + MIN(above, below) / tab_size; /* inside the block one of them opens or closes */
 }
 
-/* The block around the cursor, again only when the text or the cursor changed. */
+static void list_brackets(TcodeView *self)
+{
+  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(self->tab->buffer);
+  GtkTextIter start, end;
+  char *text;
+
+  gtk_text_buffer_get_bounds(buffer, &start, &end);
+  text = gtk_text_buffer_get_text(buffer, &start, &end, TRUE);
+  if (self->brackets)
+    g_array_free(self->brackets, TRUE);
+  self->brackets = brackets_of(text);
+  self->brackets_changes = self->tab->view->changes;
+  self->pair.open = -2; /* worked out again */
+  g_free(text);
+}
+
+static gboolean cursor_pair(TcodeView *self, int *open, int *close);
+
+/* Typing rested in a big file: the brackets again, and the block if it is another one. */
+static gboolean list_brackets_now(gpointer data)
+{
+  TcodeView *self = data;
+  int open = self->pair.open, close = self->pair.close, now_open, now_close;
+
+  self->brackets_id = 0;
+  if (!self->tab->view || self->tab->view->loading)
+    return G_SOURCE_REMOVE;
+  list_brackets(self);
+  cursor_pair(self, &now_open, &now_close);
+  if (now_open != open || now_close != close)
+    gtk_widget_queue_draw(GTK_WIDGET(self));
+  return G_SOURCE_REMOVE;
+}
+
+/* The block around the cursor, again only when the text or the cursor changed. A big file's brackets
+ * take tens of milliseconds to list: after a change they are listed once typing rests, and until
+ * then the block worked out last stays (its lines rarely move with a key). */
 static gboolean cursor_pair(TcodeView *self, int *open, int *close)
 {
   GtkTextBuffer *buffer = GTK_TEXT_BUFFER(self->tab->buffer);
@@ -159,16 +201,16 @@ static gboolean cursor_pair(TcodeView *self, int *open, int *close)
   gtk_text_buffer_get_iter_at_mark(buffer, &cursor, gtk_text_buffer_get_insert(buffer));
   offset = gtk_text_iter_get_offset(&cursor);
   if (!self->brackets || self->brackets_changes != self->tab->view->changes) {
-    GtkTextIter start, end;
-    char *text;
-    gtk_text_buffer_get_bounds(buffer, &start, &end);
-    text = gtk_text_buffer_get_text(buffer, &start, &end, TRUE);
-    if (self->brackets)
-      g_array_free(self->brackets, TRUE);
-    self->brackets = brackets_of(text);
-    self->brackets_changes = self->tab->view->changes;
-    self->pair.open = -2; /* worked out again below */
-    g_free(text);
+    if (!self->brackets || gtk_text_buffer_get_char_count(buffer) < brackets_big) {
+      g_clear_handle_id(&self->brackets_id, g_source_remove);
+      list_brackets(self);
+    } else {
+      if (!self->brackets_id)
+        self->brackets_id = g_timeout_add(BRACKETS_MS, list_brackets_now, self);
+      *open = self->pair.open;
+      *close = self->pair.close;
+      return *open >= 0;
+    }
   }
   if (self->pair.cursor != offset || self->pair.open == -2) {
     self->pair.cursor = offset;
@@ -392,6 +434,7 @@ static void tcode_view_finalize(GObject *object)
 {
   TcodeView *self = TCODE_VIEW(object);
 
+  g_clear_handle_id(&self->brackets_id, g_source_remove);
   if (self->brackets)
     g_array_free(self->brackets, TRUE);
   if (self->font)

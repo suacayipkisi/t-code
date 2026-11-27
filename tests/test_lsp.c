@@ -337,6 +337,58 @@ static void test_hover(void)
   free_tab(tab);
 }
 
+typedef struct {
+  Tab *tab;
+  char *text;              /* the editor's */
+  gboolean called, before; /* the answer came; the big message before it was handled already */
+} AfterBig;
+
+static void on_answer_after_big(JsonNode *result G_GNUC_UNUSED, gpointer data)
+{
+  AfterBig *after = data;
+
+  after->called = TRUE;
+  after->before = g_strcmp0(server_text(after->tab), after->text) == 0;
+}
+
+/* A big message (here the fake server's diagnostic, which holds the whole text) is parsed in a thread:
+ * a small answer sent after it still waits for it. A server stopped while one is being parsed drops
+ * it, and the next server gets the file. */
+static void test_big_message_order(void)
+{
+  GString *big = g_string_new(NULL);
+  for (int i = 0; big->len < 200000; i++)
+    g_string_append_printf(big, "int value_%d;\n", i);
+  Tab *tab = new_tab("/tmp/t-code-test/big-message.c", big->str);
+  AfterBig after = { tab, NULL, FALSE, FALSE };
+  GtkTextIter iter = iter_at(tab, 1, 2), end;
+  char *position = lsp_position_params(tab, &iter), *params = g_strdup_printf("{%s}", position);
+
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(tab->buffer), &end);
+  gtk_text_buffer_insert(GTK_TEXT_BUFFER(tab->buffer), &end, "int typed;\n", -1);
+  after.text = text_of(tab);
+  /* the change goes first: its diagnostic comes, then the hover's answer */
+  lsp_request(tab, "textDocument/hover", params, NULL, on_answer_after_big, &after);
+  while (!after.called)
+    g_main_context_iteration(NULL, TRUE);
+  g_assert_true(after.before);
+
+  gtk_text_buffer_insert_at_cursor(GTK_TEXT_BUFFER(tab->buffer), "int more;\n", -1);
+  run_for(50); /* the change goes; its big diagnostic may be in the thread now */
+  lsp_restart(&app);
+  g_assert_true(g_queue_is_empty(&doc_of(tab)->lsp->inbox));
+  diagnostics_clear(tab);
+  g_assert_true(server_agrees(tab)); /* the new server got the file */
+
+  g_free(after.text);
+  g_free(params);
+  g_free(position);
+  g_string_free(big, TRUE);
+  free_tab(tab);
+}
+
 static void on_populated(GObject *source G_GNUC_UNUSED, GAsyncResult *result, gpointer data)
 {
   *(int *)data = g_task_propagate_boolean(G_TASK(result), NULL) ? 1 : -1;
@@ -1128,12 +1180,48 @@ static void test_symbols(void)
       "\"uri\":\"file:///x\",\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":3,"
       "\"character\":3}}}}]",
       NULL);
-  GPtrArray *nested = symbols_from_information(tab, json_node_get_array(flat), FALSE);
+  Where where = { tab, FALSE, -1, FALSE, 0 };
+  GPtrArray *nested = symbols_from_information(&where, json_node_get_array(flat));
   g_assert_cmpuint(nested->len, ==, 1);
   g_assert_cmpstr(((Sym *)nested->pdata[0])->name, ==, "Outer");
   g_assert_cmpstr(((Sym *)((Sym *)nested->pdata[0])->children->pdata[0])->name, ==, "inner");
   g_ptr_array_unref(nested);
   json_node_unref(flat);
+  free_tab(tab);
+}
+
+/* An answer's position on the editor's line and character: on an ASCII line as it is (past its end:
+ * the end), on another one counted in the server's units, past the last line the end of the text. */
+static void test_symbol_positions(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/positions.c", "a \xc4\x9f\xf0\x9f\x98\x80 b\nxy\n");
+  Where utf16 = { tab, TRUE, -1, FALSE, 0 }, utf8 = { tab, FALSE, -1, FALSE, 0 };
+  int line, column;
+  JsonNode *at;
+
+  at = json_from_string("{\"line\":0,\"character\":5}", NULL); /* after the emoji: 2 UTF-16 units */
+  symbols_position(&utf16, at, &line, &column);
+  g_assert_cmpint(line, ==, 0);
+  g_assert_cmpint(column, ==, 4);
+  json_node_unref(at);
+  at = json_from_string("{\"line\":0,\"character\":3}", NULL); /* inside the 2 bytes of the ğ */
+  symbols_position(&utf8, at, &line, &column);
+  g_assert_cmpint(column, ==, 2);
+  json_node_unref(at);
+  at = json_from_string("{\"line\":1,\"character\":99}", NULL);
+  symbols_position(&utf16, at, &line, &column);
+  g_assert_cmpint(line, ==, 1);
+  g_assert_cmpint(column, ==, 2);
+  json_node_unref(at);
+  at = json_from_string("{\"line\":1,\"character\":1}", NULL); /* the same line again */
+  symbols_position(&utf16, at, &line, &column);
+  g_assert_cmpint(column, ==, 1);
+  json_node_unref(at);
+  at = json_from_string("{\"line\":9,\"character\":0}", NULL);
+  symbols_position(&utf16, at, &line, &column);
+  g_assert_cmpint(line, ==, 2);
+  g_assert_cmpint(column, ==, 0);
+  json_node_unref(at);
   free_tab(tab);
 }
 
@@ -1861,8 +1949,8 @@ static void flush_problems(void)
     g_main_context_iteration(NULL, TRUE);
 }
 
-/* The Problems panel lists every editor's diagnostics with their counts, a row opens its place, and
- * rebuilding the list again and again leaves nothing behind. */
+/* The Problems panel lists every editor's diagnostics with their counts, a row opens its place, the
+ * same list again keeps its rows, and rebuilding the list again and again leaves nothing behind. */
 static void test_problems_panel(void)
 {
   GtkWidget *panel;
@@ -1896,12 +1984,19 @@ static void test_problems_panel(void)
   g_assert_cmpint(opened_line, ==, 2);
   g_assert_cmpint(opened_column, ==, 5);
 
+  /* the same list again (the server sends it after each change): the rows stay */
+  row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(pv.list), 0);
+  diagnostics_show(tab, list);
+  flush_problems();
+  g_assert_true(gtk_list_box_get_row_at_index(GTK_LIST_BOX(pv.list), 0) == row);
+
   for (int round = 0; round < 2; round++) {
     if (round == 1) {
       malloc_trim(0);
       before = mallinfo2().uordblks;
     }
     for (int i = 0; i < 500; i++) {
+      g_clear_pointer(&pv.shown, g_free); /* built again each time */
       problems_update(&app);
       flush_problems();
     }
@@ -2148,6 +2243,44 @@ static void test_semantic_delta(void)
   json_node_unref(delta);
   json_node_unref(full);
   free_tab(tab); /* frees s */
+}
+
+/* A big full answer is colored a part at a time while the main loop is idle, from the top; a change
+ * meanwhile stops it, and the next answer brings all the tokens again. */
+static void test_semantic_chunks(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/chunks.c", "int a;\nint b;\nint c;\nint d;\nint e;\n");
+  JsonNode *tokens = json_of("{\"resultId\":\"1\",\"data\":[0,4,1,1,0, 1,4,1,1,0, 1,4,1,1,0, 1,4,1,1,0, 1,4,1,1,0]}");
+  guint saved = chunk_tokens;
+  Semantic *s;
+  GtkTextIter at;
+
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  s = tab->view->semantic;
+  g_assert_nonnull(s);
+  chunk_tokens = 2;
+  apply(tab, tokens);
+  g_assert_cmpstr(semantic_color_at(tab, 4), ==, "variable");  /* a: the first part, at once */
+  g_assert_cmpstr(semantic_color_at(tab, 11), ==, "variable"); /* b */
+  g_assert_null(semantic_color_at(tab, 18));                   /* c: later */
+  g_assert_cmpuint(s->color_id, !=, 0);
+  while (s->color_id)
+    g_main_context_iteration(NULL, TRUE);
+  g_assert_cmpstr(semantic_color_at(tab, 32), ==, "variable"); /* e */
+
+  apply(tab, tokens); /* again, and the text changes before it is done */
+  g_assert_cmpuint(s->color_id, !=, 0);
+  gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(tab->buffer), &at);
+  gtk_text_buffer_insert(GTK_TEXT_BUFFER(tab->buffer), &at, "int f;\n", -1);
+  while (s->color_id)
+    g_main_context_iteration(NULL, TRUE);
+  g_assert_null(s->data); /* the next request asks for all */
+  g_assert_null(s->result_id);
+
+  chunk_tokens = saved;
+  json_node_unref(tokens);
+  free_tab(tab);
 }
 
 /* Each file goes to its language's server (one per language), which hears its languageId; the
@@ -2444,6 +2577,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/sync-utf16", test_sync_utf16);
   g_test_add_func("/lsp/reload", test_reload);
   g_test_add_func("/lsp/hover", test_hover);
+  g_test_add_func("/lsp/big-message-order", test_big_message_order);
   g_test_add_func("/lsp/request-no-reply", test_request_no_reply);
   g_test_add_func("/lsp/edits-reverse", test_edits_reverse);
   g_test_add_func("/lsp/fail-pending-reentrant", test_fail_pending_reentrant);
@@ -2466,6 +2600,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/show-document", test_show_document);
   g_test_add_func("/lsp/inlay-hints", test_inlay_hints);
   g_test_add_func("/lsp/symbols", test_symbols);
+  g_test_add_func("/lsp/symbol-positions", test_symbol_positions);
   g_test_add_func("/lsp/hierarchy", test_hierarchy);
   g_test_add_func("/lsp/lru-pool", test_lru_pool);
   g_test_add_func("/lsp/open-files-setting", test_open_files_setting);
@@ -2484,6 +2619,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/ctrl-url", test_ctrl_url);
   g_test_add_func("/lsp/semantic-timeout-close", test_semantic_timeout_close);
   g_test_add_func("/lsp/semantic-delta", test_semantic_delta);
+  g_test_add_func("/lsp/semantic-chunks", test_semantic_chunks);
   g_test_add_func("/lsp/problem-end", test_problem_end);
   g_test_add_func("/lsp/problems-panel", test_problems_panel);
   g_test_add_func("/lsp/completion-items", test_completion_items);

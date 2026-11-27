@@ -1,7 +1,7 @@
 /*
  * Diagnostics in an editor (see diagnostics.h). Each one keeps its range as two marks, so it moves
- * with the text typed before it until the server sends the next list; a tag per severity draws the
- * wave under it. The language server's list and each plugin's (socket "diagnostics-set") replace only
+ * with the text typed before it until the server sends the next list; diagnostics_draw() draws the
+ * wave under it from those marks. The language server's list and each plugin's (socket "diagnostics-set") replace only
  * their own; plugins' lists are kept per path, for files opened later too.
  */
 #include "lsp/inline/diagnostics.h"
@@ -26,20 +26,7 @@ struct Diagnostic {
 
 /* The error, warning and info colors, from the color theme. */
 static const PalColor colors[] = { PAL_ERROR, PAL_ERROR, PAL_WARNING, PAL_INFO, PAL_INFO };
-static const char *const tag_names[] = { NULL, "lsp-error", "lsp-warning", "lsp-info", "lsp-info" };
 static const char *const labels[] = { NULL, "error", "warning", "note", "hint" };
-
-/* The tag for a severity, made in the buffer the first time. */
-static GtkTextTag *tag_for(Tab *tab, int severity)
-{
-  GtkTextTagTable *table = gtk_text_buffer_get_tag_table(GTK_TEXT_BUFFER(tab->buffer));
-  GtkTextTag *tag = gtk_text_tag_table_lookup(table, tag_names[severity]);
-
-  if (!tag) {
-    tag = gtk_text_buffer_create_tag(GTK_TEXT_BUFFER(tab->buffer), tag_names[severity], NULL);
-  }
-  return tag;
-}
 
 static void diagnostic_free(Diagnostic *d)
 {
@@ -55,19 +42,11 @@ static void diagnostic_free(Diagnostic *d)
   g_free(d);
 }
 
-/* Takes the waves off and forgets the list. */
+/* Forgets the list (diagnostics_draw() draws the waves from it). */
 static void remove_all(Tab *tab)
 {
-  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
-  GtkTextIter start, end;
-
-  if (!tab->view->diagnostics)
-    return;
-  gtk_text_buffer_get_bounds(buffer, &start, &end);
-  for (int s = SEVERITY_ERROR; s <= SEVERITY_INFO; s++)
-    if (gtk_text_tag_table_lookup(gtk_text_buffer_get_tag_table(buffer), tag_names[s]))
-      gtk_text_buffer_remove_tag(buffer, tag_for(tab, s), &start, &end);
-  g_ptr_array_set_size(tab->view->diagnostics, 0);
+  if (tab->view->diagnostics)
+    g_ptr_array_set_size(tab->view->diagnostics, 0);
 }
 
 void diagnostics_clear(Tab *tab)
@@ -99,23 +78,12 @@ static void drop_owned(Tab *tab, const char *owner)
       g_ptr_array_remove_index(list, i);
 }
 
-/* The waves again for every diagnostic, the counts, and everything that shows them. */
+/* The counts again, and everything that shows the diagnostics. */
 static void retag(Tab *tab)
 {
-  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
-  GtkTextIter start, end;
-
-  gtk_text_buffer_get_bounds(buffer, &start, &end);
-  for (int s = SEVERITY_ERROR; s <= SEVERITY_INFO; s++)
-    if (gtk_text_tag_table_lookup(gtk_text_buffer_get_tag_table(buffer), tag_names[s]))
-      gtk_text_buffer_remove_tag(buffer, tag_for(tab, s), &start, &end);
   tab->problems.errors = tab->problems.warnings = 0;
   for (guint i = 0; i < tab->view->diagnostics->len; i++) {
     Diagnostic *d = g_ptr_array_index(tab->view->diagnostics, i);
-    gtk_text_buffer_get_iter_at_mark(buffer, &start, d->start);
-    gtk_text_buffer_get_iter_at_mark(buffer, &end, d->end);
-    if (d->severity != SEVERITY_HINT) /* hints: none */
-      gtk_text_buffer_apply_tag(buffer, tag_for(tab, d->severity), &start, &end);
     tab->problems.errors += d->severity == SEVERITY_ERROR;
     tab->problems.warnings += d->severity == SEVERITY_WARNING;
   }

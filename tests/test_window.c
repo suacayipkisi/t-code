@@ -3280,6 +3280,12 @@ static void test_preview_github(void)
   g_assert_true(has_tag(&iter, "bold"));
   gtk_text_iter_forward_chars(&iter, 4); /* the row below: $x^2$ as a formula */
   g_assert_nonnull(gtk_text_iter_get_paintable(&iter));
+  /* shown again (the theme changed, the file was saved): the table's tag is the one made before */
+  int tags = gtk_text_tag_table_get_size(gtk_text_buffer_get_tag_table(buffer));
+  preview_restyle(current_tab(&app));
+  preview_restyle(current_tab(&app));
+  g_assert_cmpint(gtk_text_tag_table_get_size(gtk_text_buffer_get_tag_table(buffer)), ==, tags);
+  iter = preview_find(buffer, "a\tb\n");
 
   /* <details> is closed: its text is hidden until its summary is clicked. */
   iter = preview_find(buffer, "secret text");

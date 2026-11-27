@@ -92,6 +92,7 @@ struct Lsp {
   guint written_id;
   GHashTable *progress; /* $/progress token -> Progress, while that work runs */
   char *progress_last;  /* the token that spoke last */
+  GQueue inbox;         /* Incoming (server.c): messages in order, while a big one is parsed in a thread */
 };
 
 /* Work a server reports with $/progress. */

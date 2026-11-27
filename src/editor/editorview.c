@@ -36,6 +36,7 @@
 #include "window/terminal.h"
 #include "window/palette.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static const char *const css =
@@ -369,9 +370,15 @@ G_DECLARE_FINAL_TYPE(TcodeMap, tcode_map, TCODE, MAP, GtkSourceMap)
 struct _TcodeMap {
   GtkSourceMap parent;
   Tab *tab;
+  GArray *lines[2]; /* int: the warnings' and errors' lines, kept between frames */
 };
 
 G_DEFINE_FINAL_TYPE(TcodeMap, tcode_map, GTK_SOURCE_TYPE_MAP)
+
+static int compare_ints(gconstpointer a, gconstpointer b)
+{
+  return *(const int *)a - *(const int *)b;
+}
 
 static void tcode_map_snapshot_layer(GtkTextView *view, GtkTextViewLayer layer, GtkSnapshot *snapshot)
 {
@@ -379,52 +386,67 @@ static void tcode_map_snapshot_layer(GtkTextView *view, GtkTextViewLayer layer, 
 
   GTK_TEXT_VIEW_CLASS(tcode_map_parent_class)->snapshot_layer(view, layer, snapshot);
 
-  if (layer == GTK_TEXT_VIEW_LAYER_ABOVE_TEXT && self->tab && self->tab->view && !self->tab->view->loading) {
-    Tab *tab = self->tab;
-    GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
-    GArray *lines[2] = { g_array_new(FALSE, FALSE, sizeof(int)), g_array_new(FALSE, FALSE, sizeof(int)) };
-    diagnostics_lines(tab, lines[1], lines[0]); /* lines[0] = warnings, lines[1] = errors */
-
-    int total_lines = gtk_text_buffer_get_line_count(buffer);
-    gboolean *seen = g_new0(gboolean, total_lines + 1);
-    float map_w = (float)gtk_widget_get_width(GTK_WIDGET(view));
-
-    GdkRGBA edge_rgba[2] = { *palette_rgba(PAL_WARNING), *palette_rgba(PAL_ERROR) };
-    GdkRGBA bg_rgba[2] = { edge_rgba[0], edge_rgba[1] };
-    bg_rgba[0].alpha = 0.35f;
-    bg_rgba[1].alpha = 0.40f;
-
-    /* Draw errors first (k=1) then warnings (k=0), so error colors take precedence on the same line */
-    for (int k = 1; k >= 0; k--) {
-      for (guint i = 0; i < lines[k]->len; i++) {
-        int line_idx = g_array_index(lines[k], int, i);
-        if (line_idx < 0 || line_idx >= total_lines || seen[line_idx])
-          continue;
-        seen[line_idx] = TRUE;
-
-        GtkTextIter iter;
-        int y, h;
-        gtk_text_buffer_get_iter_at_line(buffer, &iter, line_idx);
-        gtk_text_view_get_line_yrange(view, &iter, &y, &h);
-        int draw_h = MAX(h, 2);
-
-        /* Highlight across the full minimap line */
-        graphene_rect_t row_rect = GRAPHENE_RECT_INIT(0.0f, (float)y, map_w, (float)draw_h);
-        gtk_snapshot_append_color(snapshot, &bg_rgba[k], &row_rect);
-
-        /* Solid indicator on the right edge */
-        graphene_rect_t edge_rect = GRAPHENE_RECT_INIT(map_w - 3.0f, (float)y, 3.0f, (float)draw_h);
-        gtk_snapshot_append_color(snapshot, &edge_rgba[k], &edge_rect);
-      }
-    }
-    g_array_free(lines[0], TRUE);
-    g_array_free(lines[1], TRUE);
-    g_free(seen);
+  if (layer != GTK_TEXT_VIEW_LAYER_ABOVE_TEXT || !self->tab || !self->tab->view || self->tab->view->loading ||
+      !self->tab->view->diagnostics || self->tab->view->diagnostics->len == 0)
+    return;
+  Tab *tab = self->tab;
+  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
+  GArray **lines = self->lines; /* lines[0] = warnings, lines[1] = errors */
+  for (int k = 0; k < 2; k++) {
+    if (!lines[k])
+      lines[k] = g_array_new(FALSE, FALSE, sizeof(int));
+    g_array_set_size(lines[k], 0);
   }
+  diagnostics_lines(tab, lines[1], lines[0]);
+  g_array_sort(lines[0], compare_ints);
+  g_array_sort(lines[1], compare_ints);
+
+  int total_lines = gtk_text_buffer_get_line_count(buffer);
+  float map_w = (float)gtk_widget_get_width(GTK_WIDGET(view));
+  GdkRGBA edge_rgba[2] = { *palette_rgba(PAL_WARNING), *palette_rgba(PAL_ERROR) };
+  GdkRGBA bg_rgba[2] = { edge_rgba[0], edge_rgba[1] };
+  bg_rgba[0].alpha = 0.35f;
+  bg_rgba[1].alpha = 0.40f;
+
+  /* Errors first (k=1), then warnings on the lines without an error: the error's color wins. */
+  for (int k = 1; k >= 0; k--) {
+    for (guint i = 0; i < lines[k]->len; i++) {
+      int line_idx = g_array_index(lines[k], int, i);
+      if (line_idx < 0 || line_idx >= total_lines || (i > 0 && g_array_index(lines[k], int, i - 1) == line_idx))
+        continue;
+      if (k == 0 && lines[1]->len && bsearch(&line_idx, lines[1]->data, lines[1]->len, sizeof(int), compare_ints))
+        continue;
+
+      GtkTextIter iter;
+      int y, h;
+      gtk_text_buffer_get_iter_at_line(buffer, &iter, line_idx);
+      gtk_text_view_get_line_yrange(view, &iter, &y, &h);
+      int draw_h = MAX(h, 2);
+
+      /* Highlight across the full minimap line */
+      graphene_rect_t row_rect = GRAPHENE_RECT_INIT(0.0f, (float)y, map_w, (float)draw_h);
+      gtk_snapshot_append_color(snapshot, &bg_rgba[k], &row_rect);
+
+      /* Solid indicator on the right edge */
+      graphene_rect_t edge_rect = GRAPHENE_RECT_INIT(map_w - 3.0f, (float)y, 3.0f, (float)draw_h);
+      gtk_snapshot_append_color(snapshot, &edge_rgba[k], &edge_rect);
+    }
+  }
+}
+
+static void tcode_map_finalize(GObject *object)
+{
+  TcodeMap *self = TCODE_MAP(object);
+
+  for (int k = 0; k < 2; k++)
+    if (self->lines[k])
+      g_array_free(self->lines[k], TRUE);
+  G_OBJECT_CLASS(tcode_map_parent_class)->finalize(object);
 }
 
 static void tcode_map_class_init(TcodeMapClass *klass)
 {
+  G_OBJECT_CLASS(klass)->finalize = tcode_map_finalize;
   GTK_TEXT_VIEW_CLASS(klass)->snapshot_layer = tcode_map_snapshot_layer;
 }
 

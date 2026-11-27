@@ -1,7 +1,8 @@
 /*
  * The Process Monitor window (see processes.h). Each look reads /proc (application/processes.c)
  * with the owners the modules name; the process grid is built again only when the processes changed,
- * else its numbers are updated in place (an End button keeps its hover and click).
+ * else its numbers are updated in place (an End button keeps its hover and click). The looks after
+ * the first read /proc in a thread: PSS is a walk of every mapping of every process.
  */
 #define _DEFAULT_SOURCE
 #include "dialogs/processes.h"
@@ -46,7 +47,16 @@ typedef struct {
   char *shape;       /* the pids and owners the grid was built for */
   gboolean measured; /* a sample before this one: CPU is known */
   guint refresh_id;
+  GCancellable *sampling; /* a look in a thread, while there is one */
+  gboolean again;         /* asked for meanwhile: one more look after it */
 } Monitor;
+
+/* A look at the processes, read in a thread. */
+typedef struct {
+  ProcSampler *sampler; /* the monitor's: freed here when the window went meanwhile */
+  GHashTable *owners;
+  GPtrArray *procs;
+} Look;
 
 static Monitor *monitor; /* while the window is open */
 
@@ -266,20 +276,24 @@ static void build_grid(GPtrArray *procs)
   }
 }
 
-static void refresh_now(void)
+/* The owners the modules name, read on the UI thread (they look at their own state). */
+static GHashTable *owners_now(void)
 {
   App *t = monitor->app;
   GHashTable *owners = procs_owners_new();
-  GPtrArray *procs;
-  char *shape;
 
   plugins_own_processes(owners);
   lsp_own_processes(t, owners);
   debug_own_processes(t, owners);
   terminals_own_processes(t, owners);
-  procs = procs_sample(monitor->sampler, getpid(), owners);
+  return owners;
+}
 
-  shape = shape_of(procs);
+/* Shows a look: procs (taken) and the owners they point into (taken). */
+static void show_look(GPtrArray *procs, GHashTable *owners)
+{
+  char *shape = shape_of(procs);
+
   if (g_strcmp0(shape, monitor->shape) != 0) {
     build_grid(procs);
     g_free(monitor->shape);
@@ -302,16 +316,76 @@ static void refresh_now(void)
   g_hash_table_unref(owners);
 }
 
+/* The first look, so the window opens filled. */
+static void refresh_now(void)
+{
+  GHashTable *owners = owners_now();
+
+  show_look(procs_sample(monitor->sampler, getpid(), owners), owners);
+}
+
+static void look_free(Look *look)
+{
+  g_clear_pointer(&look->procs, g_ptr_array_unref);
+  g_clear_pointer(&look->owners, g_hash_table_unref);
+  g_free(look);
+}
+
+static void look_in_thread(GTask *task, gpointer source G_GNUC_UNUSED, gpointer data,
+                           GCancellable *cancel G_GNUC_UNUSED)
+{
+  Look *look = data;
+
+  look->procs = procs_sample(look->sampler, getpid(), look->owners);
+  g_task_return_boolean(task, TRUE);
+}
+
+static void refresh_later(void);
+
+static void on_looked(GObject *source G_GNUC_UNUSED, GAsyncResult *result, gpointer data G_GNUC_UNUSED)
+{
+  Look *look = g_task_get_task_data(G_TASK(result));
+
+  if (g_cancellable_is_cancelled(g_task_get_cancellable(G_TASK(result)))) { /* the window went */
+    procs_sampler_free(look->sampler);
+    return;
+  }
+  g_clear_object(&monitor->sampling);
+  show_look(g_steal_pointer(&look->procs), g_steal_pointer(&look->owners));
+  if (monitor->again) {
+    monitor->again = FALSE;
+    refresh_later();
+  }
+}
+
+/* A look in a thread; while the last one is still being read, one after it. */
+static void refresh_later(void)
+{
+  if (monitor->sampling) {
+    monitor->again = TRUE;
+    return;
+  }
+  Look *look = g_new0(Look, 1);
+  look->sampler = monitor->sampler;
+  look->owners = owners_now();
+  monitor->sampling = g_cancellable_new();
+  GTask *task = g_task_new(NULL, monitor->sampling, on_looked, NULL);
+  g_task_set_task_data(task, look, (GDestroyNotify)look_free);
+  g_task_set_check_cancellable(task, FALSE);
+  g_task_run_in_thread(task, look_in_thread);
+  g_object_unref(task);
+}
+
 static gboolean refresh(gpointer data G_GNUC_UNUSED)
 {
-  refresh_now();
+  refresh_later();
   return G_SOURCE_CONTINUE;
 }
 
 /* An ended process: look again shortly, then every REFRESH_MS from there. */
 static gboolean refresh_once(gpointer data G_GNUC_UNUSED)
 {
-  refresh_now();
+  refresh_later();
   monitor->refresh_id = g_timeout_add(REFRESH_MS, refresh, NULL);
   return G_SOURCE_REMOVE;
 }
@@ -325,7 +399,11 @@ static void refresh_soon(void)
 static void on_destroy(GtkWidget *window G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
 {
   g_clear_handle_id(&monitor->refresh_id, g_source_remove);
-  procs_sampler_free(monitor->sampler);
+  if (monitor->sampling) { /* the thread still reads with the sampler: on_looked frees it */
+    g_cancellable_cancel(monitor->sampling);
+    g_clear_object(&monitor->sampling);
+  } else
+    procs_sampler_free(monitor->sampler);
   g_array_free(monitor->rows, TRUE);
   g_free(monitor->shape);
   g_clear_pointer(&monitor, g_free);

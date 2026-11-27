@@ -100,6 +100,7 @@ struct Preview {
   GPtrArray *pictures;  /* the images shown, sized to the view's width */
   GHashTable *rises;    /* a formula's depth below the baseline -> the tag that lowers it that far */
   GHashTable *spacers;  /* pixels a list marker's space widens by -> its tag (letter-spacing) */
+  GHashTable *tab_tags; /* a table's tab stops (pango_tab_array_to_string) -> its tag: one per layout */
   GHashTable *remote;   /* a web image's address, a diagram's key -> its paintable (or pending, failed) */
   GCancellable *cancel; /* the background fetches, cancelled when the preview goes */
   GQueue web_waiting;   /* web image addresses waiting for a fetch to end (a few run at a time) */

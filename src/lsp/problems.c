@@ -29,6 +29,7 @@ typedef struct {
   GtkLabel *warn_label;
   GtkLabel *info_label;
   guint update_id; /* a rebuild waiting for the main loop to be idle */
+  char *shown;     /* what the rows say, one line each: the same list again builds nothing */
 } ProblemsView;
 
 static ProblemsView pv = { 0 };
@@ -85,12 +86,38 @@ static GtkWidget *problem_row(Tab *tab, const char *name, Diagnostic *d, int kin
   return row;
 }
 
-/* Rebuilds the list from every open editor's diagnostics. */
+/* What the rows would say now: each diagnostic's file, place, severity and message. */
+static char *problems_text(App *t)
+{
+  GString *text = g_string_new(NULL);
+
+  for (int i = 0; i < tab_count(t); i++) {
+    Tab *tab = tab_nth(t, i);
+    GPtrArray *diags = tab->kind == TAB_EDITOR && tab->path ? diagnostics_of(tab) : NULL;
+    for (guint j = 0; diags && j < diags->len; j++) {
+      Diagnostic *d = g_ptr_array_index(diags, j);
+      int line = 1, col = 1;
+      diagnostic_position(tab, d, &line, &col);
+      g_string_append_printf(text, "%s:%d:%d:%d:%s\n", tab->path, line, col, diagnostic_severity(d),
+                             diagnostic_message(d));
+    }
+  }
+  return g_string_free(text, FALSE);
+}
+
+/* Rebuilds the list from every open editor's diagnostics (when they are not the ones shown: the
+ * server sends a file's list again after each change, mostly the same). */
 static void rebuild(App *t)
 {
   int counts[3] = { 0 }; /* errors, warnings, the rest */
-  char *text;
+  char *text = problems_text(t);
 
+  if (g_strcmp0(text, pv.shown) == 0) {
+    g_free(text);
+    return;
+  }
+  g_free(pv.shown);
+  pv.shown = text;
   gtk_list_box_remove_all(GTK_LIST_BOX(pv.list));
   for (int i = 0; i < tab_count(t); i++) {
     Tab *tab = tab_nth(t, i);
@@ -138,6 +165,7 @@ void problems_update(App *t)
 static void on_panel_destroy(GtkWidget *panel G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
 {
   g_clear_handle_id(&pv.update_id, g_source_remove);
+  g_free(pv.shown);
   pv = (ProblemsView){ 0 };
 }
 

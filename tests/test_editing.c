@@ -951,6 +951,40 @@ static void test_guide_pair_utf8(void)
   check_pair("{ // ğğğ\n  a;\n\n}\n", "  a", "0-3");
 }
 
+/* A big file lists its brackets again once typing rests: until then the last block stays, then the
+ * block around the cursor is the new one. */
+static void test_guide_pair_big_file(void)
+{
+  Tab *tab = new_tab("void f(void)\n{\n  a();\n}\nvoid g(void)\n{\n  b();\n}\n");
+  GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
+  TcodeView *view = TCODE_VIEW(tab->source);
+  int saved = brackets_big, open, close;
+  GtkTextIter at;
+
+  brackets_big = 1; /* every file is big */
+  gtk_text_buffer_get_iter_at_line_offset(buffer, &at, 2, 2);
+  gtk_text_buffer_place_cursor(buffer, &at);
+  g_assert_true(cursor_pair(view, &open, &close)); /* the first listing: at once */
+  g_assert_cmpint(open, ==, 1);
+  g_assert_cmpint(close, ==, 3);
+
+  gtk_text_buffer_get_start_iter(buffer, &at);
+  gtk_text_buffer_insert(buffer, &at, "\n\n", -1);
+  tab->view->changes++;
+  gtk_text_buffer_get_iter_at_line_offset(buffer, &at, 8, 2); /* in g */
+  gtk_text_buffer_place_cursor(buffer, &at);
+  g_assert_true(cursor_pair(view, &open, &close));
+  g_assert_cmpint(open, ==, 1); /* the old block, while typing goes on */
+  g_assert_cmpuint(view->brackets_id, !=, 0);
+  while (view->brackets_id)
+    g_main_context_iteration(NULL, TRUE);
+  g_assert_true(cursor_pair(view, &open, &close));
+  g_assert_cmpint(open, ==, 7);
+  g_assert_cmpint(close, ==, 9);
+  brackets_big = saved;
+  free_tab(tab);
+}
+
 /* A blank line gets the guides of the lines around it. */
 static void test_guide_blank_lines(void)
 {
@@ -1903,6 +1937,7 @@ int main(int argc, char **argv)
   g_test_add_func("/guides/pair", test_guide_pair);
   g_test_add_func("/guides/pair-in-comment", test_guide_pair_in_comment);
   g_test_add_func("/guides/pair-utf8", test_guide_pair_utf8);
+  g_test_add_func("/guides/pair-big-file", test_guide_pair_big_file);
   g_test_add_func("/guides/blank-lines", test_guide_blank_lines);
   g_test_add_func("/signature/outlived", test_signature_outlived);
   g_test_add_func("/editing/line-blame", test_line_blame);

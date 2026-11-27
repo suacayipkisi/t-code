@@ -309,6 +309,10 @@ static void test_same_status(void)
   poll_branch(&app);
   wait_for(1, 3);
   g_assert_cmpstr(tab_title(), ==, "SOURCE CONTROL  3");
+  /* one more file: the rows already there stay, each with the new status's change */
+  g_assert_true(gtk_widget_get_parent(first) == GTK_WIDGET(list(1)));
+  int index = gtk_list_box_row_get_index(GTK_LIST_BOX_ROW(first));
+  g_assert_true(g_object_get_data(G_OBJECT(first), "change") == g_ptr_array_index(scm.changes, index));
   g_assert_true(g_unlink(path) == 0);
   g_free(path);
   poll_branch(&app);

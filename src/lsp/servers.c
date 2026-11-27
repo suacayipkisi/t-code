@@ -322,10 +322,45 @@ static char *venv_pylsp(App *t)
 }
 #endif
 
+static char *look_for_program(const char *name);
+
+/* What find_program found lately: the status bar asks on every update (a cursor move, a tab switch),
+ * and each answer is a stat of every PATH folder. Kept a few seconds, and while PATH stays the same,
+ * so a server installed (or PATH changed) while t-code runs is still seen. */
+#define FOUND_KEEP_US (5 * G_USEC_PER_SEC)
+static struct {
+  GHashTable *paths; /* name -> where it is, "" for nowhere */
+  char *path_env;    /* the PATH they were found with */
+  gint64 since;
+} found;
+
 /* Where the program name is: PATH, then the folders language installers put programs in (pipx,
  * cargo install, go install), in case they are not on PATH even after the login shell's (see
  * application/shellenv.h). NULL when it is nowhere. */
 static char *find_program(const char *name)
+{
+  const char *path_env = g_getenv("PATH");
+  gint64 now = g_get_monotonic_time();
+  const char *known;
+
+  if (!found.paths || g_strcmp0(found.path_env, path_env) != 0 || now - found.since > FOUND_KEEP_US) {
+    if (found.paths)
+      g_hash_table_remove_all(found.paths);
+    else
+      found.paths = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    g_free(found.path_env);
+    found.path_env = g_strdup(path_env);
+    found.since = now;
+  }
+  if (!(known = g_hash_table_lookup(found.paths, name))) {
+    char *where = look_for_program(name);
+    known = where ? where : g_strdup("");
+    g_hash_table_insert(found.paths, g_strdup(name), (char *)known);
+  }
+  return *known ? g_strdup(known) : NULL;
+}
+
+static char *look_for_program(const char *name)
 {
   char *path = g_find_program_in_path(name);
   const char *gopath = g_getenv("GOPATH"), *gobin = g_getenv("GOBIN"), *cargo = g_getenv("CARGO_HOME");

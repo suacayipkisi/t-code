@@ -28,8 +28,14 @@ void open_file(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void open_to_side(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page G_GNUC_UNUSED) {}
 void files_reveal(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
-Tab *find_tab(App *t G_GNUC_UNUSED, TabKind kind G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) { return NULL; }
 /* clang-format on */
+
+static Tab *open_tab; /* the one file "open in an editor", or NULL */
+
+Tab *find_tab(App *t G_GNUC_UNUSED, TabKind kind G_GNUC_UNUSED, const char *path)
+{
+  return open_tab && g_strcmp0(open_tab->path, path) == 0 ? open_tab : NULL;
+}
 
 static char *said; /* status_say's last message */
 
@@ -381,6 +387,44 @@ static void write_file(const char *dir, const char *rel, const char *contents)
   g_free(write_at(dir, rel, contents, -1, 0));
 }
 
+/* A file open in an editor is replaced in there (left unsaved), not on disk: each replacement at its
+ * place, characters of several bytes before them too. */
+static void test_replace_in_editor(void)
+{
+  char *path = write_at(tmp, "u/uni.txt", "omega\n", -1, 0), *text;
+  Tab tab = { .kind = TAB_EDITOR, .path = path };
+  GtkTextIter start, end;
+  gint64 until;
+
+  tab.buffer = gtk_source_buffer_new(NULL);
+  tab.source = GTK_SOURCE_VIEW(g_object_ref_sink(gtk_source_view_new_with_buffer(tab.buffer)));
+  gtk_text_buffer_set_text(GTK_TEXT_BUFFER(tab.buffer), "\xc4\x9f\xc4\x9f omega x \xf0\x9f\x98\x80 omega!\n", -1);
+  open_tab = &tab;
+  reset_options();
+  search_for("omega");
+  gtk_toggle_button_set_active(option("Toggle Replace"), TRUE);
+  gtk_editable_set_text(entry_with(panel, "Replace"), "\xce\xa9");
+  g_clear_pointer(&said, g_free); /* the last test said the same */
+  search_replace_run();
+  until = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
+  while (g_get_monotonic_time() < until && g_strcmp0(said, "Replaced 2 occurrences in 1 file") != 0)
+    g_main_context_iteration(NULL, FALSE);
+  g_assert_cmpstr(said, ==, "Replaced 2 occurrences in 1 file");
+  gtk_text_buffer_get_bounds(GTK_TEXT_BUFFER(tab.buffer), &start, &end);
+  text = gtk_text_buffer_get_text(GTK_TEXT_BUFFER(tab.buffer), &start, &end, TRUE);
+  g_assert_cmpstr(text, ==, "\xc4\x9f\xc4\x9f \xce\xa9 x \xf0\x9f\x98\x80 \xce\xa9!\n");
+  g_free(text);
+  g_assert_true(g_file_get_contents(path, &text, NULL, NULL));
+  g_assert_cmpstr(text, ==, "omega\n"); /* the file itself: untouched */
+  g_free(text);
+  gtk_toggle_button_set_active(option("Toggle Replace"), FALSE);
+  open_tab = NULL;
+  g_unlink(path);
+  g_object_unref(tab.source);
+  g_object_unref(tab.buffer);
+  g_free(path);
+}
+
 int main(int argc, char **argv)
 {
   GString *many = g_string_new(NULL);
@@ -425,6 +469,7 @@ int main(int argc, char **argv)
   g_test_add_func("/search-panel/replace-running", test_replace_running);
   g_test_add_func("/search-panel/replace-all", test_replace_all);
   g_test_add_func("/search-panel/replace-after-switch", test_replace_after_switch);
+  g_test_add_func("/search-panel/replace-in-editor", test_replace_in_editor);
   status = g_test_run();
 
   gtk_window_destroy(GTK_WINDOW(window));

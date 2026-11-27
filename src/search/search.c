@@ -470,15 +470,28 @@ static int replace_in_editor(Tab *tab, GRegex *regex, const char *replacement, g
   edits = search_edits(regex, text, replacement, is_regex, NULL);
   count = edits ? (int)edits->len : 0;
   if (count > 0 && gtk_text_view_get_editable(GTK_TEXT_VIEW(tab->source))) {
+    /* The character offsets of every edit in one walk over the text (the edits are in order): from
+     * the start of the text for each one took M times its length. */
+    glong *offsets = g_new(glong, 2 * edits->len), chars = 0;
+    int at = 0;
+    for (guint i = 0; i < edits->len; i++) {
+      SearchEdit *edit = &g_array_index(edits, SearchEdit, i);
+      chars += g_utf8_strlen(text + at, (gssize)(edit->start - at));
+      offsets[2 * i] = chars;
+      chars += g_utf8_strlen(text + edit->start, (gssize)(edit->end - edit->start));
+      offsets[2 * i + 1] = chars;
+      at = edit->end;
+    }
     gtk_text_buffer_begin_user_action(buffer);
     for (guint i = edits->len; i-- > 0;) { /* from the end: the earlier offsets stay right */
       SearchEdit *edit = &g_array_index(edits, SearchEdit, i);
-      gtk_text_buffer_get_iter_at_offset(buffer, &start, (int)g_utf8_pointer_to_offset(text, text + edit->start));
-      gtk_text_buffer_get_iter_at_offset(buffer, &end, (int)g_utf8_pointer_to_offset(text, text + edit->end));
+      gtk_text_buffer_get_iter_at_offset(buffer, &start, (int)offsets[2 * i]);
+      gtk_text_buffer_get_iter_at_offset(buffer, &end, (int)offsets[2 * i + 1]);
       gtk_text_buffer_delete(buffer, &start, &end);
       gtk_text_buffer_insert(buffer, &start, edit->text, -1);
     }
     gtk_text_buffer_end_user_action(buffer);
+    g_free(offsets);
   } else {
     count = 0;
   }

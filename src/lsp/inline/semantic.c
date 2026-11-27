@@ -16,7 +16,17 @@
 
 #define UPDATE_MS 300 /* after the last change */
 
+/* A full answer for a big file (60000 lines: 180000 tokens) took a third of a second to color: past
+ * this many tokens it is colored this many at a time, from the top, while the main loop is idle. */
+static guint chunk_tokens = 8000;
+
 typedef struct TokensRequest TokensRequest;
+
+/* Where coloring a full answer is: the token next, and the line and start the ones before it reached. */
+typedef struct {
+  guint index; /* into the numbers: a multiple of 5 */
+  gint64 line, start;
+} ColorAt;
 
 struct Semantic {
   Tab *tab;
@@ -27,6 +37,9 @@ struct Semantic {
   char *result_id;         /* theirs, to ask for what changed since; NULL: ask for all */
   GtkTextMark *dirty_from; /* text whose colors an answer changed while it could not be applied */
   GtkTextMark *dirty_to;
+  guint color_id;      /* a big full answer is being colored, a part each time the main loop is idle */
+  guint color_changes; /* the text it is about (tab->view->changes) */
+  ColorAt color_at;
 };
 
 /* One request; dropped when semantic is NULL (the editor went) or a newer one went. */
@@ -197,6 +210,8 @@ typedef struct {
   int lines;
   gboolean utf16;
   gint64 line, at; /* where iter is: a line (-1: nowhere yet) and a character in it */
+  gboolean ascii;  /* the line is: a character is a byte and a UTF-16 unit */
+  int length;      /* its characters, without the line end */
   GtkTextIter iter;
 } Walker;
 
@@ -207,9 +222,25 @@ static void walk_to(Walker *w, gint64 line, gint64 character, GtkTextIter *out)
     gtk_text_buffer_get_end_iter(w->buffer, out);
     return;
   }
-  if (line != w->line || character < w->at) {
+  if (line != w->line) {
+    GtkTextIter end;
     gtk_text_buffer_get_iter_at_line(w->buffer, &w->iter, (int)MAX(line, 0));
     w->line = line;
+    w->at = 0;
+    w->ascii = gtk_text_iter_get_bytes_in_line(&w->iter) == gtk_text_iter_get_chars_in_line(&w->iter);
+    end = w->iter;
+    if (!gtk_text_iter_ends_line(&end))
+      gtk_text_iter_forward_to_line_end(&end);
+    w->length = gtk_text_iter_get_line_offset(&end);
+  }
+  if (w->ascii) { /* as good as every line of code: no walk */
+    gtk_text_iter_set_line_offset(&w->iter, (int)CLAMP(character, 0, w->length));
+    w->at = gtk_text_iter_get_line_offset(&w->iter);
+    *out = w->iter;
+    return;
+  }
+  if (character < w->at) {
+    gtk_text_iter_set_line_offset(&w->iter, 0);
     w->at = 0;
   }
   while (!gtk_text_iter_ends_line(&w->iter)) {
@@ -223,32 +254,71 @@ static void walk_to(Walker *w, gint64 line, gint64 character, GtkTextIter *out)
   *out = w->iter;
 }
 
-static void color_tokens(Tab *tab, GArray *data, gint64 from_line, gint64 to_line)
+/* Colors the tokens from at on, on lines from_line to to_line (-1: to the end), at most limit of them;
+ * at moves on. TRUE when there are none left. */
+static gboolean color_from(Tab *tab, GArray *data, ColorAt *at, gint64 from_line, gint64 to_line, guint limit)
 {
   GtkTextBuffer *buffer = GTK_TEXT_BUFFER(tab->buffer);
   const guint32 *n = (const guint32 *)data->data;
-  gint64 line = 0, start = 0;
   Legend legend;
-  Walker walker = { buffer, gtk_text_buffer_get_line_count(buffer), lsp_utf16(tab), -1, 0, { 0 } };
+  Walker walker = { buffer, gtk_text_buffer_get_line_count(buffer), lsp_utf16(tab), -1, 0, FALSE, 0, { 0 } };
+  gboolean done = TRUE;
 
   legend_init(&legend, tab);
-  for (guint i = 0; i + 4 < data->len; i += 5) {
+  for (guint count = 0; at->index + 4 < data->len; at->index += 5) {
+    guint i = at->index;
     GtkTextTag *tag;
     GtkTextIter from, to;
-    line += n[i];
-    start = n[i] ? n[i + 1] : start + n[i + 1];
-    if (to_line >= 0 && line > to_line)
+    if (count++ == limit) {
+      done = FALSE;
       break;
-    if (line < from_line || n[i + 3] >= legend.n_types || !(tag = legend.tags[n[i + 3]]))
+    }
+    at->line += n[i];
+    at->start = n[i] ? n[i + 1] : at->start + n[i + 1];
+    if (to_line >= 0 && at->line > to_line)
+      break;
+    if (at->line < from_line || n[i + 3] >= legend.n_types || !(tag = legend.tags[n[i + 3]]))
       continue;
     if (legend.variable[n[i + 3]] && (n[i + 4] & legend.readonly))
       tag = legend.constant;
-    walk_to(&walker, line, start, &from);
-    walk_to(&walker, line, start + n[i + 2], &to);
+    walk_to(&walker, at->line, at->start, &from);
+    walk_to(&walker, at->line, at->start + n[i + 2], &to);
     gtk_text_buffer_apply_tag(buffer, tag, &from, &to);
   }
   raise_tags(gtk_text_buffer_get_tag_table(buffer));
   legend_clear(&legend);
+  return done;
+}
+
+static void color_tokens(Tab *tab, GArray *data, gint64 from_line, gint64 to_line)
+{
+  ColorAt at = { 0, 0, 0 };
+
+  color_from(tab, data, &at, from_line, to_line, G_MAXUINT);
+}
+
+static void stop_coloring(Semantic *s)
+{
+  g_clear_handle_id(&s->color_id, g_source_remove);
+}
+
+static void forget_tokens(Semantic *s);
+
+/* The next part of a big full answer; a change meanwhile stops it, and the next answer brings all. */
+static gboolean color_next(gpointer data)
+{
+  Semantic *s = data;
+
+  if (s->color_changes != s->tab->view->changes) {
+    s->color_id = 0;
+    forget_tokens(s);
+    return G_SOURCE_REMOVE;
+  }
+  if (color_from(s->tab, s->data, &s->color_at, 0, -1, chunk_tokens)) {
+    s->color_id = 0;
+    return G_SOURCE_REMOVE;
+  }
+  return G_SOURCE_CONTINUE;
 }
 
 /* The numbers of a JSON array, as guint32. */
@@ -265,21 +335,28 @@ static GArray *numbers_of(JsonNode *node)
   return numbers;
 }
 
-/* All the tokens (a full answer): every color again. */
+/* All the tokens (a full answer): every color again; a big file's a part at a time (color_next). */
 static void apply(Tab *tab, JsonNode *result)
 {
   GArray *data = numbers_of(json_at(result, "data"));
   Semantic *s = tab->view->semantic;
 
+  if (s)
+    stop_coloring(s);
   remove_colors(tab);
-  color_tokens(tab, data, 0, -1);
-  if (s) {
-    if (s->data)
-      g_array_unref(s->data);
-    s->data = data;
-    g_set_str(&s->result_id, json_string_at(result, "resultId"));
-  } else {
+  if (!s) {
+    color_tokens(tab, data, 0, -1);
     g_array_unref(data);
+    return;
+  }
+  if (s->data)
+    g_array_unref(s->data);
+  s->data = data;
+  g_set_str(&s->result_id, json_string_at(result, "resultId"));
+  s->color_at = (ColorAt){ 0, 0, 0 };
+  if (!color_from(tab, data, &s->color_at, 0, -1, chunk_tokens)) { /* the top now, the rest when idle */
+    s->color_changes = tab->view->changes;
+    s->color_id = g_idle_add(color_next, s);
   }
 }
 
@@ -339,6 +416,10 @@ static void forget_dirty(Semantic *s)
  * older text marks those lines, to be colored with the next one. */
 static void apply_delta(Semantic *s, JsonNode *result, gboolean current)
 {
+  if (s->color_id) { /* still coloring the last full answer: the next request asks for all again */
+    forget_tokens(s);
+    return;
+  }
   JsonNode *edits_node = json_at(result, "edits");
   JsonArray *edits = JSON_NODE_HOLDS_ARRAY(edits_node) ? json_node_get_array(edits_node) : NULL;
   guint n = edits ? json_array_get_length(edits) : 0, old_len = s->data->len, low = old_len, high = 0;
@@ -387,6 +468,7 @@ static void apply_delta(Semantic *s, JsonNode *result, gboolean current)
 /* Asks for all the tokens next time (the kept ones no longer match the colors). */
 static void forget_tokens(Semantic *s)
 {
+  stop_coloring(s);
   g_clear_pointer(&s->data, g_array_unref);
   g_clear_pointer(&s->result_id, g_free);
   forget_dirty(s);
@@ -469,6 +551,7 @@ void semantic_free(Semantic *s)
   if (!s)
     return;
   s->tab = NULL;
+  stop_coloring(s);
   if (s->update_id) {
     guint update_id = s->update_id;
     s->update_id = 0;

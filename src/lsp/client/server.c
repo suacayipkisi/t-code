@@ -121,6 +121,8 @@ static void watch_databases(Lsp *l)
   }
 }
 
+static void inbox_clear(Lsp *l);
+
 /* Stops the server: stdin closes, and it exits. Requests get NULL; the files are sent again to the
  * next one. */
 void lsp_server_stop(Lsp *l)
@@ -142,6 +144,7 @@ void lsp_server_stop(Lsp *l)
     channel_close(l->ch);
     l->ch = NULL;
   }
+  inbox_clear(l);
   g_clear_object(&l->process);
   g_clear_pointer(&l->err, err_tail_free); /* stopped on purpose: nothing to report */
   g_clear_handle_id(&l->init_timeout_id, g_source_remove);
@@ -377,20 +380,11 @@ static gboolean include_not_found(JsonNode *diagnostics)
 }
 
 /* A message from the server: an answer, one of its own requests, or a notification. */
-static void on_message(gpointer owner, const char *body)
+static void dispatch(Lsp *l, JsonNode *message)
 {
-  Lsp *l = owner;
-  JsonParser *parser = json_parser_new_immutable();
-  JsonNode *message, *id;
-  const char *method;
+  const char *method = json_string_at(message, "method");
+  JsonNode *id = json_at(message, "id");
 
-  l->active = g_get_monotonic_time();
-  if (!json_parser_load_from_data(parser, body, -1, NULL) || !(message = json_parser_get_root(parser))) {
-    g_object_unref(parser);
-    return;
-  }
-  method = json_string_at(message, "method");
-  id = json_at(message, "id");
   if (method && id) {
     answer_server(l, message);
   } else if (g_strcmp0(method, "textDocument/publishDiagnostics") == 0) {
@@ -416,7 +410,116 @@ static void on_message(gpointer owner, const char *body)
     if (p)
       lsp_finish(p, p->cancelled ? NULL : json_at(message, "result"));
   }
+}
+
+/* Parsing a message takes about 80 ms per megabyte, and a big file's symbols or semantic tokens are
+ * megabytes: a message this big is parsed in a thread. The ones after it wait in l->inbox for it,
+ * so they are still handled in the order they came. */
+#define PARSE_IN_THREAD 65536
+
+typedef struct {
+  Lsp *lsp; /* NULL once the server stopped: the thread's result is thrown away */
+  char *body;
+  gboolean big;       /* parsed in a thread */
+  gboolean ready;     /* parsed, or small (parsed when its turn comes) */
+  JsonParser *parser; /* a big one's, NULL when it was not JSON */
+} Incoming;
+
+static void incoming_free(Incoming *in)
+{
+  g_clear_object(&in->parser);
+  g_free(in->body);
+  g_free(in);
+}
+
+/* A message's turn: a big one was parsed already, a small one is parsed now. */
+static void handle(Lsp *l, const char *body, JsonParser *parsed)
+{
+  JsonParser *parser = parsed ? g_object_ref(parsed) : json_parser_new_immutable();
+  JsonNode *message;
+
+  l->active = g_get_monotonic_time();
+  if ((parsed || json_parser_load_from_data(parser, body, -1, NULL)) && (message = json_parser_get_root(parser)))
+    dispatch(l, message);
   g_object_unref(parser);
+}
+
+/* Handles the messages at the head of the inbox that are ready. */
+static void drain(Lsp *l)
+{
+  Incoming *in;
+
+  while ((in = g_queue_peek_head(&l->inbox)) && in->ready) {
+    g_queue_pop_head(&l->inbox);
+    if (!in->big)
+      handle(l, in->body, NULL);
+    else if (in->parser) /* else not JSON: dropped */
+      handle(l, NULL, in->parser);
+    incoming_free(in);
+  }
+}
+
+static void parse_in_thread(GTask *task, gpointer source G_GNUC_UNUSED, gpointer data,
+                            GCancellable *cancel G_GNUC_UNUSED)
+{
+  Incoming *in = data;
+  JsonParser *parser = json_parser_new_immutable();
+
+  if (json_parser_load_from_data(parser, in->body, -1, NULL))
+    in->parser = parser;
+  else
+    g_object_unref(parser);
+  g_task_return_boolean(task, TRUE);
+}
+
+static void on_parsed(GObject *source G_GNUC_UNUSED, GAsyncResult *result, gpointer data G_GNUC_UNUSED)
+{
+  Incoming *in = g_task_get_task_data(G_TASK(result));
+
+  if (!in->lsp) { /* the server stopped meanwhile */
+    incoming_free(in);
+    return;
+  }
+  in->ready = TRUE;
+  drain(in->lsp);
+}
+
+/* The server stopped: the messages waiting go; one still being parsed is dropped when it is done. */
+static void inbox_clear(Lsp *l)
+{
+  Incoming *in;
+
+  while ((in = g_queue_pop_head(&l->inbox))) {
+    if (in->ready)
+      incoming_free(in);
+    else
+      in->lsp = NULL; /* on_parsed frees it */
+  }
+}
+
+static void on_message(gpointer owner, const char *body)
+{
+  Lsp *l = owner;
+  size_t length = strlen(body);
+  Incoming *in;
+
+  if (g_queue_is_empty(&l->inbox) && length < PARSE_IN_THREAD) {
+    handle(l, body, NULL);
+    return;
+  }
+  in = g_new0(Incoming, 1);
+  in->lsp = l;
+  in->body = g_strdup(body);
+  g_queue_push_tail(&l->inbox, in);
+  if (length < PARSE_IN_THREAD) {
+    in->ready = TRUE; /* parsed when its turn comes */
+    return;
+  }
+  in->big = TRUE;
+  GTask *task = g_task_new(NULL, NULL, on_parsed, NULL);
+  g_task_set_task_data(task, in, NULL);
+  g_task_run_in_thread(task, parse_in_thread);
+  g_object_unref(task);
 }
 
 /* clangd's environment as settings.clangd says (lsp/servers.c). glibc's allocator is what makes

@@ -337,6 +337,7 @@ void preview_free(Preview *p)
   g_ptr_array_free(p->pictures, TRUE);
   g_hash_table_destroy(p->rises);
   g_hash_table_destroy(p->spacers);
+  g_hash_table_destroy(p->tab_tags);
   g_hash_table_destroy(p->remote);
   g_queue_clear_full(&p->web_waiting, g_free);
   g_array_free(p->details, TRUE);
@@ -382,6 +383,7 @@ static GtkWidget *preview_new(App *t, Preview *p)
   p->pictures = g_ptr_array_new();
   p->rises = g_hash_table_new(NULL, NULL);
   p->spacers = g_hash_table_new(NULL, NULL);
+  p->tab_tags = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   p->remote = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, preview_remote_free);
   p->cancel = g_cancellable_new();
   p->details = g_array_new(FALSE, FALSE, sizeof(Details));

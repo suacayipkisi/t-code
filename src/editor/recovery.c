@@ -72,7 +72,10 @@ void recovery_save_snapshot(Tab *tab)
   char *content = g_strdup_printf("TCODE_RECOVERY_V1 %" G_GINT64_FORMAT " %s\n%s", now, shown, text);
   g_free(shown);
 
-  if (g_file_set_contents(journal, content, -1, NULL))
+  /* Replaced in one step (never half written), without waiting for the disk (fsync): this runs on the
+   * UI thread every time typing rests, and a journal is for t-code ending badly, which the kernel
+   * outlives. */
+  if (g_file_set_contents_full(journal, content, -1, G_FILE_SET_CONTENTS_CONSISTENT, 0600, NULL))
     tab->view->journaled = TRUE;
 
   g_free(content);

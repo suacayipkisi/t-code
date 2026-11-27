@@ -453,8 +453,15 @@ static GtkTextTag *table_tag(Render *r, PreviewTable *table, const MD_ALIGN *ali
   pango_tab_array_resize(tabs, MAX(n, 1));
   if (!n)
     pango_tab_array_set_tab(tabs, 0, PANGO_TAB_LEFT, table->edges[table->columns]);
-  GtkTextTag *tag = gtk_text_buffer_create_tag(r->p->buffer, NULL, "tabs", tabs, "wrap-mode", GTK_WRAP_WORD_CHAR,
-                                               "pixels-inside-wrap", 0, NULL);
+  /* Kept by its tab stops: a render per change of the text must not add a tag per table each time. */
+  char *key = pango_tab_array_to_string(tabs);
+  GtkTextTag *tag = g_hash_table_lookup(r->p->tab_tags, key);
+  if (!tag) {
+    tag = gtk_text_buffer_create_tag(r->p->buffer, NULL, "tabs", tabs, "wrap-mode", GTK_WRAP_WORD_CHAR,
+                                     "pixels-inside-wrap", 0, NULL);
+    g_hash_table_insert(r->p->tab_tags, key, tag);
+  } else
+    g_free(key);
   pango_tab_array_free(tabs);
   return tag;
 }

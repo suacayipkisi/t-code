@@ -82,47 +82,110 @@ GtkWidget *scm_file_row(const char *path, char code, GtkWidget **box_out)
   return row;
 }
 
-/* clang-format off */
-static void on_stage_clicked(GtkButton *button G_GNUC_UNUSED, Change *c) { scm_stage(c->path); }
-static void on_unstage_clicked(GtkButton *button G_GNUC_UNUSED, Change *c) { scm_unstage(c); }
-static void on_discard_clicked(GtkButton *button G_GNUC_UNUSED, Change *c) { scm_discard(c); }
-/* clang-format on */
+/* The change of the row a button is on (rows are kept across fills: the Change is the latest one). */
+static Change *change_of(GtkWidget *button)
+{
+  GtkWidget *row = gtk_widget_get_ancestor(button, GTK_TYPE_LIST_BOX_ROW);
 
-/* Fills a list from scm.staged or scm.changes, with the buttons each row needs. */
+  return row ? g_object_get_data(G_OBJECT(row), "change") : NULL;
+}
+
+static void on_stage_clicked(GtkButton *button, gpointer data G_GNUC_UNUSED)
+{
+  Change *c = change_of(GTK_WIDGET(button));
+  if (c)
+    scm_stage(c->path);
+}
+
+static void on_unstage_clicked(GtkButton *button, gpointer data G_GNUC_UNUSED)
+{
+  Change *c = change_of(GTK_WIDGET(button));
+  if (c)
+    scm_unstage(c);
+}
+
+static void on_discard_clicked(GtkButton *button, gpointer data G_GNUC_UNUSED)
+{
+  Change *c = change_of(GTK_WIDGET(button));
+  if (c)
+    scm_discard(c);
+}
+
+/* What a row shows: when a new list's change says the same, its row stays. */
+static char *row_key(const Change *c, const char *changelist)
+{
+  return g_strdup_printf("%c%s\n%s", c->code, c->path, changelist ? changelist : "");
+}
+
+/* A new row for c. */
+static GtkWidget *change_row(Change *c, const char *changelist, gboolean staged)
+{
+  GtkWidget *box, *row = scm_file_row(c->path, c->code, &box);
+  GtkWidget *button;
+
+  if (changelist) { /* svn: the changelist it is in */
+    GtkWidget *tag = gtk_label_new(changelist);
+    gtk_widget_add_css_class(tag, "dim");
+    gtk_widget_set_tooltip_text(tag, "Its Subversion changelist");
+    gtk_box_append(GTK_BOX(box), tag);
+  }
+  if (staged) {
+    button = scm_icon_button("tcode-remove-symbolic", "Unstage");
+    g_signal_connect(button, "clicked", G_CALLBACK(on_unstage_clicked), NULL);
+    gtk_box_append(GTK_BOX(box), button);
+  } else {
+    button = scm_icon_button("tcode-discard-symbolic", "Discard changes");
+    g_signal_connect(button, "clicked", G_CALLBACK(on_discard_clicked), NULL);
+    gtk_box_append(GTK_BOX(box), button);
+    button = scm_icon_button("tcode-add-symbolic", "Stage");
+    g_signal_connect(button, "clicked", G_CALLBACK(on_stage_clicked), NULL);
+    gtk_box_append(GTK_BOX(box), button);
+  }
+  gtk_box_append(GTK_BOX(box), scm_code_label(c->code));
+  g_object_set_data_full(G_OBJECT(row), "key", row_key(c, changelist), g_free);
+  return row;
+}
+
+/* Fills a list from scm.staged or scm.changes, with the buttons each row needs. A row that shows the
+ * same as before stays (only its Change is the new one): one changed file among thousands built
+ * every row again, a quarter of a second each time a file was saved. */
 void scm_fill_changes(GtkListBox *list, GPtrArray *changes, gboolean staged)
 {
   GitRepo *r = git_shown_repo(scm.app);
   GHashTable *changelists = r && r->kind == VCS_SVN ? r->changelists : NULL;
+  GHashTable *wanted = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+  char **keys = g_new0(char *, changes->len + 1);
+  GtkListBoxRow *row;
 
-  context_menu_clear_list(list);
   for (guint i = 0; i < changes->len; i++) {
     Change *c = g_ptr_array_index(changes, i);
-    GtkWidget *box, *row = scm_file_row(c->path, c->code, &box);
-    GtkWidget *button;
-    const char *changelist = changelists ? g_hash_table_lookup(changelists, c->path) : NULL;
-
-    if (changelist) { /* svn: the changelist it is in */
-      GtkWidget *tag = gtk_label_new(changelist);
-      gtk_widget_add_css_class(tag, "dim");
-      gtk_widget_set_tooltip_text(tag, "Its Subversion changelist");
-      gtk_box_append(GTK_BOX(box), tag);
+    keys[i] = row_key(c, changelists ? g_hash_table_lookup(changelists, c->path) : NULL);
+    g_hash_table_add(wanted, g_strdup(keys[i]));
+  }
+  /* The rows that show what is gone go; the rest keep their order. */
+  for (int i = 0; (row = gtk_list_box_get_row_at_index(list, i));) {
+    const char *key = g_object_get_data(G_OBJECT(row), "key");
+    if (key && g_hash_table_contains(wanted, key))
+      i++;
+    else
+      gtk_list_box_remove(list, GTK_WIDGET(row));
+  }
+  /* Each change at its place: the row there when it says the same, else a new one. Rows pushed past
+   * the end (another order) go after. */
+  for (guint i = 0; i < changes->len; i++) {
+    Change *c = g_ptr_array_index(changes, i);
+    row = gtk_list_box_get_row_at_index(list, (int)i);
+    if (!row || g_strcmp0(g_object_get_data(G_OBJECT(row), "key"), keys[i]) != 0) {
+      const char *changelist = changelists ? g_hash_table_lookup(changelists, c->path) : NULL;
+      row = GTK_LIST_BOX_ROW(change_row(c, changelist, staged));
+      gtk_list_box_insert(list, GTK_WIDGET(row), (int)i);
     }
     g_object_set_data(G_OBJECT(row), "change", c);
-    if (staged) {
-      button = scm_icon_button("tcode-remove-symbolic", "Unstage");
-      g_signal_connect(button, "clicked", G_CALLBACK(on_unstage_clicked), c);
-      gtk_box_append(GTK_BOX(box), button);
-    } else {
-      button = scm_icon_button("tcode-discard-symbolic", "Discard changes");
-      g_signal_connect(button, "clicked", G_CALLBACK(on_discard_clicked), c);
-      gtk_box_append(GTK_BOX(box), button);
-      button = scm_icon_button("tcode-add-symbolic", "Stage");
-      g_signal_connect(button, "clicked", G_CALLBACK(on_stage_clicked), c);
-      gtk_box_append(GTK_BOX(box), button);
-    }
-    gtk_box_append(GTK_BOX(box), scm_code_label(c->code));
-    gtk_list_box_append(list, row);
   }
+  while ((row = gtk_list_box_get_row_at_index(list, (int)changes->len)))
+    gtk_list_box_remove(list, GTK_WIDGET(row));
+  g_strfreev(keys);
+  g_hash_table_unref(wanted);
 }
 
 /* Whether path has staged changes too. */
