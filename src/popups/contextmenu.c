@@ -63,6 +63,21 @@ static void on_closed(GtkPopover *popover G_GNUC_UNUSED, Menu *menu)
     menu->finish_id = g_idle_add(finish, menu); /* an item's action comes in after closed */
 }
 
+/* Shows the menu unless it went meanwhile (another menu came first), or an item was chosen before it
+ * showed (a script, a test): then it finishes as if closed. */
+static gboolean popup_later(gpointer popover)
+{
+  Menu *menu = active_menu;
+
+  if (!menu || menu->popover != popover || !gtk_widget_get_parent(popover))
+    return G_SOURCE_REMOVE;
+  if (menu->chosen >= 0)
+    on_closed(GTK_POPOVER(popover), menu);
+  else
+    gtk_popover_popup(GTK_POPOVER(popover));
+  return G_SOURCE_REMOVE;
+}
+
 void context_menu(GtkWidget *widget, double x, double y, const MenuItem *items, int n, gpointer data,
                   GDestroyNotify free_data)
 {
@@ -107,7 +122,9 @@ void context_menu(GtkWidget *widget, double x, double y, const MenuItem *items, 
   gtk_widget_set_parent(menu->popover, widget);
   gtk_popover_set_pointing_to(GTK_POPOVER(menu->popover), &(GdkRectangle){ (int)x, (int)y, 1, 1 });
   g_signal_connect(menu->popover, "closed", G_CALLBACK(on_closed), menu);
-  gtk_popover_popup(GTK_POPOVER(menu->popover));
+  /* GTK puts the lines between the sections in a (high priority) idle: shown before them, the menu got
+   * a size without them, and Wayland kept it, cutting the menu to a scrolling box. */
+  g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, popup_later, g_object_ref(menu->popover), g_object_unref);
   g_object_unref(model);
   g_object_unref(group);
 }
