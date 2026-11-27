@@ -229,6 +229,9 @@ static const Setting settings[] = {
                " F5 debugs C, C++ and Rust with lldb-dap instead of gdb (gdb when lldb-dap is not installed)"),
   BOOL_SETTING("reopen-last-project", reopen_last, TRUE,
                " When started from the app menu (not from a folder in a terminal)"),
+  BOOL_SETTING("trust-all-folders", trust_all, FALSE,
+               " Every project's own programs run without asking (its venv, node_modules TypeScript, Rust build"
+               " scripts, test listing); off: only in the folders in ~/.config/t-code/trusted"),
   BOOL_SETTING("check-updates", check_updates, TRUE,
                " Once at start-up, the latest release on GitHub goes against this version; a newer one asks"),
   BOOL_SETTING("menu-bar", menu_bar, TRUE,

@@ -409,11 +409,18 @@ typedef struct {
   char *top; /* the work tree it was asked in */
   VcsKind kind;
   Side old, new;
+  gboolean replace;   /* takes the place of the group's temporary tab */
+  gboolean temporary; /* and is temporary itself (FALSE once asked for kept on its way) */
 } Revisions;
+
+static GPtrArray *asked_temporary; /* Revisions asked for in a temporary tab, not answered yet */
 
 static void revisions_free(gpointer data)
 {
   Revisions *r = data;
+
+  if (asked_temporary)
+    g_ptr_array_remove_fast(asked_temporary, r);
 
   g_free(r->top);
   g_free(r->old.rev);
@@ -469,7 +476,13 @@ static void show_revisions(App *t, char **outs, gpointer data);
  * right, each gutter marking what differs from the other. Paths are relative to the work tree top
  * (they differ after a rename); a NULL rev or path is a missing side (the file was added or
  * deleted): the other one shows alone. */
-void compare_revisions(App *t, const char *old_rev, const char *old_rel, const char *new_rev, const char *new_rel)
+static gboolean same_side(const Side *side, const char *rev, const char *rel)
+{
+  return g_strcmp0(side->rev, rev && rel ? rev : NULL) == 0 && g_strcmp0(side->rel, rev && rel ? rel : NULL) == 0;
+}
+
+static void ask_revisions(App *t, const char *old_rev, const char *old_rel, const char *new_rev, const char *new_rel,
+                          gboolean temporary)
 {
   static const char *const none[] = { NULL };
   Revisions *r;
@@ -480,13 +493,26 @@ void compare_revisions(App *t, const char *old_rev, const char *old_rel, const c
     show_message(t, "Nothing to compare", "This folder is not in a repository.");
     return;
   }
+  /* kept while the same one is still on its way to a temporary tab (a double click's first click):
+   * that one opens kept too, else it would take the place of this one when it comes last */
+  for (guint i = 0; !temporary && asked_temporary && i < asked_temporary->len; i++) {
+    Revisions *other = asked_temporary->pdata[i];
+    if (same_side(&other->old, old_rev, old_rel) && same_side(&other->new, new_rev, new_rel))
+      other->temporary = FALSE;
+  }
   r = g_new0(Revisions, 1);
   r->top = g_strdup(t->project.scm_top);
   r->kind = t->project.scm_kind;
+  r->replace = r->temporary = temporary;
   if (old_rev && old_rel)
     r->old = (Side){ g_strdup(old_rev), g_strdup(old_rel) };
   if (new_rev && new_rel)
     r->new = (Side){ g_strdup(new_rev), g_strdup(new_rel) };
+  if (temporary) {
+    if (!asked_temporary)
+      asked_temporary = g_ptr_array_new();
+    g_ptr_array_add(asked_temporary, r);
+  }
   side_commands(r->kind, repo ? repo->svn_url : NULL, &r->old, &old_short, &old_show);
   side_commands(r->kind, repo ? repo->svn_url : NULL, &r->new, &new_short, &new_show);
 #define OR_NONE(args) ((args) ? (const char *const *)(args) : none)
@@ -497,6 +523,17 @@ void compare_revisions(App *t, const char *old_rev, const char *old_rel, const c
   g_strfreev(old_show);
   g_strfreev(new_short);
   g_strfreev(new_show);
+}
+
+void compare_revisions(App *t, const char *old_rev, const char *old_rel, const char *new_rev, const char *new_rel)
+{
+  ask_revisions(t, old_rev, old_rel, new_rev, new_rel, FALSE);
+}
+
+void compare_revisions_temporary(App *t, const char *old_rev, const char *old_rel, const char *new_rev,
+                                 const char *new_rel)
+{
+  ask_revisions(t, old_rev, old_rel, new_rev, new_rel, TRUE);
 }
 
 /* git answered compare_revisions(): outs = { old short commit, old file, new short commit, new file }. */
@@ -515,6 +552,14 @@ static void show_revisions(App *t, char **outs, gpointer data)
   if (!old_path && !new_path) {
     show_message(t, "Nothing to compare", "The repository has no such version of this file.");
   } else {
+    GtkNotebook *group = t->editors.active;
+    Tab *old = r->replace ? temporary_tab(t, group) : NULL;
+    int position = -1;
+    if (old) { /* replaced, in its place */
+      position = tab_position(old);
+      remove_tab(old); /* with its other side */
+      t->editors.active = group;
+    }
     if (new_path)
       left = open_version(t, new_path, new_label, working);
     if (old_path)
@@ -527,6 +572,11 @@ static void show_revisions(App *t, char **outs, gpointer data)
       show_side_by_side(left, right);
     else
       select_tab(left ? left : right);
+    Tab *shown = left ? left : right; /* the tab holding both sides */
+    shown->temporary = r->temporary;
+    update_tab_label(shown);
+    if (position >= 0)
+      set_tab_position(shown, position);
   }
   g_free(working);
   g_free(new_path);

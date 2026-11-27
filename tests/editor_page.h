@@ -115,9 +115,9 @@ char *toolchain_rust_features(App *t G_GNUC_UNUSED)
 /* project/trust.c's stand-in: the project is trusted unless a test says not; what was asked, joined by "|". */
 static gboolean trust_test_refused;
 static GString *trust_test_asked;
-gboolean trust_has(const char *folder)
+gboolean trust_folder(App *t)
 {
-  return folder && !trust_test_refused;
+  return t->project.root && !trust_test_refused;
 }
 gboolean trust_project(App *t, const char *what)
 {

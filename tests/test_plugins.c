@@ -28,7 +28,7 @@ char *toolchain_rust_target(App *t G_GNUC_UNUSED) { return NULL; }
 char *langenv_rust_options(const char *features G_GNUC_UNUSED, const char *target G_GNUC_UNUSED, gboolean trusted G_GNUC_UNUSED) { return NULL; }
 char *toolchain_server_python(App *t G_GNUC_UNUSED) { return NULL; }
 gboolean trust_project(App *t G_GNUC_UNUSED, const char *what G_GNUC_UNUSED) { return TRUE; }
-gboolean trust_has(const char *folder G_GNUC_UNUSED) { return TRUE; }
+gboolean trust_folder(App *t G_GNUC_UNUSED) { return TRUE; }
 char *json_quote(const char *text) { return g_strdup_printf("\"%s\"", text); }
 static char *styles_given;  /* the "styles" folders palette_set_styles got last, joined by spaces */
 static int themes_applied;  /* color_theme_apply calls (palette_init: at the first load) */

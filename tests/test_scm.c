@@ -30,6 +30,8 @@ void compare_with_head(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void compare_with_index(App *t G_GNUC_UNUSED, const char *path G_GNUC_UNUSED) {}
 void compare_revisions(App *t G_GNUC_UNUSED, const char *old_rev G_GNUC_UNUSED, const char *old_rel G_GNUC_UNUSED,
                        const char *new_rev G_GNUC_UNUSED, const char *new_rel G_GNUC_UNUSED) {}
+void compare_revisions_temporary(App *t G_GNUC_UNUSED, const char *old_rev G_GNUC_UNUSED, const char *old_rel G_GNUC_UNUSED,
+                                 const char *new_rev G_GNUC_UNUSED, const char *new_rel G_GNUC_UNUSED) {}
 void status_show_branch(App *t G_GNUC_UNUSED, const char *branch G_GNUC_UNUSED, gboolean dirty G_GNUC_UNUSED) {}
 void show_sidebar_page(App *t G_GNUC_UNUSED, const char *page G_GNUC_UNUSED) {}
 void status_say(App *t G_GNUC_UNUSED, const char *message G_GNUC_UNUSED) {}

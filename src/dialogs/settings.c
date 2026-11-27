@@ -12,6 +12,7 @@
 #include "lsp/client/client.h"
 #include "lsp/servers.h"
 #include "project/session.h"
+#include "project/trust.h"
 #include "project/userfiles.h"
 #include "window/terminal.h"
 #include "window/theme.h"
@@ -439,6 +440,10 @@ void show_settings(App *t)
           "Once at start-up, the latest release on GitHub goes against t-code; a newer one asks (also"
           " \"Check for Updates Now\")",
           setting_switch(&t->settings.check_updates, NULL));
+  add_row(GTK_GRID(grid), &row, "Trust all folders",
+          "Run every project's own programs without asking: its venv's Python, its node_modules TypeScript,"
+          " Rust build scripts, the test listing. Off: only in folders you trusted",
+          setting_switch(&t->settings.trust_all, trust_changed));
 
   grid = add_page(GTK_STACK(stack), "editor", "Editor", &row);
   add_row(GTK_GRID(grid), &row, "Minimap", "A small picture of the file next to the scrollbar",

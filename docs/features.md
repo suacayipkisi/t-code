@@ -170,7 +170,8 @@ go test run the project's code). Elsewhere the servers use what is on `PATH` (th
 the TypeScript it was installed with) and a bar above the editors offers **Trust Folder** or **Not
 Now**. Trusting restarts the servers. The list is `~/.config/t-code/trusted`, one folder per line;
 the folders inside a trusted one are trusted too. Build, Run, tasks and the Testing panel's Refresh
-are your own request and are not asked about.
+are your own request and are not asked about. **Trust all folders** (Settings: General, `trust-all-folders` in
+settings.ini) trusts every folder and never asks.
 
 **A server's life.**
 
@@ -363,6 +364,9 @@ The **Source Control** panel (`Ctrl+Shift+G`):
   typed);
 - it also lists commits: the pointer on one shows its message, author, date and line counts, and
   "Open Commit Details" shows it with its diff.
+- a click on a commit lists its files; a click on a file compares it with its parent commit's version
+  in a temporary tab (in italics) that the next file replaces, so reading the history leaves no pile
+  of tabs; a double or middle click keeps it (as does a double click on the tab).
 
 ### Branches, pull and fetch
 

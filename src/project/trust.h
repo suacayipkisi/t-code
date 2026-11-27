@@ -26,6 +26,9 @@ gboolean trust_add(const char *folder, GError **error);
 /* The bar (hidden), put above the editors by the window. */
 GtkWidget *trust_bar_new(App *t);
 
+/* Whether the project's folder is trusted: settings.trust_all, or it is in the list. Asks nothing. */
+gboolean trust_folder(App *t);
+
 /* Whether the project's own programs may run. When not, what ("its Python environment") is added
  * to the bar, which shows unless the user answered "Not Now" for this project. FALSE without a
  * project. */
@@ -33,3 +36,7 @@ gboolean trust_project(App *t, const char *what);
 
 /* The project changed: the bar hides and forgets what it listed. */
 void trust_reset(App *t);
+
+/* The folder was trusted or settings.trust_all changed: the bar hides, the servers restart and the
+ * Testing panel lists again with the new answer. */
+void trust_changed(App *t);

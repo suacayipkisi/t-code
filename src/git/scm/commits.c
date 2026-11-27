@@ -116,20 +116,27 @@ static void remove_commit_files(void)
   }
 }
 
+/* What the commit of a file row did to the file: its own version next to its parent's (a first
+ * commit has no parent, and that side stays empty); in the temporary tab unless keep. */
+static void compare_file_row(GtkListBoxRow *row, gboolean keep)
+{
+  const char *file_commit = g_object_get_data(G_OBJECT(row), "file-commit");
+  char *parent = g_strconcat(file_commit, "^", NULL);
+
+  (keep ? compare_revisions : compare_revisions_temporary)(scm.app, parent,
+                                                           g_object_get_data(G_OBJECT(row), "file-old"), file_commit,
+                                                           g_object_get_data(G_OBJECT(row), "file-new"));
+  g_free(parent);
+}
+
 /* A click in Commits: a commit unfolds (or folds) its files; a file shows what that commit changed
- * in it. */
+ * in it, in a temporary tab the next file replaces (a double or middle click keeps it). */
 static void on_commit_activated(GtkListBox *list G_GNUC_UNUSED, GtkListBoxRow *row, gpointer data G_GNUC_UNUSED)
 {
   const char *commit = g_object_get_data(G_OBJECT(row), "commit");
-  const char *file_commit = g_object_get_data(G_OBJECT(row), "file-commit");
 
-  if (file_commit) {
-    /* What the commit did to the file: its own version next to its parent's (a first commit
-     * has no parent, and that side stays empty). */
-    char *parent = g_strconcat(file_commit, "^", NULL);
-    compare_revisions(scm.app, parent, g_object_get_data(G_OBJECT(row), "file-old"), file_commit,
-                      g_object_get_data(G_OBJECT(row), "file-new"));
-    g_free(parent);
+  if (g_object_get_data(G_OBJECT(row), "file-commit")) {
+    compare_file_row(row, FALSE);
     return;
   }
   if (!commit)
@@ -148,6 +155,20 @@ static void on_commit_activated(GtkListBox *list G_GNUC_UNUSED, GtkListBoxRow *r
   char **other = scm_kind() != VCS_GIT ? vcs_commit_files_args(scm_kind(), commit) : NULL;
   scm_run_git(other ? (const char *const *)other : args, NULL, TRUE, on_commit_files, g_strdup(commit));
   g_strfreev(other);
+}
+
+/* A double click on a file row (its first click opened it in the temporary tab) or a middle click
+ * opens it kept. */
+static void on_commits_pressed(GtkGestureClick *gesture, int n_press, double x G_GNUC_UNUSED, double y,
+                               gpointer data G_GNUC_UNUSED)
+{
+  guint button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
+  GtkListBoxRow *row = gtk_list_box_get_row_at_y(scm.commits_list, (int)y);
+
+  if (!row || !g_object_get_data(G_OBJECT(row), "file-commit"))
+    return;
+  if ((button == GDK_BUTTON_PRIMARY && n_press == 2) || (button == GDK_BUTTON_MIDDLE && n_press == 1))
+    compare_file_row(row, TRUE);
 }
 
 /* The tooltip ------------------------------------------------------------------------------------ */
@@ -515,5 +536,10 @@ void commits_attach(void)
   palette_add_css(css);
   gtk_list_box_set_activate_on_single_click(scm.commits_list, TRUE);
   g_signal_connect(scm.commits_list, "row-activated", G_CALLBACK(on_commit_activated), NULL);
+  GtkGesture *keep = gtk_gesture_click_new();
+  gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(keep), 0);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(keep), GTK_PHASE_CAPTURE); /* before the list's */
+  g_signal_connect(keep, "pressed", G_CALLBACK(on_commits_pressed), NULL);
+  gtk_widget_add_controller(GTK_WIDGET(scm.commits_list), GTK_EVENT_CONTROLLER(keep));
   context_menu_attach(GTK_WIDGET(scm.commits_list), on_commits_menu, NULL);
 }

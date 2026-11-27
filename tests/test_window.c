@@ -6,6 +6,7 @@
  * hand, debugging with gdb. Needs a display; skipped without one.
  */
 #include "editor/editor.h"
+#include "project/trust.h"
 #include "debug/debugger.h"
 #include "debug/view/debugview.h"
 #include "lsp/json.h"
@@ -331,6 +332,115 @@ static void test_comparison_one_tab(void)
   run_for(50);
   assert_tabs("");
   g_free(path);
+}
+
+static gboolean compared_kept(gconstpointer path)
+{
+  Tab *tab = comparison_of(path);
+  return tab && !tab->temporary;
+}
+
+/* A commit's file opened from Commits goes into the temporary tab (in italics) and the next one takes
+ * its place; asked for kept (a double or middle click) it stays, also when the temporary request for
+ * it is still on its way (a double click's first click). */
+static void test_comparison_temporary(void)
+{
+  char *top = g_build_filename(app.project.root, "history", NULL), *old_scm = g_strdup(app.project.scm_top);
+  char *a = g_build_filename(top, "a.txt", NULL), *b = g_build_filename(top, "b.txt", NULL);
+  const char *const commit[] = { "-C", top, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "c", NULL };
+  Tab *tab;
+
+  g_free(write_at(top, "a.txt", "one\n", -1, 0));
+  g_free(write_at(top, "b.txt", "one\n", -1, 0));
+  if (!git((const char *[]){ "-C", top, "init", "-q", NULL }) ||
+      !git((const char *[]){ "-C", top, "add", ".", NULL }) || !git(commit)) {
+    g_test_skip("no git");
+    g_free(b);
+    g_free(a);
+    g_free(old_scm);
+    g_free(top);
+    return;
+  }
+  g_free(write_at(top, "a.txt", "two\n", -1, 0));
+  g_free(write_at(top, "b.txt", "two\n", -1, 0));
+  g_assert_true(git(commit));
+  g_set_str(&app.project.scm_top, top);
+  VcsKind old_kind = app.project.scm_kind;
+  app.project.scm_kind = VCS_GIT;
+
+  compare_revisions_temporary(&app, "HEAD^", "a.txt", "HEAD", "a.txt");
+  run_until(compared, a);
+  tab = comparison_of(a);
+  g_assert_true(tab->temporary);
+  g_assert_true(gtk_widget_has_css_class(GTK_WIDGET(tab->label), "temporary"));
+  compare_revisions_temporary(&app, "HEAD^", "b.txt", "HEAD", "b.txt"); /* takes its place */
+  run_until(compared, b);
+  assert_tabs("b.txt*"); /* "*": temporary */
+  g_assert_true(comparison_of(b)->temporary);
+
+  compare_revisions_temporary(&app, "HEAD^", "a.txt", "HEAD", "a.txt"); /* a double click */
+  compare_revisions(&app, "HEAD^", "a.txt", "HEAD", "a.txt");
+  run_until(compared_kept, a);
+  run_for(300); /* both answers came */
+  assert_tabs("a.txt");
+  g_assert_false(comparison_of(a)->temporary);
+  compare_revisions_temporary(&app, "HEAD^", "b.txt", "HEAD", "b.txt"); /* next to the kept one */
+  run_until(compared, b);
+  assert_tabs("a.txt b.txt*");
+  g_assert_true(comparison_of(b)->temporary);
+  g_assert_false(comparison_of(a)->temporary);
+
+  close_everything();
+  app.project.scm_kind = old_kind;
+  g_set_str(&app.project.scm_top, old_scm);
+  g_free(b);
+  g_free(a);
+  g_free(old_scm);
+  g_free(top);
+}
+
+/* A folder not trusted: what was not run shows in the bar above the editors, each once; Not Now hides
+ * it for the project; "Trust all folders" trusts every folder without asking; Trust Folder adds it to
+ * the list. */
+static GtkWidget *button_labeled(GtkWidget *root, const char *text);
+
+static void test_trust_bar(void)
+{
+  GtkWidget *bar = find_widget(GTK_WIDGET(app.window), GTK_TYPE_BOX, NULL, "tcode-trust");
+  GtkWidget *label = find_widget(bar, GTK_TYPE_LABEL, NULL, NULL);
+
+  trust_reset(&app);
+  g_assert_false(gtk_widget_get_visible(bar));
+  g_assert_false(trust_folder(&app));
+  g_assert_false(trust_project(&app, "its TypeScript"));
+  g_assert_false(trust_project(&app, "its TypeScript"));
+  g_assert_false(trust_project(&app, "its test listing"));
+  g_assert_true(gtk_widget_get_visible(bar));
+  g_assert_cmpstr(gtk_label_get_text(GTK_LABEL(label)), ==,
+                  "t-code did not run this folder's own programs (its TypeScript, its test listing). Trust it "
+                  "only if you trust its authors.");
+
+  g_signal_emit_by_name(button_labeled(bar, "Not Now"), "clicked");
+  g_assert_false(gtk_widget_get_visible(bar));
+  g_assert_false(trust_project(&app, "its Python environment")); /* not asked again for this project */
+  g_assert_false(gtk_widget_get_visible(bar));
+
+  app.settings.trust_all = TRUE;
+  g_assert_true(trust_folder(&app));
+  g_assert_true(trust_project(&app, "its Python environment"));
+  g_assert_false(trust_has(app.project.root)); /* the list is untouched */
+  app.settings.trust_all = FALSE;
+
+  trust_reset(&app);
+  g_assert_false(trust_project(&app, "its Python environment"));
+  g_signal_emit_by_name(button_labeled(bar, "Trust Folder"), "clicked");
+  g_assert_false(gtk_widget_get_visible(bar));
+  g_assert_true(trust_has(app.project.root));
+  g_assert_true(trust_project(&app, "its Python environment"));
+  char *list = g_build_filename(g_get_user_config_dir(), "t-code", "trusted", NULL);
+  g_assert_cmpint(g_unlink(list), ==, 0); /* the other tests run in a folder not trusted */
+  g_free(list);
+  run_for(100);
 }
 
 static gboolean second_line_marked(gconstpointer tab)
@@ -5109,7 +5219,7 @@ static void test_settings_pages(void)
     g_assert_true(GTK_IS_SCROLLED_WINDOW(page));
     switches += count_of(page, GTK_TYPE_SWITCH);
   }
-  g_assert_cmpint(switches, ==, 20 + SERVER_NONE); /* none lost on the way; one per built-in server */
+  g_assert_cmpint(switches, ==, 21 + SERVER_NONE); /* none lost on the way; one per built-in server */
   /* the editor's font: fixed width ones only; the Files panel's: any */
   GPtrArray *fonts = g_ptr_array_new();
   font_buttons(gtk_stack_get_child_by_name(stack, "appearance"), fonts);
@@ -6481,6 +6591,8 @@ int main(int argc, char **argv)
   g_test_add_func("/window/temporary-per-group", test_temporary_per_group);
   g_test_add_func("/window/opens-at-left-edge", test_opens_at_left_edge);
   g_test_add_func("/window/comparison-one-tab", test_comparison_one_tab);
+  g_test_add_func("/window/comparison-temporary", test_comparison_temporary);
+  g_test_add_func("/window/trust-bar", test_trust_bar);
   g_test_add_func("/window/hg-comparison", test_hg_comparison);
   g_test_add_func("/window/comparison-first-change", test_comparison_first_change);
   g_test_add_func("/window/comparisons-in-a-row", test_comparisons_in_a_row);

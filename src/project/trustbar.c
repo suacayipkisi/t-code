@@ -45,9 +45,7 @@ static void on_trust(GtkButton *button G_GNUC_UNUSED, gpointer data)
     return;
   }
   g_message("Trusted the folder %s", t->project.root);
-  trust_reset(t);
-  lsp_restart(t); /* with the project's own Python, TypeScript and build scripts now */
-  testing_reset(t);
+  trust_changed(t);
 }
 
 static void on_not_now(GtkButton *button G_GNUC_UNUSED, gpointer data)
@@ -87,11 +85,16 @@ GtkWidget *trust_bar_new(App *t)
   return trust.bar;
 }
 
+gboolean trust_folder(App *t)
+{
+  return t->project.root && (t->settings.trust_all || trust_has(t->project.root));
+}
+
 gboolean trust_project(App *t, const char *what)
 {
   if (!t->project.root)
     return FALSE;
-  if (trust_has(t->project.root))
+  if (trust_folder(t))
     return TRUE;
   if (!trust.bar || g_strcmp0(trust.dismissed, t->project.root) == 0)
     return FALSE;
@@ -110,4 +113,11 @@ void trust_reset(App *t G_GNUC_UNUSED)
     return;
   g_ptr_array_set_size(trust.what, 0);
   gtk_widget_set_visible(trust.bar, FALSE);
+}
+
+void trust_changed(App *t)
+{
+  trust_reset(t);
+  lsp_restart(t); /* with or without the project's own Python, TypeScript and build scripts now */
+  testing_reset(t);
 }

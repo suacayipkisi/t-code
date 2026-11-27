@@ -33,6 +33,11 @@ void file_history(App *t, const char *path);
  * are relative to the work tree top (they differ after a rename); a NULL rev or path is a missing
  * side (the file was added or deleted). */
 void compare_revisions(App *t, const char *old_rev, const char *old_rel, const char *new_rev, const char *new_rel);
+/* The same in the active group's temporary tab (in italics), which takes the place of the one there:
+ * the next one replaces it unless it was kept (a double click on the tab). Asking compare_revisions()
+ * for it while it is on its way opens it kept. */
+void compare_revisions_temporary(App *t, const char *old_rev, const char *old_rel, const char *new_rev,
+                                 const char *new_rel);
 
 /* Ends the current tab's comparison: its tab of old versions closes. */
 void stop_comparing(App *t);

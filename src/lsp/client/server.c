@@ -475,7 +475,7 @@ static char *typescript_for(Lsp *l, gboolean *refused)
   g_hash_table_iter_init(&iter, l->docs);
   while (!local && g_hash_table_iter_next(&iter, &tab, NULL))
     local = server_typescript_path(((Tab *)tab)->path, l->workspace);
-  if (local ? trust_project(l->app, "its TypeScript") : trust_has(l->workspace))
+  if (local ? trust_project(l->app, "its TypeScript") : trust_folder(l->app))
     return local;
   g_free(local);
   if (!(global = server_global_typescript()))
