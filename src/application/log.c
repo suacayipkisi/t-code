@@ -99,9 +99,14 @@ static GLogWriterOutput write_log(GLogLevelFlags level, const GLogField *fields,
       domain = fields[i].value;
     else if (g_strcmp0(fields[i].key, "MESSAGE") == 0)
       message = fields[i].value;
-  /* GTK 4.24's own frame clock warns about its frame timings now and then (no t-code code in the stack,
-   * nothing goes wrong): not a problem worth the log, the warning hook or stderr. */
+  /* GTK's own noise, not a problem worth the log, the warning hook or stderr: 4.24's frame clock warns
+   * about its frame timings now and then, and 4.25 asserts while drawing a GtkSourceView whose coloring
+   * changed since it was laid out (a plain GtkSourceView scrolled shows it too; the text is drawn at the
+   * next frame). No t-code code in either stack. */
   if (message && g_strcmp0(domain, "Gdk") == 0 && strstr(message, "gdk_frame_timings_submitted"))
+    return G_LOG_WRITER_HANDLED;
+  if (message && g_strcmp0(domain, "Gtk") == 0 && strstr(message, "gtk_text_view_paint") &&
+      strstr(message, "onscreen_validated"))
     return G_LOG_WRITER_HANDLED;
   if (message && ((level & (G_LOG_LEVEL_ERROR | G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING)) ||
                   !g_log_writer_default_would_drop(level, domain))) {

@@ -27,11 +27,17 @@ static inline GtkWidget *find_widget(GtkWidget *root, GType type, const char *to
 }
 
 /* GTK's own frame clock: 4.24 warns about its frame timings now and then, and 4.25's frame throttling
- * asserts in its own timeout (no t-code code in either stack). */
+ * asserts in its own timeout. GTK 4.25 also asserts while drawing a GtkSourceView whose coloring
+ * changed since it was laid out ("onscreen_validated"; application/log.c drops it too). No t-code code
+ * in any of their stacks. */
 static inline gboolean gtk_noise(const char *domain, const char *message)
 {
-  return g_strcmp0(domain, "Gdk") == 0 && message &&
-         (strstr(message, "gdk_frame_timings_submitted") || strstr(message, "gdk_draw_context_frame_stop_throttling"));
+  if (!message)
+    return FALSE;
+  if (g_strcmp0(domain, "Gdk") == 0)
+    return strstr(message, "gdk_frame_timings_submitted") || strstr(message, "gdk_draw_context_frame_stop_throttling");
+  return g_strcmp0(domain, "Gtk") == 0 && strstr(message, "gtk_text_view_paint") &&
+         strstr(message, "onscreen_validated");
 }
 
 /* GTK's noise is only printed; every other warning or critical still ends the test, as g_test_init
@@ -39,7 +45,7 @@ static inline gboolean gtk_noise(const char *domain, const char *message)
 static void gtk_noise_check(GLogLevelFlags level, const char *domain, const char *message)
 {
   if (gtk_noise(domain, message)) {
-    g_printerr("# ignored: Gdk: %s\n", message);
+    g_printerr("# ignored: %s: %s\n", domain, message);
     return;
   }
   g_printerr("%s%s%s: %s\n", domain ? domain : "", domain ? "-" : "",
