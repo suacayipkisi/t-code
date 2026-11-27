@@ -104,25 +104,41 @@ another, in C++: its `run.sh` compiles one file with `c++` and names the program
 
 ## Versions and compatibility
 
-The API has a version name: `tapi_1`, `tapi_2`, and so on.
+The API has a version name: `tapi_1`, `tapi_1_1`, `tapi_1_2`, ..., later `tapi_2`. `tapi_1` is the
+same as `tapi_1_0`.
 
-- **Each version holds all the ones before it.** `tapi_2` will be `tapi_1` plus new commands, events
+- **Each version holds all the ones before it.** `tapi_1_1` is `tapi_1` plus new commands, events
   and manifest fields. Nothing in a version is ever changed or removed by a later one. A plugin
   written for `tapi_1` keeps working on every t-code 1.x.
-- **A plugin names the oldest version it needs.** `"api": "tapi_1"` means "I need tapi_1 or newer".
-  A t-code that does not know the named version skips the plugin and says it needs a newer t-code.
+- **Minor versions.** The minor number grows only in a t-code release where the API grows (a new
+  command, event or manifest field), not with every release. Below, each addition says the version
+  it came in.
+- **A plugin names the oldest version it needs.** `"api": "tapi_1_1"` means "I need tapi_1_1 or
+  newer". Name the version of the newest thing the plugin *needs*: a plugin that only uses tapi_1
+  says `tapi_1`, so older t-codes still load it. A field an older t-code does not know and the
+  plugin can do without (`requires`, for example) does not count. A t-code that does not know the
+  named version skips the plugin and says it needs a newer t-code.
 - **Plugins from before versions.** A `plugin.json` without `"api"` is a plugin written before the API
   had a version. It loads and runs as before. Its socket connections are *legacy* connections (see
   [Legacy connections](#legacy-connections)).
-- **Additions inside a version.** Until t-code 1.0, tapi_1 may still grow. From 1.0 on, tapi_1 is
-  frozen and new things go into tapi_2.
+- **Older t-codes and updates.** A registry entry lists the plugin's commits with the version each
+  one needs (`versions`, see [The registry](#the-registry)): a t-code installs the newest commit it
+  speaks, so a plugin update that needs `tapi_1_2` does not reach a t-code that speaks `tapi_1_1`.
+  The author writes only the new code; the registry keeps the older commit pinned.
 - **Deprecated, never removed.** A field that is replaced keeps working. For example, `trigger` was
   replaced by `keys`: t-code still reads `trigger`, but new plugins should not use it.
 
 A plugin can learn the version at run time in two ways:
 
-- `$TCODE_API` in its environment holds the newest version this t-code speaks.
+- `$TCODE_API` in its environment holds the newest version this t-code speaks (`tapi_1_1`).
 - The socket's `version` request answers the same, plus the t-code version.
+
+What came in which version:
+
+| Version | t-code | Added |
+|---|---|---|
+| `tapi_1` | 0.5.0 | Everything not listed below. |
+| `tapi_1_1` | 0.5.2 | Views: the `view-*` commands and the `view_*` events ([Views](#commands)); minor versions in `hello` and `api`; the manifest's `requires` (read only by 0.5.2 and newer, ignored by older ones). |
 
 ---
 
@@ -145,7 +161,7 @@ found wins:
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
-| `api` | string | recommended | The oldest API version the plugin needs: `"tapi_1"`. Without it, the plugin is treated as one from before versions. |
+| `api` | string | recommended | The oldest API version the plugin needs: `"tapi_1"`, `"tapi_1_1"`. Without it, the plugin is treated as one from before versions. |
 | `name` | string | yes | The name people see. |
 | `provider` | string | no | Who publishes it: a person, a team or a project. The Plugins window shows it next to the plugin (Installed, Browse, the warnings). A plugin from the registry without one shows its repository's owner. |
 | `id` | string | no | A unique id. Defaults to the folder's name. Use lowercase, digits and `-`. |
@@ -155,7 +171,7 @@ found wins:
 | `commands` | list | no | The commands the plugin adds (below). A plugin without commands needs no program. |
 | `start` | string | no | `"project"`: start the plugin when a project opens and stop it when the project closes, for plugins that listen to events. Needs the `start` permission. Without it, the plugin runs only when one of its commands is run. |
 | `permissions` | list | no | What the plugin does: `"edit"`, `"terminal"`, `"network"`, `"start"`. See [Permissions](#permissions). |
-| `requires` | list | no | The programs it needs to be built or to run, and how to install them. See [What a plugin needs](#what-a-plugin-needs-requires). |
+| `requires` | list | no | (tapi_1_1) The programs it needs to be built or to run, and how to install them. See [What a plugin needs](#what-a-plugin-needs-requires). |
 | `run` | object | no | Files that Run (`Ctrl+F5` / Run button) hands to one of the plugin's commands: `{ ".m": "matlab.run" }`. See [Declarations](#declarations-without-a-program). |
 | `debug` | object | no | Files that Debug (`F5`) hands to one of the plugin's commands, which starts its debugger with `debug-start`: `{ ".java": "debug" }`. The same patterns as `run`. |
 | `lsp` | list | no | Language servers the plugin adds. See [Declarations](#declarations-without-a-program). |
@@ -387,13 +403,15 @@ A connection should start with:
 hello tapi_1 <token>
 ```
 
+(or the version the plugin needs: `hello tapi_1_1 <token>`).
+
 `<token>` is `$TCODE_PLUGIN_TOKEN` from the plugin's environment. It tells t-code which plugin is
 speaking: the status items, diagnostics and terminal tabs it makes are its own, and its manifest's
 [permissions](#permissions) apply to it. A script or a person (no plugin) says only `hello tapi_1`;
 what it makes belongs to "socket", and no permissions are checked.
 
-t-code answers `ok tapi_1 t-code <version>`. From then on the connection speaks tapi_1, and every
-request gets one answer line. Otherwise:
+t-code answers `ok tapi_1 t-code <version>` (the version named, `tapi_1_0` as `tapi_1`). From then on
+the connection speaks that version, and every request gets one answer line. Otherwise:
 
 - `error unsupported-api <message>`: t-code does not speak that version. The connection stays a
   legacy one.
@@ -574,7 +592,7 @@ start (`[line, col]`).
 - **Not restored:** it is not brought back with the project's other terminal tabs.
 - **Ownership:** a plugin can only send to and close its own tabs.
 
-**Views:**
+**Views (tapi_1_1):**
 
 | Command | Argument | Answer | What it does |
 |---|---|---|---|
@@ -635,11 +653,11 @@ Send `subscribe` and keep the connection open. t-code answers `ok` (a legacy con
 | `did_close` | A file's editor tab closed. |
 | `active_changed` | Another tab became the active one. The path is empty when the active tab is not an editor. |
 | `project_changed` | Another project folder opened. |
-| `view_activated` | A line of a plugin's view was double-clicked or got Enter: the plugin (`socket` for a connection without a plugin), the view's id, the line (from 1) and its text. |
-| `view_closed` | The user closed a plugin's view tab. |
-| `view_input` | The user sent the text of a view's input box (Enter): the text, and the mode picked beside it when the view has modes. |
-| `view_choice` | The user picked one of a view question's choices (`view-prompt`): the question's name and the choice. |
-| `view_stop` | The user pressed Stop on a view's busy line (`view-busy`). |
+| `view_activated` | (tapi_1_1) A line of a plugin's view was double-clicked or got Enter: the plugin (`socket` for a connection without a plugin), the view's id, the line (from 1) and its text. |
+| `view_closed` | (tapi_1_1) The user closed a plugin's view tab. |
+| `view_input` | (tapi_1_1) The user sent the text of a view's input box (Enter): the text, and the mode picked beside it when the view has modes. |
+| `view_choice` | (tapi_1_1) The user picked one of a view question's choices (`view-prompt`): the question's name and the choice. |
+| `view_stop` | (tapi_1_1) The user pressed Stop on a view's busy line (`view-busy`). |
 
 `did_change` and `did_save` carry `"by":"plugin"` when a socket request caused them: an `insert`,
 `edit` or `replace-all` (when every change since the last `did_change` came from the socket), or a
@@ -773,6 +791,14 @@ repository. It holds no plugin code, only pins; its README says how to publish.
 - **The tree hash** is the sha256 of one line per regular file of the plugin's folder, sorted by
   path: `<file's sha256> <x or -> <path>` (`x`: executable). It does not depend on how GitHub
   compresses archives. A folder with symbolic links or special files cannot be installed.
+- **Older t-codes: `versions`.** An entry may list the plugin's commits, oldest first:
+  `"versions": [{"commit": "…", "tree-sha256": "…", "version": "1.0", "api": "tapi_1"}, {"commit":
+  "…", "tree-sha256": "…", "version": "2.0", "api": "tapi_1_1"}]`. A row may also carry its own
+  `path`, `permissions`, `requires` and `reviewed` (unreviewed without it) when they differ. t-code
+  0.5.2 and newer install the newest commit whose `api` they speak; when an even newer one needs a
+  newer t-code, Browse says so instead of offering an update to it. The entry's own fields stay the
+  pin for t-code 0.5.1 and older, which do not read `versions`: always the most compatible commit
+  (CI checks that).
 - **Publishing.** An author opens a pull request adding or updating that file (and the generated
   `index.json`).
 - **Automatic checks.** CI (`tools/check.py`) checks the pull request:

@@ -13,6 +13,7 @@
 #include "lsp/servers.h"
 #include "plugins/plugins.h"
 #include "plugins/registry.h"
+#include "plugins/tapi.h"
 #include "window/palette.h"
 #include "window/statusbar.h"
 
@@ -653,7 +654,7 @@ static void add_permissions(GtkWidget *details, Plugin *p)
 static GtkWidget *facts(Plugin *p)
 {
   GtkWidget *grid = gtk_grid_new();
-  char *api = p->api ? g_strdup_printf("tapi_%d", p->api) : g_strdup("none (a plugin from before API versions)");
+  char *api = p->api ? tapi_name(p->api) : g_strdup("none (a plugin from before API versions)");
   int row = 0;
 
   gtk_widget_add_css_class(grid, "card");
@@ -932,6 +933,8 @@ static RegistryEntry *entry_copy(const RegistryEntry *e)
   c->permissions = g_strdupv(e->permissions);
   c->categories = g_strdupv(e->categories);
   c->reviewed = e->reviewed;
+  c->newer_version = g_strdup(e->newer_version);
+  c->newer_api = g_strdup(e->newer_api);
   return c;
 }
 
@@ -1025,12 +1028,6 @@ static void on_install(GtkButton *b, gpointer data G_GNUC_UNUSED)
   }
 }
 
-/* "tapi_2" from a newer t-code than this one. */
-static gboolean too_new(const char *api)
-{
-  return g_str_has_prefix(api, "tapi_") && g_ascii_strtoll(api + 5, NULL, 10) > TAPI_LATEST;
-}
-
 static gboolean matches(RegistryEntry *e, const char *query)
 {
   char *text, *low, *q;
@@ -1084,10 +1081,16 @@ static GtkWidget *entry_row(RegistryEntry *e)
     gtk_box_append(GTK_BOX(texts), label(needs->str, "note"));
     g_string_free(needs, TRUE);
   }
+  if (e->newer_api) { /* no Update to a commit this t-code cannot load */
+    line = g_strdup_printf("%s%s needs a newer t-code (plugin API %s)",
+                           *e->newer_version ? "Version " : "A newer version", e->newer_version, e->newer_api);
+    gtk_box_append(GTK_BOX(texts), label(line, "note"));
+    g_free(line);
+  }
   gtk_widget_set_hexpand(texts, TRUE);
   gtk_box_append(GTK_BOX(row), texts);
 
-  if (too_new(e->api))
+  if (tapi_too_new(e->api))
     action = gtk_button_new_with_label("Needs a newer t-code");
   else if (p && p->record && strcmp(p->record->commit, e->commit) == 0)
     action = gtk_button_new_with_label("Installed");
@@ -1097,7 +1100,8 @@ static GtkWidget *entry_row(RegistryEntry *e)
     action = gtk_button_new_with_label("Already here");
   else
     action = gtk_button_new_with_label("Install");
-  gtk_widget_set_sensitive(action, !too_new(e->api) && (!p || (p->record && strcmp(p->record->commit, e->commit))));
+  gtk_widget_set_sensitive(action,
+                           !tapi_too_new(e->api) && (!p || (p->record && strcmp(p->record->commit, e->commit))));
   if (p && !p->record)
     gtk_widget_set_tooltip_text(action, "A plugin with this id is installed by hand (or came with t-code)");
   g_object_set_data_full(G_OBJECT(action), "entry-id", g_strdup(e->id), g_free);

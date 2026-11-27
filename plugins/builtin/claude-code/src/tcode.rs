@@ -1,4 +1,4 @@
-//! A small client for t-code's plugin socket (tapi_1), Rust's standard library only, and the bits
+//! A small client for t-code's plugin socket (tapi_1_1), Rust's standard library only, and the bits
 //! of JSON the plugin needs. See t-code's docs/plugins.md for the protocol.
 
 use std::io::{self, BufRead, BufReader, Write};
@@ -10,11 +10,11 @@ pub struct Tcode {
 }
 
 impl Tcode {
-    /// A tapi_1 connection, said hello to with the plugin's token.
+    /// A tapi_1_1 connection (views), said hello to with the plugin's token.
     pub fn connect(socket: &str, token: &str) -> io::Result<Tcode> {
         let stream = UnixStream::connect(socket)?;
         let mut t = Tcode { reader: BufReader::new(stream.try_clone()?), writer: stream };
-        t.request(format!("hello tapi_1 {token}").trim_end())?;
+        t.request(format!("hello tapi_1_1 {token}").trim_end())?;
         Ok(t)
     }
 

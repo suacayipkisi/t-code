@@ -972,7 +972,19 @@ static void test_socket_tapi(void)
   answer = tapi_ask(conn, input, "hello tapi_7\n");
   g_assert_true(g_str_has_prefix(answer, "error unsupported-api "));
   g_free(answer);
-  answer = tapi_ask(conn, input, "version\n"); /* answers before hello too */
+  answer = tapi_ask(conn, input, "hello tapi_1_99\n"); /* a minor version newer than this t-code's */
+  g_assert_true(g_str_has_prefix(answer, "error unsupported-api "));
+  g_free(answer);
+  answer = tapi_ask(conn, input, "hello tapi_1x\n");
+  g_assert_true(g_str_has_prefix(answer, "error unsupported-api "));
+  g_free(answer);
+  answer = tapi_ask(conn, input, "version\n"); /* answers before hello too: the newest version */
+  g_assert_true(g_str_has_prefix(answer, "ok tapi_1_1 t-code "));
+  g_free(answer);
+  answer = tapi_ask(conn, input, "hello tapi_1_1\n");
+  g_assert_true(g_str_has_prefix(answer, "ok tapi_1_1 t-code "));
+  g_free(answer);
+  answer = tapi_ask(conn, input, "hello tapi_1_0\n"); /* the same as tapi_1 */
   g_assert_true(g_str_has_prefix(answer, "ok tapi_1 t-code "));
   g_free(answer);
   answer = tapi_ask(conn, input, "hello tapi_1\n");
@@ -1216,7 +1228,7 @@ static void test_socket_tapi_pick(void)
   g_assert_cmpstr(answer, ==, "ok 1 mega");
   g_free(answer);
   answer = read_socket_line(c.input); /* "version" was answered after the pick, not before */
-  g_assert_true(g_str_has_prefix(answer, "ok tapi_1 t-code "));
+  g_assert_true(g_str_has_prefix(answer, "ok tapi_1_1 t-code "));
   g_free(answer);
 
   g_assert_true(g_output_stream_write_all(out, "ask Branch name\n", 16, NULL, NULL, NULL));
@@ -5890,12 +5902,15 @@ static void test_plugins_browse(void)
   json = g_strdup_printf(
       "{\"plugins\": [{\"id\": \"tidy\", \"name\": \"Tidy\", \"provider\": \"Tidy Team\", \"api\": \"tapi_1\", "
       "\"repository\": \"file://%s\", \"commit\": \"%s\", \"path\": \"tidy\", "
-      "\"tree-sha256\": \"%s\", \"reviewed\": true, \"categories\": [\"text\"]},"
+      "\"tree-sha256\": \"%s\", \"reviewed\": true, \"categories\": [\"text\"], \"versions\": ["
+      "{\"commit\": \"%s\", \"tree-sha256\": \"%s\", \"version\": \"1.0\", \"api\": \"tapi_1\", \"reviewed\": true},"
+      "{\"commit\": \"beef000000000000000000000000000000000000\", \"tree-sha256\": \"%s\", \"version\": \"2.0\","
+      " \"api\": \"tapi_1_99\"}]},"
       " {\"id\": \"wild\", \"name\": \"Wild\", \"api\": \"tapi_1\", \"repository\": \"file://%s\","
       " \"commit\": \"%s\", \"tree-sha256\": \"%s\"},"
       " {\"id\": \"future\", \"name\": \"Future\", \"api\": \"tapi_9\", \"repository\": \"file://%s\","
       " \"commit\": \"%s\", \"tree-sha256\": \"%s\"}]}",
-      repo, commit, tree, repo, commit, tree, repo, commit, tree);
+      repo, commit, tree, commit, tree, tree, repo, commit, tree, repo, commit, tree);
   index = write_at(work, "index.json", json, -1, 0644);
   signature = test_sign(json, strlen(json));
   g_free(write_at(work, "index.json.sig", signature, -1, 0644));
@@ -5928,6 +5943,9 @@ static void test_plugins_browse(void)
   g_assert_true(p->record->reviewed);
   run_for(100);
   g_assert_true(says(GTK_WIDGET(plugins), "Installed"));
+  /* its newest commit asks for a plugin API this t-code does not speak: no Update to it, a note */
+  g_assert_true(says(GTK_WIDGET(plugins), "Version 2.0 needs a newer t-code (plugin API tapi_1_99)"));
+  g_assert_false(says(GTK_WIDGET(plugins), "Update"));
 
   /* the registry changed meanwhile: Reload fetches its index again */
   g_free(write_at(work, "index.json", "{\"plugins\": []}", -1, 0644));

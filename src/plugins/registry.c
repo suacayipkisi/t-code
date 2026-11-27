@@ -8,6 +8,7 @@
 
 #include "application/identity.h"
 #include "plugins/ed25519.h"
+#include "plugins/tapi.h"
 
 #include <errno.h>
 #include <glib/gstdio.h>
@@ -41,6 +42,8 @@ void registry_entry_free(RegistryEntry *entry)
   g_free(entry->commit);
   g_free(entry->path);
   g_free(entry->tree);
+  g_free(entry->newer_version);
+  g_free(entry->newer_api);
   g_strfreev(entry->permissions);
   g_strfreev(entry->categories);
   if (entry->needs)
@@ -302,6 +305,69 @@ char *registry_owner(const char *repository)
   return slash ? g_strndup(owner, slash - owner) : g_strdup("");
 }
 
+/* A row of the entry's "versions" ("commit", "tree-sha256", "version", "api"; "path", "permissions",
+ * "requires", "reviewed" when they differ from the entry's): why it is broken, or NULL. */
+static const char *version_problem(JsonObject *row)
+{
+  if (!is_hex(text_of(row, "commit"), 40))
+    return "a commit that is not 40 lowercase hex digits";
+  if (!is_hex(text_of(row, "tree-sha256"), 64))
+    return "a tree-sha256 that is not 64 lowercase hex digits";
+  if (!tapi_parse(text_of(row, "api")))
+    return "an api that is not tapi_N or tapi_N_M";
+  if (text_of(row, "path") && !good_path(text_of(row, "path")))
+    return "a path that leaves the repository";
+  return NULL;
+}
+
+/* "versions": the plugin's commits, oldest first. e takes the newest one this t-code speaks (the entry's
+ * own fields are the pin older t-codes read); a newer one it cannot load is noted in newer_version /
+ * newer_api. Without a row it speaks, e keeps the entry's own pin. */
+static void pick_version(RegistryEntry *e, JsonObject *obj)
+{
+  JsonNode *node = json_object_get_member(obj, "versions");
+  JsonArray *rows = node && JSON_NODE_HOLDS_ARRAY(node) ? json_node_get_array(node) : NULL;
+  JsonObject *picked = NULL, *newest = NULL;
+
+  if (node && !rows)
+    g_warning("Registry: %s: \"versions\" is not a list: its own pin is used", e->id);
+  for (guint i = 0; rows && i < json_array_get_length(rows); i++) {
+    JsonNode *item = json_array_get_element(rows, i);
+    JsonObject *row = JSON_NODE_HOLDS_OBJECT(item) ? json_node_get_object(item) : NULL;
+    const char *problem = row ? version_problem(row) : "a row that is not an object";
+    if (problem) {
+      g_warning("Registry: %s: version %u left out: %s", e->id, i + 1, problem);
+      continue;
+    }
+    newest = row;
+    if (tapi_spoken(tapi_parse(text_of(row, "api"))))
+      picked = row;
+  }
+  if (newest && newest != picked) {
+    e->newer_version = g_strdup(text_of(newest, "version") ?: "");
+    e->newer_api = g_strdup(text_of(newest, "api"));
+  }
+  if (!picked || strcmp(text_of(picked, "commit"), e->commit) == 0)
+    return;
+  g_set_str(&e->commit, text_of(picked, "commit"));
+  g_set_str(&e->tree, text_of(picked, "tree-sha256"));
+  g_set_str(&e->api, text_of(picked, "api"));
+  g_set_str(&e->version, text_of(picked, "version") ?: "");
+  if (text_of(picked, "path"))
+    g_set_str(&e->path, text_of(picked, "path"));
+  if (json_object_has_member(picked, "permissions")) {
+    g_strfreev(e->permissions);
+    e->permissions = texts_of(picked, "permissions");
+  }
+  if (json_object_has_member(picked, "requires")) {
+    g_ptr_array_unref(e->needs);
+    e->needs = plugin_needs_of(picked, e->id);
+  }
+  JsonNode *reviewed = json_object_get_member(picked, "reviewed"); /* a new commit starts unreviewed */
+  e->reviewed = reviewed && JSON_NODE_HOLDS_VALUE(reviewed) && json_node_get_value_type(reviewed) == G_TYPE_BOOLEAN &&
+                json_node_get_boolean(reviewed);
+}
+
 static RegistryEntry *entry_from(JsonObject *obj)
 {
   RegistryEntry *e = g_new0(RegistryEntry, 1);
@@ -340,6 +406,7 @@ static RegistryEntry *entry_from(JsonObject *obj)
     registry_entry_free(e);
     return NULL;
   }
+  pick_version(e, obj);
   return e;
 }
 

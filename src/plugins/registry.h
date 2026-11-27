@@ -55,6 +55,9 @@ typedef struct {
   char **permissions, **categories;
   GPtrArray *needs; /* PluginNeed *: "requires", as in its plugin.json */
   gboolean reviewed;
+  /* Its newest commit when this t-code cannot load it (its "versions" row asks for a newer plugin API:
+   * the fields above are then the newest one it can), else NULL. */
+  char *newer_version, *newer_api;
 } RegistryEntry;
 
 void registry_entry_free(RegistryEntry *entry);
@@ -63,7 +66,8 @@ void registry_entry_free(RegistryEntry *entry);
 char *registry_owner(const char *repository);
 
 /* The entries of an index.json (RegistryEntry *); broken entries are left out with a warning. NULL
- * with error when the text is not an index at all. */
+ * with error when the text is not an index at all. An entry with "versions" (its commits, oldest first)
+ * gets the newest commit whose plugin API this t-code speaks (plugins/tapi.h). */
 GPtrArray *registry_parse(const char *json, GError **error);
 
 /* The tree hash of dir (see above), or NULL with error. */

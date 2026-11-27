@@ -6,6 +6,7 @@
 #define _DEFAULT_SOURCE /* symlink() */
 #include "plugins/registry.h"
 #include "plugins/ed25519.h"
+#include "plugins/tapi.h"
 #include "ed25519_sign.h"
 #include "util.h"
 
@@ -537,6 +538,101 @@ static void test_fetch(void)
   g_free(index);
 }
 
+/* Plugin API versions: tapi_1 is tapi_1_0, minor versions up to this t-code's are spoken. */
+static void test_tapi(void)
+{
+  g_assert_cmpint(tapi_parse("tapi_1"), ==, TAPI_VERSION(1, 0));
+  g_assert_cmpint(tapi_parse("tapi_1_0"), ==, TAPI_VERSION(1, 0));
+  g_assert_cmpint(tapi_parse("tapi_1_1"), ==, TAPI_VERSION(1, 1));
+  g_assert_cmpint(tapi_parse("tapi_2"), ==, TAPI_VERSION(2, 0));
+  const char *garbage[] = { NULL,      "",        "tapi_",      "tapi_0",    "tapi_1_",   "tapi_1x", "tapi_+1",
+                            "tapi_ 1", "tapi_-1", "tapi_1_1_1", "tapi_1234", "tapi_1_-1", "TAPI_1",  "tapi_1 " };
+  for (guint i = 0; i < G_N_ELEMENTS(garbage); i++)
+    g_assert_cmpint(tapi_parse(garbage[i]), ==, 0);
+
+  g_assert_true(tapi_spoken(tapi_parse("tapi_1")));
+  g_assert_true(tapi_spoken(TAPI_LATEST));
+  g_assert_false(tapi_spoken(TAPI_LATEST + 1));
+  g_assert_false(tapi_spoken(tapi_parse("tapi_2")));
+  g_assert_false(tapi_spoken(0));
+  g_assert_true(tapi_too_new("tapi_1_99"));
+  g_assert_true(tapi_too_new("tapi_2"));
+  g_assert_false(tapi_too_new("tapi_1"));
+  g_assert_false(tapi_too_new("nonsense")); /* not a version: not judged here */
+
+  char *name = tapi_name(TAPI_VERSION(1, 0));
+  g_assert_cmpstr(name, ==, "tapi_1");
+  g_free(name);
+  name = tapi_name(TAPI_VERSION(1, 1));
+  g_assert_cmpstr(name, ==, "tapi_1_1");
+  g_free(name);
+}
+
+#define COMMIT_A "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+#define COMMIT_B "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+#define COMMIT_C "cccccccccccccccccccccccccccccccccccccccc"
+#define TREE_B "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+/* "versions": the newest commit whose API this t-code speaks is taken, with its own fields; a newer one it
+ * cannot load is noted; broken rows are left out; without a usable row the entry's own pin stays. */
+static void test_versions(void)
+{
+  const char *json =
+      "{\"format\": 1, \"plugins\": [\n"
+      " {\"id\": \"multi\", \"version\": \"1.0\", \"api\": \"tapi_1\", \"repository\": \"https://github.com/a/b\", "
+      "\"commit\": \"" COMMIT_A "\", \"tree-sha256\": \"" FIXTURE_TREE "\", \"reviewed\": true, \"path\": \"p\", "
+      "\"permissions\": [\"edit\"], \"versions\": [\n"
+      "  {\"commit\": \"" COMMIT_A "\", \"tree-sha256\": \"" FIXTURE_TREE
+      "\", \"version\": \"1.0\", \"api\": \"tapi_1\"},\n"
+      "  {\"commit\": \"short\", \"tree-sha256\": \"" FIXTURE_TREE "\", \"version\": \"1.5\", \"api\": \"tapi_1\"},\n"
+      "  {\"commit\": \"" COMMIT_B "\", \"tree-sha256\": \"" TREE_B "\", \"version\": \"2.0\", \"api\": \"tapi_1_1\", "
+      "\"path\": \"q\", \"permissions\": [\"terminal\"], \"requires\": [{\"program\": \"cargo\"}]},\n"
+      "  {\"commit\": \"" COMMIT_C "\", \"tree-sha256\": \"" TREE_B
+      "\", \"version\": \"3.0\", \"api\": \"tapi_1_99\"}]},\n"
+      " {\"id\": \"old\", \"version\": \"1.0\", \"api\": \"tapi_1\", \"repository\": \"https://github.com/a/b\", "
+      "\"commit\": \"" COMMIT_A "\", \"tree-sha256\": \"" FIXTURE_TREE "\", \"reviewed\": true, \"versions\": [\n"
+      "  {\"commit\": \"" COMMIT_C "\", \"tree-sha256\": \"" TREE_B
+      "\", \"version\": \"3.0\", \"api\": \"tapi_2\"}]},\n"
+      " {\"id\": \"same\", \"version\": \"1.0\", \"api\": \"tapi_1\", \"repository\": \"https://github.com/a/b\", "
+      "\"commit\": \"" COMMIT_A "\", \"tree-sha256\": \"" FIXTURE_TREE "\", \"reviewed\": true, \"versions\": "
+      "[{\"commit\": \"" COMMIT_A "\", \"tree-sha256\": \"" FIXTURE_TREE
+      "\", \"version\": \"1.0\", \"api\": \"tapi_1\"}]}\n"
+      "]}";
+  GError *error = NULL;
+  GPtrArray *entries;
+  RegistryEntry *e;
+
+  g_test_expect_message(G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*multi: version 2 left out: a commit*");
+  entries = registry_parse(json, &error);
+  g_test_assert_expected_messages();
+  g_assert_no_error(error);
+  g_assert_cmpuint(entries->len, ==, 3);
+
+  e = g_ptr_array_index(entries, 0); /* 2.0 taken, 3.0 too new */
+  g_assert_cmpstr(e->commit, ==, COMMIT_B);
+  g_assert_cmpstr(e->tree, ==, TREE_B);
+  g_assert_cmpstr(e->version, ==, "2.0");
+  g_assert_cmpstr(e->api, ==, "tapi_1_1");
+  g_assert_cmpstr(e->path, ==, "q");
+  g_assert_cmpstr(e->permissions[0], ==, "terminal");
+  g_assert_cmpuint(e->needs->len, ==, 1);
+  g_assert_false(e->reviewed); /* the review was of the entry's own commit */
+  g_assert_cmpstr(e->newer_version, ==, "3.0");
+  g_assert_cmpstr(e->newer_api, ==, "tapi_1_99");
+
+  e = g_ptr_array_index(entries, 1); /* nothing newer it speaks: its own pin, the newer one noted */
+  g_assert_cmpstr(e->commit, ==, COMMIT_A);
+  g_assert_true(e->reviewed);
+  g_assert_cmpstr(e->newer_api, ==, "tapi_2");
+
+  e = g_ptr_array_index(entries, 2); /* the newest row is the entry's own pin */
+  g_assert_cmpstr(e->commit, ==, COMMIT_A);
+  g_assert_true(e->reviewed);
+  g_assert_null(e->newer_version);
+  g_assert_null(e->newer_api);
+  g_ptr_array_unref(entries);
+}
+
 int main(int argc, char **argv)
 {
   tmp_dir = g_dir_make_tmp("t-code-test-registry-XXXXXX", NULL);
@@ -549,6 +645,8 @@ int main(int argc, char **argv)
   g_test_init(&argc, &argv, NULL);
   g_test_add_func("/registry/parse", test_parse);
   g_test_add_func("/registry/needs", test_needs);
+  g_test_add_func("/registry/tapi", test_tapi);
+  g_test_add_func("/registry/versions", test_versions);
   g_test_add_func("/registry/tree-hash", test_tree_hash);
   g_test_add_func("/registry/records", test_records);
   g_test_add_func("/registry/install", test_install);

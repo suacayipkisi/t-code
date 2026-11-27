@@ -25,6 +25,7 @@
 #include "lsp/client/client.h"
 #include "lsp/json.h"
 #include "plugins/plugins.h"
+#include "plugins/tapi.h"
 #include "plugins/views.h"
 #include "popups/picker.h"
 #include "project/project.h"
@@ -97,36 +98,31 @@ static JsonNode *parse_json(Client *c, const char *arg)
 
 /* Saying hello, reading -------------------------------------------------------------------------- */
 
-/* "hello [tapi_N [token]]": the connection speaks tapi_N from now on (the latest when none is named),
- * for the plugin $TCODE_PLUGIN_TOKEN was given to. */
+/* "hello [tapi_N[_M] [token]]": the connection speaks that version from now on (the latest when none is
+ * named), for the plugin $TCODE_PLUGIN_TOKEN was given to. */
 static gboolean do_hello(Client *c, const char *arg)
 {
   char **words = g_strsplit(arg, " ", 3);
   const char *version = words[0] ? words[0] : "", *token = version[0] && words[1] ? words[1] : NULL;
-  int number = 0;
+  int number = *version ? tapi_parse(version) : TAPI_LATEST;
 
-  if (!*version)
-    number = TAPI_LATEST;
-  else if (g_str_has_prefix(version, "tapi_")) {
-    char *end = NULL;
-    gint64 n = g_ascii_strtoll(version + 5, &end, 10);
-    if (end && end != version + 5 && !*end && n >= 1 && n <= TAPI_LATEST)
-      number = (int)n;
-  }
-  if (!number) {
-    char *line =
-        g_strdup_printf("error unsupported-api t-code %s speaks tapi_1 to tapi_%d", TCODE_VERSION, TAPI_LATEST);
+  if (!tapi_spoken(number)) {
+    char *latest = tapi_name(TAPI_LATEST);
+    char *line = g_strdup_printf("error unsupported-api t-code %s speaks tapi_1 to %s", TCODE_VERSION, latest);
     send_line(c, line);
     g_free(line);
+    g_free(latest);
   } else if (token && !plugin_by_token(c->app, token)) {
     send_line(c, "error bad-argument never seen that token, were the plugins reloaded?");
   } else {
     c->api = number;
     if (token)
       g_set_str(&c->owner, plugin_by_token(c->app, token)->id);
-    char *line = g_strdup_printf("ok tapi_%d t-code %s", number, TCODE_VERSION);
+    char *name = tapi_name(number);
+    char *line = g_strdup_printf("ok %s t-code %s", name, TCODE_VERSION);
     send_line(c, line);
     g_free(line);
+    g_free(name);
   }
   g_strfreev(words);
   return TRUE;
@@ -134,10 +130,12 @@ static gboolean do_hello(Client *c, const char *arg)
 
 static gboolean do_version(Client *c, const char *arg G_GNUC_UNUSED)
 {
-  char *line = g_strdup_printf("ok tapi_%d t-code %s", TAPI_LATEST, TCODE_VERSION); /* legacy ones too */
+  char *name = tapi_name(TAPI_LATEST);
+  char *line = g_strdup_printf("ok %s t-code %s", name, TCODE_VERSION); /* legacy ones too */
 
   send_line(c, line);
   g_free(line);
+  g_free(name);
   return TRUE;
 }
 

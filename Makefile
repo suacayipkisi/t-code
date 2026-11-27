@@ -201,8 +201,8 @@ build/test-about: tests/test_about.c tests/widgets.h tests/util.h src/dialogs/ab
 build/test-welcome: tests/test_welcome.c tests/util.h tests/widgets.h src/dialogs/welcome.c src/dialogs/welcome.h | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_welcome.c \
 	  $(shell pkg-config --libs $(PKGS))
-build/test-plugins: tests/test_plugins.c tests/util.h src/files/fileops.c src/plugins/registry.c src/plugins/ed25519.c src/plugins/plugins.c src/plugins/plugins.h src/lsp/servers.c src/lsp/servers.h $(wildcard tests/plugins/*/plugin.json) $(APP_HDR) | build
-	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_plugins.c src/files/fileops.c src/plugins/registry.c src/plugins/ed25519.c $(shell pkg-config --libs $(PKGS))
+build/test-plugins: tests/test_plugins.c tests/util.h src/files/fileops.c src/plugins/registry.c src/plugins/tapi.c src/plugins/ed25519.c src/plugins/plugins.c src/plugins/plugins.h src/lsp/servers.c src/lsp/servers.h $(wildcard tests/plugins/*/plugin.json) $(APP_HDR) | build
+	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_plugins.c src/files/fileops.c src/plugins/registry.c src/plugins/tapi.c src/plugins/ed25519.c $(shell pkg-config --libs $(PKGS))
 
 build/test-update: tests/test_update.c tests/util.h src/update/update.c src/update/update.h $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_update.c src/update/update.c \
@@ -228,9 +228,9 @@ build/test-errtail: tests/test_errtail.c tests/util.h src/application/errtail.c 
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags gio-2.0) -o $@ tests/test_errtail.c src/application/errtail.c \
 	  $(shell pkg-config --libs gio-2.0)
 
-build/test-registry: tests/test_registry.c tests/util.h tests/ed25519_sign.h src/plugins/registry.c src/plugins/registry.h src/plugins/ed25519.c src/plugins/ed25519.h | build
+build/test-registry: tests/test_registry.c tests/util.h tests/ed25519_sign.h src/plugins/registry.c src/plugins/registry.h src/plugins/tapi.c src/plugins/tapi.h src/plugins/ed25519.c src/plugins/ed25519.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o $@ tests/test_registry.c \
-	  src/plugins/registry.c src/plugins/ed25519.c $(shell pkg-config --libs json-glib-1.0 gio-2.0)
+	  src/plugins/registry.c src/plugins/tapi.c src/plugins/ed25519.c $(shell pkg-config --libs json-glib-1.0 gio-2.0)
 
 build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c src/editor/recovery.h $(APP_HDR) | build
 	$(CC) $(CFLAGS) $(APP_CFLAGS) -o $@ tests/test_recovery.c src/editor/recovery.c \
@@ -375,7 +375,7 @@ test-asan: | build
 	  tests/test_debug.c $(DAP_SRC) $(shell pkg-config --libs json-glib-1.0 gio-unix-2.0)
 	$(ASAN_ENV) build/asan/test-debug
 	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -o build/asan/test-plugins \
-	  tests/test_plugins.c src/files/fileops.c src/plugins/registry.c src/plugins/ed25519.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
+	  tests/test_plugins.c src/files/fileops.c src/plugins/registry.c src/plugins/tapi.c src/plugins/ed25519.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
 	$(ASAN_ENV) build/asan/test-plugins
 	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o build/asan/test-update \
 	  tests/test_update.c src/update/update.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
@@ -384,7 +384,7 @@ test-asan: | build
 	  tests/test_recovery.c src/editor/recovery.c $(shell pkg-config --libs $(PKGS) 2>/dev/null)
 	$(ASAN_ENV) build/asan/test-recovery
 	$(CC) $(ASAN_FLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0 gio-2.0) -o build/asan/test-registry \
-	  tests/test_registry.c src/plugins/registry.c src/plugins/ed25519.c $(shell pkg-config --libs json-glib-1.0 gio-2.0)
+	  tests/test_registry.c src/plugins/registry.c src/plugins/tapi.c src/plugins/ed25519.c $(shell pkg-config --libs json-glib-1.0 gio-2.0)
 	$(ASAN_ENV) build/asan/test-registry
 
 # The tests that show widgets (on Broadway or the display), under AddressSanitizer and UBSan too: use after

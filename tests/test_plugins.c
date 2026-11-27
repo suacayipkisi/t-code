@@ -139,17 +139,21 @@ static void test_tapi_manifest(void)
   write_file("tapi/keyed/run.sh", "#!/bin/sh\nexit 0\n", 0755);
   write_file("tapi/static-only/plugin.json",
              "{\"name\": \"Static\", \"api\": \"tapi_1\", \"permissions\": [\"edit\", \"network\", \"bogus\"]}", 0644);
+  write_file("tapi/minor/plugin.json", "{\"name\": \"Minor\", \"api\": \"tapi_1_1\"}", 0644);
+  write_file("tapi/zero/plugin.json", "{\"name\": \"Zero\", \"api\": \"tapi_1_0\"}", 0644);
 
   char *scan_path = g_build_filename(tmp_dir, "tapi", NULL);
   app.plugins = g_ptr_array_new_with_free_func((GDestroyNotify)plugin_free);
   g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "*unknown permission 'bogus'*");
   plugins_scan_dir(&app, scan_path);
   g_test_assert_expected_messages();
-  g_assert_cmpuint(app.plugins->len, ==, 2);
+  g_assert_cmpuint(app.plugins->len, ==, 4);
+  g_assert_cmpint(plugin_find(&app, "minor")->api, ==, TAPI_VERSION(1, 1));
+  g_assert_cmpint(plugin_find(&app, "zero")->api, ==, TAPI_VERSION(1, 0));
 
   Plugin *keyed = plugin_find(&app, "keyed"), *still = plugin_find(&app, "static-only");
   g_assert_nonnull(keyed);
-  g_assert_cmpint(keyed->api, ==, 1);
+  g_assert_cmpint(keyed->api, ==, TAPI_VERSION(1, 0));
   PluginCommand *k = g_ptr_array_index(keyed->commands, 0), *l = g_ptr_array_index(keyed->commands, 1);
   g_assert_cmpstr(k->trigger, ==, "<Control><Alt>k");
   g_assert_cmpstr(k->keys, ==, "Ctrl+Alt+K");
@@ -170,6 +174,25 @@ static void test_tapi_manifest(void)
   plugins_add_shortcuts(controller, &app);
   g_assert_cmpuint(g_list_model_get_n_items(G_LIST_MODEL(controller)), ==, 1);
   g_object_unref(controller);
+
+  /* versions this t-code does not speak: skipped, each with its warning (one folder each: the order) */
+  const char *refused[][2] = { { "tapi_1_99", "Later" }, { "tapi_1_x", "Garbage" }, { "tapi_0", "Nought" } };
+  for (guint i = 0; i < G_N_ELEMENTS(refused); i++) {
+    char *json = g_strdup_printf("{\"name\": \"%s\", \"api\": \"%s\"}", refused[i][1], refused[i][0]);
+    char *where = g_strdup_printf("tapi-refused-%u/p/plugin.json", i);
+    char *dir = g_strdup_printf("%s/tapi-refused-%u", tmp_dir, i);
+    char *pattern =
+        g_strdup_printf("*%s asks for plugin API %s: it needs a newer t-code*", refused[i][1], refused[i][0]);
+    write_file(where, json, 0644);
+    g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, pattern);
+    plugins_scan_dir(&app, dir);
+    g_test_assert_expected_messages();
+    g_free(pattern);
+    g_free(dir);
+    g_free(where);
+    g_free(json);
+  }
+  g_assert_cmpuint(app.plugins->len, ==, 4);
 
   plugins_stop(&app);
   g_free(scan_path);
@@ -319,7 +342,7 @@ static void test_run_command(void)
   g_assert_nonnull(strstr(contents, "SOCKET=/tmp/test-tcode.sock"));
   g_assert_nonnull(strstr(contents, "PLUGIN=runner"));
   g_assert_nonnull(strstr(contents, "CMD=go"));
-  g_assert_nonnull(strstr(contents, "API=tapi_1"));
+  g_assert_nonnull(strstr(contents, "API=tapi_1_1"));
   char *token = g_strdup_printf("TOKEN=%s", plugin_find(&app, "runner")->token);
   g_assert_nonnull(strstr(contents, token));
   g_free(token);

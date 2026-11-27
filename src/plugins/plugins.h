@@ -75,7 +75,7 @@ typedef struct Plugin {
   char *provider; /* who publishes it: plugin.json's "provider", else the registry repository's owner; "" */
   char *dir;
   char *executable; /* NULL for a plugin without commands */
-  int api;          /* the "tapi_N" its plugin.json asks for; 0: none (a plugin from before versions) */
+  int api;          /* the version its plugin.json asks for (plugins/tapi.h); 0: none (a plugin from before versions) */
   PluginSource source;
   gboolean enabled;       /* not in plugins.json's "disabled": its commands, keys, servers and start work */
   RegistryRecord *record; /* installed from the registry (plugins.json's "registry"); NULL: by hand */

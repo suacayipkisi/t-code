@@ -1,5 +1,5 @@
 {
-  "api": "tapi_1",
+  "api": "tapi_1_1",
   "id": "claude-code",
   "name": "Claude Code",
   "provider": "t-code",

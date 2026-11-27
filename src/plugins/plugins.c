@@ -11,6 +11,7 @@
 #include "application/processes.h"
 #include "editor/tabs.h"
 #include "files/fileops.h"
+#include "plugins/tapi.h"
 #include "lsp/client/client.h"
 #include "popups/picker.h"
 #include "window/palette.h"
@@ -156,20 +157,16 @@ static char *plugin_executable(const char *plugin_dir, const char *dir_name, con
   return NULL;
 }
 
-/* The plugin API version plugin.json asks for ("api": "tapi_N"): 0 when it names none, -1 when it is
- * not one this t-code speaks. */
+/* The plugin API version plugin.json asks for ("api": "tapi_1", "tapi_1_1"; plugins/tapi.h): 0 when it
+ * names none, -1 when it is not one this t-code speaks. */
 static int plugin_api(JsonObject *obj)
 {
-  const char *api = string_member(obj, "api");
-  char *end = NULL;
-  gint64 number;
+  int version;
 
   if (!json_object_has_member(obj, "api"))
     return 0;
-  if (!api || !g_str_has_prefix(api, "tapi_"))
-    return -1;
-  number = g_ascii_strtoll(api + 5, &end, 10);
-  return end && end != api + 5 && !*end && number >= 1 && number <= TAPI_LATEST ? (int)number : -1;
+  version = tapi_parse(string_member(obj, "api"));
+  return tapi_spoken(version) ? version : -1;
 }
 
 /* plugin.json's "permissions": a list of "edit", "terminal", "network", "start" (others are left
@@ -422,8 +419,10 @@ static Plugin *plugin_from(App *t, JsonObject *obj, const char *plugin_dir, cons
     return NULL;
   }
   if (api < 0) {
-    g_warning("Plugin %s asks for plugin API %s: it needs a newer t-code (this one speaks tapi_1 to tapi_%d)", name,
-              string_member(obj, "api") ?: "?", TAPI_LATEST);
+    char *latest = tapi_name(TAPI_LATEST);
+    g_warning("Plugin %s asks for plugin API %s: it needs a newer t-code (this one speaks tapi_1 to %s)", name,
+              string_member(obj, "api") ?: "?", latest);
+    g_free(latest);
     return NULL;
   }
   if (!id || !*id)
@@ -999,7 +998,7 @@ static PluginRun *launch_with(App *t, Plugin *p, const char *command_id, gboolea
       g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_MERGE);
   Tab *tab = current_tab(t);
   const char *active_file = file ? file : (tab && tab->kind == TAB_EDITOR && tab->path) ? tab->path : "";
-  char *api = g_strdup_printf("tapi_%d", TAPI_LATEST); /* what the socket speaks */
+  char *api = tapi_name(TAPI_LATEST); /* what the socket speaks */
   char **env = g_get_environ();
   GError *error = NULL;
 
