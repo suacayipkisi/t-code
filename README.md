@@ -2,7 +2,7 @@
 
 A light C/C++ IDE for Linux in one GTK4 window, with a dark look (Dark Classic) and other color themes.
 
-### Jump => [Latest Release v0.5.1](https://github.com/suacayipkisi/t-code/releases/tag/v0.5.1) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md)
+### Jump => [Latest Release v0.5.1](https://github.com/suacayipkisi/t-code/releases/tag/v0.5.1) | [Install](#install) | [Usage](#usage) | [Performance](#performance) | [All features](docs/features.md) | [Theming](docs/theming.md)
 
 ![t-code 0.4 in the Dark Classic color theme with the squared look](docs/dark_classic-squared.png)
 
@@ -68,7 +68,8 @@ many docks and tab groups as you like.
 - **Search and replace** across files (ripgrep), a split editor, a second window, a native Markdown preview,
   crash recovery, autosave, [plugins](docs/plugins.md) from a registry, a Process Monitor, color themes and Settings.
 
-Everything in detail, with the full key table: **[docs/features.md](docs/features.md)**.
+Everything in detail, with the full key table: **[docs/features.md](docs/features.md)**. Changing the look
+(every color and part you can override in `theme.css`, with examples): **[docs/theming.md](docs/theming.md)**.
 
 ### Language servers
 

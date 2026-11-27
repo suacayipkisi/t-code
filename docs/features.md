@@ -589,7 +589,8 @@ The Terminal panel holds the shells as tabs.
   and menus follow).
 - The editors' selection is the theme's accent color over the text; how strongly it shows is
   another (Selection opacity, 0 to 100 %, 40 by default).
-- `theme.css` and the editor's style scheme can be edited by hand ("Preferences: Open …").
+- `theme.css` and the editor's style scheme can be edited by hand ("Preferences: Open …"); every color and part
+  `theme.css` can change, with examples: [theming.md](theming.md).
 - Plugins can bring more: each GtkSourceView style scheme in a plugin's `styles` folder is a theme
   (docs/plugins.md).
 
@@ -729,6 +730,7 @@ key) and the results drop down from the bar.
 | anywhere    | `Ctrl+B` / `Ctrl+J`                    | hide / show the Files panel / the shell   |
 | anywhere    | `Ctrl+Shift+T`, ``Ctrl+Shift+` ``      | a new terminal tab                        |
 | anywhere    | `F7`                                   | code coloring on / off (all tabs)         |
+| anywhere    | `Ctrl+Alt+L`                           | relative line numbers on / off            |
 | anywhere    | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`         | bigger / smaller / normal text (in a preview tab: the previews' text only) |
 | shell       | `Ctrl+Click` on `file.c:12:5`          | open the file at that line (compiler messages) |
 | tab         | left click / middle click / `×`        | switch to / close / close                 |
