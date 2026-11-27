@@ -6,6 +6,7 @@
 
 #include <glib.h>
 #include <glib/gstdio.h>
+#include <stdlib.h>
 
 /* Runs the main loop for ms milliseconds. */
 static inline void run_for(int ms)
@@ -16,10 +17,12 @@ static inline void run_for(int ms)
     g_main_context_iteration(NULL, FALSE);
 }
 
-/* Runs the main loop until done(data) is true or 5 seconds pass. */
+/* Runs the main loop until done(data) is true or 5 seconds pass; $TEST_TIME_SCALE times that under a
+ * sanitizer (make test-asan-gtk), which runs everything a few times slower. */
 static inline void run_until(gboolean (*done)(gconstpointer), gconstpointer data)
 {
-  gint64 end = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+  const char *scale = g_getenv("TEST_TIME_SCALE");
+  gint64 end = g_get_monotonic_time() + MAX(scale ? atoi(scale) : 1, 1) * 5 * G_USEC_PER_SEC;
 
   while (!done(data) && g_get_monotonic_time() < end)
     g_main_context_iteration(NULL, FALSE);

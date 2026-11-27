@@ -77,7 +77,8 @@ make test-scenarios
 ### Memory & Sanitizer Checks
 T-Code is leak-strict. Run AddressSanitizer and UndefinedBehaviorSanitizer checks:
 ```bash
-make test-asan
+make test-asan       # the tests without a display, failing on any leak too
+make test-asan-gtk   # the editor page, language server client, panels and a whole window (no leak check)
 ```
 
 ### Code Formatting
@@ -176,7 +177,7 @@ docs/                features.md, plugins.md (manifest and socket protocol), tas
 tests/               make test: editing, the language server client (with a fake server), the
                      debugger, search, the Files panel, Source Control, a whole window, plugins,
                      the update check, crash recovery and the GLib-only modules; make test-asan:
-                     the ones without a display under ASan
+                     the ones without a display under ASan; make test-asan-gtk: the GTK ones
 tools/               measuring memory and CPU: the running process tree, a headless t-code, clangd
 desktop/             app menu entry template and the app icon
 packaging/           install.sh, uninstall.sh, build.sh, test.sh: Fedora, Arch, AUR, Debian, Void

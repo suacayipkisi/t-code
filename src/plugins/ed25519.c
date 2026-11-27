@@ -239,11 +239,27 @@ static void point_multiply_base(Field p[4], const guint8 *s)
   point_multiply(p, q, s);
 }
 
-/* r = -(the point packed in 32 bytes); FALSE when they are not a point. */
+/* Whether the y packed in 32 bytes (the top bit is x's sign) is below p = 2^255 - 19: y and y + p would
+ * otherwise be two spellings of one key. */
+static gboolean field_canonical(const guint8 *packed)
+{
+  if ((packed[31] & 0x7f) != 0x7f)
+    return TRUE;
+  for (int i = 30; i > 0; i--) {
+    if (packed[i] != 0xff)
+      return TRUE;
+  }
+  return packed[0] < 0xed;
+}
+
+/* r = -(the point packed in 32 bytes); FALSE when they are not a point, or not its one spelling (RFC 8032
+ * 5.1.3: y below p, and no sign bit on x = 0). */
 static gboolean point_unpack_negated(Field r[4], const guint8 *packed)
 {
   Field t, check, num, den, den2, den4, den6;
 
+  if (!field_canonical(packed))
+    return FALSE;
   field_set(r[2], field_one);
   field_unpack(r[1], packed);
   field_square(num, r[1]);
@@ -267,6 +283,8 @@ static gboolean point_unpack_negated(Field r[4], const guint8 *packed)
   field_square(check, r[0]);
   field_mul(check, check, den);
   if (field_differ(check, num))
+    return FALSE;
+  if (!field_differ(r[0], field_zero) && packed[31] >> 7)
     return FALSE;
   if (field_parity(r[0]) == (packed[31] >> 7))
     field_sub(r[0], field_zero, r[0]);

@@ -387,6 +387,44 @@ test-asan: | build
 	  tests/test_registry.c src/plugins/registry.c src/plugins/ed25519.c $(shell pkg-config --libs json-glib-1.0 gio-2.0)
 	$(ASAN_ENV) build/asan/test-registry
 
+# The tests that show widgets (on Broadway or the display), under AddressSanitizer and UBSan too: use after
+# free, out-of-bounds access and undefined behavior in the editor page, the language server client, the
+# panels and a whole window. No leak check here: GTK, fontconfig and the GL drivers keep memory to the end
+# on purpose (the leak tests compare the heap with mallinfo2 instead).
+ASAN_GTK_DIR  := build/asan/gtk
+ASAN_GTK_LIBS  = $(shell pkg-config --libs $(PKGS))
+ASAN_GTK_ENV  := G_DEBUG=gc-friendly ASAN_OPTIONS=detect_leaks=0:abort_on_error=0 TEST_TIME_SCALE=4
+ASAN_GTK_TESTS := editing lsp window scm files search-panel testing
+# t-code finds styles/, snippets/ and desktop/ in its executable's parent folder (src/window/paths.c).
+$(ASAN_GTK_DIR):
+	mkdir -p $@
+	for d in styles snippets desktop; do ln -sfn ../../$$d build/asan/$$d; done
+$(ASAN_GTK_DIR)/test-editing: tests/test_editing.c tests/widgets.h tests/util.h tests/broadway.h $(PAGE_SRC) $(APP_HDR) | $(ASAN_GTK_DIR)
+	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -o $@ tests/test_editing.c $(ASAN_GTK_LIBS)
+$(ASAN_GTK_DIR)/test-lsp: tests/test_lsp.c tests/widgets.h tests/fake_server.h tests/util.h $(PAGE_SRC) $(APP_HDR) | $(ASAN_GTK_DIR)
+	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -o $@ tests/test_lsp.c $(ASAN_GTK_LIBS)
+$(ASAN_GTK_DIR)/test-window: tests/test_window.c tests/util.h tests/widgets.h tests/broadway.h tests/ed25519_sign.h $(APP_SRC) $(APP_HDR) \
+                             build/license.h build/resources.c | $(ASAN_GTK_DIR)
+	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -DTCODE_VERSION='"$(VERSION)"' -o $@ tests/test_window.c \
+	  $(filter-out src/main.c,$(APP_SRC)) build/resources.c $(ASAN_GTK_LIBS)
+$(ASAN_GTK_DIR)/test-scm: tests/test_scm.c tests/widgets.h tests/util.h $(SCM_SRC) src/git/gitstatus.c src/git/repos.c src/git/vcs.c \
+                          src/git/patch.c src/popups/contextmenu.c src/window/palette.c $(APP_HDR) | $(ASAN_GTK_DIR)
+	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -o $@ tests/test_scm.c $(SCM_SRC) src/git/repos.c src/git/vcs.c src/git/patch.c \
+	  src/popups/contextmenu.c src/window/palette.c $(ASAN_GTK_LIBS)
+$(ASAN_GTK_DIR)/test-files: tests/test_files.c tests/widgets.h tests/util.h $(wildcard src/files/*.c) src/git/vcs.c src/window/palette.c \
+                            src/project/templates.c build/resources.c $(APP_HDR) | $(ASAN_GTK_DIR)
+	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -o $@ tests/test_files.c $(FILES_GIO) src/git/vcs.c src/window/palette.c \
+	  src/project/templates.c build/resources.c $(ASAN_GTK_LIBS)
+$(ASAN_GTK_DIR)/test-search-panel: tests/test_search_panel.c tests/util.h tests/widgets.h src/search/search.c src/search/searchmatch.c \
+                                   src/window/palette.c src/popups/contextmenu.c $(APP_HDR) | $(ASAN_GTK_DIR)
+	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -o $@ tests/test_search_panel.c src/search/search.c src/search/searchmatch.c \
+	  src/window/palette.c src/popups/contextmenu.c $(ASAN_GTK_LIBS)
+$(ASAN_GTK_DIR)/test-testing: tests/test_testing.c tests/widgets.h tests/util.h $(TESTING_SRC) $(APP_HDR) | $(ASAN_GTK_DIR)
+	$(CC) $(ASAN_FLAGS) $(APP_CFLAGS) -o $@ tests/test_testing.c $(TESTING_SRC) $(ASAN_GTK_LIBS)
+
+test-asan-gtk: $(addprefix $(ASAN_GTK_DIR)/test-,$(ASAN_GTK_TESTS))
+	for t in $(ASAN_GTK_TESTS); do $(ASAN_GTK_ENV) $(ASAN_GTK_DIR)/test-$$t || exit 1; done
+
 # System-wide install, used by the packages in packaging/ (install.sh installs into ~/.local).
 install: build/t-code
 	install -Dm755 build/t-code $(DESTDIR)$(BINDIR)/t-code
@@ -420,4 +458,4 @@ build:
 clean:
 	rm -rf build
 
-.PHONY: all clean test test-asan test-scenarios test-big install install-plugin FORCE
+.PHONY: all clean test test-asan test-asan-gtk test-scenarios test-big install install-plugin FORCE

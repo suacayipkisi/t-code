@@ -1651,7 +1651,7 @@ static void test_flags_hint(void)
 static void test_churn(void)
 {
   Tab *tab = new_tab("/tmp/t-code-test/churn.c", "int x;\n");
-  size_t before;
+  size_t before = 0;
 
   /* The buffer's undo history grows with every edit: that is not the client's. */
   gtk_text_buffer_set_enable_undo(GTK_TEXT_BUFFER(tab->buffer), FALSE);

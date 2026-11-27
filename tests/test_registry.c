@@ -409,6 +409,47 @@ static void test_ed25519(void)
     sscanf(signatures[0] + 2 * i, "%2hhx", &signature[i]);
   g_assert_false(ed25519_verify(signature, NULL, 0, bad_key));
 
+  /* RFC 8032 7.1: TEST 1, 2, 3 and SHA(abc) (the message is abc's SHA-512) */
+  /* clang-format off */
+  static const struct { const char *key, *message, *signature; } rfc[] = {
+    { "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", "",
+      "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b" },
+    { "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c", "72",
+      "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00" },
+    { "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025", "af82",
+      "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a" },
+    { "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+      "dc2a4459e7369633a52b1bf277839a00201009a3efbf3ecb69bea2186c26b58909351fc9ac90b3ecfdfbc7c66431e0303dca179c138ac17ad9bef1177331a704" },
+  };
+  /* clang-format on */
+  for (gsize v = 0; v < G_N_ELEMENTS(rfc); v++) {
+    guint8 vector_key[32], vector_signature[64], message[64];
+    gsize length = strlen(rfc[v].message) / 2;
+    for (int i = 0; i < 32; i++)
+      sscanf(rfc[v].key + 2 * i, "%2hhx", &vector_key[i]);
+    for (int i = 0; i < 64; i++)
+      sscanf(rfc[v].signature + 2 * i, "%2hhx", &vector_signature[i]);
+    for (gsize i = 0; i < length; i++)
+      sscanf(rfc[v].message + 2 * i, "%2hhx", &message[i]);
+    g_assert_true(ed25519_verify(vector_signature, message, length, vector_key));
+    vector_signature[0] ^= 0x01;
+    g_assert_false(ed25519_verify(vector_signature, message, length, vector_key));
+  }
+
+  /* a key is spelled one way only. The neutral point (y = 1) as the key makes R = S B: S = 0 and R = the
+   * neutral point check for any message. Spelled as y + p, or with a sign bit on x = 0, it is refused. */
+  guint8 neutral_signature[64] = { 0x01 };
+  memset(bad_key, 0, 32);
+  bad_key[0] = 0x01;
+  g_assert_true(ed25519_verify(neutral_signature, (const guint8 *)"abc", 3, bad_key));
+  bad_key[31] = 0x80;
+  g_assert_false(ed25519_verify(neutral_signature, (const guint8 *)"abc", 3, bad_key));
+  memset(bad_key, 0xff, 32);
+  bad_key[0] = 0xee;
+  bad_key[31] = 0x7f;
+  g_assert_false(ed25519_verify(neutral_signature, (const guint8 *)"abc", 3, bad_key));
+
   /* registry_signed: base64 texts, spaces and a newline around them allowed */
   const char *index = "{\"format\": 1, \"plugins\": []}\n";
   const char *index_signature =

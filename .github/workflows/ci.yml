@@ -66,6 +66,25 @@ jobs:
             gtk4-devel gtksourceview5-devel json-glib-devel vte291-gtk4-devel md4c-devel
       - name: Build under ASan
         run: make test-asan
+  asan-gtk:
+    # The tests that show widgets (editor page, language server client, panels, a whole window) under
+    # ASan and UBSan, without the leak check (GTK keeps memory to the end on purpose).
+    runs-on: ubuntu-24.04
+    container: registry.fedoraproject.org/fedora:44
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          dnf -y install make gcc git mercurial subversion libasan libubsan python3 procps-ng \
+            gtk4-devel gtksourceview5-devel json-glib-devel vte291-gtk4-devel md4c-devel \
+            xorg-x11-server-Xvfb dbus-x11 glibc-langpack-en
+      - name: Tests under ASan
+        run: |
+          runtime_dir=$(mktemp -d)
+          chmod 700 "$runtime_dir"
+          trap 'rm -rf "$runtime_dir"' EXIT
+          LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 XDG_RUNTIME_DIR="$runtime_dir" GSK_RENDERER=cairo \
+            dbus-run-session -- xvfb-run -a make -j"$(nproc)" test-asan-gtk
   format:
     runs-on: ubuntu-24.04
     container: registry.fedoraproject.org/fedora:44

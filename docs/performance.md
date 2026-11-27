@@ -46,6 +46,7 @@ tools/headless.sh src/*/*.c          # build/t-code run invisibly with these fil
 tools/measure.sh [-n 3] [tree]       # the table above: the same 25 files, each tab shown, several runs
 tools/clangd-mem.py --churn 3        # clangd alone: resident memory vs what it says it uses
 make test-asan                       # the tests without GTK under AddressSanitizer, failing on any leak
+make test-asan-gtk                   # the GTK tests under AddressSanitizer + UBSan (no leak check)
 ```
 
 The tests also check memory: `tests/test_lsp.c` opens and closes a file 200 times against a fake
