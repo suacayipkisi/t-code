@@ -157,14 +157,30 @@ GMenu *panels_menu(void)
   return menu;
 }
 
-/* Files, T-Code, Settings, Plugins, Panels (checked while turned on), About and Help. */
-static GMenu *menu_bar_model(App *t)
+/* The menu bar's titles in order, with their icons (title_bar_apply). */
+/* clang-format off */
+static const char *const titles[][2] = {
+  { "Files", "tcode-files-symbolic" },     { "T-Code", "tcode-logo" },     { "Settings", "tcode-settings-symbolic" },
+  { "Plugins", "tcode-plugins-symbolic" }, { "Panels", "tcode-panel-bottom-symbolic" },
+  { "About", "tcode-info-symbolic" },      { "Help", "tcode-help-symbolic" },
+};
+/* clang-format on */
+
+/* Title i: its name, or nothing when the titles are icons only (names FALSE). */
+static const char *title(int i, gboolean names)
+{
+  return names ? titles[i][0] : "";
+}
+
+/* Files, T-Code, Settings, Plugins, Panels (checked while turned on), About and Help; names FALSE: the titles
+ * empty, for their icons alone. */
+static GMenu *menu_bar_model(App *t, gboolean names)
 {
   GMenu *bar = g_menu_new(), *menu = g_menu_new(), *section = g_menu_new();
 
   add_command(menu, "Open Folder…", "Open Folder…", "<Control><Shift>o");
   g_menu_append_submenu(menu, "Recent Folders", G_MENU_MODEL(t->recent_menu));
-  add_submenu(bar, "Files", menu);
+  add_submenu(bar, title(0, names), menu);
 
   menu = g_menu_new();
   add_item(menu, "New Window", "app.new-window", NULL, NULL);
@@ -174,7 +190,7 @@ static GMenu *menu_bar_model(App *t)
   add_item(section, "Quit", "win.quit", NULL, NULL);
   g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
   g_object_unref(section);
-  add_submenu(bar, "T-Code", menu);
+  add_submenu(bar, title(1, names), menu);
 
   menu = g_menu_new();
   section = g_menu_new();
@@ -185,7 +201,7 @@ static GMenu *menu_bar_model(App *t)
   add_command(section, "Open Editor Colors", "Preferences: Open Editor Colors", NULL);
   g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
   g_object_unref(section);
-  add_submenu(bar, "Settings", menu);
+  add_submenu(bar, title(2, names), menu);
 
   menu = g_menu_new();
   section = g_menu_new();
@@ -197,18 +213,18 @@ static GMenu *menu_bar_model(App *t)
   add_command(section, "Process Monitor…", "Help: Process Monitor", NULL);
   g_menu_append_section(menu, NULL, G_MENU_MODEL(section));
   g_object_unref(section);
-  add_submenu(bar, "Plugins", menu);
+  add_submenu(bar, title(3, names), menu);
 
-  add_submenu(bar, "Panels", panels_menu());
+  add_submenu(bar, title(4, names), panels_menu());
 
   menu = g_menu_new();
   add_item(menu, "About t-code", "win.about", NULL, NULL);
-  add_submenu(bar, "About", menu);
+  add_submenu(bar, title(5, names), menu);
 
   menu = g_menu_new();
   add_item(menu, "Keyboard Shortcuts", "win.keybinds", NULL, NULL);
   add_item(menu, "Reset Panel Layout", "win.reset-panels", NULL, NULL);
-  add_submenu(bar, "Help", menu);
+  add_submenu(bar, title(6, names), menu);
   return bar;
 }
 
@@ -407,7 +423,7 @@ static GtkWidget *search_bar(void)
 GtkWidget *title_bar(App *t)
 {
   GtkWidget *header = gtk_header_bar_new();
-  GMenu *model = menu_bar_model(t);
+  GMenu *model = menu_bar_model(t, TRUE); /* the icon's menus: always with names */
   GtkWidget *menu_bar = gtk_popover_menu_bar_new_from_model(G_MENU_MODEL(model));
   GtkWidget *left_btn = gtk_button_new_from_icon_name("tcode-sidebar-left-symbolic");
   GtkWidget *right_btn = gtk_button_new_from_icon_name("tcode-sidebar-right-symbolic");
@@ -466,12 +482,51 @@ GtkWidget *title_bar(App *t)
   return header;
 }
 
+/* The menu bar's titles as names, icons or both (t->settings.menu_titles): the icons are its items'
+ * backgrounds, in their order; icons alone need the model again with empty titles, named by tooltips. */
+static void apply_menu_titles(App *t)
+{
+  static GtkCssProvider *provider;
+  int mode = t->settings.menu_titles;
+  GtkWidget *bar = t->layout.menu_bar;
+  int had = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(bar), "t-code-titles")) - 1; /* -1: names, as built */
+  GString *css = g_string_new(NULL);
+  int i = 0;
+
+  if (!provider) {
+    provider = gtk_css_provider_new();
+    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
+                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 3);
+  }
+  if ((mode == 1) != (had == 1)) {
+    GMenu *model = menu_bar_model(t, mode != 1);
+    gtk_popover_menu_bar_set_menu_model(GTK_POPOVER_MENU_BAR(bar), G_MENU_MODEL(model));
+    g_object_unref(model);
+  }
+  g_object_set_data(G_OBJECT(bar), "t-code-titles", GINT_TO_POINTER(mode + 1));
+  for (GtkWidget *item = gtk_widget_get_first_child(bar); item && i < (int)G_N_ELEMENTS(titles);
+       item = gtk_widget_get_next_sibling(item), i++)
+    gtk_widget_set_tooltip_text(item, mode == 1 ? titles[i][0] : NULL);
+  for (i = 0; mode && i < (int)G_N_ELEMENTS(titles); i++)
+    g_string_append_printf(css,
+                           "headerbar menubar > item:nth-child(%d) { background-image: -gtk-icontheme('%s');"
+                           " background-repeat: no-repeat; background-size: 16px 16px; }",
+                           i + 1, titles[i][1]);
+  if (mode == 1)
+    g_string_append(css, "headerbar menubar > item { min-width: 16px; padding: 0 6px; background-position: center; }");
+  else if (mode == 2)
+    g_string_append(css, "headerbar menubar > item { padding-left: 30px; background-position: 8px center; }");
+  gtk_css_provider_load_from_string(provider, css->str);
+  g_string_free(css, TRUE);
+}
+
 void title_bar_apply(App *t)
 {
   gboolean bar = t->settings.menu_bar;
 
   if (!t->layout.menu_bar)
     return;
+  apply_menu_titles(t);
   gtk_widget_set_visible(t->layout.menu_bar, bar);
   gtk_widget_set_visible(t->layout.logo, bar);
   gtk_widget_set_visible(t->layout.logo_menu, !bar);
