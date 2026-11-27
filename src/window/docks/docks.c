@@ -191,10 +191,16 @@ static int right_paned_width(App *t)
   return MAX(whole - gtk_paned_get_position(t->layout.hpaned) - handle, 0);
 }
 
+/* Whether the left side needs its width: a collapsed dock whose tab bar is a column needs only that. */
+static gboolean left_expanded(App *t)
+{
+  return !t->settings.left_vertical || side_has_expanded(t, 0);
+}
+
 /* Gives a side that is being shown room when its paned has squeezed it to (almost) nothing. */
 static void make_room(App *t, int side)
 {
-  if (side == 0 && gtk_paned_get_position(t->layout.hpaned) < 48) {
+  if (side == 0 && gtk_paned_get_position(t->layout.hpaned) < 48 && left_expanded(t)) {
     gtk_paned_set_position(t->layout.hpaned, 280);
   } else if (side == 1 && t->layout.vpaned) {
     int h = gtk_widget_get_height(GTK_WIDGET(t->layout.vpaned));
@@ -216,7 +222,7 @@ static void make_room(App *t, int side)
 static gboolean side_squeezed(App *t, int side)
 {
   if (side == 0)
-    return t->layout.hpaned && gtk_paned_get_position(t->layout.hpaned) < 48;
+    return t->layout.hpaned && gtk_paned_get_position(t->layout.hpaned) < 48 && left_expanded(t);
   GtkPaned *paned = side == 1 ? t->layout.vpaned : t->layout.rpaned;
   int size = !paned      ? 0
              : side == 1 ? gtk_widget_get_height(GTK_WIDGET(paned))
@@ -238,6 +244,12 @@ static void fit_dock(Dock *dock)
   gboolean start = gtk_paned_get_start_child(split) == dock->card;
   int total = vertical ? gtk_widget_get_height(GTK_WIDGET(split)) : gtk_widget_get_width(GTK_WIDGET(split));
   int bar = vertical ? COLLAPSED_HEIGHT : COLLAPSED_WIDTH, pos = gtk_paned_get_position(split);
+
+  if (dock->vertical) { /* its tab bar is a column: as tall as ever, as wide as the column */
+    if (vertical)
+      return;
+    bar = MAX(gtk_widget_get_width(dock->header), 24);
+  }
   int collapsed_pos = start ? bar : total - bar;
 
   if (total <= 2 * bar)
@@ -272,6 +284,27 @@ static void fit_bottom(App *t)
   }
 }
 
+/* The left side with every dock collapsed to its column keeps only the columns; opening one gives the side
+ * its width back. */
+static void fit_left(App *t)
+{
+  static int saved;
+  GtkWidget *first = side_first_dock(t, 0) ? side_first_dock(t, 0)->header : NULL;
+  int strip, pos;
+
+  if (!t->layout.hpaned || !t->settings.left_vertical || !first || !side_shows(t, 0, FALSE))
+    return;
+  strip = MAX(gtk_widget_get_width(first), 24) + 2;
+  pos = gtk_paned_get_position(t->layout.hpaned);
+  if (!side_has_expanded(t, 0)) {
+    if (pos > strip + 16)
+      saved = pos;
+    gtk_paned_set_position(t->layout.hpaned, strip);
+  } else if (pos <= strip + 16) {
+    gtk_paned_set_position(t->layout.hpaned, saved > 100 ? saved : 280);
+  }
+}
+
 static void fit_side(App *t, int side)
 {
   GPtrArray *docks = side_docks(t, side);
@@ -281,6 +314,8 @@ static void fit_side(App *t, int side)
   g_ptr_array_unref(docks);
   if (side == 1)
     fit_bottom(t);
+  else if (side == 0)
+    fit_left(t);
 }
 
 void set_dock_collapsed(Dock *dock, gboolean collapsed)
@@ -288,9 +323,10 @@ void set_dock_collapsed(Dock *dock, gboolean collapsed)
   GtkWidget *btn = g_object_get_data(G_OBJECT(dock->card), "tcode-collapse-btn");
 
   dock->collapsed = collapsed;
-  gtk_widget_set_visible(GTK_WIDGET(dock->stack), !collapsed);
-  if (dock->side != 1)
-    gtk_widget_set_valign(dock->card, collapsed ? GTK_ALIGN_START : GTK_ALIGN_FILL);
+  gtk_widget_set_visible(dock->body, !collapsed);
+  /* only its tab bar: at the top of its room, or at the left when the bar is a column */
+  gtk_widget_set_valign(dock->card, collapsed && dock->side != 1 && !dock->vertical ? GTK_ALIGN_START : GTK_ALIGN_FILL);
+  gtk_widget_set_halign(dock->card, collapsed && dock->vertical ? GTK_ALIGN_START : GTK_ALIGN_FILL);
   if (btn)
     gtk_button_set_icon_name(GTK_BUTTON(btn),
                              collapsed ? "tcode-chevron-right-symbolic" : "tcode-chevron-down-symbolic");
@@ -471,7 +507,14 @@ void update_scm_badge(GtkStackPage *sp, GParamSpec *pspec G_GNUC_UNUSED, App *t)
     if (item)
       g_object_unref(item);
     if (match) {
-      if (count && *count) {
+      if (dock->vertical) { /* a column: no room for the number, the icon turns the warning color */
+        gtk_button_set_icon_name(GTK_BUTTON(btn), "tcode-source-control-symbolic");
+        if (count && *count)
+          gtk_widget_add_css_class(btn, "tcode-scm-changed");
+        else
+          gtk_widget_remove_css_class(btn, "tcode-scm-changed");
+      } else if (count && *count) {
+        gtk_widget_remove_css_class(btn, "tcode-scm-changed");
         GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
         GtkWidget *lbl = gtk_label_new(count);
         gtk_widget_add_css_class(lbl, "tcode-scm-badge");
@@ -479,6 +522,7 @@ void update_scm_badge(GtkStackPage *sp, GParamSpec *pspec G_GNUC_UNUSED, App *t)
         gtk_box_append(GTK_BOX(box), lbl);
         gtk_button_set_child(GTK_BUTTON(btn), box);
       } else {
+        gtk_widget_remove_css_class(btn, "tcode-scm-changed");
         gtk_button_set_icon_name(GTK_BUTTON(btn), "tcode-source-control-symbolic");
       }
       break;

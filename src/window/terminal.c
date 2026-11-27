@@ -341,11 +341,11 @@ static void on_rename_closed(GtkPopover *popover G_GNUC_UNUSED, App *t)
 /* Asks for a terminal's new name in a small entry under its tab. */
 static void ask_rename(App *t, VteTerminal *term)
 {
-  GtkWidget *tab = gtk_notebook_get_tab_label(t->shell.tabs, GTK_WIDGET(term));
+  GtkWidget *tab = g_object_get_data(G_OBJECT(term), "t-code-tab");
   graphene_rect_t bounds;
   GdkRectangle rect = { 0, 0, 1, 1 };
 
-  if (tab && gtk_widget_compute_bounds(tab, t->shell.panel, &bounds))
+  if (tab && gtk_widget_compute_bounds(tab, t->shell.strip, &bounds))
     rect =
         (GdkRectangle){ (int)bounds.origin.x, (int)bounds.origin.y, (int)bounds.size.width, (int)bounds.size.height };
   ui.renaming = term;
@@ -362,12 +362,15 @@ void rename_current_shell(App *t)
   ask_rename(t, current_shell(t));
 }
 
-/* A double click on a tab renames it. */
+/* A click on a tab shows its terminal, a double click renames it. */
 static void on_tab_pressed(GtkGestureClick *gesture, int n_press, double x G_GNUC_UNUSED, double y G_GNUC_UNUSED,
                            VteTerminal *term)
 {
   Shell *shell = shell_of(term);
 
+  if (n_press == 1)
+    gtk_notebook_set_current_page(shell->app->shell.tabs,
+                                  gtk_notebook_page_num(shell->app->shell.tabs, GTK_WIDGET(term)));
   if (n_press == 2) {
     gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
     ask_rename(shell->app, term);
@@ -418,6 +421,8 @@ static VteTerminal *add_tab(App *t, const char *name, const char *dir, gboolean 
   add_location_links(t, term);
 
   gtk_widget_add_css_class(tab, "tcode-terminal-tab");
+  if (first) /* no close button: as much room after its name as before its icon */
+    gtk_widget_add_css_class(tab, "first");
   gtk_widget_set_tooltip_text(tab, gtk_label_get_text(shell->label));
   gtk_box_append(GTK_BOX(tab), icon);
   gtk_box_append(GTK_BOX(tab), GTK_WIDGET(shell->label));
@@ -431,7 +436,9 @@ static VteTerminal *add_tab(App *t, const char *name, const char *dir, gboolean 
   }
   g_signal_connect(click, "pressed", G_CALLBACK(on_tab_pressed), term);
   gtk_widget_add_controller(tab, GTK_EVENT_CONTROLLER(click));
-  gtk_notebook_append_page(t->shell.tabs, GTK_WIDGET(term), tab);
+  g_object_set_data(G_OBJECT(term), "t-code-tab", tab); /* the strip holds it: page-removed takes it away */
+  gtk_box_append(t->shell.strip_tabs, tab);
+  gtk_notebook_append_page(t->shell.tabs, GTK_WIDGET(term), NULL);
   if (!first)
     spawn_program(t, term, dir, program);
   g_free(fallback);
@@ -483,9 +490,16 @@ static gboolean focus_current(gpointer data)
   return G_SOURCE_REMOVE;
 }
 
-static void on_switch_page(GtkNotebook *tabs G_GNUC_UNUSED, GtkWidget *page G_GNUC_UNUSED, guint n G_GNUC_UNUSED,
-                           App *t)
+static void on_switch_page(GtkNotebook *tabs G_GNUC_UNUSED, GtkWidget *page, guint n G_GNUC_UNUSED, App *t)
 {
+  GtkWidget *current = g_object_get_data(G_OBJECT(page), "t-code-tab");
+
+  for (GtkWidget *tab = gtk_widget_get_first_child(GTK_WIDGET(t->shell.strip_tabs)); tab;
+       tab = gtk_widget_get_next_sibling(tab))
+    if (tab == current)
+      gtk_widget_set_state_flags(tab, GTK_STATE_FLAG_CHECKED, FALSE);
+    else
+      gtk_widget_unset_state_flags(tab, GTK_STATE_FLAG_CHECKED);
   if (gtk_widget_get_mapped(t->shell.panel))
     g_idle_add(focus_current, t);
 }
@@ -729,35 +743,66 @@ static void add_location_links(App *t, VteTerminal *term)
   gtk_widget_add_controller(GTK_WIDGET(term), GTK_EVENT_CONTROLLER(click));
 }
 
+/* A terminal's page went (closed, a project switch): its tab leaves the strip. */
+static void on_page_removed(GtkNotebook *tabs G_GNUC_UNUSED, GtkWidget *page, guint n G_GNUC_UNUSED, App *t)
+{
+  GtkWidget *tab = g_object_get_data(G_OBJECT(page), "t-code-tab");
+
+  if (tab && gtk_widget_get_parent(tab) == GTK_WIDGET(t->shell.strip_tabs))
+    gtk_box_remove(t->shell.strip_tabs, tab);
+  g_object_set_data(G_OBJECT(page), "t-code-tab", NULL);
+}
+
 void create_shell_pane(App *t)
 {
+  /* The tabs sit in the header of the dock showing the panel (window/docks/widgets.c), not in a row of
+   * their own over the terminal. */
   static const char *const css =
-      ".tcode-terminals > header { background: none; box-shadow: inset 0 -1px var(--tc-border); padding: 2px 4px 0; }"
-      ".tcode-terminals > header > tabs > tab { min-height: 24px; padding: 0 4px 0 8px; margin: 0 1px;"
-      "  border-radius: 7px 7px 0 0; border: none; box-shadow: none; color: var(--tc-fg-dim); }"
-      ".tcode-terminals > header > tabs > tab:hover { background: var(--tc-raised); color: var(--tc-fg); }"
-      ".tcode-terminals > header > tabs > tab:checked { color: var(--tc-fg-strong);"
-      "  box-shadow: inset 0 -2px var(--tc-accent); }"
-      ".tcode-terminal-tab { padding-right: 4px; }"
-      ".tcode-terminal-tab button, .tcode-terminals > header button { min-width: 20px; min-height: 20px; padding: 0;"
+      ".tcode-terminals-strip { margin-left: 6px; padding-left: 6px; box-shadow: inset 1px 0 var(--tc-border); }"
+      ".tcode-terminals-strip .tcode-terminal-tab { min-height: 22px; padding: 0 2px 0 8px; margin: 2px 1px;"
+      "  border-radius: 6px; color: var(--tc-fg-dim); }"
+      ".tcode-terminals-strip .tcode-terminal-tab.first { padding-right: 8px; }"
+      ".tcode-terminals-strip .tcode-terminal-tab:hover { background: var(--tc-raised); color: var(--tc-fg); }"
+      ".tcode-terminals-strip .tcode-terminal-tab:checked { color: var(--tc-fg-strong);"
+      "  background: color-mix(in srgb, var(--tc-fg) 10%, transparent); }"
+      ".tcode-terminal-tab button, .tcode-terminals-strip > button { min-width: 20px; min-height: 20px; padding: 0;"
       "  margin: 0; border-radius: 6px; background: none; box-shadow: none; }"
-      ".tcode-terminal-tab button:hover, .tcode-terminals > header button:hover {"
-      "  background: color-mix(in srgb, var(--tc-fg) 12%, transparent); }";
+      ".tcode-terminal-tab button:hover, .tcode-terminals-strip > button:hover {"
+      "  background: color-mix(in srgb, var(--tc-fg) 12%, transparent); }"
+      ".tcode-terminals-strip scrollbar { opacity: 0; }";
   GtkWidget *add = gtk_button_new_from_icon_name("tcode-add-symbolic");
-  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkWidget *scroll = gtk_scrolled_window_new();
 
   palette_add_css(css);
   t->shell.panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   t->shell.tabs = GTK_NOTEBOOK(gtk_notebook_new());
-  gtk_notebook_set_scrollable(t->shell.tabs, TRUE);
+  gtk_notebook_set_show_tabs(t->shell.tabs, FALSE);
+  gtk_notebook_set_show_border(t->shell.tabs, FALSE);
   gtk_widget_add_css_class(GTK_WIDGET(t->shell.tabs), "tcode-terminals");
   gtk_widget_set_vexpand(GTK_WIDGET(t->shell.tabs), TRUE);
+
+  t->shell.strip = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_add_css_class(t->shell.strip, "tcode-terminals-strip");
+  gtk_widget_set_hexpand(t->shell.strip, TRUE);
+  t->shell.strip_tabs = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_EXTERNAL, GTK_POLICY_NEVER);
+  gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(scroll), TRUE);
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), GTK_WIDGET(t->shell.strip_tabs));
+  gtk_widget_set_hexpand(scroll, FALSE);
+  gtk_box_append(GTK_BOX(t->shell.strip), scroll);
   gtk_widget_set_tooltip_text(add, "New Terminal (Ctrl+Shift+`)");
   gtk_widget_set_focus_on_click(add, FALSE);
+  gtk_widget_set_valign(add, GTK_ALIGN_CENTER);
   g_signal_connect_swapped(add, "clicked", G_CALLBACK(on_add_clicked), t);
-  gtk_box_append(GTK_BOX(box), add);
-  gtk_notebook_set_action_widget(t->shell.tabs, box, GTK_PACK_END);
+  gtk_box_append(GTK_BOX(t->shell.strip), add);
+  /* Ours until the panel goes: a dock's header holds it only while it shows the panel. */
+  g_object_ref_sink(t->shell.strip);
+  g_signal_connect_swapped(t->shell.panel, "destroy", G_CALLBACK(g_object_unref), t->shell.strip);
+  /* the docks show it over the panel (window/docks/widgets.c) */
+  g_object_set_data(G_OBJECT(t->shell.panel), "t-code-dock-extra", t->shell.strip);
+
   g_signal_connect(t->shell.tabs, "switch-page", G_CALLBACK(on_switch_page), t);
+  g_signal_connect(t->shell.tabs, "page-removed", G_CALLBACK(on_page_removed), t);
   gtk_box_append(GTK_BOX(t->shell.panel), GTK_WIDGET(t->shell.tabs));
   t->shell.term = add_shell(t, "Terminal", NULL, TRUE);
 
@@ -768,7 +813,7 @@ void create_shell_pane(App *t)
   g_signal_connect(ui.rename, "closed", G_CALLBACK(on_rename_closed), t);
   gtk_popover_set_child(ui.rename, GTK_WIDGET(ui.entry));
   gtk_popover_set_position(ui.rename, GTK_POS_BOTTOM);
-  gtk_widget_set_parent(GTK_WIDGET(ui.rename), t->shell.panel);
+  gtk_widget_set_parent(GTK_WIDGET(ui.rename), t->shell.strip);
 }
 
 /* Ending the plugins' programs ------------------------------------------------------------------ */

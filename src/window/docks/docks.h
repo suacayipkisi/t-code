@@ -17,6 +17,11 @@ typedef struct Dock {
   GtkWidget *card;     /* the tree's leaf: the tab bar over the stack */
   GtkStack *stack;     /* the panels, by name */
   GtkWidget *switcher; /* their icons */
+  GtkWidget *header;   /* the tab bar: a row over the panels, or a column beside them (vertical) */
+  GtkWidget *body;     /* the panels' side: the stack, under the extras' row when vertical */
+  GtkWidget *bar;      /* the switcher's clip in the header */
+  GtkWidget *slot;     /* the shown panel's extras (the terminals' tabs): in the header, or over the stack */
+  gboolean vertical;   /* the tab bar is a column (left docks only, t->settings.left_vertical) */
   gboolean collapsed;  /* only the tab bar shows */
   int saved_pos;       /* its split's position before it collapsed */
 } Dock;
@@ -29,6 +34,9 @@ void docks_create(App *t);
 
 /* A new dock for side, in no tree yet. */
 Dock *dock_new(App *t, int side);
+
+/* Turns a dock's tab bar into a column along its left edge, or a row over it again. */
+void dock_set_vertical(Dock *dock, gboolean vertical);
 
 /* content (the window's panes) under the drop markers a dragged panel icon shows. */
 GtkWidget *docks_drop_view(App *t, GtkWidget *content);

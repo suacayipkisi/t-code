@@ -91,3 +91,6 @@ void set_panel_enabled(App *t, const char *page, gboolean on);
 /* Puts the interface settings into effect: the panels turned off, the menu bar or t-code's icon as
  * its button, the status bar, its Build and Run buttons and the title bar's side buttons. */
 void apply_interface(App *t);
+
+/* The left docks' tab bars as columns or rows, as t->settings.left_vertical says (docks/widgets.c). */
+void docks_apply_orientation(App *t);

@@ -15,6 +15,7 @@
 #include "git/scm/scm.h"
 #include "lsp/symbols/hierarchy.h"
 #include "plugins/manager.h"
+#include "project/session.h"
 #include "testing/testing.h"
 #include "lsp/symbols/outline.h"
 #include "lsp/problems.h"
@@ -129,12 +130,14 @@ static int header_drop_pos(Dock *to, const char *page, double x, double *line_x)
   for (GtkWidget *btn = gtk_widget_get_first_child(to->switcher); btn; btn = gtk_widget_get_next_sibling(btn), i++) {
     graphene_rect_t bounds;
     if (i == orig_idx || !gtk_widget_compute_bounds(btn, to->switcher, &bounds))
-      continue; /* its own icon */
-    if (x > bounds.origin.x + bounds.size.width / 2) {
+      continue;                                                      /* its own icon */
+    double start = to->vertical ? bounds.origin.y : bounds.origin.x; /* x is y in a column */
+    double size = to->vertical ? bounds.size.height : bounds.size.width;
+    if (x > start + size / 2) {
       pos++;
-      line = bounds.origin.x + bounds.size.width;
+      line = start + size;
     } else {
-      line = bounds.origin.x;
+      line = start;
       break;
     }
   }
@@ -154,7 +157,8 @@ typedef enum {
   DOCK_TO_RIGHT,
   DOCK_STACK_RIGHT,
   DOCK_COLLAPSE,
-  DOCK_HIDE
+  DOCK_HIDE,
+  DOCK_VERTICAL /* left docks only */
 } DockAction;
 
 static const char *const dock_action_labels[] = {
@@ -163,6 +167,7 @@ static const char *const dock_action_labels[] = {
   [DOCK_TO_BOTTOM] = "Move to Bottom (Tab)",   [DOCK_SPLIT_BOTTOM] = "Split on Bottom (Side by Side)",
   [DOCK_TO_RIGHT] = "Move to Right (Tab)",     [DOCK_STACK_RIGHT] = "Stack on Right (Above/Below)",
   [DOCK_COLLAPSE] = "Collapse / Expand Panel", [DOCK_HIDE] = "Hide Panel",
+  [DOCK_VERTICAL] = "Vertical Tab Bar",
 };
 
 static char *menu_target_page;
@@ -196,6 +201,11 @@ static gboolean run_dock_action(gpointer data)
     case DOCK_STACK_RIGHT: move_panel_edge(t, page, 2); break;
     case DOCK_COLLAPSE: set_dock_collapsed(cur, !cur->collapsed); break;
     case DOCK_HIDE: hide_dock(cur); break;
+    case DOCK_VERTICAL:
+      t->settings.left_vertical = !t->settings.left_vertical;
+      docks_apply_orientation(t);
+      session_save_settings(t);
+      break;
   }
   return G_SOURCE_REMOVE;
 }
@@ -229,12 +239,16 @@ static void on_switcher_right_click(GtkGestureClick *gesture, int n_press G_GNUC
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     pop = GTK_POPOVER(gtk_popover_new());
     gtk_popover_set_has_arrow(pop, FALSE);
+    gtk_widget_add_css_class(GTK_WIDGET(pop), "tcode-menu");
     for (DockAction i = 0; i < G_N_ELEMENTS(dock_action_labels); i++) {
       GtkWidget *btn = gtk_button_new_with_label(dock_action_labels[i]);
       gtk_button_set_has_frame(GTK_BUTTON(btn), FALSE);
       gtk_widget_set_halign(btn, GTK_ALIGN_FILL);
+      gtk_label_set_xalign(GTK_LABEL(gtk_button_get_child(GTK_BUTTON(btn))), 0);
       g_signal_connect(btn, "clicked", G_CALLBACK(on_dock_action_clicked), GINT_TO_POINTER(i));
       gtk_box_append(GTK_BOX(box), btn);
+      if (i == DOCK_VERTICAL)
+        g_object_set_data(G_OBJECT(pop), "tcode-vertical", btn);
     }
     gtk_popover_set_child(pop, box);
     gtk_widget_set_parent(GTK_WIDGET(pop), header);
@@ -242,6 +256,11 @@ static void on_switcher_right_click(GtkGestureClick *gesture, int n_press G_GNUC
   }
   if (!gtk_widget_compute_point(switcher, header, &pt, &pt))
     return;
+  GtkWidget *vertical = g_object_get_data(G_OBJECT(pop), "tcode-vertical");
+  Dock *dock = panel_dock(t, page);
+  gtk_widget_set_visible(vertical, dock && dock->side == 0); /* the left side's only */
+  gtk_button_set_label(GTK_BUTTON(vertical), t->settings.left_vertical ? "Horizontal Tab Bar" : "Vertical Tab Bar");
+  gtk_label_set_xalign(GTK_LABEL(gtk_button_get_child(GTK_BUTTON(vertical))), 0);
   gtk_popover_set_pointing_to(pop, &(const GdkRectangle){ (int)pt.x, (int)pt.y, 1, 1 });
   gtk_popover_popup(pop);
 }
@@ -316,10 +335,35 @@ static void on_header_right_click(GtkGestureClick *gesture, int n_press G_GNUC_U
   gtk_popover_popup(pop);
 }
 
+/* The shown panel's extras ("t-code-dock-extra" on its widget: the terminals' tabs) come into this dock's
+ * slot, taken from the dock that showed them before; the others in the slot hide. */
+static void sync_extras(Dock *dock)
+{
+  GtkWidget *child = gtk_stack_get_visible_child(dock->stack);
+  GtkWidget *extra = child ? g_object_get_data(G_OBJECT(child), "t-code-dock-extra") : NULL;
+
+  for (GtkWidget *w = gtk_widget_get_first_child(dock->slot); w; w = gtk_widget_get_next_sibling(w))
+    if (w != extra)
+      gtk_widget_set_visible(w, FALSE);
+  if (extra && gtk_widget_get_parent(extra) != dock->slot) {
+    g_object_ref(extra);
+    if (gtk_widget_get_parent(extra))
+      gtk_box_remove(GTK_BOX(gtk_widget_get_parent(extra)), extra);
+    gtk_box_append(GTK_BOX(dock->slot), extra);
+    g_object_unref(extra);
+  }
+  if (extra)
+    gtk_widget_set_visible(extra, TRUE);
+  gtk_widget_set_visible(dock->slot, extra != NULL);
+  /* the icons take only their room then, the extras the rest */
+  gtk_widget_set_hexpand(dock->bar, !dock->vertical && !extra);
+}
+
 static void on_stack_switched(GtkStack *stack G_GNUC_UNUSED, GParamSpec *pspec G_GNUC_UNUSED, Dock *dock)
 {
   if (dock->collapsed)
     set_dock_collapsed(dock, FALSE);
+  sync_extras(dock);
 }
 
 /* A dock's icons that do not fit its tab bar go into its "more" menu (fit_icons), like a narrow
@@ -342,6 +386,8 @@ static void fill_more(GtkMenuButton *more, gpointer data G_GNUC_UNUSED)
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
   GtkWidget *popover = gtk_popover_new();
   guint i = 0;
+
+  gtk_widget_add_css_class(popover, "tcode-menu");
 
   for (GtkWidget *icon = gtk_widget_get_first_child(switcher); icon; icon = gtk_widget_get_next_sibling(icon), i++) {
     GtkStackPage *page = g_list_model_get_item(G_LIST_MODEL(pages), i);
@@ -375,16 +421,17 @@ static gboolean fit_icons(gpointer data)
   GtkStack *stack = g_object_get_data(G_OBJECT(more), "tcode-stack");
   GtkWidget *switcher = g_object_get_data(G_OBJECT(stack), "tcode-switcher");
   GtkWidget *bar = gtk_widget_get_ancestor(switcher, GTK_TYPE_SCROLLED_WINDOW);
-  int width = gtk_widget_get_width(bar);
+  gboolean vertical = gtk_orientable_get_orientation(GTK_ORIENTABLE(switcher)) == GTK_ORIENTATION_VERTICAL;
+  int width = vertical ? gtk_widget_get_height(bar) : gtk_widget_get_width(bar); /* a column's: its height */
   gboolean overflow = FALSE;
 
   if (gtk_widget_get_visible(more)) /* without "more" the bar would be this much wider */
-    width += gtk_widget_get_width(more);
+    width += vertical ? gtk_widget_get_height(more) : gtk_widget_get_width(more);
   for (int pass = 0; pass < 2; pass++) {
     for (GtkWidget *icon = gtk_widget_get_first_child(switcher); icon; icon = gtk_widget_get_next_sibling(icon)) {
       graphene_rect_t bounds;
-      gboolean fits =
-          !gtk_widget_compute_bounds(icon, switcher, &bounds) || bounds.origin.x + bounds.size.width <= width;
+      gboolean fits = !gtk_widget_compute_bounds(icon, switcher, &bounds) ||
+                      (vertical ? bounds.origin.y + bounds.size.height : bounds.origin.x + bounds.size.width) <= width;
       if (pass == 0)
         overflow |= !fits;
       else {
@@ -394,7 +441,8 @@ static gboolean fit_icons(gpointer data)
     }
     if (pass == 0 && overflow) {
       int more_width = 0;
-      gtk_widget_measure(more, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &more_width, NULL, NULL);
+      gtk_widget_measure(more, vertical ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL, -1, NULL, &more_width,
+                         NULL, NULL);
       width -= more_width;
     }
   }
@@ -493,20 +541,84 @@ Dock *dock_new(App *t, int side)
   gtk_menu_button_set_create_popup_func(GTK_MENU_BUTTON(more), fill_more, NULL, NULL);
   g_signal_connect_object(gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(bar)), "changed",
                           G_CALLBACK(queue_fit_icons), more, 0);
+  g_signal_connect_object(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(bar)), "changed",
+                          G_CALLBACK(queue_fit_icons), more, 0); /* a column's */
+  gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(bar), TRUE);
+  gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(bar), TRUE);
+  dock->header = header;
+  dock->bar = bar;
+  dock->body = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  dock->slot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_set_visible(dock->slot, FALSE);
+  gtk_widget_add_css_class(dock->slot, "tcode-dock-extras");
   gtk_box_append(GTK_BOX(header), bar);
+  gtk_box_append(GTK_BOX(header), dock->slot);
   gtk_box_append(GTK_BOX(header), more);
   gtk_box_append(GTK_BOX(header), close_btn);
 
   gtk_widget_add_css_class(box, "tcode-sidebar");
   make_card(box);
   gtk_box_append(GTK_BOX(box), header);
-  gtk_box_append(GTK_BOX(box), GTK_WIDGET(stack));
+  gtk_box_append(GTK_BOX(dock->body), GTK_WIDGET(stack));
+  gtk_box_append(GTK_BOX(box), dock->body);
   g_object_set_data(G_OBJECT(box), "tcode-collapse-btn", collapse_btn);
   g_object_set_data(G_OBJECT(stack), "tcode-switcher", switcher);
   /* the Panels menu's checks follow whatever shows or hides a panel */
   g_signal_connect(box, "notify::visible", G_CALLBACK(on_layout_changed), t);
   g_signal_connect(stack, "notify::visible-child", G_CALLBACK(on_layout_changed), t);
+  if (side == 0 && t->settings.left_vertical)
+    dock_set_vertical(dock, TRUE);
   return dock;
+}
+
+void dock_set_vertical(Dock *dock, gboolean vertical)
+{
+  GtkScrolledWindow *bar = GTK_SCROLLED_WINDOW(dock->bar);
+  GtkWidget *slot_parent = gtk_widget_get_parent(dock->slot);
+
+  if (dock->vertical == vertical)
+    return;
+  dock->vertical = vertical;
+  gtk_orientable_set_orientation(GTK_ORIENTABLE(dock->card),
+                                 vertical ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL);
+  gtk_orientable_set_orientation(GTK_ORIENTABLE(dock->header),
+                                 vertical ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL);
+  gtk_orientable_set_orientation(GTK_ORIENTABLE(dock->switcher),
+                                 vertical ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL);
+  gtk_widget_set_halign(dock->switcher, vertical ? GTK_ALIGN_FILL : GTK_ALIGN_START);
+  gtk_widget_set_valign(dock->switcher, vertical ? GTK_ALIGN_START : GTK_ALIGN_FILL);
+  gtk_scrolled_window_set_policy(bar, vertical ? GTK_POLICY_NEVER : GTK_POLICY_EXTERNAL,
+                                 vertical ? GTK_POLICY_EXTERNAL : GTK_POLICY_NEVER);
+  gtk_widget_set_vexpand(dock->bar, vertical);
+  gtk_widget_set_hexpand(dock->header, FALSE); /* a column only as wide as its icons */
+  /* The extras (the terminals' tabs) need a row: over the panels when the tab bar is a column. */
+  g_object_ref(dock->slot);
+  gtk_box_remove(GTK_BOX(slot_parent), dock->slot);
+  if (vertical)
+    gtk_box_prepend(GTK_BOX(dock->body), dock->slot);
+  else
+    gtk_box_insert_child_after(GTK_BOX(dock->header), dock->slot, dock->bar);
+  g_object_unref(dock->slot);
+  if (vertical)
+    gtk_widget_add_css_class(dock->card, "vertical");
+  else
+    gtk_widget_remove_css_class(dock->card, "vertical");
+  sync_extras(dock);
+  if (dock->collapsed)
+    set_dock_collapsed(dock, TRUE);         /* collapsed the other way */
+  if (panel_dock(dock->t, "scm") == dock) { /* its badge: a number in a row, a color in a column */
+    GtkStackPage *scm = gtk_stack_get_page(dock->stack, gtk_stack_get_child_by_name(dock->stack, "scm"));
+    update_scm_badge(scm, NULL, dock->t);
+  }
+}
+
+void docks_apply_orientation(App *t)
+{
+  GPtrArray *docks = side_docks(t, 0);
+
+  for (guint i = 0; i < docks->len; i++)
+    dock_set_vertical(g_ptr_array_index(docks, i), t->settings.left_vertical);
+  g_ptr_array_unref(docks);
 }
 
 /* Dragging a panel ------------------------------------------------------------------------------- */
@@ -559,8 +671,11 @@ int docks_drop_hover(App *t, const char *page, double x, double y)
       double line = 0;
       if (gtk_widget_compute_point(drop.view, drop.dock->switcher, &GRAPHENE_POINT_INIT(x, y), &at) &&
           gtk_widget_compute_bounds(drop.dock->switcher, drop.view, &bar)) {
-        drop.position = header_drop_pos(drop.dock, page, at.x, &line);
-        graphene_rect_init(&drop.preview, bar.origin.x + line - 1, bar.origin.y, 3, bar.size.height);
+        drop.position = header_drop_pos(drop.dock, page, drop.dock->vertical ? at.y : at.x, &line);
+        if (drop.dock->vertical)
+          graphene_rect_init(&drop.preview, bar.origin.x, bar.origin.y + line - 1, bar.size.width, 3);
+        else
+          graphene_rect_init(&drop.preview, bar.origin.x + line - 1, bar.origin.y, 3, bar.size.height);
         drop.zone = DROP_STRIP;
       }
     }
@@ -662,13 +777,19 @@ void docks_create(App *t)
 {
   static const char *const css =
       ".tcode-dock-header { border-bottom: 1px solid var(--tc-border); padding: 0 2px; }"
+      ".tcode-sidebar.vertical > .tcode-dock-header { border-bottom: none; border-right: 1px solid var(--tc-border);"
+      "  padding: 2px 0; }"
+      ".tcode-sidebar.vertical .tcode-dock-extras { border-bottom: 1px solid var(--tc-border); }"
+      ".tcode-sidebar.vertical .tcode-terminals-strip { margin-left: 0; box-shadow: none; }"
       ".tcode-sidebar stackswitcher { padding: 4px 2px; border-spacing: 4px; }"
       ".tcode-sidebar stackswitcher button, .tcode-dock-close { min-height: 24px; min-width: 24px;"
       "  padding: 2px 5px; border-radius: 7px; background: none; box-shadow: none; border: none; color: var(--tc-fg-dim); }"
       ".tcode-sidebar stackswitcher button:checked { color: var(--tc-fg-bright); background: color-mix(in srgb, var(--tc-fg) 10%, transparent); }"
       ".tcode-sidebar stackswitcher button:hover, .tcode-dock-close:hover {"
       "  color: var(--tc-fg-bright); background: color-mix(in srgb, var(--tc-fg) 5%, transparent); }"
-      ".tcode-scm-badge { font-size: 0.78em; font-weight: bold; }";
+      ".tcode-scm-badge { font-size: 0.78em; font-weight: bold; }"
+      ".tcode-sidebar stackswitcher button.tcode-scm-changed, .tcode-sidebar stackswitcher button.tcode-scm-changed:hover,"
+      ".tcode-sidebar stackswitcher button.tcode-scm-changed:checked { color: var(--tc-warning); }";
   GtkDropTarget *ed_drop = gtk_drop_target_new(G_TYPE_FILE, GDK_ACTION_MOVE | GDK_ACTION_COPY); /* from Files */
   Dock *docks[3];
   /* clang-format off */

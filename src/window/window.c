@@ -275,6 +275,7 @@ static GtkWidget *with_edges(App *t, GtkPaned *paned, int first, int last)
 void apply_interface(App *t)
 {
   apply_panels(t);
+  docks_apply_orientation(t);
   title_bar_apply(t);
   status_bar_apply(t);
 }
