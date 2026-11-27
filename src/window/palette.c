@@ -360,6 +360,8 @@ static const char *const color_names[PAL_COUNT] = {
   "input",
   "border",
   "border-strong",
+  "divider",
+  "outline",
   "fg",
   "fg-bright",
   "fg-strong",
@@ -454,6 +456,9 @@ static void pal_compute(const Theme *theme)
   c[PAL_INPUT] = pal_mix(bg, fg, 0.10);
   c[PAL_BORDER] = pal_mix(bg, fg, 0.10);
   c[PAL_BORDER_STRONG] = pal_mix(bg, fg, 0.22);
+  /* on the frame, whatever the panels' color: the dots show, the edge stays quiet */
+  c[PAL_DIVIDER] = pal_mix(pal_parse(theme->frame), fg, 0.30);
+  c[PAL_OUTLINE] = pal_mix(pal_parse(theme->frame), fg, 0.12);
   c[PAL_FG] = fg;
   c[PAL_FG_BRIGHT] = pal_mix(fg, strong, 0.4);
   c[PAL_FG_STRONG] = strong;
@@ -522,7 +527,9 @@ static const Theme *pal_find(const char *id)
     { "hotdog-stand", "hot-red" },
   };
 
-  for (size_t i = 0; id && i < G_N_ELEMENTS(renamed); i++)
+  if (!id) /* none chosen yet */
+    id = DEFAULT_COLOR_THEME;
+  for (size_t i = 0; i < G_N_ELEMENTS(renamed); i++)
     if (strcmp(id, renamed[i][0]) == 0)
       id = renamed[i][1];
   for (int i = 0; id && i < palette_count(); i++)

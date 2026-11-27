@@ -9,6 +9,9 @@
 
 #include "app.h"
 
+/* A new install's color theme (settings.ini without one). */
+#define DEFAULT_COLOR_THEME "ayu-dark"
+
 typedef enum {
   /* The panels */
   PAL_FRAME,         /* title bar, status bar, the gaps between the panels */
@@ -17,6 +20,8 @@ typedef enum {
   PAL_INPUT,         /* text fields */
   PAL_BORDER,        /* lines between things */
   PAL_BORDER_STRONG, /* around popups and fields */
+  PAL_DIVIDER,       /* the dots or line between the panels (window/theme.c) */
+  PAL_OUTLINE,       /* the panels' thin edge on the frame */
   PAL_FG,            /* text */
   PAL_FG_BRIGHT,     /* headings */
   PAL_FG_STRONG,     /* the current tab, bold text */

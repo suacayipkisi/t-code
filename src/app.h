@@ -112,10 +112,12 @@ struct App {
 
   /* shell */
   struct {
-    GtkWidget *panel;  /* the Terminal panel: the terminals as tabs */
-    GtkNotebook *tabs; /* one page per terminal, the first one always there */
-    VteTerminal *term; /* the first terminal: Build and Run type into it */
-  } shell;             /* the shell pane (window/terminal.c) */
+    GtkWidget *panel;   /* the Terminal panel: the terminals as tabs */
+    GtkNotebook *tabs;  /* one page per terminal, the first one always there; its own tabs hidden */
+    GtkWidget *strip;   /* the terminals' tabs and "+": in the header of the dock showing the panel */
+    GtkBox *strip_tabs; /* the tabs alone, in the notebook's order */
+    VteTerminal *term;  /* the first terminal: Build and Run type into it */
+  } shell;              /* the shell pane (window/terminal.c) */
 
   GtkWidget *scm;
   GtkWidget *files; /* the Files panel (files/files.c) */
@@ -215,25 +217,36 @@ struct App {
       int mmap_threshold_kb;     /* glibc.malloc.mmap_threshold; 0: glibc's own (moves up to 32 MB) */
       char *extra;               /* more flags in shell syntax, after t-code's (they win) */
     } clangd;
-    guint servers_off;       /* built-in language servers turned off: bit 1 << ServerKind (lsp/servers.h) */
-    gboolean format_on_save; /* Ctrl+S formats the file with clangd first */
-    gboolean lldb;           /* C, C++ and Rust debug with lldb-dap instead of gdb (debug/adapters.h) */
-    char *font;              /* editors and the shell, a Pango font description */
-    char *files_font;        /* the Files panel */
-    gboolean square;         /* the square theme (flat panels, lines between them), not rounded cards */
-    int corner_radius;       /* the rounded theme's panel corners in pixels (the controls' follow) */
-    int selection_opacity;   /* the editors' selection, in the accent color over the text: 0 to 100 % */
-    char *color_theme;       /* window/palette.c's id: "dark-classic", ... */
-    gboolean plain;          /* syntax coloring off (F7) */
-    double font_scale;       /* editors, terminals and the Files panel (Ctrl+= / Ctrl+-); session.ini keeps it */
-    double preview_scale;    /* Markdown previews' text size; session.ini keeps it */
-    gboolean web_images;     /* previews fetch their web images (curl, at most a few at a time) */
-    guint panels_off;        /* t-code's own panels turned off: bit 1 << their index in panel_names */
-    gboolean menu_bar;       /* the menu bar in the title bar; off: its menus open from t-code's icon */
-    gboolean status_bar;     /* the status bar under everything */
-    gboolean build_buttons;  /* the status bar's Build and Run buttons */
-    char **status_off;       /* status bar items turned off, by id ("branch", "position", "plugin:<key>", ...) */
-    gboolean side_buttons;   /* the title bar's buttons showing or hiding the sides */
-    gboolean search_bar;     /* the title bar's search (Ctrl+P and Ctrl+Shift+P work without it) */
+    guint servers_off;         /* built-in language servers turned off: bit 1 << ServerKind (lsp/servers.h) */
+    gboolean format_on_save;   /* Ctrl+S formats the file with clangd first */
+    gboolean lldb;             /* C, C++ and Rust debug with lldb-dap instead of gdb (debug/adapters.h) */
+    char *font;                /* editors and the shell, a Pango font description */
+    char *files_font;          /* the Files panel */
+    gboolean square;           /* the square theme (flat panels, lines between them), not rounded cards */
+    int corner_radius;         /* the rounded theme's panel corners in pixels (the controls' follow) */
+    gboolean compact;          /* thinner tabs, dock headers, menus and gutter (Settings: Density) */
+    int divider;               /* between panels: 0 the theme's (rounded: gap with dots, square: line), 1 gap with
+                                dots, 2 gap, 3 line (window/theme.c) */
+    int divider_size;          /* its gap or line in pixels; 0: the theme's */
+    char **divider_colors;     /* its line's or dots' color per color theme, "theme-id=CSS color"; a theme
+                                  without one: its border color (window/theme.h divider_color_for) */
+    gboolean panel_outline;    /* the rounded theme's panels get a 1 px edge in the divider color */
+    gboolean left_vertical;    /* the left docks' panel icons in a column along their outer edge */
+    int vertical_bar_width;    /* that column's width in px; 0: as wide as its icons */
+    gboolean relative_numbers; /* line numbers count from the cursor's line (editor/gutter/folding.c) */
+    int selection_opacity;     /* the editors' selection, in the accent color over the text: 0 to 100 % */
+    char *color_theme;         /* window/palette.c's id: "dark-classic", ... */
+    gboolean plain;            /* syntax coloring off (F7) */
+    double font_scale;         /* editors, terminals and the Files panel (Ctrl+= / Ctrl+-); session.ini keeps it */
+    double preview_scale;      /* Markdown previews' text size; session.ini keeps it */
+    gboolean web_images;       /* previews fetch their web images (curl, at most a few at a time) */
+    guint panels_off;          /* t-code's own panels turned off: bit 1 << their index in panel_names */
+    gboolean menu_bar;         /* the menu bar in the title bar; off: its menus open from t-code's icon */
+    int menu_titles;           /* the menu bar's titles: 0 names, 1 icons, 2 icons and names (window/titlebar.c) */
+    gboolean status_bar;       /* the status bar under everything */
+    gboolean build_buttons;    /* the status bar's Build and Run buttons */
+    char **status_off;         /* status bar items turned off, by id ("branch", "position", "plugin:<key>", ...) */
+    gboolean side_buttons;     /* the title bar's buttons showing or hiding the sides */
+    gboolean search_bar;       /* the title bar's search (Ctrl+P and Ctrl+Shift+P work without it) */
   } settings;
 };

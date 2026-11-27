@@ -303,6 +303,7 @@ static void app_free(App *t)
   g_free(t->settings.files_font);
   g_free(t->settings.clangd.extra);
   g_free(t->settings.color_theme);
+  g_strfreev(t->settings.divider_colors);
 }
 
 /* Everything happens inside g_application_run(): it parses the command line, calls on_activate or

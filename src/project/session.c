@@ -215,6 +215,24 @@ static const Setting settings[] = {
               " first"),
   INT_SETTING("corner-radius", corner_radius, 10, 0, 24,
               " 0 to 24, the rounded theme's panel corners in pixels (10 by default); buttons, tabs and menus follow"),
+  BOOL_SETTING("compact", compact, TRUE,
+               " Thinner tabs, panel headers, menus and line number column (true by default); off: the roomier"
+               " sizes"),
+  INT_SETTING("divider", divider, 0, 0, 3,
+              " Between the panels: 0 the theme's (rounded: a gap with dots in its middle, square: a line), 1 a gap"
+              " with dots,\n 2 a gap, 3 a line"),
+  INT_SETTING("divider-size", divider_size, 0, 0, 24,
+              " 0 to 24, the divider's gap or line in pixels; 0: the theme's (a 6 px gap, a 1 px line)"),
+  BOOL_SETTING("panel-outline", panel_outline, TRUE,
+               " The rounded theme's panels get a thin edge in the divider color (true by default): their ends show"
+               " also\n where a color theme's panels and frame are one color"),
+  BOOL_SETTING("left-vertical-tabs", left_vertical, FALSE,
+               " The left panels' icons in a column along the window's edge, not in a row over them (also their"
+               " right-click menu)"),
+  INT_SETTING("vertical-tab-bar-width", vertical_bar_width, 0, 0, 120,
+              " 0 to 120, the vertical left tab bar's width in pixels; 0: as wide as its icons"),
+  BOOL_SETTING("relative-line-numbers", relative_numbers, FALSE,
+               " Line numbers count up and down from the cursor's line, which shows its own (also Ctrl+Alt+L)"),
   INT_SETTING("selection-opacity", selection_opacity, 40, 0, 100,
               " 0 to 100, how strongly the editors' selection (the theme's accent color, over the text) shows;"
               " 40 by default"),
@@ -238,6 +256,8 @@ static const Setting settings[] = {
                " Once at start-up, the latest release on GitHub goes against this version; a newer one asks"),
   BOOL_SETTING("menu-bar", menu_bar, TRUE,
                " The menus in the title bar (Files, T-Code, Settings, ...); off: they open from t-code's icon"),
+  INT_SETTING("menu-titles", menu_titles, 0, 0, 2,
+              " The menu bar's titles (Files, T-Code, ...): 0 names, 1 icons, 2 icons and names"),
   BOOL_SETTING("status-bar", status_bar, TRUE, " The bar along the window's bottom (branch, problems, Ln / Col, ...)"),
   BOOL_SETTING("build-buttons", build_buttons, TRUE,
                " The status bar's Build and Run buttons (Ctrl+Shift+B and Ctrl+F5 work without them)"),
@@ -276,9 +296,13 @@ void session_load_settings(App *t)
   g_free(t->settings.color_theme);
   t->settings.color_theme = g_key_file_get_string(kf, "settings", "color-theme", NULL);
   if (!t->settings.color_theme || !*g_strstrip(t->settings.color_theme))
-    g_set_str(&t->settings.color_theme, "dark-classic");
+    g_set_str(&t->settings.color_theme, DEFAULT_COLOR_THEME);
   else /* a renamed theme's old id */
     g_set_str(&t->settings.color_theme, palette_known_id(t->settings.color_theme));
+  g_strfreev(t->settings.divider_colors);
+  t->settings.divider_colors = g_key_file_get_string_list(kf, "settings", "divider-colors", NULL, NULL);
+  for (int i = 0; t->settings.divider_colors && t->settings.divider_colors[i]; i++)
+    g_strstrip(t->settings.divider_colors[i]);
   t->settings.plain = !get_bool(kf, "settings", "code-coloring", TRUE);
   char **off = g_key_file_get_string_list(kf, "settings", "language-servers-off", NULL, NULL);
   t->settings.servers_off = 0;
@@ -369,9 +393,17 @@ void session_save_settings(App *t)
   g_key_file_set_string(kf, "settings", "theme", t->settings.square ? "square" : "rounded");
   explain(kf, "theme", " rounded: the panels as rounded cards on a darker frame; square: flat, lines between them");
   g_key_file_set_string(kf, "settings", "color-theme",
-                        t->settings.color_theme ? t->settings.color_theme : "dark-classic");
+                        t->settings.color_theme ? t->settings.color_theme : DEFAULT_COLOR_THEME);
   explain(kf, "color-theme",
           " dark-classic, light-classic, dracula, nord, ...: \"Preferences: Color Theme\" lists them all");
+  g_key_file_remove_key(kf, "settings", "divider-color", NULL); /* before 0.5.2: one for every theme */
+  g_key_file_set_string_list(
+      kf, "settings", "divider-colors",
+      (const char *const *)(t->settings.divider_colors ? t->settings.divider_colors : (char *[]){ NULL }),
+      t->settings.divider_colors ? g_strv_length(t->settings.divider_colors) : 0);
+  explain(kf, "divider-colors",
+          " The dividers' color between the panels for each color theme, as theme=CSS color"
+          " (dark-classic=#3c3c3c;nord=red;);\n a theme not listed: its own divider color");
   g_key_file_set_boolean(kf, "settings", "code-coloring", !t->settings.plain);
   explain(kf, "code-coloring", " Syntax colors in the editors (also F7)");
   for (size_t i = 0; i < G_N_ELEMENTS(settings); i++) {

@@ -29,7 +29,9 @@ static App *app;
 static const char *const theme_template =
     "/*\n"
     " * Your own look for t-code: GTK CSS over t-code's own theme. Saving this file applies it at once;\n"
-    " * delete the file to go back. Some examples (take them out of this comment):\n"
+    " * delete the file to go back. Every color and part you can change, with more examples:\n"
+    " * https://github.com/suacayipkisi/t-code/blob/main/docs/theming.md\n"
+    " * Some examples (take them out of this comment):\n"
     " *\n"
     " * The panels' and the editor's background:\n"
     " *   .tcode-card, notebook > stack { background: #1e1e2e; }\n"
@@ -39,8 +41,8 @@ static const char *const theme_template =
     " *   .tcode-tab:checked { box-shadow: inset 0 2px #f38ba8; }\n"
     " * Rounder panels (theme = rounded in settings.ini):\n"
     " *   .tcode-card { border-radius: 16px; }\n"
-    " * Wider gaps between the panels:\n"
-    " *   paned > separator { min-width: 10px; min-height: 10px; }\n"
+    " * Clearer panel edges and dividers (their style and size are in Settings → Appearance):\n"
+    " *   :root { --tc-outline: #3a3a3a; --tc-divider: #6a6a6a; }\n"
     " *\n"
     " * The editor's text colors are in styles/dark-classic.xml next to this file\n"
     " * (\"Preferences: Open Editor Colors\" in the command palette).\n"
@@ -75,6 +77,7 @@ static void reload_settings(App *t)
   old.font = g_strdup(t->settings.font);
   old.files_font = g_strdup(t->settings.files_font);
   old.color_theme = g_strdup(t->settings.color_theme);
+  old.divider_colors = g_strdupv(t->settings.divider_colors);
   old.status_off = g_strdupv(t->settings.status_off);
   old.clangd.extra = g_strdup(t->settings.clangd.extra);
   session_load_settings(t);
@@ -90,10 +93,18 @@ static void reload_settings(App *t)
          old.autosave_ms == t->settings.autosave_ms && old.clang_tidy == t->settings.clang_tidy &&
          old.servers_off == t->settings.servers_off && old.format_on_save == t->settings.format_on_save &&
          old.square == t->settings.square && old.corner_radius == t->settings.corner_radius &&
+         old.compact == t->settings.compact && old.divider == t->settings.divider &&
+         old.divider_size == t->settings.divider_size && old.panel_outline == t->settings.panel_outline &&
+         old.left_vertical == t->settings.left_vertical && old.vertical_bar_width == t->settings.vertical_bar_width &&
+         old.relative_numbers == t->settings.relative_numbers &&
+         g_strv_equal(
+             (const char *const *)(old.divider_colors ? old.divider_colors : (char *[]){ NULL }),
+             (const char *const *)(t->settings.divider_colors ? t->settings.divider_colors : (char *[]){ NULL })) &&
          old.selection_opacity == t->settings.selection_opacity && old.panels_off == t->settings.panels_off &&
-         old.menu_bar == t->settings.menu_bar && old.status_bar == t->settings.status_bar &&
-         old.build_buttons == t->settings.build_buttons && old.side_buttons == t->settings.side_buttons &&
-         old.search_bar == t->settings.search_bar && old.server_idle == t->settings.server_idle &&
+         old.menu_bar == t->settings.menu_bar && old.menu_titles == t->settings.menu_titles &&
+         old.status_bar == t->settings.status_bar && old.build_buttons == t->settings.build_buttons &&
+         old.side_buttons == t->settings.side_buttons && old.search_bar == t->settings.search_bar &&
+         old.server_idle == t->settings.server_idle &&
          g_strv_equal((const char *const *)(old.status_off ? old.status_off : (char *[]){ NULL }),
                       (const char *const *)(t->settings.status_off ? t->settings.status_off
                                                                    : (char *[]){ NULL })) && /* none = empty */
@@ -105,6 +116,7 @@ static void reload_settings(App *t)
   g_free(old.font);
   g_free(old.files_font);
   g_free(old.color_theme);
+  g_strfreev(old.divider_colors);
   g_free(old.clangd.extra);
   g_strfreev(old.status_off);
 }
