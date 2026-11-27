@@ -74,6 +74,29 @@ static void test_log_flood(void)
   g_string_free(runs, TRUE);
 }
 
+/* Another t-code cuts the file while this one has it open: this one's next lines still land in it. */
+static void test_log_two_windows(void)
+{
+  char *big = g_strnfill(LOG_MAX_BYTES / 2, 'x'), *text = NULL, *saved = file_path;
+  char *runs = g_strdup_printf("=== 2026-01-01 a t-code old\n%s\n=== 2026-01-02 b t-code old\n%s\n", big, big);
+  FILE *other;
+
+  file_path = write_at(dir, "shared.log", runs, -1, 0);
+  other = fopen(file_path, "a"); /* the first window's open log */
+  g_assert_nonnull(other);
+  drop_old_runs(); /* the second window starts */
+  fputs("from the first window\n", other);
+  fclose(other);
+  g_assert_true(g_file_get_contents(file_path, &text, NULL, NULL));
+  g_assert_true(g_str_has_prefix(text, "=== 2026-01-02 b"));
+  g_assert_true(g_str_has_suffix(text, "\nfrom the first window\n"));
+  g_free(text);
+  g_free(file_path);
+  file_path = saved;
+  g_free(runs);
+  g_free(big);
+}
+
 static int hook_calls;
 static char *hook_seen;
 
@@ -135,6 +158,7 @@ int main(int argc, char **argv)
   g_test_add_func("/log/runs", test_log_runs);
   g_test_add_func("/log/bytes", test_log_bytes);
   g_test_add_func("/log/flood", test_log_flood);
+  g_test_add_func("/log/two-windows", test_log_two_windows);
   g_test_add_func("/log/hook", test_log_hook);
   status = g_test_run();
   char *rm[] = { "rm", "-rf", dir, NULL };

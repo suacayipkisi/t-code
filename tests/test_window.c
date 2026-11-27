@@ -873,6 +873,29 @@ static void test_socket_requests(void)
   g_free(got_text);
   g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
   g_object_unref(conn);
+
+  /* A NUL-ended request longer than the stream's 4 KB buffer, with a line break before the first 4 KB
+   * end: still one request. */
+  char *tail = g_strnfill(10000, 'z'), *long_text = g_strdup_printf("first\n%s", tail);
+  replace = g_strdup_printf("replace-all %s", long_text);
+  conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
+  g_assert_true(g_output_stream_write_all(g_io_stream_get_output_stream(G_IO_STREAM(conn)), replace,
+                                          strlen(replace) + 1, NULL, NULL, NULL));
+  g_free(replace);
+  g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
+  g_object_unref(conn);
+  run_for(50);
+  conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
+  g_assert_true(
+      g_output_stream_write_all(g_io_stream_get_output_stream(G_IO_STREAM(conn)), "get-text\n", 9, NULL, NULL, NULL));
+  got_text = read_socket_response(conn, "", 1);
+  g_assert_cmpstr(got_text, ==, long_text);
+  g_free(got_text);
+  g_free(long_text);
+  g_free(tail);
+  g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
+  g_object_unref(conn);
+
   conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(address), NULL, NULL);
   g_assert_true(g_output_stream_write_all(g_io_stream_get_output_stream(G_IO_STREAM(conn)), "replace-all \0", 13, NULL,
                                           NULL, NULL));

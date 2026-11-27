@@ -2245,6 +2245,30 @@ static void test_semantic_delta(void)
   free_tab(tab); /* frees s */
 }
 
+/* Edits out of order, the later one reaching past the old tokens: the new token at the end is colored
+ * (the unchanged tail was once taken as huge, and nothing colored). */
+static void test_semantic_delta_unordered(void)
+{
+  Tab *tab = new_tab("/tmp/t-code-test/delta-unordered.c", "int f;\nint v;\nint w;\nint z;\n");
+  JsonNode *full = json_of("{\"resultId\":\"1\",\"data\":[0,4,1,0,0, 1,4,1,1,0, 1,4,1,1,0]}");
+  JsonNode *delta = json_of("{\"resultId\":\"2\",\"edits\":[{\"start\":20,\"deleteCount\":2,\"data\":[]},"
+                            "{\"start\":15,\"deleteCount\":0,\"data\":[1,4,1,1,0,7,7]}]}");
+  Semantic *s;
+
+  lsp_open(tab);
+  g_assert_true(server_agrees(tab));
+  s = tab->view->semantic;
+  apply(tab, full);
+  g_assert_null(semantic_color_at(tab, 25)); /* z */
+  apply_delta(s, delta, TRUE);
+  g_assert_cmpuint(s->data->len, ==, 20);
+  g_assert_cmpstr(semantic_color_at(tab, 25), ==, "variable");
+  g_assert_cmpstr(semantic_color_at(tab, 4), ==, "function"); /* f: unchanged */
+  json_node_unref(delta);
+  json_node_unref(full);
+  free_tab(tab);
+}
+
 /* A big full answer is colored a part at a time while the main loop is idle, from the top; a change
  * meanwhile stops it, and the next answer brings all the tokens again. */
 static void test_semantic_chunks(void)
@@ -2619,6 +2643,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/ctrl-url", test_ctrl_url);
   g_test_add_func("/lsp/semantic-timeout-close", test_semantic_timeout_close);
   g_test_add_func("/lsp/semantic-delta", test_semantic_delta);
+  g_test_add_func("/lsp/semantic-delta-unordered", test_semantic_delta_unordered);
   g_test_add_func("/lsp/semantic-chunks", test_semantic_chunks);
   g_test_add_func("/lsp/problem-end", test_problem_end);
   g_test_add_func("/lsp/problems-panel", test_problems_panel);

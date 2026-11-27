@@ -243,9 +243,12 @@ static void assert_blocks(const char *text, const char *want)
 static void test_blocks(void)
 {
   assert_blocks("int f(void) {\n  if (x) {\n    y();\n  }\n}\n", "0 0 4, 1 1 3");
-  assert_blocks("void f()\n{\n  a();\n}\n", "0 1 3");                   /* Allman */
-  assert_blocks("int a;\n{\n  b();\n}\n", "1 1 3");                     /* a bare block */
-  assert_blocks("\n{\n}\n", "1 1 2");                                   /* nothing above */
+  assert_blocks("void f()\n{\n  a();\n}\n", "0 1 3"); /* Allman */
+  assert_blocks("int a;\n{\n  b();\n}\n", "1 1 3");   /* a bare block */
+  assert_blocks("\n{\n}\n", "1 1 2");                 /* nothing above */
+  assert_blocks("int a = 1'000; {\n}\n", "0 0 1");    /* a digit separator */
+  assert_blocks("x = 0xFF'FF'00 + 1.5'0; {\n}\n", "0 0 1");
+  assert_blocks("char c = L'{'; {\n}\n", "0 0 1");                      /* a character, not a separator */
   assert_blocks("s = \"{\"; c = '}'; // {\n/* { */ x {\n}\n", "1 1 2"); /* not the quoted ones */
   assert_blocks("namespace a {\nvoid f() {\n", "");                     /* never closed */
   assert_blocks("struct S {\n  int x;\n};\n", "0 0 2");

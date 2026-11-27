@@ -3,6 +3,7 @@
  * rename, delete, copy / move) and src/files/folder.c (a folder's entries, read again on changes) in
  * a temporary folder, src/files/gitmarks.c (git status -> colors) and src/files/icons.c.
  */
+#define _DEFAULT_SOURCE /* symlink, mkfifo under -std=c23 */
 #include "files/fileops.h"
 #include "files/folder.h"
 #include "files/gitmarks.h"
@@ -12,6 +13,8 @@
 #include <string.h>
 
 #include <glib/gstdio.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 static char *tmp;
 
@@ -193,6 +196,25 @@ static void test_put(void)
   g_assert_false(files_put(tmp, dir, TRUE, &dest, &error)); /* into itself */
   g_assert_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL);
   g_clear_error(&error);
+
+  /* Into itself through a symlink: refused, not copied forever. */
+  char *link = at("into-src");
+  g_assert_cmpint(symlink(dir, link), ==, 0);
+  g_assert_false(files_put(dir, link, FALSE, &dest, &error));
+  g_assert_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL);
+  g_clear_error(&error);
+  g_assert_cmpint(g_unlink(link), ==, 0);
+  g_free(link);
+
+  /* A FIFO is made again, not read (that would wait for a writer). */
+  char *fifo = at("pipe");
+  g_assert_cmpint(mkfifo(fifo, 0600), ==, 0);
+  g_assert_true(files_put(fifo, dir, FALSE, &dest, NULL));
+  GStatBuf st;
+  g_assert_cmpint(g_lstat(dest, &st), ==, 0);
+  g_assert_true(S_ISFIFO(st.st_mode));
+  g_free(dest);
+  g_free(fifo);
 
   g_assert_true(files_delete(dir, NULL));
   g_assert_false(exists("src"));

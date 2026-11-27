@@ -206,6 +206,7 @@ void disassembly_ended(App *t)
   ensure_arrays();
   dis.generation++;
   g_array_set_size(dis.breakpoints, 0);
+  g_array_set_size(dis.addresses, 0); /* the next session's program lies elsewhere */
   breakpoints_show_instruction(t, 0);
 }
 

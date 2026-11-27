@@ -31,6 +31,19 @@ static gboolean names_block(const char *text, const char *line_start)
   return end > p && !strchr(";{}", end[-1]);
 }
 
+/* Whether the ' at p separates a number's digits (C++14, C23: 1'000, 0xFF'FF), not a character literal
+ * (u8'a', L'x'): the word before it starts with a digit and a digit or letter follows. */
+static gboolean digit_separator(const char *line_start, const char *p)
+{
+  const char *q = p;
+
+  if (!g_ascii_isalnum(p[1]))
+    return FALSE;
+  while (q > line_start && (g_ascii_isalnum(q[-1]) || q[-1] == '_' || q[-1] == '.' || q[-1] == '\''))
+    q--;
+  return q < p && g_ascii_isdigit(*q);
+}
+
 const char *code_next(CodeScan *scan)
 {
   const char *p;
@@ -50,6 +63,8 @@ const char *code_next(CodeScan *scan)
     } else if (p[0] == '/' && p[1] == '*') {
       scan->comment = TRUE;
       p++;
+    } else if (*p == '\'' && digit_separator(scan->line_start, p)) {
+      /* 1'000: part of the number */
     } else if (*p == '"' || *p == '\'') {
       char quote = *p;
       for (p++; *p && *p != quote && *p != '\n'; p++)

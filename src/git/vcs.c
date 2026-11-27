@@ -184,7 +184,8 @@ static VcsNode *vcs_xml_parse(const char *xml, gsize size)
 
   if (!xml)
     return NULL;
-  start = strstr(xml, "?>"); /* GMarkup takes no XML declaration */
+  /* GMarkup takes no XML declaration; the output need not end in a NUL */
+  start = size >= 5 && memcmp(xml, "<?xml", 5) == 0 ? g_strstr_len(xml, (gssize)size, "?>") : NULL;
   start = start ? start + 2 : xml;
   root = vcs_node_new("", (const char *[]){ NULL }, (const char *[]){ NULL });
   stack = g_ptr_array_new();

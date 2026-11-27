@@ -131,7 +131,10 @@ static void on_variables(gpointer data, JsonNode *body, const char *error)
       var->changed = var_changed(var->key, var->value);
     else if (var->reference > 0) { /* an array or a struct: its value comes from its children */
       var->preview = TRUE;
-      var_ask_children(var);
+      /* Only what a preview shows: a preview's own preview needs its first few children, and a big
+       * array's elements past MAX_PREVIEWS are asked for when opened. */
+      if (i < (a->parent && a->parent->preview ? PREVIEW_ITEMS : MAX_PREVIEWS))
+        var_ask_children(var);
     }
     g_list_store_append(into, var);
     g_object_unref(var);

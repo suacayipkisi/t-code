@@ -7,9 +7,11 @@
 
 #include "application/identity.h"
 
+#include <fcntl.h>
 #include <glib/gstdio.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/file.h>
 #include <unistd.h>
 
 #ifndef TCODE_VERSION /* set by the Makefile */
@@ -53,24 +55,32 @@ static void write_mark(const char *format)
   GDateTime *now = g_date_time_new_now_local();
   char *text = g_date_time_format(now, format);
 
+  flock(fileno(file), LOCK_EX);
   fprintf(file, "=== %s\n", text);
   fflush(file);
+  flock(fileno(file), LOCK_UN);
   g_free(text);
   g_date_time_unref(now);
 }
 
 /* Keeps the last LOG_RUNS - 1 runs (this one comes after them), fewer when they hold over
- * LOG_MAX_BYTES; a run starts at a line "=== <date> t-code ...". */
+ * LOG_MAX_BYTES; a run starts at a line "=== <date> t-code ...". The file is cut in place under a
+ * lock: another t-code writing to it keeps its open file (a new file in its place would take its lines). */
 static void drop_old_runs(void)
 {
   char *text = NULL;
   gsize size = 0;
-  GArray *starts = g_array_new(FALSE, FALSE, sizeof(gsize));
+  GArray *starts;
+  int fd = g_open(file_path, O_RDWR | O_CLOEXEC, 0);
 
+  if (fd < 0)
+    return;
+  flock(fd, LOCK_EX);
   if (!g_file_get_contents(file_path, &text, &size, NULL)) {
-    g_array_free(starts, TRUE);
+    close(fd); /* and the lock */
     return;
   }
+  starts = g_array_new(FALSE, FALSE, sizeof(gsize));
   /* memcmp, not g_str_has_prefix: that one measures the rest of the file at every line, which never
    * ends on a log grown to hundreds of MB */
   for (gsize at = 0; at < size;) {
@@ -84,8 +94,15 @@ static void drop_old_runs(void)
   while (first < starts->len && size - g_array_index(starts, gsize, first) > LOG_MAX_BYTES)
     first++;
   gsize keep_from = first < starts->len ? g_array_index(starts, gsize, first) : size;
-  if (keep_from > 0)
-    g_file_set_contents(file_path, text + keep_from, (gssize)(size - keep_from), NULL);
+  if (keep_from > 0) {
+    gsize left = size - keep_from, done = 0;
+    ssize_t n;
+    while (done < left && (n = pwrite(fd, text + keep_from + done, left - done, (off_t)done)) > 0)
+      done += (gsize)n;
+    if (ftruncate(fd, (off_t)done) != 0) /* the writer is not set yet */
+      g_printerr("t-code: cannot cut the log %s\n", file_path);
+  }
+  close(fd);
   g_array_free(starts, TRUE);
   g_free(text);
 }
@@ -112,11 +129,13 @@ static GLogWriterOutput write_log(GLogLevelFlags level, const GLogField *fields,
                   !g_log_writer_default_would_drop(level, domain))) {
     g_mutex_lock(&lock);
     if (file) {
+      flock(fileno(file), LOCK_EX); /* another t-code may be cutting the file */
       GDateTime *now = g_date_time_new_now_local();
       char *time = g_date_time_format(now, "%H:%M:%S");
       fprintf(file, "%s.%03d %s%s%s: %s\n", time, g_date_time_get_microsecond(now) / 1000, domain ? domain : "",
               domain ? "-" : "", level_name(level), message);
       fflush(file);
+      flock(fileno(file), LOCK_UN);
       g_free(time);
       g_date_time_unref(now);
     }

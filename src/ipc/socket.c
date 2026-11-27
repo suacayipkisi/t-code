@@ -23,6 +23,7 @@
 
 /* A subscriber that has this much unread output is dropped: it does not read its events. */
 #define MAX_BACKLOG (256 * 1024)
+#define MAX_PEEK (1024 * 1024) /* how far a request is read before choosing its ending */
 
 gboolean socket_handling;
 
@@ -361,7 +362,8 @@ void client_resume(Client *c)
 }
 
 /* Data came: a connection that sends a NUL byte ends its requests with NULs only (a path may hold a
- * line break), else with line breaks. */
+ * line break), else with line breaks. A full buffer with neither a NUL nor a line break at its end may
+ * be the start of a long NUL-ended request: the buffer grows (up to MAX_PEEK) before choosing. */
 static void on_filled(GObject *source, GAsyncResult *result, gpointer data)
 {
   GDataInputStream *in = G_DATA_INPUT_STREAM(source);
@@ -377,6 +379,12 @@ static void on_filled(GObject *source, GAsyncResult *result, gpointer data)
   }
   if (memchr(buffer, '\0', size))
     g_object_set_data(G_OBJECT(in), "nul", GINT_TO_POINTER(TRUE));
+  else if (got > 0 && size == g_buffered_input_stream_get_buffer_size(G_BUFFERED_INPUT_STREAM(in)) &&
+           buffer[size - 1] != '\n' && size < MAX_PEEK) {
+    g_buffered_input_stream_set_buffer_size(G_BUFFERED_INPUT_STREAM(in), size * 2);
+    g_buffered_input_stream_fill_async(G_BUFFERED_INPUT_STREAM(in), -1, G_PRIORITY_DEFAULT, NULL, on_filled, c);
+    return;
+  }
   read_request(in, c);
 }
 

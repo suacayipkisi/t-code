@@ -441,9 +441,10 @@ static void apply_delta(Semantic *s, JsonNode *result, gboolean current)
     return;
   if (n) {
     /* In the new tokens: from the first changed one up to where the unchanged tail starts. */
-    guint tail = old_len - MAX(high, low), end = s->data->len - MIN(tail, s->data->len);
+    /* edits that overlap or come out of order can reach past the old tokens: no unchanged tail then */
+    guint tail = old_len - MIN(MAX(high, low), old_len), end = s->data->len - MIN(tail, s->data->len);
     low = low / 5 * 5;
-    end = MIN((end + 4) / 5 * 5, s->data->len / 5 * 5);
+    end = MAX(MIN((end + 4) / 5 * 5, s->data->len / 5 * 5), low);
     token_lines(s->data, low, &before, &unused);
     from_line = before;
     token_lines(s->data, end, &unused, &to_line);

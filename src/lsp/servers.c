@@ -228,7 +228,8 @@ const char *server_language_id(ServerKind kind, Tab *tab)
     return strcmp(id, "chdr") == 0 ? "c" : strcmp(id, "cpphdr") == 0 ? "cpp" : id;
   }
   if (kind == SERVER_CLANGD) {
-    const char *source_id = gtk_source_language_get_id(gtk_source_buffer_get_language(tab->buffer));
+    GtkSourceLanguage *language = gtk_source_buffer_get_language(tab->buffer);
+    const char *source_id = language ? gtk_source_language_get_id(language) : "c";
     if (strcmp(source_id, "objc") == 0)
       return g_str_has_suffix(path, ".mm") ? "objective-cpp" : "objective-c";
     return g_str_has_prefix(source_id, "cpp") ? "cpp" : "c";
@@ -242,7 +243,7 @@ const char *server_language_id(ServerKind kind, Tab *tab)
   }
   if (kind == SERVER_JSON && g_str_has_suffix(path, ".jsonc"))
     return "jsonc";
-  return server_language(kind);
+  return server_language(kind) ? server_language(kind) : "plaintext";
 }
 
 /* Whether a JSON file gets the JSON server: not a generated one (a compile database, a lock file) nor

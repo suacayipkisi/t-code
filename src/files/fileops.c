@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <glib/gstdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -165,7 +166,7 @@ gboolean files_delete(const char *path, GError **error)
 static gboolean copy_file(const char *src, const char *dst, mode_t mode, GError **error)
 {
   char buf[65536];
-  int in = open(src, O_RDONLY | O_CLOEXEC), out;
+  int in = open(src, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK), out; /* it may have changed since lstat */
   ssize_t n;
 
   if (in < 0)
@@ -210,8 +211,14 @@ static gboolean copy_tree(const char *src, const char *dst, GError **error)
     g_free(target);
     return ok || fail(error, "copy", src);
   }
-  if (!S_ISDIR(st.st_mode))
+  if (S_ISFIFO(st.st_mode)) /* opening it would wait for a writer */
+    return mkfifo(dst, st.st_mode & 07777) == 0 || fail(error, "copy", src);
+  if (S_ISREG(st.st_mode))
     return copy_file(src, dst, st.st_mode & 07777, error);
+  if (!S_ISDIR(st.st_mode)) { /* a socket or a device: reading one never ends or means nothing */
+    g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "cannot copy %s: not a file or a folder", src);
+    return FALSE;
+  }
 
   GDir *dir;
   const char *name;
@@ -228,6 +235,17 @@ static gboolean copy_tree(const char *src, const char *dst, GError **error)
   return ok;
 }
 
+/* Whether dir is folder or inside it, also through symlinks (a copy into it would never end). */
+static gboolean folder_inside(const char *dir, const char *folder)
+{
+  char *real_dir = realpath(dir, NULL), *real_folder = realpath(folder, NULL);
+  gboolean inside = files_inside(dir, folder) || (real_dir && real_folder && files_inside(real_dir, real_folder));
+
+  free(real_dir);
+  free(real_folder);
+  return inside;
+}
+
 gboolean files_put(const char *src, const char *dir, gboolean cut, char **dest, GError **error)
 {
   struct stat st;
@@ -239,7 +257,7 @@ gboolean files_put(const char *src, const char *dir, gboolean cut, char **dest, 
     g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_NOENT, "%s is gone", name);
   } else if (same) {
     /* already there */
-  } else if (S_ISDIR(st.st_mode) && files_inside(dir, src)) {
+  } else if (S_ISDIR(st.st_mode) && folder_inside(dir, src)) {
     g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "cannot put a folder inside itself");
   } else {
     *dest = files_free_name(dir, name, S_ISDIR(st.st_mode));

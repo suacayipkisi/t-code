@@ -206,6 +206,10 @@ static gboolean on_window_event(GtkEventControllerLegacy *legacy G_GNUC_UNUSED, 
     t->layout.pressed = TRUE;
   else if (type == GDK_BUTTON_RELEASE && t->layout.pressed)
     end_pane_drag(t);
+  else if (type == GDK_MOTION_NOTIFY && t->layout.pressed && /* its release went to a popover or a dialog */
+           !(gdk_event_get_modifier_state(event) &
+             (GDK_BUTTON1_MASK | GDK_BUTTON2_MASK | GDK_BUTTON3_MASK | GDK_BUTTON4_MASK | GDK_BUTTON5_MASK)))
+    end_pane_drag(t);
   return GDK_EVENT_PROPAGATE;
 }
 

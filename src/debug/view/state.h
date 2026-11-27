@@ -9,6 +9,7 @@
 #include "lsp/json.h"
 
 #define PREVIEW_ITEMS 8 /* children shown in a value made from them: "{1, 2, 3, …}" */
+#define MAX_PREVIEWS 64 /* struct children of an opened value asked for at once to make their previews */
 #define NOT_PAUSED "not available: the program is not paused"
 
 struct _TcodeVar {

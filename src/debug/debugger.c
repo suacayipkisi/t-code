@@ -1064,7 +1064,8 @@ void debug_launch(App *t, const char *path)
   if (!g_file_test(path, G_FILE_TEST_IS_DIR)) {
     program = g_strdup(path);
   } else if (!(program = remembered_program(t))) {
-    pick_program(t, path); /* starts once picked */
+    g_clear_pointer(&ui.core, g_free); /* a core dump's picker closed with Esc */
+    pick_program(t, path);             /* starts once picked */
     return;
   }
   cwd = g_steal_pointer(&ui.cwd);
