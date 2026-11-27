@@ -138,7 +138,7 @@ GStrv langenv_cargo_features(const char *cargo_toml)
   return result;
 }
 
-char *langenv_rust_options(const char *features, const char *target)
+char *langenv_rust_options(const char *features, const char *target, gboolean trusted)
 {
   gboolean some = features && *features, all = g_strcmp0(features, "all") == 0, triple = target && *target;
   JsonBuilder *builder;
@@ -146,12 +146,28 @@ char *langenv_rust_options(const char *features, const char *target)
   JsonNode *root;
   char *json;
 
-  if (!some && !triple)
+  if (!some && !triple && trusted)
     return NULL;
   builder = json_builder_new();
   json_builder_begin_object(builder);
+  if (!trusted) { /* each runs the project's own code */
+    json_builder_set_member_name(builder, "procMacro");
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "enable");
+    json_builder_add_boolean_value(builder, FALSE);
+    json_builder_end_object(builder);
+    json_builder_set_member_name(builder, "checkOnSave");
+    json_builder_add_boolean_value(builder, FALSE);
+  }
   json_builder_set_member_name(builder, "cargo");
   json_builder_begin_object(builder);
+  if (!trusted) {
+    json_builder_set_member_name(builder, "buildScripts");
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "enable");
+    json_builder_add_boolean_value(builder, FALSE);
+    json_builder_end_object(builder);
+  }
   if (some) {
     json_builder_set_member_name(builder, "features");
     if (all) {

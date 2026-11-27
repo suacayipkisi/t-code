@@ -131,7 +131,7 @@ the executable is on `PATH`:
 
 | Files | Server |
 |-------|--------|
-| Python (`.py`) | `pylsp` (also from the project's venv) |
+| Python (`.py`) | `pylsp` (also from the project's venv, in a trusted folder) |
 | Go (`.go`) | `gopls` |
 | Rust (`.rs`) | `rust-analyzer` |
 | JavaScript / TypeScript (`.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`) | `typescript-language-server` (`npm install -g typescript-language-server typescript@6`) |
@@ -162,6 +162,15 @@ variables it already had stay.
   `$VIRTUAL_ENV`'s and `python3`;
 - **Rust: Select Features…** and **Rust: Select Target…** pick Cargo features (the default ones,
   all, or some) and a target installed with rustup.
+
+**Trusted folders.** A cloned project can carry programs of its own, so t-code runs them only in a
+folder you trusted: the venv's Python and `pylsp`, `node_modules`' TypeScript, Rust build scripts,
+proc macros and the check on save, and the Testing panel listing tests by itself (pytest, cargo and
+go test run the project's code). Elsewhere the servers use what is on `PATH` (the TypeScript server
+the TypeScript it was installed with) and a bar above the editors offers **Trust Folder** or **Not
+Now**. Trusting restarts the servers. The list is `~/.config/t-code/trusted`, one folder per line;
+the folders inside a trusted one are trusted too. Build, Run, tasks and the Testing panel's Refresh
+are your own request and are not asked about.
 
 **A server's life.**
 

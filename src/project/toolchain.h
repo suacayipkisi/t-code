@@ -12,6 +12,10 @@
  * used then. */
 char *toolchain_python(App *t, const char *root);
 
+/* The Python the language server runs (pylsp beside it, jedi's environment): the picked one, else
+ * the project's own venv's only in a trusted folder (project/trust.h; asks otherwise). NULL: none. */
+char *toolchain_server_python(App *t);
+
 /* The picked Cargo features (NULL: the default ones, "all", or "a,b") and target (NULL: the host). */
 char *toolchain_rust_features(App *t);
 char *toolchain_rust_target(App *t);

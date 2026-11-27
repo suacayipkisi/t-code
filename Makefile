@@ -119,6 +119,10 @@ build/test-langenv: tests/test_langenv.c tests/util.h src/project/langenv.c src/
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags json-glib-1.0) -o $@ tests/test_langenv.c src/project/langenv.c \
 	  $(shell pkg-config --libs json-glib-1.0)
 
+build/test-trust: tests/test_trust.c tests/util.h src/project/trust.c src/project/trust.h | build
+	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags gio-2.0) -o $@ tests/test_trust.c src/project/trust.c \
+	  $(shell pkg-config --libs gio-2.0)
+
 build/test-detect: tests/test_detect.c tests/util.h src/editor/text/detect.c src/editor/text/detect.h src/editor/text/indentconf.c \
                    src/editor/text/indentconf.h src/editor/text/blocks.c src/editor/text/blocks.h | build
 	$(CC) $(CFLAGS) -Isrc $(shell pkg-config --cflags glib-2.0) -o $@ tests/test_detect.c src/editor/text/detect.c \
@@ -233,7 +237,7 @@ build/test-recovery: tests/test_recovery.c tests/util.h src/editor/recovery.c sr
 	  $(shell pkg-config --libs $(PKGS))
 
 
-test: build/test-log build/test-children build/test-shellenv build/test-errtail build/test-processes build/test-templates build/test-searchmatch build/test-detect build/test-langenv build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
+test: build/test-log build/test-children build/test-shellenv build/test-errtail build/test-processes build/test-templates build/test-searchmatch build/test-detect build/test-langenv build/test-trust build/test-lspinstall build/test-linediff build/test-fileops build/test-lsp build/test-debug \
       build/test-search-panel build/test-editing build/test-scm build/test-gitpatch build/test-repos build/test-vcs build/test-frameworks build/test-testing build/test-files build/test-window build/test-about build/test-welcome \
       build/test-plugins build/test-update build/test-recovery build/test-registry
 	build/test-searchmatch
@@ -245,6 +249,7 @@ test: build/test-log build/test-children build/test-shellenv build/test-errtail 
 	build/test-templates
 	build/test-detect
 	build/test-langenv
+	build/test-trust
 	build/test-lspinstall
 	build/test-linediff
 	build/test-fileops
@@ -348,6 +353,9 @@ test-asan: | build
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags json-glib-1.0) -o build/asan/test-langenv \
 	  tests/test_langenv.c src/project/langenv.c $(shell pkg-config --libs json-glib-1.0)
 	$(ASAN_ENV) build/asan/test-langenv
+	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags gio-2.0) -o build/asan/test-trust \
+	  tests/test_trust.c src/project/trust.c $(shell pkg-config --libs gio-2.0)
+	$(ASAN_ENV) build/asan/test-trust
 	$(CC) $(ASAN_FLAGS) $(shell pkg-config --cflags glib-2.0) -o build/asan/test-lspinstall \
 	  tests/test_lspinstall.c src/lsp/install.c $(shell pkg-config --libs glib-2.0)
 	$(ASAN_ENV) build/asan/test-lspinstall

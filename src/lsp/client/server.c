@@ -11,6 +11,7 @@
 #include "lsp/inline/inlay.h"
 #include "lsp/inline/semantic.h"
 #include "lsp/symbols/navigate.h"
+#include "project/trust.h"
 #include "window/statusbar.h"
 
 #include <stdlib.h>
@@ -459,17 +460,32 @@ static gboolean on_init_timeout(gpointer data)
   return G_SOURCE_REMOVE;
 }
 
-/* The TypeScript of the package an open file is in, when it is not the project's own (see
- * server_typescript_path), added to TypeScript's initializationOptions. */
-static char *with_tsserver(Lsp *l, char *options)
+/* The tsserver.js the TypeScript server is given (initializationOptions' tsserver.path), or NULL to
+ * let it look in the project and next to itself. In a trusted folder (project/trust.h) the TypeScript
+ * of the package an open file is in when it is not the project's own (see server_typescript_path);
+ * elsewhere the one the server was installed with, as it would load the project's own otherwise.
+ * *refused when that is not there either. */
+static char *typescript_for(Lsp *l, gboolean *refused)
 {
   GHashTableIter iter;
   gpointer tab;
-  char *path = NULL;
+  char *local = NULL, *global;
 
+  *refused = FALSE;
   g_hash_table_iter_init(&iter, l->docs);
-  while (!path && g_hash_table_iter_next(&iter, &tab, NULL))
-    path = server_typescript_path(((Tab *)tab)->path, l->workspace);
+  while (!local && g_hash_table_iter_next(&iter, &tab, NULL))
+    local = server_typescript_path(((Tab *)tab)->path, l->workspace);
+  if (local ? trust_project(l->app, "its TypeScript") : trust_has(l->workspace))
+    return local;
+  g_free(local);
+  if (!(global = server_global_typescript()))
+    *refused = TRUE;
+  return global;
+}
+
+/* options with "tsserver":{"path":path} added. */
+static char *with_tsserver(char *options, char *path)
+{
   if (!path || !options || !g_str_has_suffix(options, "}"))
     return g_free(path), options;
   char *quoted = json_quote(path);
@@ -529,12 +545,21 @@ static gboolean trim_check(gpointer data)
 
 void lsp_server_start(Lsp *l)
 {
-  char **argv = server_argv(l->app, l->kind);
-  GSubprocessLauncher *launcher = g_subprocess_launcher_new(
-      G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE);
+  gboolean refused = FALSE;
+  char *tsserver = l->kind == SERVER_TYPESCRIPT ? typescript_for(l, &refused) : NULL;
+  char **argv;
+  GSubprocessLauncher *launcher;
   GError *error = NULL;
   char *uri, *quoted, *params, *options;
 
+  if (refused) { /* nothing but the project's own TypeScript */
+    g_set_str(&l->failure, "no TypeScript of its own (npm install -g typescript), and the folder is not trusted");
+    g_warning("t-code: %s did not start: %s", server_name(l->kind), l->failure);
+    return;
+  }
+  argv = server_argv(l->app, l->kind);
+  launcher = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE |
+                                       G_SUBPROCESS_FLAGS_STDERR_PIPE);
   g_subprocess_launcher_set_cwd(launcher, l->workspace);
   if (l->kind == SERVER_CLANGD)
     set_clangd_env(launcher, l->app);
@@ -547,6 +572,7 @@ void lsp_server_start(Lsp *l)
     g_warning("t-code: cannot start %s: %s", server_name(l->kind), error->message);
     l->missing = TRUE;
     g_clear_error(&error);
+    g_free(tsserver);
     return;
   }
   l->err = err_tail_new(g_subprocess_get_stderr_pipe(l->process));
@@ -568,8 +594,7 @@ void lsp_server_start(Lsp *l)
     l->trim_id = g_timeout_add_seconds(TRIM_CHECK_SECONDS, trim_check, l);
 
   options = server_options(l->kind, l->app);
-  if (l->kind == SERVER_TYPESCRIPT)
-    options = with_tsserver(l, options);
+  options = with_tsserver(options, tsserver);
   uri = lsp_path_to_uri(l->workspace);
   quoted = json_quote(uri ? uri : "");
   params = g_strdup_printf(

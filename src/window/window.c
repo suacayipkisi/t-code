@@ -15,6 +15,7 @@
 #include "popups/picker.h"
 #include "project/project.h"
 #include "project/session.h"
+#include "project/trust.h"
 #include "project/userfiles.h"
 #include "lsp/inline/inlay.h"
 #include "update/update.h"
@@ -351,6 +352,7 @@ void build_window(App *t, GtkApplication *app)
   g_signal_connect(t->layout.vpaned, "notify::position", G_CALLBACK(on_layout_changed), t);
   g_signal_connect(t->layout.rpaned, "notify::position", G_CALLBACK(on_layout_changed), t);
 
+  gtk_box_append(GTK_BOX(content), trust_bar_new(t)); /* "Trust this folder?" (project/trust.h) */
   gtk_box_append(GTK_BOX(content), with_edges(t, t->layout.hpaned, 0, 2));
   GtkEventController *legacy = gtk_event_controller_legacy_new();
   gtk_event_controller_set_propagation_phase(legacy, GTK_PHASE_CAPTURE);

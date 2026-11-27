@@ -11,6 +11,7 @@
 #include "plugins/plugins.h"
 #include "project/langenv.h"
 #include "project/toolchain.h"
+#include "project/trust.h"
 #include "testing/frameworks.h"
 #include "window/palette.h"
 
@@ -57,6 +58,7 @@ static struct {
   Job *job;                 /* the one running */
   guint generation;         /* the project changed: older jobs' answers are dropped */
   gboolean listed;          /* for this project */
+  gboolean untrusted;       /* not listed on its own: the folder is not trusted (project/trust.h) */
   char *dir;                /* reports go here */
   guint reports;
   char *debugged;       /* the id of the test last debugged: Restart debugs it again */
@@ -386,11 +388,15 @@ static void rebuild(void)
   gboolean errors = FALSE;
   for (int kind = 0; kind < TEST_KINDS; kind++)
     errors |= testing.errors[kind] != NULL;
-  gtk_label_set_text(testing.note, testing.sources && !testing.sources->len
-                                       ? "No tests found. The panel looks for CTest (a CMake build folder), pytest, "
-                                         "go test, cargo test and JUnit (Maven, Gradle) in the project folder."
-                                       : "No tests listed.");
-  gtk_widget_set_visible(GTK_WIDGET(testing.note), empty && !errors);
+  gboolean untrusted = testing.untrusted && !testing.listed;
+  gtk_label_set_text(testing.note,
+                     untrusted ? "Listing the tests runs the project's code (pytest, cargo, go test): they are listed "
+                                 "once the folder is trusted, or now with Refresh."
+                     : testing.sources && !testing.sources->len
+                         ? "No tests found. The panel looks for CTest (a CMake build folder), pytest, "
+                           "go test, cargo test and JUnit (Maven, Gradle) in the project folder."
+                         : "No tests listed.");
+  gtk_widget_set_visible(GTK_WIDGET(testing.note), (empty && !errors) || untrusted);
   update_summary();
   update_buttons();
   testing_marks_changed();
@@ -789,6 +795,7 @@ void testing_refresh(App *t)
   if (testing_busy() || !t->project.root)
     return;
   testing.listed = TRUE;
+  testing.untrusted = FALSE;
   if (testing.sources)
     g_ptr_array_unref(testing.sources);
   testing.sources = test_sources(t->project.root);
@@ -1185,21 +1192,42 @@ static void forget(void)
   testing.listed = FALSE;
 }
 
+/* Lists the tests unless that runs the project's code (all but JUnit's listing) in a folder not
+ * trusted: the panel says so then, and Refresh lists them. */
+static void list_on_its_own(App *t)
+{
+  GPtrArray *sources = t->project.root ? test_sources(t->project.root) : NULL;
+  gboolean runs = FALSE;
+
+  for (guint i = 0; sources && i < sources->len; i++) {
+    const TestSource *source = sources->pdata[i];
+    runs |= !source->hint && source->kind != TEST_JUNIT;
+  }
+  if (sources)
+    g_ptr_array_unref(sources);
+  testing.untrusted = runs && !trust_project(t, "its test listing");
+  if (testing.untrusted)
+    rebuild();
+  else
+    testing_refresh(t);
+}
+
 void testing_reset(App *t)
 {
   if (!testing.panel)
     return;
   forget();
+  testing.untrusted = FALSE;
   rebuild();
   if (gtk_widget_get_mapped(testing.panel))
-    testing_refresh(t);
+    list_on_its_own(t);
 }
 
 /* Listed the first time the panel shows. */
 static void on_map(GtkWidget *panel G_GNUC_UNUSED, gpointer data)
 {
-  if (!testing.listed)
-    testing_refresh(data);
+  if (!testing.listed && !testing.untrusted)
+    list_on_its_own(data);
 }
 
 static void on_destroy(GtkWidget *panel G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)

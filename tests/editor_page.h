@@ -104,9 +104,29 @@ char *toolchain_python(App *t G_GNUC_UNUSED, const char *root G_GNUC_UNUSED)
 {
   return g_strdup(toolchain_test_python);
 }
+char *toolchain_server_python(App *t G_GNUC_UNUSED)
+{
+  return g_strdup(toolchain_test_python);
+}
 char *toolchain_rust_features(App *t G_GNUC_UNUSED)
 {
   return g_strdup(toolchain_test_features);
+}
+/* project/trust.c's stand-in: the project is trusted unless a test says not; what was asked, joined by "|". */
+static gboolean trust_test_refused;
+static GString *trust_test_asked;
+gboolean trust_has(const char *folder)
+{
+  return folder && !trust_test_refused;
+}
+gboolean trust_project(App *t, const char *what)
+{
+  if (!t->project.root || !trust_test_refused)
+    return t->project.root != NULL;
+  if (!trust_test_asked)
+    trust_test_asked = g_string_new(NULL);
+  g_string_append_printf(trust_test_asked, "%s|", what);
+  return FALSE;
 }
 char *toolchain_rust_target(App *t G_GNUC_UNUSED)
 {

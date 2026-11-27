@@ -10,6 +10,7 @@
 #include "popups/picker.h"
 #include "project/langenv.h"
 #include "project/session.h"
+#include "project/trust.h"
 #include "window/statusbar.h"
 
 #include <string.h>
@@ -85,6 +86,17 @@ char *toolchain_python(App *t, const char *root)
   if (python && g_file_test(python, G_FILE_TEST_IS_EXECUTABLE))
     return g_strdup(python);
   return langenv_venv_python(root ? root : t->project.root);
+}
+
+char *toolchain_server_python(App *t)
+{
+  const char *picked = value_of(t, PYTHON);
+  char *python = toolchain_python(t, NULL);
+
+  /* the venv was found, not chosen: its bin/python can be any program the folder holds */
+  if (python && g_strcmp0(python, picked) != 0 && !trust_project(t, "its Python environment"))
+    g_clear_pointer(&python, g_free);
+  return python;
 }
 
 static void python_query(App *t, const char *text, guint generation)

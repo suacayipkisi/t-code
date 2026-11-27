@@ -161,13 +161,19 @@ static void test_rust_options(void)
 {
   char *options;
 
-  g_assert_null(langenv_rust_options(NULL, NULL));
-  g_assert_null(langenv_rust_options("", ""));
-  options = langenv_rust_options("all", NULL);
+  g_assert_null(langenv_rust_options(NULL, NULL, TRUE));
+  g_assert_null(langenv_rust_options("", "", TRUE));
+  options = langenv_rust_options("all", NULL, TRUE);
   g_assert_cmpstr(options, ==, "{\"cargo\":{\"features\":\"all\"}}");
   g_free(options);
-  options = langenv_rust_options("json, serde", "wasm32-unknown-unknown");
+  options = langenv_rust_options("json, serde", "wasm32-unknown-unknown", TRUE);
   g_assert_cmpstr(options, ==, "{\"cargo\":{\"features\":[\"json\",\"serde\"],\"target\":\"wasm32-unknown-unknown\"}}");
+  g_free(options);
+  /* a folder not trusted: nothing that runs the project's code */
+  options = langenv_rust_options(NULL, NULL, FALSE);
+  g_assert_cmpstr(
+      options, ==,
+      "{\"procMacro\":{\"enable\":false},\"checkOnSave\":false,\"cargo\":{\"buildScripts\":{\"enable\":false}}}");
   g_free(options);
 }
 

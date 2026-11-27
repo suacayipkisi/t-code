@@ -90,3 +90,8 @@ char *server_settings(ServerKind kind, App *t);
  * above it, up to root (a package inside the project, the way other editors take its folder as the
  * root). NULL when there is none: the server looks in root and next to itself. */
 char *server_typescript_path(const char *file, const char *root);
+
+/* The tsserver.js of the TypeScript the server was installed with (beside it in npm's folders), for
+ * a project not trusted (project/trust.h): the server would otherwise load the project's own. NULL
+ * when there is none. */
+char *server_global_typescript(void);

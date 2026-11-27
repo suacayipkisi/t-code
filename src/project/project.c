@@ -20,6 +20,7 @@
 #include "lsp/client/client.h"
 #include "plugins/plugins.h"
 #include "project/session.h"
+#include "project/trust.h"
 #include "search/search.h"
 #include "testing/testing.h"
 #include "window/statusbar.h"
@@ -144,6 +145,7 @@ static void switch_project(App *t, const char *root)
   rebuild_recent_menu(t);
   scm_reset();
   search_reset();
+  trust_reset(t); /* before the tabs start the new project's servers */
   testing_reset(t);
   watch_git(t); /* t->project.repo_top for the Files panel's git colors */
   files_set_root(t);

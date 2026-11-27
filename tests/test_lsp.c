@@ -461,6 +461,73 @@ static void test_toolchain_options(void)
   toolchain_test_features = toolchain_test_target = toolchain_test_python = NULL;
 }
 
+/* In a folder not trusted (project/trust.h) rust-analyzer runs no build script, proc macro or check
+ * on save, and the TypeScript server gets the TypeScript it was installed with instead of the project's
+ * own (none: it does not start); each is asked about once. */
+static void test_untrusted_project(void)
+{
+  char *old_root = app.project.root, *old_path = g_strdup(g_getenv("PATH"));
+  char *root = g_dir_make_tmp("t-code-trust-XXXXXX", NULL), *project = g_build_filename(root, "project", NULL);
+  char *file = g_build_filename(project, "src", "a.ts", NULL), *bin = g_build_filename(root, "npm", "bin", NULL);
+  char *local = g_build_filename(project, "node_modules", "typescript", "lib", "tsserver.js", NULL);
+  char *global = g_build_filename(root, "npm", "lib", "node_modules", "typescript", "lib", "tsserver.js", NULL);
+  char *link = g_build_filename(bin, "typescript-language-server", NULL), *text, *path;
+  Tab tab = { .path = file };
+  Lsp l = { .app = &app, .workspace = project, .docs = g_hash_table_new(NULL, NULL) };
+  gboolean refused;
+
+  g_free(write_at(project, "src/a.ts", "", 0, 0));
+  g_free(write_at(project, "node_modules/typescript/lib/tsserver.js", "", 0, 0));
+  g_free(write_at(root, "npm/lib/node_modules/typescript-language-server/lib/cli.mjs", "", 0, 0755));
+  g_free(write_at(root, "npm/lib/node_modules/typescript/lib/tsserver.js", "", 0, 0));
+  g_assert_cmpint(g_mkdir_with_parents(bin, 0755), ==, 0);
+  GFile *link_file = g_file_new_for_path(link);
+  g_assert_true(
+      g_file_make_symbolic_link(link_file, "../lib/node_modules/typescript-language-server/lib/cli.mjs", NULL, NULL));
+  g_object_unref(link_file);
+  g_hash_table_add(l.docs, &tab);
+  app.project.root = project;
+  g_setenv("PATH", bin, TRUE);
+
+  path = typescript_for(&l, &refused); /* trusted: the project's own */
+  g_assert_cmpstr(path, ==, local);
+  g_assert_false(refused);
+  g_free(path);
+
+  trust_test_refused = TRUE;
+  text = server_options(SERVER_RUST, &app);
+  g_assert_cmpstr(
+      text, ==,
+      "{\"procMacro\":{\"enable\":false},\"checkOnSave\":false,\"cargo\":{\"buildScripts\":{\"enable\":false}}}");
+  g_free(text);
+  path = typescript_for(&l, &refused); /* npm's global one, found from the server's link */
+  g_assert_cmpstr(path, ==, global);
+  g_assert_false(refused);
+  g_free(path);
+  g_assert_cmpint(g_unlink(global), ==, 0);
+  path = typescript_for(&l, &refused);
+  g_assert_null(path);
+  g_assert_true(refused);
+  g_assert_cmpstr(trust_test_asked->str, ==, "Rust build scripts and proc macros|its TypeScript|its TypeScript|");
+
+  trust_test_refused = FALSE;
+  g_string_truncate(trust_test_asked, 0);
+  g_setenv("PATH", old_path, TRUE);
+  app.project.root = old_root;
+  g_hash_table_unref(l.docs);
+  char *cmd = g_strdup_printf("rm -rf '%s'", root);
+  g_assert_cmpint(system(cmd), ==, 0);
+  g_free(cmd);
+  g_free(link);
+  g_free(global);
+  g_free(local);
+  g_free(bin);
+  g_free(file);
+  g_free(project);
+  g_free(root);
+  g_free(old_path);
+}
+
 /* The JSON server validates only (no formatting, no schema downloads) and is not given generated or
  * big JSON files; YAML gets its settings; a server asking for a section of them
  * (workspace/configuration) gets it, null for one there is not. */
@@ -2385,6 +2452,7 @@ int main(int argc, char **argv)
   g_test_add_func("/lsp/hover-fixes", test_hover_fixes);
   g_test_add_func("/lsp/hover-marked", test_hover_marked);
   g_test_add_func("/lsp/toolchain-options", test_toolchain_options);
+  g_test_add_func("/lsp/untrusted-project", test_untrusted_project);
   g_test_add_func("/lsp/data-language-settings", test_data_language_settings);
   g_test_add_func("/lsp/document-highlight", test_document_highlight);
   g_test_add_func("/lsp/inactive-regions", test_inactive_regions);

@@ -19,6 +19,9 @@
 void save_all(App *t, SavedFunc then, gpointer data) { then(t, data); }
 char *toolchain_python(App *t G_GNUC_UNUSED, const char *root G_GNUC_UNUSED) { return NULL; }
 char *toolchain_rust_features(App *t G_GNUC_UNUSED) { return NULL; }
+static gboolean testing_untrusted; /* project/trust.c's answer, set by a test */
+static int trust_asked;
+gboolean trust_project(App *t G_GNUC_UNUSED, const char *what G_GNUC_UNUSED) { trust_asked += testing_untrusted; return !testing_untrusted; }
 char *toolchain_rust_target(App *t G_GNUC_UNUSED) { return NULL; }
 gboolean debug_active(App *t G_GNUC_UNUSED) { return FALSE; }
 static DebugAgain next_again; /* the last debug_next_again's */
@@ -260,6 +263,44 @@ static void test_switch(void)
   touch("slow", FALSE);
   g_free(empty);
   g_free(cmake);
+}
+
+/* The lines of the fake go's "calls" (0 before its first call). */
+static guint calls_count(void)
+{
+  char *path = g_build_filename(project, "calls", NULL), *text = NULL;
+  guint n = 0;
+
+  if (g_file_get_contents(path, &text, NULL, NULL))
+    for (const char *c = text; *c; c++)
+      n += *c == '\n';
+  g_free(text);
+  g_free(path);
+  return n;
+}
+
+/* In a folder not trusted the panel does not list on its own (go test -list runs the project's code)
+ * and asks once; Refresh lists. */
+static void test_untrusted(void)
+{
+  guint before;
+
+  switch_to(tmp);
+  run_until(idle, NULL);
+  before = calls_count();
+  testing_untrusted = TRUE;
+  trust_asked = 0;
+  switch_to(project);
+  run_for(200);
+  g_assert_false(testing_busy());
+  g_assert_cmpuint(calls_count(), ==, before);
+  g_assert_cmpint(trust_asked, ==, 1);
+  assert_text("");
+  testing_refresh(&app);
+  run_until(idle, NULL);
+  assert_text("example.com/m\n  ○ TestOk\n  ○ TestBad\n");
+  g_assert_cmpuint(calls_count(), ==, before + 1);
+  testing_untrusted = FALSE;
 }
 
 static void assert_output_has(const char *id, const char *needle)
@@ -588,6 +629,7 @@ int main(int argc, char **argv)
   g_test_add_func("/testing/list-and-run", test_list_and_run);
   g_test_add_func("/testing/stop", test_stop);
   g_test_add_func("/testing/switch", test_switch);
+  g_test_add_func("/testing/untrusted", test_untrusted);
   g_test_add_func("/testing/debug", test_debug);
   g_test_add_func("/testing/debug-junit", test_debug_junit);
   g_test_add_func("/testing/marks", test_marks);

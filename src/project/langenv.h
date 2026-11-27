@@ -26,8 +26,9 @@ GStrv langenv_cargo_features(const char *cargo_toml);
  * (the host's) or a target triple. */
 
 /* rust-analyzer's initializationOptions for them ({"cargo": {...}}), or NULL when both are the
- * defaults. */
-char *langenv_rust_options(const char *features, const char *target);
+ * defaults. In a folder not trusted (project/trust.h) build scripts, proc macros and the check on
+ * save are switched off: each runs the project's code. */
+char *langenv_rust_options(const char *features, const char *target, gboolean trusted);
 
 /* cargo's flags for them, each with a space before it (" --features a,b --target x"), shell-quoted;
  * "" for the defaults. */

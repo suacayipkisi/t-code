@@ -10,6 +10,7 @@
 #include "plugins/plugins.h"
 #include "project/langenv.h"
 #include "project/toolchain.h"
+#include "project/trust.h"
 
 #include <glib/gstdio.h>
 #include <string.h>
@@ -308,7 +309,7 @@ ServerKind server_kind_for_tab(Tab *tab)
 /* The pylsp installed in the project's Python's venv (it sees the venv's packages), or NULL. */
 static char *venv_pylsp(App *t)
 {
-  char *python = toolchain_python(t, NULL), *bin = python ? g_path_get_dirname(python) : NULL;
+  char *python = toolchain_server_python(t), *bin = python ? g_path_get_dirname(python) : NULL;
   char *pylsp = bin ? g_build_filename(bin, "pylsp", NULL) : NULL;
 
   if (pylsp && !g_file_test(pylsp, G_FILE_TEST_IS_EXECUTABLE))
@@ -581,6 +582,50 @@ char *server_typescript_path(const char *file, const char *root)
   return found;
 }
 
+/* path with its links followed (npm links bin/'s name to the package's own file). */
+static char *follow_links(const char *path)
+{
+  char *current = g_canonicalize_filename(path, NULL), *target;
+
+  for (int i = 0; i < 16 && (target = g_file_read_link(current, NULL)); i++) {
+    char *dir = g_path_get_dirname(current);
+    g_free(current);
+    current = g_canonicalize_filename(target, dir); /* an absolute target ignores dir */
+    g_free(dir);
+    g_free(target);
+  }
+  return current;
+}
+
+char *server_global_typescript(void)
+{
+  char *program = find_program("typescript-language-server");
+  char *real = program ? follow_links(program) : NULL, *found = NULL;
+  char *dir = real ? g_path_get_dirname(real) : NULL;
+  /* node's lookup from the package: node_modules in each folder above it */
+  while (dir && !found) {
+    char *base = g_path_get_basename(dir);
+    char *nested = g_build_filename(dir, "node_modules", "typescript", "lib", "tsserver.js", NULL);
+    char *sibling =
+        strcmp(base, "node_modules") == 0 ? g_build_filename(dir, "typescript", "lib", "tsserver.js", NULL) : NULL;
+    if (g_file_test(nested, G_FILE_TEST_IS_REGULAR))
+      found = g_steal_pointer(&nested);
+    else if (sibling && g_file_test(sibling, G_FILE_TEST_IS_REGULAR))
+      found = g_steal_pointer(&sibling);
+    g_free(sibling);
+    g_free(nested);
+    g_free(base);
+    char *up = g_path_get_dirname(dir);
+    gboolean top = strcmp(up, dir) == 0;
+    g_free(dir);
+    dir = top ? (g_free(up), NULL) : up;
+  }
+  g_free(dir);
+  g_free(real);
+  g_free(program);
+  return found;
+}
+
 char *server_options(ServerKind kind, App *t)
 {
   if (kind >= SERVER_PLUGIN)
@@ -602,7 +647,7 @@ char *server_options(ServerKind kind, App *t)
   if (kind != SERVER_RUST)
     return NULL;
   char *features = toolchain_rust_features(t), *target = toolchain_rust_target(t);
-  char *options = langenv_rust_options(features, target);
+  char *options = langenv_rust_options(features, target, trust_project(t, "Rust build scripts and proc macros"));
 
   g_free(target);
   g_free(features);
@@ -623,7 +668,7 @@ char *server_settings(ServerKind kind, App *t)
                     "\"schemaStore\":{\"enable\":true}}}");
   if (kind != SERVER_PYTHON)
     return NULL;
-  char *python = toolchain_python(t, NULL), *quoted = python ? json_quote(python) : NULL;
+  char *python = toolchain_server_python(t), *quoted = python ? json_quote(python) : NULL;
   char *settings = quoted ? g_strdup_printf("{\"pylsp\":{\"plugins\":{\"jedi\":{\"environment\":%s}}}}", quoted) : NULL;
 
   g_free(quoted);
