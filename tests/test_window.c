@@ -38,6 +38,7 @@
 #include "plugins/plugins.h"
 #include "plugins/registry.h"
 #include "popups/contextmenu.h"
+#include "popups/menus.h"
 #include "project/run/run.h"
 #include "project/session.h"
 #include "project/toolchain.h"
@@ -2119,6 +2120,7 @@ static void test_context_menus(void)
   g_assert_cmpint(ran, ==, 1);
   g_assert_cmpint(menu_freed, ==, 1);
   context_menu(widget, 1, 1, items, G_N_ELEMENTS(items), &ran, count_free);
+  run_for(20); /* it shows in an idle, after GTK's lines between its sections */
   for (GtkWidget *child = gtk_widget_get_first_child(widget); child; child = gtk_widget_get_next_sibling(child))
     if (GTK_IS_POPOVER_MENU(child))
       gtk_popover_popdown(GTK_POPOVER(child)); /* closed without a choice */
@@ -4590,7 +4592,7 @@ static void test_terminal_tabs(void)
   g_assert_true(second_shell_in(dir));
 
   rename_current_shell(&app);
-  entry = find_widget(app.shell.panel, GTK_TYPE_ENTRY, NULL, NULL);
+  entry = find_widget(app.shell.strip, GTK_TYPE_ENTRY, NULL, NULL);
   g_assert_nonnull(entry);
   g_assert_cmpstr(gtk_editable_get_text(GTK_EDITABLE(entry)), ==, "Terminal 2");
   gtk_editable_set_text(GTK_EDITABLE(entry), "  Server ");
@@ -4636,6 +4638,130 @@ static void test_terminal_tabs(void)
   g_rmdir(made);
   free(dir);
   g_free(made);
+}
+
+static int count_of(GtkWidget *widget, GType type);
+
+static void nothing(gpointer data G_GNUC_UNUSED)
+{
+}
+
+/* The thin layout: the terminals' tabs in the bottom dock's header row, the left docks' tab bar as a
+ * column, the menu bar's titles as icons, menus with icons for the often used items and their whole height. */
+static void test_thin_layout(void)
+{
+  Dock *shell_dock = panel_dock(&app, "shell");
+  int tabs;
+  GtkWidget *strip_card, *current_tab;
+  VteTerminal *added;
+
+  /* the strip sits in the header of the dock showing the Terminal panel, one tab per terminal */
+  set_pane_visible(&app, app.shell.panel, TRUE);
+  run_for(50);
+  strip_card = gtk_widget_get_ancestor(app.shell.strip, GTK_TYPE_BOX);
+  g_assert_true(gtk_widget_is_ancestor(app.shell.strip, shell_dock->header));
+  g_assert_nonnull(strip_card);
+  tabs = count_of(GTK_WIDGET(app.shell.strip_tabs), GTK_TYPE_LABEL);
+  g_assert_cmpint(tabs, ==, shell_count(&app));
+  added = open_shell(&app, NULL);
+  run_for(50);
+  g_assert_cmpint(count_of(GTK_WIDGET(app.shell.strip_tabs), GTK_TYPE_LABEL), ==, tabs + 1);
+  current_tab = g_object_get_data(G_OBJECT(added), "t-code-tab");
+  g_assert_true(gtk_widget_get_state_flags(current_tab) & GTK_STATE_FLAG_CHECKED);
+  close_shell_tab(&app, added);
+  run_for(50);
+  g_assert_cmpint(count_of(GTK_WIDGET(app.shell.strip_tabs), GTK_TYPE_LABEL), ==, tabs);
+
+  /* the left docks' tab bar as a column and back; the bottom's stays a row */
+  app.settings.left_vertical = TRUE;
+  docks_apply_orientation(&app);
+  g_assert_true(side_first_dock(&app, 0)->vertical);
+  g_assert_cmpint(gtk_orientable_get_orientation(GTK_ORIENTABLE(side_first_dock(&app, 0)->switcher)), ==,
+                  GTK_ORIENTATION_VERTICAL);
+  g_assert_false(side_first_dock(&app, 1)->vertical);
+  /* the Source Control icon in a column: no number, the warning color while there are changes */
+  GtkStackPage *scm_page = gtk_stack_get_page(panel_dock(&app, "scm")->stack,
+                                              gtk_stack_get_child_by_name(panel_dock(&app, "scm")->stack, "scm"));
+  char *scm_title = g_strdup(gtk_stack_page_get_title(scm_page));
+  gtk_stack_page_set_title(scm_page, "SOURCE CONTROL  7");
+  gboolean changed = FALSE;
+  for (GtkWidget *b = gtk_widget_get_first_child(panel_dock(&app, "scm")->switcher); b;
+       b = gtk_widget_get_next_sibling(b))
+    changed |= gtk_widget_has_css_class(b, "tcode-scm-changed");
+  g_assert_true(panel_dock(&app, "scm")->vertical); /* Source Control is a left panel */
+  g_assert_null(find_widget(panel_dock(&app, "scm")->switcher, GTK_TYPE_LABEL, NULL, "tcode-scm-badge"));
+  g_assert_true(changed);
+  gtk_stack_page_set_title(scm_page, scm_title);
+  g_free(scm_title);
+  app.settings.left_vertical = FALSE;
+  docks_apply_orientation(&app);
+  g_assert_false(side_first_dock(&app, 0)->vertical);
+  g_assert_cmpint(gtk_orientable_get_orientation(GTK_ORIENTABLE(side_first_dock(&app, 0)->switcher)), ==,
+                  GTK_ORIENTATION_HORIZONTAL);
+
+  /* icons alone: the titles go, their tooltips name them; names again */
+  app.settings.menu_titles = 1;
+  title_bar_apply(&app);
+  g_assert_cmpstr(gtk_widget_get_tooltip_text(gtk_widget_get_first_child(app.layout.menu_bar)), ==, "Files");
+  GtkWidget *title = find_widget(gtk_widget_get_first_child(app.layout.menu_bar), GTK_TYPE_LABEL, NULL, NULL);
+  g_assert_cmpstr(gtk_label_get_text(GTK_LABEL(title)), ==, "");
+  app.settings.menu_titles = 0;
+  title_bar_apply(&app);
+  title = find_widget(gtk_widget_get_first_child(app.layout.menu_bar), GTK_TYPE_LABEL, NULL, NULL);
+  g_assert_cmpstr(gtk_label_get_text(GTK_LABEL(title)), ==, "Files");
+  g_assert_null(gtk_widget_get_tooltip_text(gtk_widget_get_first_child(app.layout.menu_bar)));
+
+  /* the dividers and the compact sizes load whatever the settings say */
+  for (int divider = DIVIDER_THEME; divider <= DIVIDER_LINE; divider++) {
+    app.settings.divider = divider;
+    app.settings.compact = divider % 2;
+    apply_theme(&app);
+  }
+  app.settings.divider = DIVIDER_THEME;
+  app.settings.compact = TRUE;
+  apply_theme(&app);
+
+  /* a right-click menu: the known item's icon shows beside its label, the other lines up; all its height */
+  g_assert_cmpstr(menu_icon_for("Copy Relative Path"), ==, "tcode-copy-symbolic");
+  g_assert_cmpstr(menu_icon_for("Close"), ==, "tcode-close-symbolic");
+  g_assert_null(menu_icon_for("Something Else"));
+  g_assert_null(menu_icon_for(""));
+  static const MenuItem items[] = {
+    { "Copy Path", nothing },
+    { "Something Else", nothing },
+    { NULL, NULL },
+    { "Open File", nothing },
+    { "Close", nothing },
+    { "Rename…", nothing },
+    { "Paste", nothing },
+    { NULL, NULL },
+    { "Delete", nothing },
+    { "Cut", nothing },
+    { "Stage Changes", nothing },
+  };
+  context_menu(GTK_WIDGET(current_shell(&app)), 10, 10, items, G_N_ELEMENTS(items), NULL, NULL);
+  run_for(100);
+  GtkWidget *popover = find_widget(GTK_WIDGET(current_shell(&app)), GTK_TYPE_POPOVER_MENU, NULL, NULL);
+  g_assert_nonnull(popover);
+  GtkWidget *image = find_widget(popover, GTK_TYPE_IMAGE, NULL, NULL);
+  g_assert_nonnull(image);
+  g_assert_true(gtk_widget_get_visible(image));
+  GtkWidget *scrolled = find_widget(popover, GTK_TYPE_SCROLLED_WINDOW, NULL, NULL);
+  g_assert_nonnull(scrolled);
+  int natural = 0; /* the whole menu shows: its list is not cut to a scrolling box */
+  gtk_widget_measure(gtk_scrolled_window_get_child(GTK_SCROLLED_WINDOW(scrolled)), GTK_ORIENTATION_VERTICAL, -1, NULL,
+                     &natural, NULL, NULL);
+  g_test_message("menu: list %d of %d px", gtk_widget_get_height(scrolled), natural);
+  g_assert_cmpint(gtk_scrolled_window_get_min_content_height(GTK_SCROLLED_WINDOW(scrolled)), >, 0);
+  g_assert_cmpint(gtk_widget_get_height(scrolled), >=, natural);
+  gtk_popover_popdown(GTK_POPOVER(popover));
+  run_for(50);
+
+  /* Ctrl+Alt+L: relative line numbers on and off again */
+  run_command(&app, "Toggle Relative Line Numbers");
+  g_assert_true(app.settings.relative_numbers);
+  run_command(&app, "Toggle Relative Line Numbers");
+  g_assert_false(app.settings.relative_numbers);
 }
 
 /* Each panel's View command hides a shown panel and brings a hidden one back from wherever it is, also
@@ -5378,7 +5504,7 @@ static void test_settings_pages(void)
     g_assert_true(GTK_IS_SCROLLED_WINDOW(page));
     switches += count_of(page, GTK_TYPE_SWITCH);
   }
-  g_assert_cmpint(switches, ==, 22 + SERVER_NONE); /* none lost on the way; one per built-in server */
+  g_assert_cmpint(switches, ==, 24 + SERVER_NONE); /* none lost on the way; one per built-in server */
   /* the editor's font: fixed width ones only; the Files panel's: any */
   GPtrArray *fonts = g_ptr_array_new();
   font_buttons(gtk_stack_get_child_by_name(stack, "appearance"), fonts);
@@ -6747,6 +6873,7 @@ int main(int argc, char **argv)
   g_test_add_func("/window/dock-tree", test_dock_tree);
   g_test_add_func("/window/panel-drop", test_panel_drop);
   g_test_add_func("/window/terminal-tabs", test_terminal_tabs);
+  g_test_add_func("/window/thin-layout", test_thin_layout);
   g_test_add_func("/window/temporary-tabs", test_temporary);
   g_test_add_func("/window/temporary-per-group", test_temporary_per_group);
   g_test_add_func("/window/opens-at-left-edge", test_opens_at_left_edge);

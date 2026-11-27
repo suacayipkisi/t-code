@@ -216,6 +216,81 @@ static GtkWidget *font_for(char **setting, gboolean monospace)
   return button;
 }
 
+static void on_setting_choice(GtkDropDown *choice, GParamSpec *spec G_GNUC_UNUSED, int *setting)
+{
+  *setting = (int)gtk_drop_down_get_selected(choice);
+  setting_changed(GTK_WIDGET(choice), app_of(GTK_WIDGET(choice)));
+}
+
+/* A drop-down of names showing *setting (their index), which sets it when another is picked (then apply). */
+static GtkWidget *setting_choice(int *setting, const char *const *names, void (*apply)(App *t))
+{
+  GtkWidget *choice = gtk_drop_down_new_from_strings(names);
+
+  gtk_drop_down_set_selected(GTK_DROP_DOWN(choice), (guint)*setting);
+  g_object_set_data(G_OBJECT(choice), "t-code-apply", apply);
+  g_signal_connect(choice, "notify::selected", G_CALLBACK(on_setting_choice), setting);
+  return choice;
+}
+
+static void on_density(GtkDropDown *choice, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+{
+  App *t = app_of(GTK_WIDGET(choice));
+
+  t->settings.compact = gtk_drop_down_get_selected(choice) == 0;
+  apply_theme(t);
+  each_editor(t); /* the gutter's columns */
+  session_save_settings(t);
+}
+
+static gboolean setting_divider_color; /* the reset is setting the button: not the user's pick */
+
+static void on_divider_color(GtkColorDialogButton *button, GParamSpec *spec G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED)
+{
+  App *t = app_of(GTK_WIDGET(button));
+
+  if (setting_divider_color)
+    return;
+  char *color = gdk_rgba_to_string(gtk_color_dialog_button_get_rgba(button));
+  set_divider_color(t, palette_id(), color); /* this color theme's */
+  g_free(color);
+  apply_theme(t);
+  session_save_settings(t);
+}
+
+/* The divider color goes back to the color theme's border. */
+static void on_divider_color_reset(GtkButton *reset, GtkColorDialogButton *button)
+{
+  App *t = app_of(GTK_WIDGET(reset));
+
+  set_divider_color(t, palette_id(), NULL);
+  setting_divider_color = TRUE;
+  gtk_color_dialog_button_set_rgba(button, palette_rgba(PAL_DIVIDER));
+  setting_divider_color = FALSE;
+  apply_theme(t);
+  session_save_settings(t);
+}
+
+/* The divider color's button and its "Theme" reset. */
+static GtkWidget *divider_color(App *t)
+{
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  GtkWidget *button = gtk_color_dialog_button_new(gtk_color_dialog_new()); /* takes the dialog */
+  GtkWidget *reset = gtk_button_new_with_label("Theme");
+  GdkRGBA color = *palette_rgba(PAL_DIVIDER);
+
+  if (divider_color_for(t, palette_id()))
+    gdk_rgba_parse(&color,
+                   divider_color_for(t, palette_id())); /* not a color GDK reads (var(...)): the theme's shows */
+  gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(button), &color);
+  g_signal_connect(button, "notify::rgba", G_CALLBACK(on_divider_color), NULL);
+  gtk_widget_set_tooltip_text(reset, "The color theme's own divider color");
+  g_signal_connect(reset, "clicked", G_CALLBACK(on_divider_color_reset), button);
+  gtk_box_append(GTK_BOX(box), button);
+  gtk_box_append(GTK_BOX(box), reset);
+  return box;
+}
+
 /* A page's heading, across both columns. */
 static void add_heading(GtkGrid *grid, int *row, const char *title)
 {
@@ -464,6 +539,9 @@ void show_settings(App *t)
           setting_switch(&t->settings.breadcrumbs, each_editor));
   add_row(GTK_GRID(grid), &row, "Line blame", "Who last changed the cursor's line, and in which commit, after its end",
           setting_switch(&t->settings.line_blame, each_editor));
+  add_row(GTK_GRID(grid), &row, "Relative line numbers",
+          "Numbers count up and down from the cursor's line, which shows its own (also Ctrl+Alt+L)",
+          setting_switch(&t->settings.relative_numbers, each_editor));
   add_row(GTK_GRID(grid), &row, "Ruler column",
           "A vertical line after this column, to keep lines short. Type 0 to turn it off",
           setting_spin(&t->settings.ruler, 0, 300, each_editor));
@@ -491,6 +569,30 @@ void show_settings(App *t)
   add_row(GTK_GRID(grid), &row, "Corner radius",
           "The rounded theme's panel corners in pixels; buttons, tabs and menus follow",
           setting_spin(&t->settings.corner_radius, 0, 24, apply_theme));
+  GtkWidget *density = gtk_drop_down_new_from_strings((const char *const[]){ "Compact", "Normal", NULL });
+  gtk_drop_down_set_selected(GTK_DROP_DOWN(density), t->settings.compact ? 0 : 1);
+  g_signal_connect(density, "notify::selected", G_CALLBACK(on_density), NULL);
+  add_row(GTK_GRID(grid), &row, "Density",
+          "Compact: thinner tabs, panel headers, menus and line number column; Normal: roomier", density);
+  add_row(GTK_GRID(grid), &row, "Panel dividers",
+          "Between the panels: the theme's (rounded: a gap with dots, square: a line), a gap with dots, a gap"
+          " or a line",
+          setting_choice(&t->settings.divider, (const char *const[]){ "Theme's", "Gap with dots", "Gap", "Line", NULL },
+                         apply_theme));
+  add_row(GTK_GRID(grid), &row, "Divider size (px)",
+          "The gap's or the line's width; 0: the theme's (6 px gap, 1 px line)",
+          setting_spin(&t->settings.divider_size, 0, 24, apply_theme));
+  add_row(GTK_GRID(grid), &row, "Panel outline",
+          "The rounded theme's panels get a thin edge in the divider color, so they show also where a color"
+          " theme's panels and frame are one color",
+          setting_switch(&t->settings.panel_outline, apply_theme));
+  add_row(GTK_GRID(grid), &row, "Vertical tab bar width (px)",
+          "The left panels' icon column (Interface: Vertical left tab bar); 0: as wide as its icons",
+          setting_spin(&t->settings.vertical_bar_width, 0, 120, apply_theme));
+  add_row(
+      GTK_GRID(grid), &row, "Divider color",
+      "The line's or the dots' color for the current color theme (each theme keeps its own); Theme: the color theme's own",
+      divider_color(t));
   add_row(GTK_GRID(grid), &row, "Selection opacity (%)",
           "How strongly the editors' selection shows over the text, in the theme's accent color",
           setting_spin(&t->settings.selection_opacity, 0, 100, editor_view_set_selection));
@@ -509,11 +611,18 @@ void show_settings(App *t)
   grid = add_page(GTK_STACK(stack), "interface", "Interface", &row);
   add_row(GTK_GRID(grid), &row, "Menu bar", "Off: the menus open from t-code's icon in the title bar",
           setting_switch(&t->settings.menu_bar, apply_interface));
+  add_row(GTK_GRID(grid), &row, "Menu titles", "The menu bar's Files, T-Code, ...: names, icons or both",
+          setting_choice(&t->settings.menu_titles, (const char *const[]){ "Names", "Icons", "Icons and names", NULL },
+                         apply_interface));
   add_row(GTK_GRID(grid), &row, "Status bar", "The bar along the window's bottom",
           setting_switch(&t->settings.status_bar, apply_interface));
   add_row(GTK_GRID(grid), &row, "Build and Run buttons",
           "In the status bar; Ctrl+Shift+B and Ctrl+F5 work without them",
           setting_switch(&t->settings.build_buttons, apply_interface));
+  add_row(GTK_GRID(grid), &row, "Vertical left tab bar",
+          "The left panels' icons in a column along the window's edge, not in a row over them (also their"
+          " right-click menu)",
+          setting_switch(&t->settings.left_vertical, docks_apply_orientation));
   add_row(GTK_GRID(grid), &row, "Sidebar buttons", "The title bar's buttons that show or hide the sides",
           setting_switch(&t->settings.side_buttons, apply_interface));
   add_row(GTK_GRID(grid), &row, "Search bar",
