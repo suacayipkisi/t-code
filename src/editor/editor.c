@@ -858,6 +858,18 @@ void quit_editor(Tab *tab)
 }
 
 /* Turns code coloring off or on in every open editor; new ones start the same way. */
+/* Line numbers from the cursor's line, or absolute ones again (Ctrl+Alt+L). */
+void toggle_relative_numbers(App *t)
+{
+  int n = tab_count(t);
+
+  t->settings.relative_numbers = !t->settings.relative_numbers;
+  session_save_settings(t);
+  for (int i = 0; i < n; i++)
+    if (tab_nth(t, i)->kind == TAB_EDITOR)
+      editor_view_apply_settings(tab_nth(t, i));
+}
+
 void toggle_syntax(App *t)
 {
   int n = tab_count(t);

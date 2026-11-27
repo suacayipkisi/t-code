@@ -229,6 +229,8 @@ void editor_view_apply_settings(Tab *tab)
   inlay_apply_setting(tab);
   blame_apply_setting(tab);
   breadcrumbs_update(tab);
+  folding_apply_settings(tab);
+  breakpoints_apply_settings(tab);
   gtk_widget_queue_draw(
       GTK_WIDGET(gtk_source_view_get_gutter(view, GTK_TEXT_WINDOW_LEFT))); /* the line numbers, arrows */
   gtk_widget_set_visible(v->map, t->settings.minimap);

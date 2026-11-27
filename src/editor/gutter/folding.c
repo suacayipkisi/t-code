@@ -480,7 +480,10 @@ static void query_number(GtkSourceGutterRenderer *renderer, GtkSourceGutterLines
     gtk_source_gutter_renderer_text_set_text(text, "", 0);
     return;
   }
-  g_snprintf(number, sizeof number, "%u", line + 1);
+  if (f && f->tab->app->settings.relative_numbers && !gtk_source_gutter_lines_is_cursor(lines, line))
+    g_snprintf(number, sizeof number, "%d", ABS((int)line - cursor_line(f->tab))); /* the cursor's: its own */
+  else
+    g_snprintf(number, sizeof number, "%u", line + 1);
   if (gtk_source_gutter_lines_is_cursor(lines, line)) { /* Dark Classic's editorLineNumber.activeForeground */
     char *markup = g_strdup_printf("<span foreground=\"%s\">%s</span>", palette_hex(PAL_FG), number);
     gtk_source_gutter_renderer_text_set_markup(text, markup, -1);
@@ -507,7 +510,18 @@ static void fit_numbers(Folding *f)
   gtk_source_gutter_renderer_text_measure(GTK_SOURCE_GUTTER_RENDERER_TEXT(f->numbers), sample, &width, NULL);
   /* A little room left of the digits: the breakpoints' column (breakpoints.c) has the rest, so a click
    * left of a number puts a breakpoint instead of selecting the line. */
-  gtk_widget_set_size_request(f->numbers, width + 8, -1);
+  gtk_widget_set_size_request(f->numbers, width + (f->tab->app->settings.compact ? 4 : 8), -1);
+}
+
+void folding_apply_settings(Tab *tab)
+{
+  Folding *f = tab->view ? tab->view->folding : NULL;
+
+  if (!f)
+    return;
+  f->digits = 0; /* measured again: compact or not */
+  fit_numbers(f);
+  gtk_widget_queue_draw(f->numbers);
 }
 
 /* A click on a number selects its line. */

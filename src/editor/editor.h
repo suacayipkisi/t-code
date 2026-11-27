@@ -52,3 +52,6 @@ gboolean editor_in_conflict(Tab *tab);
 
 /* Turns code coloring off or on in every open editor (F7); new ones start the same way. */
 void toggle_syntax(App *t);
+
+/* Relative line numbers on or off in every editor, saved (Ctrl+Alt+L). */
+void toggle_relative_numbers(App *t);

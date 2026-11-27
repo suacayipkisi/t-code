@@ -19,6 +19,9 @@ typedef struct {
   char *log;       /* a logpoint: this is printed instead of stopping ("i = {i}"), or NULL */
 } Breakpoint;
 
+/* The breakpoints' column after a settings change: narrower when compact. */
+void breakpoints_apply_settings(Tab *tab);
+
 /* Puts the dots' column into tab's gutter (editorview.c). */
 void breakpoints_attach(Tab *tab);
 

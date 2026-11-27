@@ -434,6 +434,7 @@ static const Command commands[] = {
   { "Terminal: Rename Terminal…", NULL, NULL, rename_current_shell, FALSE, FALSE, FALSE },
   { "Source Control", "<Control><Shift>g", "Ctrl+Shift+G", show_scm, FALSE, FALSE, FALSE },
   { "Toggle Code Coloring", "F7", "F7", toggle_syntax, FALSE, TRUE, FALSE },
+  { "Toggle Relative Line Numbers", "<Control><Alt>l", "Ctrl+Alt+L", toggle_relative_numbers, FALSE, TRUE, FALSE },
   { "Restart Language Servers", NULL, NULL, lsp_restart, FALSE, FALSE, FALSE },
   { "Change Indentation for This Project…", NULL, NULL, status_pick_indent, FALSE, FALSE, FALSE },
   { "Zoom In", "<Control>equal|<Control>plus|<Control>KP_Add", "Ctrl+=", zoom_in, FALSE, TRUE, FALSE },

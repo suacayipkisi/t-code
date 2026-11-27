@@ -17,7 +17,9 @@
 #include <string.h>
 
 #define CATEGORY "tcode-breakpoint"
-#define DOT_WIDTH 28 /* pixels: up to the line numbers, so a click left of them lands here */
+/* pixels: up to the line numbers, so a click left of them lands here; the compact one */
+#define DOT_WIDTH 28
+#define DOT_WIDTH_COMPACT 18
 
 struct Breakpoints {
   Tab *tab;
@@ -532,15 +534,15 @@ G_DECLARE_FINAL_TYPE(TcodeBreakpointRenderer, tcode_breakpoint_renderer, TCODE, 
 G_DEFINE_FINAL_TYPE(TcodeBreakpointRenderer, tcode_breakpoint_renderer, GTK_SOURCE_TYPE_GUTTER_RENDERER)
 
 /* A dot (a logpoint's a diamond); a conditional breakpoint's has "=" in it. */
-static void draw_dot(GtkSnapshot *snapshot, double y, double height, GdkRGBA color, gboolean conditional,
+static void draw_dot(GtkSnapshot *snapshot, double width, double y, double height, GdkRGBA color, gboolean conditional,
                      gboolean logpoint)
 {
-  double size = MIN(10, height - 4), left = (DOT_WIDTH - size) / 2, top = y + (height - size) / 2;
+  double size = MIN(10, height - 4), left = (width - size) / 2, top = y + (height - size) / 2;
   GskRoundedRect dot;
 
   if (logpoint) {
     GskPathBuilder *builder = gsk_path_builder_new();
-    double r = size / 2 + 1, cx = DOT_WIDTH / 2.0, cy = top + size / 2;
+    double r = size / 2 + 1, cx = width / 2.0, cy = top + size / 2;
     gsk_path_builder_move_to(builder, cx, cy - r);
     gsk_path_builder_line_to(builder, cx + r, cy);
     gsk_path_builder_line_to(builder, cx, cy + r);
@@ -563,10 +565,10 @@ static void draw_dot(GtkSnapshot *snapshot, double y, double height, GdkRGBA col
 }
 
 /* The arrow at the stopped line: a box pointing right. */
-static void draw_arrow(GtkSnapshot *snapshot, double y, double height)
+static void draw_arrow(GtkSnapshot *snapshot, double width, double y, double height)
 {
   GskPathBuilder *builder = gsk_path_builder_new();
-  double h = MIN(10, height - 4), top = y + (height - h) / 2, left = DOT_WIDTH / 2.0 - 7, tip = DOT_WIDTH / 2.0 + 7;
+  double h = MIN(10, height - 4), top = y + (height - h) / 2, left = width / 2.0 - 7, tip = width / 2.0 + 7;
   GskPath *path;
 
   gsk_path_builder_move_to(builder, left, top);
@@ -585,7 +587,7 @@ static void snapshot_dot(GtkSourceGutterRenderer *renderer, GtkSnapshot *snapsho
 {
   Breakpoints *b = TCODE_BREAKPOINT_RENDERER(renderer)->breakpoints;
   GSList *marks;
-  double y, height;
+  double y, height, width = gtk_widget_get_width(GTK_WIDGET(renderer));
   GdkRGBA red;
 
   if (!b || !b->tab->view || b->tab->view->loading)
@@ -594,17 +596,17 @@ static void snapshot_dot(GtkSourceGutterRenderer *renderer, GtkSnapshot *snapsho
   red = *palette_rgba(PAL_ERROR);
   marks = marks_on(b->tab, (int)line);
   if (marks)
-    draw_dot(snapshot, y, height, red, g_object_get_data(marks->data, "condition") != NULL,
+    draw_dot(snapshot, width, y, height, red, g_object_get_data(marks->data, "condition") != NULL,
              g_object_get_data(marks->data, "log") != NULL);
   else if (disassembly_is(b->tab->app, b->tab) && disassembly_breakpoint_at(b->tab->app, (int)line))
-    draw_dot(snapshot, y, height, red, FALSE, FALSE);
+    draw_dot(snapshot, width, y, height, red, FALSE, FALSE);
   else if (b->hover == (int)line && can_click(b->tab)) {
     red.alpha = 0.4f;
-    draw_dot(snapshot, y, height, red, FALSE, FALSE);
+    draw_dot(snapshot, width, y, height, red, FALSE, FALSE);
   }
   g_slist_free(marks);
   if (stop_line(b->tab) == (int)line)
-    draw_arrow(snapshot, y, height);
+    draw_arrow(snapshot, width, y, height);
 }
 
 static gboolean query_dot(GtkSourceGutterRenderer *renderer, GtkTextIter *iter G_GNUC_UNUSED,
@@ -758,12 +760,21 @@ static void on_right_click(GtkGestureClick *click, int n G_GNUC_UNUSED, double x
   gtk_text_buffer_get_iter_at_line(GTK_TEXT_BUFFER(b->tab->buffer), &start, line);
   gtk_text_view_get_line_yrange(GTK_TEXT_VIEW(b->tab->source), &start, &top, &height);
   gtk_text_view_buffer_to_window_coords(GTK_TEXT_VIEW(b->tab->source), GTK_TEXT_WINDOW_LEFT, 0, top, NULL, &top);
-  gtk_popover_set_pointing_to(GTK_POPOVER(b->ask), &(GdkRectangle){ 0, top, DOT_WIDTH, height });
+  gtk_popover_set_pointing_to(GTK_POPOVER(b->ask),
+                              &(GdkRectangle){ 0, top, gtk_widget_get_width(b->renderer), height });
   g_signal_connect(b->ask_condition, "activate", G_CALLBACK(on_ask_activate), b);
   g_signal_connect(b->ask_log, "activate", G_CALLBACK(on_ask_activate), b);
   g_signal_connect(b->ask, "closed", G_CALLBACK(on_ask_closed), b);
   gtk_popover_popup(GTK_POPOVER(b->ask));
   gtk_widget_grab_focus(breakpoint_log(b->tab, line) ? b->ask_log : b->ask_condition);
+}
+
+void breakpoints_apply_settings(Tab *tab)
+{
+  Breakpoints *b = tab->view ? tab->view->breakpoints : NULL;
+
+  if (b)
+    gtk_widget_set_size_request(b->renderer, tab->app->settings.compact ? DOT_WIDTH_COMPACT : DOT_WIDTH, -1);
 }
 
 void breakpoints_attach(Tab *tab)
@@ -786,6 +797,7 @@ void breakpoints_attach(Tab *tab)
   gtk_widget_add_controller(b->renderer, GTK_EVENT_CONTROLLER(right));
   g_signal_connect(tab->buffer, "changed", G_CALLBACK(on_changed), b);
   tab->view->breakpoints = b;
+  breakpoints_apply_settings(tab);
 }
 
 void breakpoints_free(Breakpoints *b)

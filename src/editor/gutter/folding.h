@@ -29,6 +29,9 @@ GArray *folding_blocks(Tab *tab);
 /* The line numbers' renderer (sticky scroll puts its numbers where they are). */
 GtkWidget *folding_line_numbers(Tab *tab);
 
+/* The line numbers after a settings change: relative or absolute, the compact width. */
+void folding_apply_settings(Tab *tab);
+
 /* Folds the innermost block around the cursor, or unfolds it (Ctrl+Shift+[ and ]). */
 void fold_at_cursor(Tab *tab);
 void unfold_at_cursor(Tab *tab);
